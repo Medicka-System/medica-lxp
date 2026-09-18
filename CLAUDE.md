@@ -116,9 +116,30 @@ Fija cada dependencia a su **última estable** al momento de instalar; abajo el 
 - **Infra:** **VPS de apps** (Hostinger KVM4) con **Docker Compose + Traefik** (reverse proxy, ya en uso en el CRM) corriendo web/api/worker/redis/lrs/embeddings; **VPS de BD** dedicado para Supabase self-hosted (a futuro). Exposición sin puertos públicos vía Traefik / **Cloudflare Tunnel**
 - **Observabilidad:** Sentry + pino (logs estructurados) + Uptime Kuma (self-host)
 
+### Dependencias del COURSE BUILDER (fijas y aprobadas por Manny)
+Piso mínimo del constructor de contenido del diseñador (§5B / §5C). **Todas quedan permitidas en
+esta §3**; ver §5C para qué editor usa cada bloque. Fija cada una a su última estable al instalar.
+
+- **Editor rico (teoría + foro):** `@tiptap/react`, `@tiptap/starter-kit`, extensiones `table`
+  (+ `table-cell` / `table-header` / `table-row`), `image`, `link`, `youtube`, `placeholder`,
+  `character-count`, `highlight`, `mathematics` (KaTeX inline); `katex`; `mammoth` (importar
+  Word → HTML).
+- **Drag & drop:** `@dnd-kit/core`, `@dnd-kit/sortable`.
+- **Audio / TTS:** `wavesurfer.js` (onda visual) + **adaptador TTS INTERCAMBIABLE** — OpenAI para
+  arrancar, ElevenLabs como upgrade **por config** (mismo patrón modelo-agnóstico que Eco, §3/§7A:
+  el proveedor de voz es una pieza reemplazable, no cableada).
+- **Video:** `vidstack` / `@vidstack/react` (transcripción + marcadores de hitos).
+- **Interactivos básicos:** `react-konva`, `konva` (hotspots sobre imagen/video).
+- **H5P completo:** `@lumieducation/h5p-server` + `@lumieducation/h5p-react` (**editor Y player**
+  dentro del Studio). ⚠️ **AGPL** — Manny lo asume conscientemente.
+- **Paquetes xAPI / SCORM:** `adm-zip`, `fast-xml-parser`.
+- **Autoevaluación / importar:** `papaparse` (CSV), `xlsx` (Excel).
+- **PDF:** `pdf-lib`.
+
 **No introducir tecnologías fuera de esta lista sin confirmación explícita.** En particular:
 **nada de n8n en el core** de lógica de negocio (es un anti-objetivo declarado; la lógica va en
-NestJS/BullMQ).
+NestJS/BullMQ). Las deps del course builder de arriba **ya están aprobadas**; ningún agente
+instala nada **fuera** de esa lista sin confirmación.
 
 ---
 
@@ -282,6 +303,35 @@ es del **diseñador**; el **criterio clínico** (verdad del caso, validación de
 define el docente.
 
 Regla: sin capa de autoría no hay contenido que mostrar. El Studio del diseñador es prioritario.
+
+---
+
+## 5C · Course builder — editores de bloque
+
+El **course builder** (del diseñador, §5B) arma la lección arrastrando **bloques** (drag & drop con
+`@dnd-kit`, §3). Cada tipo de bloque tiene su editor. Especificación por bloque (deps en §3):
+
+- **Texto / teoría:** editor rico **TipTap** (acepta y produce **HTML**), **fórmulas KaTeX inline**
+  (extensión `mathematics`), **importar Word** (`mammoth` → HTML). Además **narración TTS
+  automática** — Eco lee el texto y lo manda a renderizar por el adaptador TTS (OpenAI→ElevenLabs
+  por config, §3) — **y** opción de **subir audio propio**. La onda visual es `wavesurfer.js`.
+- **Video:** subir/embeber (`vidstack`) + **transcripción** (ventana lateral) + **hitos de consulta
+  rápida** (tab junto a la transcripción para saltar a puntos clave).
+- **Interactivo H5P:** **H5P completo** (editor + player, `@lumieducation/*`) **dentro del Studio** —
+  se autora y se previsualiza sin salir. Emite xAPI al LRS (§7).
+- **xAPI:** subir **paquete** (Articulate / xAPI), reproducir, **reporta al LRS** directo (§7).
+- **SCORM:** subir **paquete**, reproducir en su player (ya construido en el **Sprint 6**);
+  reporta progreso.
+- **Tarea:** **rúbricas NO inline** — se toman de un **catálogo REUTILIZABLE** (rúbricas para
+  **estudios/reportes** vs **tareas entregables**, son familias distintas). La tarea solo
+  **SELECCIONA** la rúbrica del catálogo + añade **lineamientos**; no se redacta la rúbrica dentro
+  de la tarea. (La define el diseñador, §5B; el criterio clínico de estudios lo da el docente.)
+- **Autoevaluación:** **constructor de preguntas** + **Eco propone examen** (borrador, el humano
+  decide · §7A) + **importar reactivos** de archivo (`papaparse` CSV / `xlsx` Excel).
+- **Foro:** post del alumno con **editor completo** (el **mismo TipTap**: HTML / imágenes / video) +
+  comentarios. (El foro es una actividad cerrada del grupo, §1 — no confundir con el Ateneo.)
+- **Encuesta:** **una pregunta al final de cada módulo**, con **control de avance** (gate: responder
+  para continuar).
 
 ---
 
