@@ -436,6 +436,52 @@ export async function getGrupoDetalle(
   });
 }
 
+// ── Herramientas (administración · plantillas/calculadoras/simuladores) ─────────
+export type TipoHerramienta = 'plantillas' | 'calculadoras' | 'simuladores';
+export type HerramientaItem = { id: string; nombre: string; submeta: string; publicado: boolean };
+export type ConteosHerramientas = Record<TipoHerramienta, number>;
+
+export async function getConteosHerramientas(userId: string): Promise<ConteosHerramientas> {
+  return comoStaff(userId, async (sql) => {
+    const p = await sql<{ n: number }[]>`select count(*)::int as n from lxp.plantillas_reporte`;
+    const c = await sql<{ n: number }[]>`select count(*)::int as n from lxp.calculadoras`;
+    const s = await sql<{ n: number }[]>`select count(*)::int as n from lxp.simuladores`;
+    return { plantillas: p[0]?.n ?? 0, calculadoras: c[0]?.n ?? 0, simuladores: s[0]?.n ?? 0 };
+  });
+}
+
+export async function getHerramientas(
+  userId: string,
+  tipo: TipoHerramienta,
+): Promise<HerramientaItem[]> {
+  return comoStaff(userId, async (sql) => {
+    if (tipo === 'plantillas') {
+      const rows = await sql<{ id: string; nombre: string; tipo_estudio: string | null; publicado: boolean }[]>`
+        select id, nombre, tipo_estudio, publicado from lxp.plantillas_reporte
+        order by publicado, created_at desc`;
+      return rows.map((r) => ({
+        id: r.id,
+        nombre: r.nombre,
+        submeta: r.tipo_estudio ? `Estudio: ${r.tipo_estudio}` : 'Sin tipo de estudio',
+        publicado: r.publicado,
+      }));
+    }
+    if (tipo === 'calculadoras') {
+      const rows = await sql<{ id: string; nombre: string; clave: string; publicado: boolean }[]>`
+        select id, nombre, clave, publicado from lxp.calculadoras order by publicado, created_at desc`;
+      return rows.map((r) => ({ id: r.id, nombre: r.nombre, submeta: r.clave, publicado: r.publicado }));
+    }
+    const rows = await sql<{ id: string; nombre: string; tipo: string; publicado: boolean }[]>`
+      select id, nombre, tipo::text as tipo, publicado from lxp.simuladores order by publicado, created_at desc`;
+    return rows.map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      submeta: r.tipo === 'reporte' ? 'Simulador de reporte' : 'Simulador de interpretación',
+      publicado: r.publicado,
+    }));
+  });
+}
+
 // ── Casos (curaduría del banco · lxp.casos_biblioteca) ─────────────────────────
 /** Normaliza un jsonb (string[] o [{texto}]) a lista de textos para la UI. */
 function aTextos(v: unknown): string[] {

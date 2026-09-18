@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAutoria } from '@/lib/studio/session';
 import { comoStaff } from '@/lib/db.server';
-import type { TipoBloque } from '@/lib/studio/datos';
+import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 
 /**
@@ -65,6 +65,64 @@ export async function publicarPrograma(programaId: string, publicado: boolean): 
     await sql`update lxp.programas set publicado = ${publicado} where id = ${programaId}`;
   });
   refrescar(programaId);
+}
+
+// ── Herramientas (administración · plantillas/calculadoras/simuladores) ─────────
+// La ESTRUCTURA de administración (crear/renombrar/publicar) es CRUD real bajo RLS
+// es_autoria. El CONTENIDO CLÍNICO (estructura de reporte, fórmula, casos_base /
+// prompts) se edita en sus sprints propios (6.5 reportes, 7 simuladores, 8 calc.) —
+// aquí queda como placeholder; no se inventa.
+function refrescarHerramienta(tipo: TipoHerramienta) {
+  revalidatePath(`/herramientas/${tipo}`);
+}
+
+export async function crearHerramienta(tipo: TipoHerramienta): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    if (tipo === 'plantillas') {
+      await sql`insert into lxp.plantillas_reporte (nombre, publicado) values ('Plantilla sin título', false)`;
+    } else if (tipo === 'calculadoras') {
+      // `clave` es única y NOT NULL → se genera una a partir de un uuid.
+      await sql`insert into lxp.calculadoras (clave, nombre, publicado)
+                values ('calc-' || substr(gen_random_uuid()::text, 1, 8), 'Calculadora sin título', false)`;
+    } else {
+      await sql`insert into lxp.simuladores (tipo, nombre, publicado)
+                values ('interpretacion'::lxp.simulador_tipo, 'Simulador sin título', false)`;
+    }
+  });
+  refrescarHerramienta(tipo);
+}
+
+const TABLA_HERRAMIENTA: Record<TipoHerramienta, string> = {
+  plantillas: 'lxp.plantillas_reporte',
+  calculadoras: 'lxp.calculadoras',
+  simuladores: 'lxp.simuladores',
+};
+
+export async function renombrarHerramienta(
+  tipo: TipoHerramienta,
+  id: string,
+  nombre: string,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  const limpio = nombre.trim();
+  if (!limpio) return;
+  await comoStaff(userId, async (sql) => {
+    await sql.unsafe(`update ${TABLA_HERRAMIENTA[tipo]} set nombre = $1 where id = $2`, [limpio, id]);
+  });
+  refrescarHerramienta(tipo);
+}
+
+export async function publicarHerramienta(
+  tipo: TipoHerramienta,
+  id: string,
+  publicado: boolean,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql.unsafe(`update ${TABLA_HERRAMIENTA[tipo]} set publicado = $1 where id = $2`, [publicado, id]);
+  });
+  refrescarHerramienta(tipo);
 }
 
 // ── Casos (curaduría · lxp.casos_biblioteca, escribe es_staff) ──────────────────
