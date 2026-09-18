@@ -253,6 +253,35 @@ export async function moverLeccion(
   refrescar(programaId);
 }
 
+export async function moverBloque(
+  programaId: string,
+  leccionId: string,
+  bloqueId: string,
+  dir: 'arriba' | 'abajo',
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    // Los bloques viven en DOS tablas (contenidos + actividades) pero comparten un
+    // solo espacio de `orden` en la lección. Se unen, se ordenan y se intercambia
+    // el orden con el vecino, actualizando la tabla que corresponda a cada uno.
+    const filas = await sql<{ id: string; fuente: string; orden: number }[]>`
+      select id, 'contenido' as fuente, orden from lxp.contenidos where leccion_id = ${leccionId}
+      union all
+      select id, 'actividad' as fuente, orden from lxp.actividades where leccion_id = ${leccionId}
+      order by orden`;
+    const i = filas.findIndex((f) => f.id === bloqueId);
+    if (i < 0) return;
+    const j = dir === 'arriba' ? i - 1 : i + 1;
+    if (j < 0 || j >= filas.length) return;
+    const a = filas[i]!;
+    const b = filas[j]!;
+    const tabla = (f: string) => (f === 'contenido' ? 'lxp.contenidos' : 'lxp.actividades');
+    await sql.unsafe(`update ${tabla(a.fuente)} set orden = $1 where id = $2`, [b.orden, a.id]);
+    await sql.unsafe(`update ${tabla(b.fuente)} set orden = $1 where id = $2`, [a.orden, b.id]);
+  });
+  refrescar(programaId);
+}
+
 /**
  * Intercambia el `orden` de una fila con el de su vecino en la dirección dada.
  * `tabla` es un literal controlado (nunca entrada de usuario) → seguro con unsafe.
