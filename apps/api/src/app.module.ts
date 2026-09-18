@@ -9,6 +9,7 @@ import { CertificadosModule } from './certificados/certificados.module';
 import { BadgesModule } from './badges/badges.module';
 import { HerenciaModule } from './herencia/herencia.module';
 import { PublicacionModule } from './publicacion/publicacion.module';
+import { DicomModule } from './dicom/dicom.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PublicacionModule } from './publicacion/publicacion.module';
     BadgesModule,
     HerenciaModule,
     PublicacionModule,
+    DicomModule,
   ],
 })
 export class AppModule {}
