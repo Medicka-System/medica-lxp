@@ -3,12 +3,18 @@
 /**
  * Consultas — canal 1:1 alumno↔docente (§5B). Master-detail: hilos a la izquierda,
  * conversación a la derecha con la caja de respuesta. El docente atiende dudas fuera
- * del foro del grupo; Eco puede REDACTAR el borrador (placeholder §7A), pero se envía
- * lo que el docente confirma.
+ * del foro del grupo; se envía lo que el docente confirma.
  *
  * REAL: lista + hilo (RLS `es_docente_o_mas`), responder (`responderConsulta` inserta
  * en `consulta_mensajes`), cerrar/reabrir (`cambiarEstadoConsulta`). La selección va
  * por query param (?c=) → navegación real que revalida el hilo.
+ *
+ * PENDIENTE DE API (contrato · §7A/§13): el "borrador de respuesta redactado por Eco"
+ * es CONVERSACIONAL y `apps/api` (`src/ai`) NO expone endpoint para eso todavía — solo
+ * el pipeline de evaluación EN LOTE (/ai/lote, /ai/propuestas/:id/confirmar|descartar,
+ * /ai/indexar, /ai/config). El web se ajusta al api (no al revés): cuando exista un
+ * endpoint tipo `POST /ai/redactar` (consulta → borrador), se cablea aquí igual que en
+ * validación/entregas. Hasta entonces, el aviso de abajo lo deja explícito.
  */
 
 import { useState, useTransition } from 'react';
@@ -197,7 +203,7 @@ export function ConsultasConsola({
                 <div className="mb-2 flex items-center gap-1.5">
                   <Sparkles aria-hidden className="h-3.5 w-3.5 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
                   <span className="text-[11px] font-semibold text-[color:var(--info-foreground)]">
-                    Eco podrá redactar el borrador al conectarse · usted envía lo que confirme
+                    Eco redactará el borrador cuando apps/api exponga su endpoint conversacional · usted envía lo que confirme
                   </span>
                 </div>
                 {error && (
