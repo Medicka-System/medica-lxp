@@ -60,7 +60,7 @@ export function StudioShell({
       <header className="relative z-20 flex h-[60px] items-center gap-2 bg-sidebar px-5">
         {/* marca */}
         <Link
-          href="/studio"
+          href="/programas"
           className={`mr-1.5 flex items-center gap-2.5 border-r border-white/[0.14] pr-3.5 ${focusRingDark} rounded-[9px]`}
         >
           <span
