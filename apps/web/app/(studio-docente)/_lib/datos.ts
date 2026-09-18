@@ -340,6 +340,80 @@ export async function getConsultaDetalle(
   });
 }
 
+/** Seguimiento de un grupo: cabecera + temario del programa (referencia). El avance
+ *  por alumno es PENDIENTE (worker de competencia + inscripción de CORA · §8/Sprint 11). */
+export type ModuloTemario = { id: string; clave: string; titulo: string; horas: number; lecciones: number };
+export type GrupoSeguimientoDetalle = {
+  id: string;
+  nombre: string;
+  programa: string;
+  modalidad: 'sincrono' | 'asincrono';
+  fechaInicio: Date | null;
+  fechaFin: Date | null;
+  totales: { modulos: number; horas: number; lecciones: number };
+  temario: ModuloTemario[];
+};
+
+export async function getGrupoSeguimiento(
+  userId: string,
+  grupoId: string,
+): Promise<GrupoSeguimientoDetalle | null> {
+  return comoStaff(userId, async (sql) => {
+    const g = (
+      await sql<
+        {
+          id: string;
+          nombre: string;
+          modalidad: 'sincrono' | 'asincrono';
+          fecha_inicio: Date | null;
+          fecha_fin: Date | null;
+          programa_id: string;
+          programa: string;
+        }[]
+      >`
+        select g.id, g.nombre, g.modalidad, g.fecha_inicio, g.fecha_fin,
+               p.id as programa_id, p.nombre as programa
+        from lxp.grupos g
+        join lxp.programas p on p.id = g.programa_id
+        where g.id = ${grupoId} and g.docente_id = ${userId}
+        limit 1`
+    )[0];
+    if (!g) return null;
+
+    const modulos = await sql<{ id: string; nombre: string; orden: number; horas: number }[]>`
+      select id, nombre, orden, horas::float8 as horas
+      from lxp.modulos where programa_id = ${g.programa_id} order by orden, created_at`;
+    const moduloIds = modulos.map((m) => m.id);
+    const lecciones = moduloIds.length
+      ? await sql<{ modulo_id: string; n: number }[]>`
+          select modulo_id, count(*)::int as n from lxp.lecciones
+          where modulo_id in ${sql(moduloIds)} group by modulo_id`
+      : [];
+    const leccionesPorModulo = new Map(lecciones.map((l) => [l.modulo_id, l.n]));
+
+    return {
+      id: g.id,
+      nombre: g.nombre,
+      programa: g.programa,
+      modalidad: g.modalidad,
+      fechaInicio: g.fecha_inicio,
+      fechaFin: g.fecha_fin,
+      totales: {
+        modulos: modulos.length,
+        horas: Math.round(modulos.reduce((s, m) => s + m.horas, 0)),
+        lecciones: lecciones.reduce((s, l) => s + l.n, 0),
+      },
+      temario: modulos.map((m, i) => ({
+        id: m.id,
+        clave: String(i + 1).padStart(2, '0'),
+        titulo: m.nombre,
+        horas: Math.round(m.horas),
+        lecciones: leccionesPorModulo.get(m.id) ?? 0,
+      })),
+    };
+  });
+}
+
 // ── Mis recursos (almacén personal) ─────────────────────────────────────────────
 export async function getRecursos(userId: string): Promise<RecursoDocente[]> {
   return comoStaff(userId, async (sql) => {
