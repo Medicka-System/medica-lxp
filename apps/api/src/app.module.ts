@@ -13,6 +13,9 @@ import { DicomModule } from './dicom/dicom.module';
 import { ValidacionModule } from './validacion/validacion.module';
 import { AteneoModule } from './ateneo/ateneo.module';
 import { AiModule } from './ai/ai.module';
+import { MediaModule } from './media/media.module';
+import { ClasesModule } from './clases/clases.module';
+import { PlayersModule } from './players/players.module';
 
 @Module({
   imports: [
@@ -30,6 +33,9 @@ import { AiModule } from './ai/ai.module';
     ValidacionModule,
     AteneoModule,
     AiModule,
+    MediaModule,
+    ClasesModule,
+    PlayersModule,
   ],
 })
 export class AppModule {}
