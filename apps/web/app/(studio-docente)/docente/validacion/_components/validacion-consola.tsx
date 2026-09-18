@@ -7,13 +7,17 @@
  * (esto último en el worker · PENDIENTE DE API).
  *
  * Tres zonas (referencia: campus-lxp-mocks/studio/docente/validacion): bandeja
- * (izquierda) · detalle del caso con visor (centro) · Eco colapsable (derecha).
+ * (izquierda, separada por confianza de Eco) · detalle del caso con el VISOR DICOM
+ * real (centro) · Eco colapsable (derecha).
  *
- * REAL: la cola (RLS `es_staff`), la decisión (aprobar/rechazar → `validarCaso`).
- * PLACEHOLDER (otro agente / sprints): el pre-análisis de Eco y su separación por
- * confianza (§7A · 5.3); el visor DICOM embebido (pipeline 4.7 — aquí no hay estudio
- * anonimizado que montar todavía). Color: violeta = Eco (nunca alerta); ámbar = lo
- * urgente (>72 h); sin rojo — pedir corrección no es una falta (§5A).
+ * CONECTADO (§7A · 5.3): la cola (RLS `es_staff`), la decisión (`validarCaso`), y el
+ * PRE-ANÁLISIS de Eco: se LEE de `lxp.eco_propuestas` (en `datos.ts`), se DISPARA con
+ * `analizarConEco` y, al validar, se cierra la propuesta con `confirmarPropuestaEco`
+ * (loop de mejora `eco_correcciones`). El VISOR DICOM real (Cornerstone3D) reemplaza
+ * al placeholder: se monta cuando el caso tiene estudio anonimizado.
+ *
+ * Color: violeta = Eco (nunca alerta); ámbar = lo urgente (>72 h) y "requiere criterio";
+ * sin rojo — pedir corrección no es una falta (§5A).
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
@@ -25,18 +29,27 @@ import {
   Search,
   Sparkles,
   TriangleAlert,
+  Wand2,
   X,
 } from 'lucide-react';
+import { VisorDicom } from '@/components/dicom';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
 import { DOMINIO_LABEL, type CasoValidacion } from '../../../_lib/contrato';
 import { validarCaso } from '../../../_lib/acciones';
+import { analizarConEco, confirmarPropuestaEco } from '../../../_lib/eco.server';
 import { EcoRailValidacion } from './eco-rail';
 
 function metaCaso(c: CasoValidacion): string {
   return [c.modulo, c.organo, c.dominio ? DOMINIO_LABEL[c.dominio] : null]
     .filter(Boolean)
     .join(' · ');
+}
+
+/** Orden de la bandeja por confianza (§7A): listos → requieren criterio → sin analizar. */
+function ordenEco(c: CasoValidacion): number {
+  if (!c.eco) return 2;
+  return c.eco.clasificacion === 'listo' ? 0 : 1;
 }
 
 export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
@@ -46,10 +59,12 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   const [filtro, setFiltro] = useState('');
   const [feedback, setFeedback] = useState('');
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ecoAviso, setEcoAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [ecoAbierta, setEcoAbierta] = useState(false);
   const [enviando, startTransition] = useTransition();
+  const [analizando, startAnalisis] = useTransition();
 
-  // Sincroniza la lista si el servidor revalida (aprobar/rechazar → revalidatePath).
+  // Sincroniza la lista si el servidor revalida (aprobar/rechazar/analizar → revalidatePath).
   useEffect(() => {
     setPendientes(casos);
     setSeleccionId((prev) => (prev && casos.some((c) => c.id === prev) ? prev : casos[0]?.id ?? null));
@@ -57,31 +72,69 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
 
   const seleccion = pendientes.find((c) => c.id === seleccionId) ?? null;
 
-  // Al cambiar de caso, limpia el borrador de feedback y el resultado.
+  // Al cambiar de caso, prellena el feedback con el BORRADOR de Eco (si lo dejó · §7A).
   useEffect(() => {
-    setFeedback('');
+    setFeedback(seleccion?.eco?.feedbackBorrador ?? '');
     setResultado(null);
-  }, [seleccionId]);
+    setEcoAviso(null);
+  }, [seleccionId, seleccion?.eco?.feedbackBorrador]);
 
   const listaFiltrada = useMemo(() => {
     const q = filtro.trim().toLowerCase();
-    if (!q) return pendientes;
-    return pendientes.filter(
-      (c) =>
-        c.alumno.toLowerCase().includes(q) ||
-        (c.organo ?? '').toLowerCase().includes(q) ||
-        (c.presuntivo ?? '').toLowerCase().includes(q),
-    );
+    const base = q
+      ? pendientes.filter(
+          (c) =>
+            c.alumno.toLowerCase().includes(q) ||
+            (c.organo ?? '').toLowerCase().includes(q) ||
+            (c.presuntivo ?? '').toLowerCase().includes(q),
+        )
+      : pendientes;
+    return [...base].sort((a, b) => ordenEco(a) - ordenEco(b));
   }, [pendientes, filtro]);
+
+  const conteos = useMemo(() => {
+    let listos = 0;
+    let criterio = 0;
+    let sin = 0;
+    for (const c of pendientes) {
+      if (!c.eco) sin += 1;
+      else if (c.eco.clasificacion === 'listo') listos += 1;
+      else criterio += 1;
+    }
+    return { listos, criterio, sin };
+  }, [pendientes]);
+
+  function analizar() {
+    if (!seleccion) return;
+    const grupoId = seleccion.grupoId;
+    startAnalisis(async () => {
+      const r = await analizarConEco({ grupoId, modo: 'casos' });
+      if (!r.ok) {
+        setEcoAviso({ ok: false, texto: r.error });
+        return;
+      }
+      setEcoAviso({
+        ok: true,
+        texto: `Eco pre-analizó ${r.resumen?.total ?? 0} caso(s): ${r.resumen?.listos ?? 0} listos · ${r.resumen?.requierenCriterio ?? 0} requieren tu criterio.`,
+      });
+      router.refresh();
+    });
+  }
 
   function decidir(decision: 'aprobado' | 'rechazado') {
     if (!seleccion) return;
     const casoId = seleccion.id;
+    const propuestaId = seleccion.eco?.propuestaId ?? null;
     startTransition(async () => {
       const r = await validarCaso({ casoId, decision, feedback });
       if (!r.ok) {
         setResultado({ ok: false, texto: r.error });
         return;
+      }
+      // Cierre humano de la propuesta de Eco (loop de mejora · §7A). Best-effort: el
+      // asiento clínico ya quedó; no bloqueamos la UI si Eco no responde.
+      if (propuestaId) {
+        await confirmarPropuestaEco({ propuestaId, feedback });
       }
       setResultado({
         ok: true,
@@ -122,13 +175,27 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
               className="w-full min-w-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          {/* Eco ordenará por confianza al conectarse (§7A · placeholder honesto). */}
-          <div className="mt-2.5 flex items-center gap-1.5 rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 py-2">
-            <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-            <span className="min-w-0 flex-1 text-[11px] font-semibold leading-snug text-[color:var(--info-foreground)]">
-              Eco separará «listos» de «requieren criterio» al conectarse
-            </span>
-          </div>
+          {/* Bandeja separada por confianza de Eco (§7A). */}
+          {conteos.listos + conteos.criterio > 0 ? (
+            <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-bold">
+              <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-accent px-2 text-accent-foreground">
+                <Check aria-hidden className="h-3 w-3" strokeWidth={2.4} /> {conteos.listos} listos
+              </span>
+              <span className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2 text-[color:var(--warning-foreground)]">
+                <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2} /> {conteos.criterio} criterio
+              </span>
+              {conteos.sin > 0 && (
+                <span className="text-muted-foreground">· {conteos.sin} sin analizar</span>
+              )}
+            </div>
+          ) : (
+            <div className="mt-2.5 flex items-center gap-1.5 rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 py-2">
+              <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+              <span className="min-w-0 flex-1 text-[11px] font-semibold leading-snug text-[color:var(--info-foreground)]">
+                Pide a Eco que pre-analice el grupo para ordenar por confianza
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto py-2 pr-2">
@@ -169,6 +236,19 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
                     <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
                       {metaCaso(c) || 'Sin módulo'}
                     </span>
+                    {c.eco && (
+                      <span
+                        className={`mt-1.5 inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[10px] font-bold ${
+                          c.eco.clasificacion === 'listo'
+                            ? 'bg-accent text-accent-foreground'
+                            : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                        }`}
+                      >
+                        <Sparkles aria-hidden className="h-2.5 w-2.5" strokeWidth={2} />
+                        {c.eco.clasificacion === 'listo' ? 'Listo' : 'Requiere criterio'}
+                        <span className={mono}>· {Math.round(c.eco.confianza * 100)}%</span>
+                      </span>
+                    )}
                   </span>
                 </button>
               );
@@ -198,11 +278,40 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
                   {Math.floor(seleccion.horasEnCola / 24)} días esperando
                 </span>
               )}
+              {/* Disparar el pre-análisis de Eco del grupo (§7A). */}
+              <button
+                type="button"
+                onClick={analizar}
+                disabled={analizando || !seleccion.grupoId}
+                title={seleccion.grupoId ? undefined : 'El caso no tiene grupo asociado'}
+                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white disabled:opacity-50 ${focusRing}`}
+              >
+                {analizando ? (
+                  <Clock aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Wand2 aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+                {seleccion.eco ? 'Re-analizar con Eco' : 'Analizar con Eco'}
+              </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-              {/* visor DICOM — PLACEHOLDER (pipeline 4.7; sin estudio anonimizado montado aquí) */}
-              <section className="overflow-hidden rounded-xl" style={{ background: 'var(--sidebar)' }}>
+              {ecoAviso && (
+                <div
+                  role="status"
+                  className={`mb-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 text-[12.5px] font-medium ${
+                    ecoAviso.ok
+                      ? 'border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+                      : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                  }`}
+                >
+                  <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+                  <span>{ecoAviso.texto}</span>
+                </div>
+              )}
+
+              {/* ── VISOR DICOM real (Cornerstone3D · §4.7) ─────────────────────── */}
+              <section className="overflow-hidden rounded-xl border border-border" style={{ background: 'var(--sidebar)' }}>
                 <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
                   <span className={`${kicker} text-white/55`}>Estudio DICOM</span>
                   <span className="ml-auto flex items-center gap-2.5">
@@ -216,24 +325,91 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
                     </span>
                   </span>
                 </div>
-                <div className="relative grid h-[260px] place-items-center" style={{ background: '#0a2140' }}>
-                  <span
-                    aria-hidden
-                    className="absolute inset-0"
-                    style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
-                  />
-                  <div className="relative flex flex-col items-center gap-2 text-center">
-                    <ScanLine aria-hidden className="h-7 w-7 text-white/45" strokeWidth={1.5} />
-                    <p className={`${mono} text-[11px] uppercase tracking-[0.14em] text-white/55`}>
-                      {seleccion.tieneDicom ? 'Visor Cornerstone3D' : 'Sin estudio adjunto'}
-                    </p>
-                    <p className="max-w-[38ch] text-[11.5px] leading-relaxed text-white/45">
-                      El visor DICOM (ver/anotar/cine-loop) se monta con el pipeline de ingesta
-                      (Sprint 4.7). Aquí se embeberá al llegar el estudio anonimizado.
-                    </p>
+                {seleccion.estudio ? (
+                  <VisorDicom estudio={seleccion.estudio} className="h-[360px] w-full" />
+                ) : (
+                  <div className="relative grid h-[260px] place-items-center" style={{ background: '#0a2140' }}>
+                    <span
+                      aria-hidden
+                      className="absolute inset-0"
+                      style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
+                    />
+                    <div className="relative flex flex-col items-center gap-2 text-center">
+                      <ScanLine aria-hidden className="h-7 w-7 text-white/45" strokeWidth={1.5} />
+                      <p className={`${mono} text-[11px] uppercase tracking-[0.14em] text-white/55`}>
+                        Sin estudio anonimizado
+                      </p>
+                      <p className="max-w-[40ch] text-[11.5px] leading-relaxed text-white/45">
+                        El visor Cornerstone3D se monta en cuanto el pipeline de ingesta
+                        (`procesar-dicom`) deja el estudio anonimizado del caso.
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
               </section>
+
+              {/* ── Pre-análisis de Eco (real · §7A) ────────────────────────────── */}
+              {seleccion.eco && (
+                <section
+                  className="mt-4 rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest"
+                  style={{ background: '#fbfbff' }}
+                >
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
+                      <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                    </span>
+                    <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-análisis de Eco</p>
+                    <span
+                      className={`inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[10.5px] font-bold ${
+                        seleccion.eco.clasificacion === 'listo'
+                          ? 'bg-accent text-accent-foreground'
+                          : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                      }`}
+                    >
+                      {seleccion.eco.clasificacion === 'listo' ? 'Listo para confirmar' : 'Requiere tu criterio'}
+                    </span>
+                    <span className={`ml-auto ${mono} text-[11.5px] text-muted-foreground`}>
+                      confianza {Math.round(seleccion.eco.confianza * 100)}%
+                      {seleccion.eco.notaSugerida != null
+                        ? ` · coincide ${Math.round(seleccion.eco.notaSugerida)}/100`
+                        : ''}
+                    </span>
+                  </div>
+
+                  {seleccion.eco.criterios.length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {seleccion.eco.criterios.map((cr, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                          <span className={`${mono} mt-0.5 shrink-0 font-bold text-secondary`}>{Math.round(cr.puntaje)}</span>
+                          <span className={softText}>
+                            <span className="font-semibold text-foreground">{cr.criterio}</span>
+                            {cr.comentario ? ` — ${cr.comentario}` : ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {seleccion.eco.omisiones.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {seleccion.eco.omisiones.map((o, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--warning-foreground)]"
+                        >
+                          Omisión: {o}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className={`mt-3 text-[11.5px] leading-snug text-muted-foreground`}>
+                    <Sparkles aria-hidden className="mr-1 inline h-3 w-3 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+                    Eco propone contra la verdad del caso; usted firma. El borrador de abajo se
+                    prellenó con su devolución{seleccion.eco.modelo ? ` (${seleccion.eco.modelo})` : ''}.
+                  </p>
+                </section>
+              )}
 
               {/* lo que reportó el alumno */}
               <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">
@@ -260,10 +436,16 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
               <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <p className={`${kicker} text-muted-foreground`}>Feedback para el alumno</p>
-                  <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)]">
-                    <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={1.75} />
-                    Eco redactará el borrador al conectarse
-                  </span>
+                  {seleccion.eco?.feedbackBorrador && (
+                    <button
+                      type="button"
+                      onClick={() => setFeedback(seleccion.eco!.feedbackBorrador ?? '')}
+                      className={`inline-flex h-[22px] items-center gap-1.5 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white ${focusRing}`}
+                    >
+                      <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={1.75} />
+                      Usar borrador de Eco
+                    </button>
+                  )}
                 </div>
                 <textarea
                   rows={4}
@@ -346,7 +528,7 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
         )}
       </div>
 
-      {/* ════════ 3 · ECO (colapsable · placeholder) ════════ */}
+      {/* ════════ 3 · ECO (colapsable) ════════ */}
       <EcoRailValidacion abierta={ecoAbierta} onAbrir={() => setEcoAbierta(true)} onCerrar={() => setEcoAbierta(false)} />
     </div>
   );
