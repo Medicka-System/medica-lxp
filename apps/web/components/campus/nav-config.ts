@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   MonitorPlay,
   NotebookPen,
+  Video,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export const GRUPOS: GrupoNav[] = [
     items: [
       { id: 'inicio', etiqueta: 'Inicio', icono: Home, href: '/inicio' },
       { id: 'cursos', etiqueta: 'Mis cursos', icono: BookOpen, href: '/cursos' },
+      { id: 'videoteca', etiqueta: 'Videoteca', icono: Video, href: '/videoteca' },
       { id: 'explorar', etiqueta: 'Explorar', icono: Compass, href: '/explorar' },
     ],
   },
@@ -47,7 +49,7 @@ export const GRUPOS: GrupoNav[] = [
   {
     titulo: 'Mis herramientas',
     items: [
-      { id: 'reportes', etiqueta: 'Mis reportes', icono: FileText, href: '/reportes' },
+      { id: 'reportes', etiqueta: 'Mis reportes', icono: FileText, href: '/herramientas/reportes' },
       { id: 'calculadoras', etiqueta: 'Calculadoras', icono: Calculator, href: '/calculadoras' },
       { id: 'simuladores', etiqueta: 'Simuladores', icono: MonitorPlay, href: '/simuladores' },
     ],
