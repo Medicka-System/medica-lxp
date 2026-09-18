@@ -7,7 +7,10 @@ import {
 } from '@campus/shared';
 import { DbService } from '../db/db.service';
 import { ColasProducer } from '../colas/colas-producer';
+import { TtsService } from '../tts/tts.service';
 import { EmbeddingsService } from './embeddings/embeddings.service';
+import { EcoConfigService } from './config/eco-config.service';
+import { ProveedorFactory } from './proveedores/proveedor.factory';
 import { EvaluacionPipeline } from './pipeline/evaluacion.pipeline';
 import { guardarPropuesta } from './pipeline/propuestas.repositorio';
 import { recopilarCasos, recopilarEntregas } from './tools/recopilar.tool';
@@ -42,6 +45,9 @@ export class AiService {
     private readonly colas: ColasProducer,
     private readonly embeddings: EmbeddingsService,
     private readonly pipeline: EvaluacionPipeline,
+    private readonly tts: TtsService,
+    private readonly config: EcoConfigService,
+    private readonly proveedores: ProveedorFactory,
   ) {}
 
   // ── Encolado de jobs de fondo (los consume el worker · §8) ────────────────
@@ -51,9 +57,74 @@ export class AiService {
     return this.colas.encolar(QUEUE_INDEXAR_RAG, fuente);
   }
 
+  /**
+   * Orquesta la narración TTS de un contenido de lección (course builder): Eco LEE
+   * el texto del contenido y lo MANDA a renderizar con el adaptador de voz (§3). El
+   * render corre asíncrono (cola `render-tts`); aquí solo se dispara. Devuelve el id
+   * del audio pre-registrado (estado `procesando`).
+   */
+  async narrarContenido(
+    contenidoId: string,
+    opts?: { voz?: string; modelo?: string; velocidad?: number },
+  ): Promise<{ audioId: string; estado: string } | null> {
+    const rows = await this.db.sql<{ cuerpo: string | null; titulo: string | null }[]>`
+      select cuerpo, titulo from lxp.contenidos where id = ${contenidoId}`;
+    const texto = rows[0]?.cuerpo?.trim();
+    if (!texto) {
+      this.logger.warn(`narrarContenido: contenido ${contenidoId} sin texto que narrar.`);
+      return null;
+    }
+    const r = await this.tts.solicitarRender({ texto, contenidoId, ...opts });
+    this.logger.log(`Eco → TTS: contenido ${contenidoId} narrado como audio ${r.audioId}.`);
+    return { audioId: r.audioId, estado: r.estado };
+  }
+
   /** Encola el pre-análisis en lote de un grupo (bandeja del docente). */
   encolarEvaluacionLote(job: EcoEvaluacionJob): Promise<string> {
     return this.colas.encolar(QUEUE_ECO_EVALUACION, job);
+  }
+
+  /**
+   * Gancho de Eco para PROPONER un examen de autoevaluación (course builder · §7A).
+   * Reusa la infra de Eco (config editable + proveedor model-agnóstico); NO la
+   * reconstruye. Eco PROPONE reactivos; el diseñador los revisa e importa — nada se
+   * asienta aquí (§7A). Con el proveedor MOCK devuelve vacío + aviso (cablear modelo real).
+   */
+  async proponerExamen(p: {
+    tema: string;
+    cantidad?: number;
+    dominio?: string;
+  }): Promise<{ reactivos: ReactivoPropuesto[]; modelo: string; aviso?: string }> {
+    const cfg = await this.config.activa();
+    const proveedor = this.proveedores.obtener(cfg.modelos.juicio.proveedor);
+    const cantidad = Math.min(Math.max(p.cantidad ?? 5, 1), 30);
+
+    const resp = await proveedor.generar({
+      system:
+        'Eres Eco, asistente docente de una escuela de ultrasonido. Genera reactivos de ' +
+        'autoevaluación clínicamente correctos. Responde SOLO JSON válido con la forma ' +
+        '{"reactivos":[{"enunciado":string,"tipo":"opcion_multiple"|"multi"|"verdadero_falso",' +
+        '"opciones":[{"clave":string,"texto":string}],"correcta":string|string[],"dominio":string}]}.',
+      prompt:
+        `Tema: ${p.tema}\nCantidad: ${cantidad}` +
+        (p.dominio ? `\nDominio I-AIM: ${p.dominio}` : '') +
+        '\nDevuelve exactamente ese JSON, sin texto adicional.',
+      modelo: cfg.modelos.juicio.modelo,
+      temperatura: cfg.temperatura,
+      maxTokens: cfg.maxTokens,
+    });
+
+    const reactivos = parsearReactivosPropuestos(resp.texto);
+    const salida: { reactivos: ReactivoPropuesto[]; modelo: string; aviso?: string } = {
+      reactivos,
+      modelo: resp.modelo,
+    };
+    if (reactivos.length === 0) {
+      salida.aviso =
+        'El proveedor no devolvió reactivos utilizables (¿MOCK?). Cablea un modelo real (§3).';
+    }
+    this.logger.log(`Eco propuso ${reactivos.length} reactivo(s) para "${p.tema}".`);
+    return salida;
   }
 
   // ── Pipeline en lote (lo dispara el worker `eco-evaluacion`) ───────────────
@@ -146,4 +217,44 @@ function construirConsulta(item: ItemEvaluable): string {
     .filter(Boolean)
     .join(' · ')
     .slice(0, 2000);
+}
+
+/** Reactivo PROPUESTO por Eco (borrador; el diseñador lo revisa e importa · §7A). */
+export interface ReactivoPropuesto {
+  enunciado: string;
+  tipo: string;
+  opciones: Array<{ clave: string; texto: string }>;
+  correcta: string | string[];
+  dominio?: string;
+}
+
+/** Extrae reactivos del JSON del modelo, tolerante a envoltura de texto o ```json```. */
+export function parsearReactivosPropuestos(texto: string): ReactivoPropuesto[] {
+  const limpio = texto.replace(/```json|```/gi, '').trim();
+  const inicio = limpio.indexOf('{');
+  const fin = limpio.lastIndexOf('}');
+  if (inicio === -1 || fin === -1) return [];
+  let obj: unknown;
+  try {
+    obj = JSON.parse(limpio.slice(inicio, fin + 1));
+  } catch {
+    return [];
+  }
+  const lista = (obj as { reactivos?: unknown }).reactivos;
+  if (!Array.isArray(lista)) return [];
+  return lista
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+    .map((x) => ({
+      enunciado: String(x.enunciado ?? '').trim(),
+      tipo: String(x.tipo ?? 'opcion_multiple'),
+      opciones: Array.isArray(x.opciones)
+        ? (x.opciones as Array<Record<string, unknown>>).map((o) => ({
+            clave: String(o.clave ?? ''),
+            texto: String(o.texto ?? ''),
+          }))
+        : [],
+      correcta: (x.correcta as string | string[]) ?? '',
+      dominio: x.dominio ? String(x.dominio) : undefined,
+    }))
+    .filter((r) => r.enunciado.length > 0);
 }

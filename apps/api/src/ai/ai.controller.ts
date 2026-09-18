@@ -7,7 +7,11 @@ import {
   Post,
 } from '@nestjs/common';
 import type { EcoEvaluacionJob, IndexarRagJob } from '@campus/shared';
-import { AiService, type ResumenBandeja } from './ai.service';
+import {
+  AiService,
+  type ReactivoPropuesto,
+  type ResumenBandeja,
+} from './ai.service';
 import {
   CorreccionesService,
   type ResultadoConfirmacion,
@@ -114,6 +118,33 @@ export class AiController {
       fuenteId: body.fuenteId,
     });
     return { jobId };
+  }
+
+  /**
+   * Eco PROPONE un examen de autoevaluación (course builder · §7A). Devuelve
+   * reactivos borrador; el diseñador los revisa e importa — nada se asienta aquí.
+   */
+  @Post('proponer-examen')
+  @HttpCode(200)
+  proponerExamen(
+    @Body() body: { tema?: string; cantidad?: number; dominio?: string },
+  ): Promise<{ reactivos: ReactivoPropuesto[]; modelo: string; aviso?: string }> {
+    if (!body?.tema?.trim()) throw new BadRequestException('tema es requerido');
+    return this.ai.proponerExamen({
+      tema: body.tema,
+      cantidad: body.cantidad,
+      dominio: body.dominio,
+    });
+  }
+
+  /** Eco orquesta la NARRACIÓN TTS del texto de un contenido de lección (§3/§7A). */
+  @Post('narrar/:contenidoId')
+  @HttpCode(202)
+  narrar(
+    @Param('contenidoId') contenidoId: string,
+    @Body() body: { voz?: string; modelo?: string; velocidad?: number },
+  ): Promise<{ audioId: string; estado: string } | null> {
+    return this.ai.narrarContenido(contenidoId, body ?? {});
   }
 
   /** Súper admin editó la config → recargar cache en la próxima evaluación. */

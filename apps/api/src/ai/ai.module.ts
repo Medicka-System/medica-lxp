@@ -8,6 +8,7 @@ import { CorreccionesService } from './correcciones/correcciones.service';
 import { MockProvider } from './proveedores/mock.proveedor';
 import { AnthropicProvider } from './proveedores/anthropic.proveedor';
 import { ProveedorFactory } from './proveedores/proveedor.factory';
+import { TtsModule } from '../tts/tts.module';
 
 /**
  * Eco — asistente de IA transversal (§4 `src/ai` · §7A). Todo el engine
@@ -19,6 +20,7 @@ import { ProveedorFactory } from './proveedores/proveedor.factory';
  * Usa DbModule y ColasModule (globales). No reimplementa dominio de otros módulos.
  */
 @Module({
+  imports: [TtsModule],
   controllers: [AiController],
   providers: [
     AiService,

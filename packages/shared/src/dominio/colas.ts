@@ -12,6 +12,7 @@ export const QUEUE_PROCESAR_DICOM = 'procesar-dicom' as const;
 export const QUEUE_INDEXAR_RAG = 'indexar-rag' as const;
 export const QUEUE_ECO_EVALUACION = 'eco-evaluacion' as const;
 export const QUEUE_INGESTA_GRABACION_ZOOM = 'ingesta-grabacion-zoom' as const;
+export const QUEUE_RENDER_TTS = 'render-tts' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -102,6 +103,19 @@ export interface IngestaGrabacionZoomJob {
   docenteId?: string;
   /** Nombre de la clase, para el statement xAPI. */
   titulo?: string;
+}
+
+/**
+ * Job `render-tts` (course builder). El `api` lo encola tras pre-registrar el audio
+ * en `lxp.tts_audios` (estado `procesando`); el `worker` aporta buffer/retry y dispara
+ * el render llamando al `api` (patrón worker→servicio, igual que `eco-evaluacion`). El
+ * `api` sintetiza con el proveedor configurado (§3 · adaptador intercambiable), sube el
+ * binario a object storage con URL firmada y marca el audio `listo`. Solo la referencia
+ * del audio viaja aquí — el binario NUNCA pasa por la cola ni por Postgres.
+ */
+export interface RenderTtsJob {
+  /** Fila de `lxp.tts_audios` a renderizar (creada por el `api`, estado `procesando`). */
+  audioId: string;
 }
 
 /** Reintentos/backoff de los jobs de dominio (§8). */
