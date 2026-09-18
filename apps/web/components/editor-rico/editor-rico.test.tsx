@@ -8,7 +8,6 @@ import { ContenidoRico } from './contenido-rico';
 // mínimos aislados en este archivo (no tocamos el setup compartido).
 beforeAll(() => {
   if (!('ResizeObserver' in globalThis)) {
-    // @ts-expect-error polyfill de test
     globalThis.ResizeObserver = class {
       observe() {}
       unobserve() {}
