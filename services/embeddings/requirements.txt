@@ -1,0 +1,6 @@
+# Servicio de embeddings self-hosted · BGE-M3 (§3). Versiones fijadas para builds
+# reproducibles. CPU por defecto (torch cpu); en el VPS puede ir a GPU si se requiere.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+sentence-transformers==3.3.1

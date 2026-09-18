@@ -12,6 +12,7 @@ import { PublicacionModule } from './publicacion/publicacion.module';
 import { DicomModule } from './dicom/dicom.module';
 import { ValidacionModule } from './validacion/validacion.module';
 import { AteneoModule } from './ateneo/ateneo.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AteneoModule } from './ateneo/ateneo.module';
     DicomModule,
     ValidacionModule,
     AteneoModule,
+    AiModule,
   ],
 })
 export class AppModule {}

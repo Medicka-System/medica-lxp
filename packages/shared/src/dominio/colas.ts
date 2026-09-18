@@ -9,6 +9,8 @@ export const QUEUE_DETECCION_HITO = 'deteccion-hito' as const;
 export const QUEUE_EMISION_CERTIFICADO = 'emision-certificado' as const;
 export const QUEUE_OTORGAR_BADGES = 'otorgar-badges' as const;
 export const QUEUE_PROCESAR_DICOM = 'procesar-dicom' as const;
+export const QUEUE_INDEXAR_RAG = 'indexar-rag' as const;
+export const QUEUE_ECO_EVALUACION = 'eco-evaluacion' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -47,6 +49,32 @@ export interface ProcesarDicomJob {
   urlSubidaAnonimizado: string;
   /** URL firmada de BORRADO del estudio crudo (se elimina tras anonimizar). */
   urlBorradoCrudo: string;
+}
+
+/**
+ * Job `indexar-rag` (§8, job #10). El `api` lo encola al crear/curar un caso,
+ * rúbrica o material; el `worker` hace chunk → embedding (servicio local) → upsert
+ * en pgvector (`lxp.documentos_rag`). Asíncrono: la latencia no importa aquí.
+ * Solo referencias (el worker LEE el texto fuente de la BD), nunca el binario.
+ */
+export interface IndexarRagJob {
+  /** Origen del contenido a indexar (para trazar y re-indexar al cambiar). */
+  fuenteTipo: 'caso_biblioteca' | 'rubrica' | 'material';
+  fuenteId: string;
+}
+
+/**
+ * Job `eco-evaluacion` (§8, job #11). Pre-análisis EN LOTE de un grupo: el pipeline
+ * de Eco (tools → Haiku condicional → Sonnet) deja PROPUESTAS por confianza en la
+ * bandeja (`lxp.eco_propuestas`). El docente confirma después (§7A) — nada se
+ * asienta aquí. El worker dispara el lote; el juicio vive en `api/src/ai`.
+ */
+export interface EcoEvaluacionJob {
+  grupoId: string;
+  /** Acota a una actividad (entregas); si se omite, evalúa los casos del grupo. */
+  actividadId?: string;
+  /** Qué pre-analizar: entregas de una actividad o casos de bitácora del grupo. */
+  modo: 'entregas' | 'casos';
 }
 
 /** Reintentos/backoff de los jobs de dominio (§8). */

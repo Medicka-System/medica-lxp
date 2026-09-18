@@ -50,6 +50,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       '@campus/config':
         specifier: workspace:*
@@ -107,7 +110,7 @@ importers:
         version: 5.10.6(@cornerstonejs/core@5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@cornerstonejs/metadata@5.10.6)(dicom-parser@1.8.21)
       '@cornerstonejs/tools':
         specifier: ^5.10.6
-        version: 5.10.6(@cornerstonejs/core@5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3)
+        version: 5.10.6(@cornerstonejs/core@5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.4)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -5911,7 +5914,7 @@ snapshots:
       dcmjs: 0.52.0
       gl-matrix: 3.4.3
 
-  '@cornerstonejs/tools@5.10.6(@cornerstonejs/core@5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3)':
+  '@cornerstonejs/tools@5.10.6(@cornerstonejs/core@5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.4)':
     dependencies:
       '@cornerstonejs/core': 5.10.6(@cornerstonejs/metadata@5.10.6)(@cornerstonejs/utils@5.10.6)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0)
       '@kitware/vtk.js': 36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0)
@@ -5922,7 +5925,7 @@ snapshots:
       comlink: 4.4.2
       d3-array: 3.2.4
       d3-interpolate: 3.0.1
-      gl-matrix: 3.4.3
+      gl-matrix: 3.4.4
       lodash.get: 4.4.2
 
   '@cornerstonejs/utils@5.10.6':
