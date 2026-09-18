@@ -21,6 +21,7 @@ export async function recopilarEntregas(
       actividad_tipo: 'tarea' | 'autoevaluacion' | 'foro';
       contenido: unknown;
       criterios: unknown;
+      clave_reactivos: unknown;
     }[]
   >`
     select e.id,
@@ -29,10 +30,19 @@ export async function recopilarEntregas(
            e.actividad_id,
            a.tipo::text as actividad_tipo,
            e.contenido,
-           coalesce(r.criterios, '[]'::jsonb) as criterios
+           coalesce(r.criterios, '[]'::jsonb) as criterios,
+           coalesce((
+             select jsonb_object_agg(rx.id::text, rx.correcta)
+             from lxp.reactivos rx
+             where rx.actividad_id = a.id and rx.correcta is not null
+           ), '{}'::jsonb) as clave_reactivos
     from lxp.entregas e
     join lxp.actividades a on a.id = e.actividad_id
-    left join lxp.rubricas r on r.actividad_id = a.id
+    -- Vínculo canónico por catálogo (a.rubrica_id); fallback a la rúbrica inline
+    -- deprecada (r.actividad_id) para compat con contenido previo (§5B · mig 0018).
+    left join lxp.rubricas r
+      on r.id = a.rubrica_id
+      or (a.rubrica_id is null and r.actividad_id = a.id)
     where e.grupo_id = ${params.grupoId}
       and e.estado in ('enviada', 'pendiente')
       ${params.actividadId ? sql`and e.actividad_id = ${params.actividadId}` : sql``}
@@ -40,6 +50,9 @@ export async function recopilarEntregas(
 
   return rows.map((f) => {
     const { rubrica, clave } = separarRubricaYClave(f.criterios);
+    // La clave objetiva la fija PRIMERO el banco de reactivos (import · mig 0018);
+    // si no hay, cae a la clave embebida en la rúbrica (convención previa).
+    const claveObjetiva = claveDeReactivos(f.clave_reactivos) ?? clave;
     return {
       tipo: 'entrega' as const,
       id: f.id,
@@ -47,10 +60,17 @@ export async function recopilarEntregas(
       grupoId: f.grupo_id ?? params.grupoId,
       actividadTipo: f.actividad_tipo,
       respuesta: f.contenido,
-      claveObjetiva: clave,
+      claveObjetiva,
       rubrica,
     };
   });
+}
+
+/** Arma la clave objetiva a partir del banco de reactivos (`{reactivoId: correcta}`). */
+function claveDeReactivos(v: unknown): ClaveObjetiva | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const correctas = v as Record<string, string | string[]>;
+  return Object.keys(correctas).length ? { correctas } : null;
 }
 
 /** Casos de bitácora pendientes de validación de un grupo. */

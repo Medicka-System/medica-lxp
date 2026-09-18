@@ -19,3 +19,8 @@ export function claveGrabacion(videotecaId: string): string {
 export function clavePaquete(contenidoId: string): string {
   return `media/paquetes/${contenidoId}/paquete.zip`;
 }
+
+/** Audio sintetizado por TTS (course builder). El binario vive en object storage. */
+export function claveAudioTts(audioId: string, formato: string): string {
+  return `media/tts/${audioId}/audio.${formato}`;
+}

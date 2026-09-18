@@ -16,6 +16,11 @@ import { AiModule } from './ai/ai.module';
 import { MediaModule } from './media/media.module';
 import { ClasesModule } from './clases/clases.module';
 import { PlayersModule } from './players/players.module';
+import { TtsModule } from './tts/tts.module';
+import { PaquetesModule } from './paquetes/paquetes.module';
+import { H5pModule } from './h5p/h5p.module';
+import { RubricasModule } from './rubricas/rubricas.module';
+import { ReactivosModule } from './reactivos/reactivos.module';
 
 @Module({
   imports: [
@@ -36,6 +41,11 @@ import { PlayersModule } from './players/players.module';
     MediaModule,
     ClasesModule,
     PlayersModule,
+    TtsModule,
+    PaquetesModule,
+    H5pModule,
+    RubricasModule,
+    ReactivosModule,
   ],
 })
 export class AppModule {}
