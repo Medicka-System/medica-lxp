@@ -1,5 +1,11 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import type {
+  Recurso,
+  RecursoDetalle,
+  TipoRecurso,
+  UsoRecurso,
+} from '@/lib/studio/contenido-contrato';
 
 /**
  * Lecturas del Studio (autoría · §5B). TODAS corren con RLS vía `comoStaff`: las
@@ -427,6 +433,177 @@ export async function getGrupoDetalle(
       })),
     };
   });
+}
+
+// ── Contenido (biblioteca reutilizable · PENDIENTE DE DB — ver contenido-contrato) ──
+/** Error de Postgres "relación no existe" (la tabla lxp.recursos aún no se creó). */
+function esTablaInexistente(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01';
+}
+
+type MetaRecurso = Record<string, string | number | undefined>;
+
+function textoMeta(tipo: TipoRecurso, meta: MetaRecurso): string {
+  const m = meta ?? {};
+  switch (tipo) {
+    case 'video':
+      return [m.duracion, m.resolucion].filter(Boolean).join(' · ') || 'Video';
+    case 'scorm':
+      return m.version_scorm ? `SCORM ${m.version_scorm}` : 'SCORM';
+    case 'xapi':
+      return m.fuente ? `xAPI · ${m.fuente}` : 'xAPI · Articulate';
+    case 'pdf':
+      return m.paginas ? `PDF · ${m.paginas} págs` : 'PDF';
+    case 'word':
+      return m.paginas ? `DOCX · ${m.paginas} págs` : 'DOCX';
+    case 'ppt':
+      return m.diapositivas ? `PPTX · ${m.diapositivas} diapositivas` : 'PPTX';
+    case 'h5p':
+      return m.items ? `${m.items} ítems · interactivo` : 'H5P interactivo';
+    case 'imagen':
+      return m.dimensiones ? `Imagen · ${m.dimensiones}` : 'Imagen';
+    default:
+      return '';
+  }
+}
+
+export type BibliotecaContenido = { pendienteDb: boolean; recursos: Recurso[] };
+
+export async function getRecursos(userId: string): Promise<BibliotecaContenido> {
+  try {
+    const recursos = await comoStaff(userId, async (sql) => {
+      const rows = await sql<
+        {
+          id: string;
+          tipo: TipoRecurso;
+          nombre: string;
+          meta: MetaRecurso;
+          reproduccion: string | null;
+          etiquetas: string[];
+          procesando: boolean;
+          progreso: number | null;
+          created_at: Date;
+          usos: number;
+          programas: number;
+        }[]
+      >`
+        select r.id, r.tipo::text as tipo, r.nombre, r.meta, r.reproduccion, r.etiquetas,
+               r.procesando, r.progreso, r.created_at,
+               coalesce((select count(*) from lxp.contenidos c where c.recurso_id = r.id), 0)::int as usos,
+               coalesce((
+                 select count(distinct m.programa_id)
+                 from lxp.contenidos c
+                 join lxp.lecciones l on l.id = c.leccion_id
+                 join lxp.modulos m on m.id = l.modulo_id
+                 where c.recurso_id = r.id
+               ), 0)::int as programas
+        from lxp.recursos r
+        order by usos desc, r.created_at desc`;
+      return rows.map(
+        (r): Recurso => ({
+          id: r.id,
+          tipo: r.tipo,
+          nombre: r.nombre,
+          meta: textoMeta(r.tipo, r.meta),
+          peso: typeof r.meta?.peso === 'string' ? r.meta.peso : undefined,
+          reproduccion: r.reproduccion ?? undefined,
+          fecha: r.created_at,
+          usos: r.usos,
+          programas: r.programas,
+          etiquetas: r.etiquetas ?? [],
+          procesando: r.procesando,
+          progreso: r.progreso ?? undefined,
+        }),
+      );
+    });
+    return { pendienteDb: false, recursos };
+  } catch (e) {
+    if (esTablaInexistente(e)) return { pendienteDb: true, recursos: [] };
+    throw e;
+  }
+}
+
+export type DetalleContenido = { pendienteDb: boolean; recurso: RecursoDetalle | null };
+
+export async function getRecursoDetalle(userId: string, recursoId: string): Promise<DetalleContenido> {
+  try {
+    const recurso = await comoStaff(userId, async (sql) => {
+      const r = (
+        await sql<
+          {
+            id: string;
+            tipo: TipoRecurso;
+            nombre: string;
+            meta: MetaRecurso;
+            reproduccion: string | null;
+            etiquetas: string[];
+            version: number;
+            created_at: Date;
+            updated_at: Date;
+          }[]
+        >`
+          select id, tipo::text as tipo, nombre, meta, reproduccion, etiquetas, version, created_at, updated_at
+          from lxp.recursos where id = ${recursoId} limit 1`
+      )[0];
+      if (!r) return null;
+
+      const usos = await sql<
+        {
+          id: string;
+          programa: string;
+          version: number;
+          publicado: boolean;
+          modulo: string;
+          leccion: string;
+        }[]
+      >`
+        select c.id, p.nombre as programa, p.version, p.publicado,
+               m.nombre as modulo, l.nombre as leccion
+        from lxp.contenidos c
+        join lxp.lecciones l on l.id = c.leccion_id
+        join lxp.modulos m on m.id = l.modulo_id
+        join lxp.programas p on p.id = m.programa_id
+        where c.recurso_id = ${recursoId}
+        order by p.nombre, m.orden, l.orden`;
+
+      const m = r.meta ?? {};
+      const metadatos = [
+        { etiqueta: 'Tipo', valor: textoMeta(r.tipo, m) },
+        ...(m.duracion ? [{ etiqueta: 'Duración', valor: String(m.duracion) }] : []),
+        ...(m.resolucion ? [{ etiqueta: 'Resolución', valor: String(m.resolucion) }] : []),
+        ...(m.peso ? [{ etiqueta: 'Peso', valor: String(m.peso) }] : []),
+        { etiqueta: 'Última versión', valor: `v${r.version}` },
+      ];
+
+      return {
+        id: r.id,
+        tipo: r.tipo,
+        nombre: r.nombre,
+        reproduccion: r.reproduccion ?? undefined,
+        duracion: typeof m.duracion === 'string' ? m.duracion : undefined,
+        metadatos,
+        etiquetas: r.etiquetas ?? [],
+        usos: usos.map(
+          (u): UsoRecurso => ({
+            id: u.id,
+            programa: u.programa,
+            version: u.version,
+            ruta: `${u.modulo} · ${u.leccion}`,
+            estadoLeccion: u.publicado ? 'publicada' : 'borrador',
+          }),
+        ),
+        // Historial de versiones del archivo = PENDIENTE (no hay tabla de versiones);
+        // se muestra solo la versión actual derivada de recursos.version.
+        versiones: [
+          { id: `v${r.version}`, etiqueta: `v${r.version}`, nota: 'Versión actual', fecha: r.updated_at, actual: true },
+        ],
+      };
+    });
+    return { pendienteDb: false, recurso };
+  } catch (e) {
+    if (esTablaInexistente(e)) return { pendienteDb: true, recurso: null };
+    throw e;
+  }
 }
 
 function metaContenido(tipo: string): string {
