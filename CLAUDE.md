@@ -133,7 +133,7 @@ esta §3**; ver §5C para qué editor usa cada bloque. Fija cada una a su últim
 - **H5P completo:** `@lumieducation/h5p-server` + `@lumieducation/h5p-react` (**editor Y player**
   dentro del Studio). ⚠️ **AGPL** — Manny lo asume conscientemente.
 - **Paquetes xAPI / SCORM:** `adm-zip`, `fast-xml-parser`.
-- **Autoevaluación / importar:** `papaparse` (CSV), `xlsx` (Excel).
+- **Autoevaluación / importar:** `exceljs` (una sola dep cubre **CSV y Excel** `.xlsx`). **No** SheetJS/`xlsx` (la versión npm arrastra advisories). La importación de reactivos es server-side (`POST /reactivos/importar` en `apps/api`).
 - **PDF:** `pdf-lib`.
 
 **No introducir tecnologías fuera de esta lista sin confirmación explícita.** En particular:
@@ -327,7 +327,7 @@ El **course builder** (del diseñador, §5B) arma la lección arrastrando **bloq
   **SELECCIONA** la rúbrica del catálogo + añade **lineamientos**; no se redacta la rúbrica dentro
   de la tarea. (La define el diseñador, §5B; el criterio clínico de estudios lo da el docente.)
 - **Autoevaluación:** **constructor de preguntas** + **Eco propone examen** (borrador, el humano
-  decide · §7A) + **importar reactivos** de archivo (`papaparse` CSV / `xlsx` Excel).
+  decide · §7A) + **importar reactivos** de archivo (`exceljs`: CSV / Excel).
 - **Foro:** post del alumno con **editor completo** (el **mismo TipTap**: HTML / imágenes / video) +
   comentarios. (El foro es una actividad cerrada del grupo, §1 — no confundir con el Ateneo.)
 - **Encuesta:** **una pregunta al final de cada módulo**, con **control de avance** (gate: responder
