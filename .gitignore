@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# env — NUNCA subir secretos. Ignora todo .env* excepto la plantilla.
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# coverage / tests
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# next-pwa generated service worker
+apps/web/public/sw.js
+apps/web/public/workbox-*.js
+apps/web/public/sw.js.map
+apps/web/public/fallback-*.js

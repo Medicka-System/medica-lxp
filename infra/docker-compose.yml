@@ -1,0 +1,165 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Campus Virtual LXP — Docker Compose LOCAL (Sprint 0)
+# Levanta: postgres (pgvector), redis, api, worker, web. Todo con healthchecks.
+# Traefik / Cloudflare Tunnel van en el sprint de producción (§11) — comentados.
+# Uso:  docker compose -f infra/docker-compose.yml up -d
+# Las variables se toman de ../.env (copia de .env.example).
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: campus-lxp
+
+services:
+  postgres:
+    # pgvector desde ya para no re-imagen en Sprint 1 (RAG · §3). Postgres 15.
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lxp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lxp_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-campus_lxp}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-lxp} -d ${POSTGRES_DB:-campus_lxp}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    # Redis propio del LXP, separado del de CORA/CRM (§3).
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  lrs:
+    # SQL LRS de Yet Analytics (§3/§7): endpoint xAPI conformante y store de
+    # registro de TODOS los eventos de aprendizaje. Backend SQLite local
+    # autocontenido (su propio store, separado de la BD de la app · §7 "no reimplementar").
+    image: yetanalytics/lrsql:latest
+    restart: unless-stopped
+    command: ['/lrsql/bin/run_sqlite.sh']
+    environment:
+      # Credencial (Basic auth) que usan api/worker para el endpoint xAPI.
+      LRSQL_API_KEY_DEFAULT: ${LRS_KEY:-campuslxp}
+      LRSQL_API_SECRET_DEFAULT: ${LRS_SECRET:-campuslxp_dev_secret}
+      # Admin UI (inspección local).
+      LRSQL_ADMIN_USER_DEFAULT: ${LRS_ADMIN_USER:-admin}
+      LRSQL_ADMIN_PASS_DEFAULT: ${LRS_ADMIN_PASS:-campuslxp_admin}
+      LRSQL_DB_NAME: /db/lrsql.sqlite.db
+      LRSQL_ALLOW_ALL_ORIGINS: 'true'
+    ports:
+      - '${LRS_PORT:-8080}:8080'
+    volumes:
+      - lrs_db:/db
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: '8000'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lxp}:${POSTGRES_PASSWORD:-lxp_dev_password}@postgres:5432/${POSTGRES_DB:-campus_lxp}
+      REDIS_URL: redis://redis:6379
+      # LRS (§7): api LEE del LRS; worker envía. Endpoint interno de la red compose.
+      LRS_ENDPOINT: http://lrs:8080/xapi
+      LRS_KEY: ${LRS_KEY:-campuslxp}
+      LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
+    ports:
+      - '${API_PORT:-8000}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lrs:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lxp}:${POSTGRES_PASSWORD:-lxp_dev_password}@postgres:5432/${POSTGRES_DB:-campus_lxp}
+      REDIS_URL: redis://redis:6379
+      # LRS (§7): el worker `envio-xapi` POSTea aquí los statements con retry.
+      LRS_ENDPOINT: http://lrs:8080/xapi
+      LRS_KEY: ${LRS_KEY:-campuslxp}
+      LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      lrs:
+        condition: service_started
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Lectura con RLS desde server components (Sprint 4; se reemplaza por el
+      # cliente Supabase en el Sprint 11). Conecta al Postgres de la red compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lxp}:${POSTGRES_PASSWORD:-lxp_dev_password}@postgres:5432/${POSTGRES_DB:-campus_lxp}
+      # Alumno "logueado" de dev hasta el auth real del Sprint 11.
+      DEV_ALUMNO_EMAIL: ${DEV_ALUMNO_EMAIL:-a1@seed.local}
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Producción (§11) — se habilitan en el Sprint 10, no en local ──
+  # traefik:
+  #   image: traefik:v3
+  #   ...
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   command: tunnel run
+  #   ...
+
+volumes:
+  pg_data:
+  redis_data:
+  lrs_db:

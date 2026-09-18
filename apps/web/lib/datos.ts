@@ -1,0 +1,175 @@
+import 'server-only';
+import { comoAlumno } from './db.server';
+
+/**
+ * Consultas del Campus del alumno. TODAS corren con RLS (rol authenticated) vía
+ * `comoAlumno`: el alumno solo ve lo suyo + lo público, igual que en producción.
+ * Devuelven datos ya listos para la UI (sin lógica de dominio en el front · §2).
+ */
+
+const DOMINIO_LABEL: Record<string, string> = {
+  indicacion: 'Indicación',
+  adquisicion: 'Adquisición',
+  interpretacion: 'Interpretación',
+  decision_medica: 'Decisión médica',
+};
+
+// ── Shell ────────────────────────────────────────────────────────────────────
+export async function getShellData(userId: string): Promise<{ casosPendientes: number }> {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<{ n: number }[]>`
+      select count(*)::int as n from lxp.bitacora_casos where estado_validacion = 'pendiente'`;
+    return { casosPendientes: rows[0]?.n ?? 0 };
+  });
+}
+
+// ── Home ─────────────────────────────────────────────────────────────────────
+export type HomeData = Awaited<ReturnType<typeof getHomeData>>;
+
+export async function getHomeData(userId: string) {
+  return comoAlumno(userId, async (sql) => {
+    const anuncios = await sql<{ titulo: string; cuerpo: string; vigente_hasta: Date | null }[]>`
+      select titulo, cuerpo, vigente_hasta from lxp.anuncios
+      where vigente_hasta is null or vigente_hasta > now()
+      order by vigente_desde desc limit 1`;
+
+    const biblioteca = await sql<{ titulo: string; diagnostico_correcto: string | null; organo: string | null }[]>`
+      select titulo, diagnostico_correcto, organo from lxp.casos_biblioteca
+      where publicado order by created_at desc limit 1`;
+
+    const leccion = await sql<{ programa: string; modulo: string; leccion: string }[]>`
+      select pr.nombre as programa, m.nombre as modulo, l.nombre as leccion
+      from lxp.programas pr
+      join lxp.modulos m on m.programa_id = pr.id
+      join lxp.lecciones l on l.modulo_id = m.id
+      where pr.publicado
+      order by m.orden, l.orden limit 1`;
+
+    const competencia = await sql<
+      { dominio_iaim: string; nivel: number; decaimiento: number; horas: number }[]
+    >`
+      select dominio_iaim, nivel::float8 as nivel, decaimiento::float8 as decaimiento, horas::float8 as horas
+      from lxp.competencia_dominios order by dominio_iaim`;
+
+    const posts = await sql<
+      { id: string; tipo: string; titulo: string; vineta: string | null; autor: string | null; cuando: Date }[]
+    >`
+      select id, tipo, titulo, vineta, lxp.nombre_de(autor_id) as autor, created_at as cuando
+      from lxp.posts_ateneo where estado = 'aprobado'
+      order by created_at desc limit 4`;
+
+    const loops = await sql<{ id: string; titulo: string; organo: string | null; autor: string | null }[]>`
+      select id, titulo, organo, lxp.nombre_de(curador_id) as autor
+      from lxp.casos_biblioteca where publicado
+      order by created_at desc limit 4`;
+
+    const horasTotales = competencia.reduce((s, c) => s + c.horas, 0);
+    const nivelGeneral = competencia.length
+      ? Math.round(competencia.reduce((s, c) => s + c.nivel, 0) / competencia.length)
+      : 0;
+    const dominiosPulso = competencia
+      .map((c) => ({
+        nombre: DOMINIO_LABEL[c.dominio_iaim] ?? c.dominio_iaim,
+        valor: Math.round(c.nivel),
+        enRepaso: c.decaimiento >= 15,
+      }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 2);
+
+    return {
+      anuncio: anuncios[0] ?? null,
+      casoSemana: biblioteca[0] ?? null,
+      continuar: leccion[0] ?? null,
+      pulso: {
+        horasTotales: Math.round(horasTotales),
+        nivelGeneral,
+        avancePct: Math.min(100, Math.round((horasTotales / 1000) * 100)),
+        dominios: dominiosPulso,
+      },
+      posts: posts.map((p) => ({
+        id: p.id,
+        tipo: p.tipo,
+        titulo: p.titulo,
+        vineta: p.vineta,
+        autor: p.autor ?? 'Colega',
+        cuando: p.cuando,
+      })),
+      loops: loops.map((l) => ({
+        id: l.id,
+        titulo: l.titulo,
+        area: l.organo ?? 'ultrasonido',
+        autor: l.autor ?? 'Docente',
+      })),
+    };
+  });
+}
+
+// ── Mi dominio ───────────────────────────────────────────────────────────────
+export type DominioData = Awaited<ReturnType<typeof getDominioData>>;
+
+const UMBRALES = [100, 500, 1000];
+
+export async function getDominioData(userId: string) {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<
+      {
+        dominio_iaim: string;
+        nivel: number;
+        decaimiento: number;
+        horas: number;
+        proximo_repaso: Date | null;
+      }[]
+    >`
+      select dominio_iaim, nivel::float8 as nivel, decaimiento::float8 as decaimiento,
+             horas::float8 as horas, proximo_repaso
+      from lxp.competencia_dominios order by dominio_iaim`;
+
+    const hitosRows = await sql<{ tipo: string; horas_umbral: number }[]>`
+      select tipo, horas_umbral::float8 as horas_umbral from lxp.hitos order by horas_umbral`;
+    const hitosAlcanzados = new Set(hitosRows.map((h) => h.tipo));
+
+    const dominios = rows.map((r) => {
+      const nivel = Math.round(r.nivel);
+      const decaimiento = Math.round(r.decaimiento);
+      const estado: 'solido' | 'repaso' | 'caida' =
+        decaimiento >= 15 ? 'caida' : r.proximo_repaso ? 'repaso' : 'solido';
+      return {
+        dominio: DOMINIO_LABEL[r.dominio_iaim] ?? r.dominio_iaim,
+        nivel,
+        decaimiento,
+        estado,
+        // Serie de 2 puntos: nivel bruto (antes del olvido) → nivel actual.
+        serie: [nivel + decaimiento, nivel],
+        proximoRepaso: r.proximo_repaso,
+      };
+    });
+
+    const horas = Math.round(rows.reduce((s, r) => s + r.horas, 0));
+    const nivelGeneral = dominios.length
+      ? Math.round(dominios.reduce((s, d) => s + d.nivel, 0) / dominios.length)
+      : 0;
+
+    const repasos = rows
+      .filter((r) => r.proximo_repaso || r.decaimiento >= 15)
+      .map((r) => ({
+        dominio: DOMINIO_LABEL[r.dominio_iaim] ?? r.dominio_iaim,
+        cuando: r.proximo_repaso,
+        decaimiento: Math.round(r.decaimiento),
+      }));
+
+    const siguiente = UMBRALES.find((u) => horas < u) ?? 1000;
+    const hitos = UMBRALES.map((u) => ({
+      horas: `${u} h`,
+      alcanzado: hitosAlcanzados.has(`horas_${u}`) || horas >= u,
+      cerca: horas < u && u === siguiente,
+    }));
+
+    return {
+      general: { nivel: nivelGeneral },
+      dominios,
+      repasos,
+      horas: { acreditadas: horas, meta: 1000, siguiente, faltan: Math.max(0, siguiente - horas) },
+      hitos,
+    };
+  });
+}

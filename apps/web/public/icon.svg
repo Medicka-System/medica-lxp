@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Campus LXP">
+  <rect width="512" height="512" rx="96" fill="#0f2d52"/>
+  <path d="M64 320c48 0 48-48 96-48s48 48 96 48 48-48 96-48 48 48 96 48" fill="none" stroke="#53c3be" stroke-width="28" stroke-linecap="round"/>
+  <path d="M64 240c48 0 48-48 96-48s48 48 96 48 48-48 96-48 48 48 96 48" fill="none" stroke="#1a8880" stroke-width="28" stroke-linecap="round" opacity="0.7"/>
+</svg>

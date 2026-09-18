@@ -1,0 +1,35 @@
+{
+  "name": "@campus/worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "NestJS standalone — consumidores BullMQ (sin HTTP). Jobs de fondo (§8).",
+  "scripts": {
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "build": "nest build",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@campus/db": "workspace:*",
+    "@campus/shared": "workspace:*",
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/core": "^10.4.15",
+    "bullmq": "^5.34.5",
+    "ioredis": "^5.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@campus/config": "workspace:*",
+    "@nestjs/cli": "^10.4.9",
+    "@nestjs/schematics": "^10.2.3",
+    "@types/node": "^20.17.10",
+    "eslint": "^8.57.1",
+    "rimraf": "^6.0.1",
+    "source-map-support": "^0.5.21",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,14 @@
+# Normaliza saltos de línea a LF en el repo — evita ruido CRLF entre worktrees y
+# agentes en Windows. Los archivos de texto se guardan y se sacan con LF.
+* text=auto eol=lf
+
+# Binarios: git no los toca.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

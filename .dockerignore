@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+# Cache incremental de TypeScript: si se cuela al contexto, `tsc` cree que todo
+# está al día y NO re-emite → dist stale sin los últimos exports. Fuera del build.
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+!.env.example
+*.log
+campus-lxp-mocks
