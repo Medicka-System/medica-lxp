@@ -23,12 +23,12 @@ export const SECCIONES: SeccionAdmin[] = [
   { id: 'staff', etiqueta: 'Staff', href: '/admin/staff' },
   { id: 'grupos', etiqueta: 'Grupos', href: '/admin/grupos' },
   { id: 'programas', etiqueta: 'Programas', href: '/admin/programas' },
+  { id: 'analitica', etiqueta: 'Analítica', href: '/admin/analitica' },
 ];
 
 /** Secciones aún sin ruta (se muestran deshabilitadas para señalar el mapa y el RBAC). */
 export type SeccionFutura = { id: string; etiqueta: string; soloSuper?: boolean };
 
 export const SECCIONES_FUTURAS: SeccionFutura[] = [
-  { id: 'analitica', etiqueta: 'Analítica' },
   { id: 'configuracion', etiqueta: 'Configuración', soloSuper: true },
 ];
