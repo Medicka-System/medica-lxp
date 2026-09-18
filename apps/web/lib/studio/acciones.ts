@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requireAutoria } from '@/lib/studio/session';
 import { comoStaff } from '@/lib/db.server';
 import type { TipoBloque } from '@/lib/studio/datos';
+import type { DominioIaim } from '@/lib/studio/casos-contrato';
 
 /**
  * Server actions del Studio de autoría (§5B). Son CRUD simple `web → Supabase`
@@ -64,6 +65,84 @@ export async function publicarPrograma(programaId: string, publicado: boolean): 
     await sql`update lxp.programas set publicado = ${publicado} where id = ${programaId}`;
   });
   refrescar(programaId);
+}
+
+// ── Casos (curaduría · lxp.casos_biblioteca, escribe es_staff) ──────────────────
+function refrescarCaso(casoId?: string) {
+  revalidatePath('/casos');
+  if (casoId) revalidatePath(`/casos/${casoId}`);
+}
+
+/** Crea un caso "por curar" cargado por staff (metadatos; el DICOM se adjunta luego
+ *  vía el pipeline de ingesta · PENDIENTE 4.7). Abre el editor. */
+export async function crearCaso(): Promise<void> {
+  const { userId } = await requireAutoria();
+  const id = await comoStaff(userId, async (sql) => {
+    const rows = await sql<{ id: string }[]>`
+      insert into lxp.casos_biblioteca (curador_id, titulo, publicado)
+      values (${userId}, 'Caso sin título', false)
+      returning id`;
+    return rows[0]!.id;
+  });
+  revalidatePath('/casos');
+  redirect(`/casos/${id}`);
+}
+
+/**
+ * Guarda catalogación + VERDAD ESTRUCTURADA del caso (§7A). Las listas se guardan
+ * como jsonb de strings. `dominio` null-safe. CRUD directo bajo RLS es_staff.
+ */
+export async function guardarCaso(
+  casoId: string,
+  datos: {
+    titulo?: string;
+    organo?: string;
+    dominio?: DominioIaim | null;
+    diagnostico?: string;
+    hallazgosClave?: string[];
+    puntosAprendizaje?: string[];
+    erroresComunes?: string[];
+  },
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    if (datos.titulo !== undefined) {
+      const limpio = datos.titulo.trim();
+      if (limpio) await sql`update lxp.casos_biblioteca set titulo = ${limpio} where id = ${casoId}`;
+    }
+    if (datos.organo !== undefined) {
+      await sql`update lxp.casos_biblioteca set organo = ${datos.organo || null} where id = ${casoId}`;
+    }
+    if (datos.dominio !== undefined) {
+      if (datos.dominio) {
+        await sql`update lxp.casos_biblioteca set dominio_iaim = ${datos.dominio}::lxp.dominio_iaim where id = ${casoId}`;
+      } else {
+        await sql`update lxp.casos_biblioteca set dominio_iaim = null where id = ${casoId}`;
+      }
+    }
+    if (datos.diagnostico !== undefined) {
+      await sql`update lxp.casos_biblioteca set diagnostico_correcto = ${datos.diagnostico || null} where id = ${casoId}`;
+    }
+    if (datos.hallazgosClave !== undefined) {
+      await sql`update lxp.casos_biblioteca set hallazgos_clave = ${sql.json(datos.hallazgosClave)} where id = ${casoId}`;
+    }
+    if (datos.puntosAprendizaje !== undefined) {
+      await sql`update lxp.casos_biblioteca set puntos_aprendizaje = ${sql.json(datos.puntosAprendizaje)} where id = ${casoId}`;
+    }
+    if (datos.erroresComunes !== undefined) {
+      await sql`update lxp.casos_biblioteca set errores_comunes = ${sql.json(datos.erroresComunes)} where id = ${casoId}`;
+    }
+  });
+  refrescarCaso(casoId);
+}
+
+/** Publica el caso a la Biblioteca (o lo regresa a "por curar"). */
+export async function publicarCaso(casoId: string, publicado: boolean): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`update lxp.casos_biblioteca set publicado = ${publicado} where id = ${casoId}`;
+  });
+  refrescarCaso(casoId);
 }
 
 // ── Grupos (instancias del programa · §6) ──────────────────────────────────────

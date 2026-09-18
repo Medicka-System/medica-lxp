@@ -6,6 +6,7 @@ import type {
   TipoRecurso,
   UsoRecurso,
 } from '@/lib/studio/contenido-contrato';
+import type { CasoEditor, CasoResumen, DominioIaim } from '@/lib/studio/casos-contrato';
 
 /**
  * Lecturas del Studio (autoría · §5B). TODAS corren con RLS vía `comoStaff`: las
@@ -431,6 +432,98 @@ export async function getGrupoDetalle(
         entidadId: o.entidad_id,
         creadoEn: o.created_at,
       })),
+    };
+  });
+}
+
+// ── Casos (curaduría del banco · lxp.casos_biblioteca) ─────────────────────────
+/** Normaliza un jsonb (string[] o [{texto}]) a lista de textos para la UI. */
+function aTextos(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) =>
+      typeof x === 'string'
+        ? x
+        : x && typeof x === 'object' && 'texto' in x
+          ? String((x as { texto: unknown }).texto)
+          : '',
+    )
+    .filter(Boolean);
+}
+
+export async function getCasos(userId: string): Promise<CasoResumen[]> {
+  return comoStaff(userId, async (sql) => {
+    const rows = await sql<
+      {
+        id: string;
+        titulo: string;
+        organo: string | null;
+        dominio_iaim: DominioIaim | null;
+        hallazgos_clave: unknown;
+        puntos_aprendizaje: unknown;
+        publicado: boolean;
+        curador: string | null;
+        created_at: Date;
+      }[]
+    >`
+      select id, titulo, organo, dominio_iaim, hallazgos_clave, puntos_aprendizaje,
+             publicado, lxp.nombre_de(curador_id) as curador, created_at
+      from lxp.casos_biblioteca
+      order by publicado, created_at desc`;
+
+    return rows.map((r): CasoResumen => {
+      const hallazgos = aTextos(r.hallazgos_clave);
+      const puntos = aTextos(r.puntos_aprendizaje);
+      return {
+        id: r.id,
+        titulo: r.titulo,
+        organo: r.organo,
+        dominio: r.dominio_iaim,
+        estado: r.publicado ? 'biblioteca' : 'por_curar',
+        curador: r.curador,
+        verdadCompleta: hallazgos.length >= 3 && puntos.length >= 2,
+        cuando: r.created_at,
+      };
+    });
+  });
+}
+
+export async function getCasoEditor(userId: string, casoId: string): Promise<CasoEditor | null> {
+  return comoStaff(userId, async (sql) => {
+    const r = (
+      await sql<
+        {
+          id: string;
+          titulo: string;
+          organo: string | null;
+          dominio_iaim: DominioIaim | null;
+          diagnostico_correcto: string | null;
+          hallazgos_clave: unknown;
+          puntos_aprendizaje: unknown;
+          errores_comunes: unknown;
+          publicado: boolean;
+          dicom_ref: string | null;
+          curador: string | null;
+        }[]
+      >`
+        select id, titulo, organo, dominio_iaim, diagnostico_correcto,
+               hallazgos_clave, puntos_aprendizaje, errores_comunes,
+               publicado, dicom_ref, lxp.nombre_de(curador_id) as curador
+        from lxp.casos_biblioteca where id = ${casoId} limit 1`
+    )[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      titulo: r.titulo,
+      organo: r.organo ?? '',
+      dominioIaim: r.dominio_iaim,
+      diagnostico: r.diagnostico_correcto ?? '',
+      hallazgosClave: aTextos(r.hallazgos_clave),
+      puntosAprendizaje: aTextos(r.puntos_aprendizaje),
+      erroresComunes: aTextos(r.errores_comunes),
+      publicado: r.publicado,
+      tieneDicom: !!r.dicom_ref,
+      curador: r.curador,
     };
   });
 }

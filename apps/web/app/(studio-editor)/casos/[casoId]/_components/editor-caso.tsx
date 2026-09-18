@@ -1,0 +1,351 @@
+'use client';
+
+/**
+ * Studio · Editor de caso — estación clínica-didáctica (§5B/§7A).
+ *
+ * REAL (web→Supabase bajo RLS es_staff · lxp.casos_biblioteca): catalogación (título,
+ * órgano, dominio I-AIM), diagnóstico correcto, y la VERDAD ESTRUCTURADA (hallazgos
+ * clave, puntos de aprendizaje, errores comunes) — lo que habilita a Eco y a los
+ * simuladores. Publicar a Biblioteca alterna `publicado`.
+ *
+ * PENDIENTE (ver lib/studio/casos-contrato.ts): el VISOR DICOM (Cornerstone3D),
+ * series/anotaciones y la anonimización en ingesta son el Sprint 4.7 → aquí el visor
+ * es un placeholder. "Anclar hallazgo a anotación" y "Marcar para Simulador" quedan
+ * sin cablear (no hay anotaciones ni flag en el esquema).
+ */
+
+import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
+import {
+  BookCopy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  MonitorPlay,
+  Plus,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react';
+import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
+import { DOMINIO_LABEL, type CasoEditor, type DominioIaim } from '@/lib/studio/casos-contrato';
+import { guardarCaso, publicarCaso } from '@/lib/studio/acciones';
+
+const DOMINIOS: DominioIaim[] = ['indicacion', 'adquisicion', 'interpretacion', 'decision_medica'];
+const campoBase =
+  'mt-1.5 w-full rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
+
+export function EditorCaso({ caso }: { caso: CasoEditor }) {
+  const [pendiente, iniciar] = useTransition();
+  const [titulo, setTitulo] = useState(caso.titulo);
+  const [organo, setOrgano] = useState(caso.organo);
+  const [dominio, setDominio] = useState<DominioIaim | null>(caso.dominioIaim);
+  const [diagnostico, setDiagnostico] = useState(caso.diagnostico);
+  const [hallazgos, setHallazgos] = useState<string[]>(caso.hallazgosClave);
+  const [puntos, setPuntos] = useState<string[]>(caso.puntosAprendizaje);
+  const [errores, setErrores] = useState<string[]>(caso.erroresComunes);
+  const [guardadoOk, setGuardadoOk] = useState(false);
+
+  const datos = () => ({
+    titulo,
+    organo,
+    dominio,
+    diagnostico,
+    hallazgosClave: hallazgos.filter((x) => x.trim()),
+    puntosAprendizaje: puntos.filter((x) => x.trim()),
+    erroresComunes: errores.filter((x) => x.trim()),
+  });
+
+  function guardar() {
+    setGuardadoOk(false);
+    iniciar(async () => {
+      await guardarCaso(caso.id, datos());
+      setGuardadoOk(true);
+    });
+  }
+  function publicar() {
+    iniciar(async () => {
+      await guardarCaso(caso.id, datos());
+      await publicarCaso(caso.id, !caso.publicado);
+    });
+  }
+
+  const listoSimulador = useMemo(
+    () => hallazgos.filter((x) => x.trim()).length >= 3 && puntos.filter((x) => x.trim()).length >= 2,
+    [hallazgos, puntos],
+  );
+
+  return (
+    <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
+      {/* ───── Header contextual ───── */}
+      <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+        <Link
+          href="/casos"
+          aria-label="Volver a Casos"
+          className={`grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[9px] border border-white/20 text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
+        >
+          <ChevronLeft aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
+        </Link>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="whitespace-nowrap text-[12.5px] font-medium text-white/60">Casos</span>
+          <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-white/35" strokeWidth={2} />
+          <span className="truncate text-[14.5px] font-bold text-sidebar-foreground">{titulo || 'Caso sin título'}</span>
+          <span
+            className={`inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[11.5px] font-bold ${
+              caso.publicado
+                ? 'bg-primary text-[color:var(--sidebar)]'
+                : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+            }`}
+          >
+            {caso.publicado ? 'En Biblioteca' : 'Por curar'}
+          </span>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {guardadoOk && !pendiente && (
+            <span className={`${mono} inline-flex items-center gap-1.5 text-[11.5px] text-white/60`}>
+              <span aria-hidden className="h-[7px] w-[7px] rounded-full bg-primary" />
+              guardado
+            </span>
+          )}
+          <button
+            type="button"
+            title="Marcar para Simulador — pendiente de DB/API"
+            disabled
+            className="inline-flex h-[38px] cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground opacity-50"
+          >
+            <MonitorPlay aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            Marcar para Simulador
+          </button>
+          <button
+            type="button"
+            onClick={guardar}
+            disabled={pendiente}
+            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 disabled:opacity-50 ${focusRingDark}`}
+          >
+            <Save aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            {pendiente ? 'Guardando…' : 'Guardar borrador'}
+          </button>
+          <button
+            type="button"
+            onClick={publicar}
+            disabled={pendiente}
+            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-white disabled:opacity-60 ${focusRingDark}`}
+          >
+            <BookCopy aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            {caso.publicado ? 'Quitar de Biblioteca' : 'Publicar a Biblioteca'}
+          </button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        {/* ════════ Visor (placeholder · Sprint 4.7) ════════ */}
+        <div className="flex min-w-0 flex-1 flex-col bg-sidebar">
+          <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
+            <span className={`${kicker} text-white/55`}>Visor DICOM</span>
+            <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-white/[0.1] px-2.5 text-[11px] font-semibold text-white/70">
+              Cornerstone3D · Sprint 4.7
+            </span>
+            <span className="ml-auto inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary/[0.16] px-2.5 text-[11px] font-bold text-primary">
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+              Anonimización en ingesta
+            </span>
+          </div>
+          <div className="relative grid min-h-0 flex-1 place-items-center">
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
+            />
+            <div className="relative max-w-[360px] px-6 text-center">
+              <p className="text-[15px] font-bold text-white">El visor DICOM llega en el Sprint 4.7</p>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
+                Visor Cornerstone3D (series, cine-loops, anotación y medición) + anonimización
+                bloqueante en la ingesta. Mientras tanto, cataloga y estructura la verdad del caso a la
+                derecha; eso ya se guarda de verdad.
+              </p>
+            </div>
+            <span className={`${mono} absolute bottom-3.5 right-3.5 text-[10.5px] text-white/50`}>
+              {caso.tieneDicom ? 'estudio adjunto' : 'sin estudio'}
+            </span>
+          </div>
+        </div>
+
+        {/* ════════ Panel de autoría (real) ════════ */}
+        <aside className="w-[452px] shrink-0 overflow-y-auto border-l border-border bg-card">
+          {/* catalogación */}
+          <section className="border-b border-border px-5 py-5">
+            <p className={`${kicker} text-muted-foreground`}>Catalogación</p>
+            <label className="mt-3 block">
+              <span className="block text-[11.5px] font-semibold">Título del caso</span>
+              <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className={`${campoBase} h-10`} placeholder="Diagnóstico principal" />
+            </label>
+            <label className="mt-3 block">
+              <span className="block text-[11.5px] font-semibold">Órgano</span>
+              <input value={organo} onChange={(e) => setOrgano(e.target.value)} className={`${campoBase} h-10`} placeholder="Riñón, Vesícula, Útero…" />
+            </label>
+            <div className="mt-3">
+              <span className="block text-[11.5px] font-semibold">Dominio I-AIM</span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {DOMINIOS.map((d) => {
+                  const on = d === dominio;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDominio(on ? null : d)}
+                      aria-pressed={on}
+                      className={`h-[34px] rounded-full border px-3 text-[12.5px] font-semibold transition-colors ${focusRing} ${
+                        on ? 'border-transparent bg-accent text-accent-foreground' : `border-border bg-card ${softText} hover:bg-muted`
+                      }`}
+                    >
+                      {DOMINIO_LABEL[d]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <label className="mt-3 block">
+              <span className="block text-[11.5px] font-semibold">Diagnóstico confirmado</span>
+              <textarea
+                rows={2}
+                value={diagnostico}
+                onChange={(e) => setDiagnostico(e.target.value)}
+                placeholder="El diagnóstico con el que se cerró el caso"
+                className={`${campoBase} resize-none py-2.5 leading-relaxed`}
+              />
+            </label>
+          </section>
+
+          {/* verdad del caso */}
+          <section className="px-5 py-5" style={{ background: '#fbfbfd' }}>
+            <div className="flex items-center gap-2.5">
+              <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
+                <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+              </span>
+              <p className={`${kicker} text-[color:var(--info-foreground)]`}>Verdad del caso</p>
+              <span className="ml-auto inline-flex h-[22px] items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)]">
+                La usa Eco y el simulador
+              </span>
+            </div>
+            <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>
+              No es texto libre: Eco y el simulador comparan la respuesta del alumno contra estos
+              puntos. (Anclar cada hallazgo a una anotación de la imagen llega con el visor · 4.7.)
+            </p>
+
+            <ListaVerdad titulo="Hallazgos clave" items={hallazgos} onCambio={setHallazgos} color="primary" placeholder="Un hallazgo que define el caso" />
+            <ListaVerdad titulo="Puntos de aprendizaje" items={puntos} onCambio={setPuntos} color="secondary" placeholder="Qué debe aprender el alumno" />
+            <ListaVerdad titulo="Errores comunes a evitar" items={errores} onCambio={setErrores} color="warning" placeholder="Un error frecuente" />
+
+            <div className="mt-5 flex items-center gap-2.5 rounded-[11px] border border-border bg-card px-3.5 py-3">
+              <span className={`min-w-0 flex-1 text-[12px] leading-relaxed ${softText}`}>
+                Listo para simulador con <span className="font-bold text-foreground">3 hallazgos clave</span> y{' '}
+                <span className="font-bold text-foreground">2 puntos de aprendizaje</span>.
+              </span>
+              <span
+                className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11px] font-bold ${
+                  listoSimulador
+                    ? 'bg-accent text-accent-foreground'
+                    : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                }`}
+              >
+                {listoSimulador && <Check aria-hidden className="h-3 w-3" strokeWidth={2.4} />}
+                {listoSimulador ? 'Cumple' : 'Falta estructura'}
+              </span>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Lista editable de la verdad ───────────────────────── */
+
+function ListaVerdad({
+  titulo,
+  items,
+  onCambio,
+  color,
+  placeholder,
+}: {
+  titulo: string;
+  items: string[];
+  onCambio: (v: string[]) => void;
+  color: 'primary' | 'secondary' | 'warning';
+  placeholder: string;
+}) {
+  const [nuevo, setNuevo] = useState('');
+  const esWarning = color === 'warning';
+
+  function agregar() {
+    const v = nuevo.trim();
+    if (!v) return;
+    onCambio([...items, v]);
+    setNuevo('');
+  }
+
+  return (
+    <div className="mt-5">
+      <p className="text-[11.5px] font-semibold">{titulo}</p>
+      <ul className="mt-2.5 flex flex-col gap-1.5">
+        {items.map((texto, i) => (
+          <li
+            key={i}
+            className={`flex items-start gap-2.5 rounded-[10px] border px-3 py-2 ${
+              esWarning ? 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]' : 'border-border bg-card'
+            }`}
+          >
+            {esWarning ? (
+              <TriangleAlert aria-hidden className="mt-2 h-3.5 w-3.5 shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={2} />
+            ) : (
+              <span
+                aria-hidden
+                className={`mt-3 h-[7px] w-[7px] shrink-0 rounded-full ${color === 'primary' ? 'bg-primary' : 'bg-secondary'}`}
+              />
+            )}
+            <input
+              value={texto}
+              onChange={(e) => onCambio(items.map((x, j) => (j === i ? e.target.value : x)))}
+              aria-label={`${titulo} ${i + 1}`}
+              className={`min-w-0 flex-1 bg-transparent py-1 text-[12.5px] font-medium leading-relaxed outline-none ${
+                esWarning ? 'text-[color:var(--warning-foreground)]' : ''
+              }`}
+            />
+            <button
+              type="button"
+              aria-label="Quitar"
+              onClick={() => onCambio(items.filter((_, j) => j !== i))}
+              className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-destructive ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-1.5 flex items-center gap-2">
+        <input
+          value={nuevo}
+          onChange={(e) => setNuevo(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              agregar();
+            }
+          }}
+          placeholder={placeholder}
+          className="h-10 min-w-0 flex-1 rounded-[10px] border border-dashed border-[color:var(--track)] bg-card px-3 text-[12.5px] text-foreground outline-none transition-colors focus:border-primary placeholder:text-muted-foreground"
+        />
+        <button
+          type="button"
+          onClick={agregar}
+          className={`grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border border-border bg-card text-secondary transition-colors hover:bg-accent ${focusRing}`}
+          aria-label={`Agregar a ${titulo}`}
+        >
+          <Plus aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
+        </button>
+      </div>
+    </div>
+  );
+}
