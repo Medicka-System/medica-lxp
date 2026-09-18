@@ -1,6 +1,6 @@
 import { Video } from 'lucide-react';
-import { requireDocente } from '../_lib/session';
-import { getClases } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getClases } from '../../_lib/datos';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 
 export const dynamic = 'force-dynamic';

@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, BookOpen, TriangleAlert, Users } from 'lucide-react';
-import { requireDocente } from '../../_lib/session';
-import { getGrupoSeguimiento } from '../../_lib/datos';
+import { requireDocente } from '../../../_lib/session';
+import { getGrupoSeguimiento } from '../../../_lib/datos';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
 

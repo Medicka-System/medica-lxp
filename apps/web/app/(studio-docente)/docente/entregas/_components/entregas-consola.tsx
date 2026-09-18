@@ -16,8 +16,8 @@ import { useRouter } from 'next/navigation';
 import { Check, ClipboardCheck, Clock, Search, Sparkles, TriangleAlert } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
-import type { EntregaRevision, EstadoEntrega } from '../../_lib/contrato';
-import { calificarEntrega } from '../../_lib/acciones';
+import type { EntregaRevision, EstadoEntrega } from '../../../_lib/contrato';
+import { calificarEntrega } from '../../../_lib/acciones';
 
 const ESTADO_LABEL: Record<EstadoEntrega, string> = {
   pendiente: 'Pendiente',

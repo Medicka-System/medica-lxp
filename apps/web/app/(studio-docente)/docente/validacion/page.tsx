@@ -1,5 +1,5 @@
-import { requireDocente } from '../_lib/session';
-import { getCasosPorValidar } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getCasosPorValidar } from '../../_lib/datos';
 import { ValidacionConsola } from './_components/validacion-consola';
 
 export const dynamic = 'force-dynamic';

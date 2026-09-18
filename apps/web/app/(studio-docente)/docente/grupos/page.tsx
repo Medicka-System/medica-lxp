@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ChevronRight, Users } from 'lucide-react';
-import { requireDocente } from '../_lib/session';
-import { getGrupos } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getGrupos } from '../../_lib/datos';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
 

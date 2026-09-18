@@ -11,8 +11,8 @@ import { useRouter } from 'next/navigation';
 import { FolderOpen, Link2, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
-import type { RecursoDocente } from '../../_lib/contrato';
-import { agregarRecurso, eliminarRecurso } from '../../_lib/acciones';
+import type { RecursoDocente } from '../../../_lib/contrato';
+import { agregarRecurso, eliminarRecurso } from '../../../_lib/acciones';
 
 export function RecursosPanel({ recursos }: { recursos: RecursoDocente[] }) {
   const router = useRouter();

@@ -17,8 +17,8 @@ import { useRouter } from 'next/navigation';
 import { Lock, MessagesSquare, Send, Sparkles, Unlock } from 'lucide-react';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
-import type { ConsultaDetalle, ConsultaHilo } from '../../_lib/contrato';
-import { cambiarEstadoConsulta, responderConsulta } from '../../_lib/acciones';
+import type { ConsultaDetalle, ConsultaHilo } from '../../../_lib/contrato';
+import { cambiarEstadoConsulta, responderConsulta } from '../../../_lib/acciones';
 
 export function ConsultasConsola({
   hilos,

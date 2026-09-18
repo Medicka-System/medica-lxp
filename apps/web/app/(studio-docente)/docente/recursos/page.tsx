@@ -1,5 +1,5 @@
-import { requireDocente } from '../_lib/session';
-import { getRecursos } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getRecursos } from '../../_lib/datos';
 import { RecursosPanel } from './_components/recursos-panel';
 
 export const dynamic = 'force-dynamic';

@@ -1,5 +1,5 @@
-import { requireDocente } from '../_lib/session';
-import { getEntregas } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getEntregas } from '../../_lib/datos';
 import { EntregasConsola } from './_components/entregas-consola';
 
 export const dynamic = 'force-dynamic';

@@ -29,8 +29,8 @@ import {
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
-import { DOMINIO_LABEL, type CasoValidacion } from '../../_lib/contrato';
-import { validarCaso } from '../../_lib/acciones';
+import { DOMINIO_LABEL, type CasoValidacion } from '../../../_lib/contrato';
+import { validarCaso } from '../../../_lib/acciones';
 import { EcoRailValidacion } from './eco-rail';
 
 function metaCaso(c: CasoValidacion): string {

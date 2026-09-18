@@ -1,5 +1,5 @@
-import { requireDocente } from '../_lib/session';
-import { getConsultas, getConsultaDetalle } from '../_lib/datos';
+import { requireDocente } from '../../_lib/session';
+import { getConsultas, getConsultaDetalle } from '../../_lib/datos';
 import { ConsultasConsola } from './_components/consultas-consola';
 
 export const dynamic = 'force-dynamic';
