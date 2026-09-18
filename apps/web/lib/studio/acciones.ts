@@ -66,6 +66,68 @@ export async function publicarPrograma(programaId: string, publicado: boolean): 
   refrescar(programaId);
 }
 
+// ── Grupos (instancias del programa · §6) ──────────────────────────────────────
+function refrescarGrupo(grupoId?: string) {
+  revalidatePath('/grupos');
+  if (grupoId) revalidatePath(`/grupos/${grupoId}`);
+}
+
+/** Instancia un grupo a partir de un programa. CRUD simple (Regla de Oro §2). */
+export async function crearGrupo(datos: {
+  programaId: string;
+  nombre: string;
+  modalidad: 'sincrono' | 'asincrono';
+  fechaInicio?: string | null;
+  fechaFin?: string | null;
+}): Promise<void> {
+  const { userId } = await requireAutoria();
+  const nombre = datos.nombre.trim() || 'Grupo sin título';
+  const inicio = datos.modalidad === 'sincrono' ? datos.fechaInicio || null : null;
+  const fin = datos.modalidad === 'sincrono' ? datos.fechaFin || null : null;
+  const id = await comoStaff(userId, async (sql) => {
+    const rows = await sql<{ id: string }[]>`
+      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, fecha_fin)
+      values (${datos.programaId}, ${nombre}, ${datos.modalidad}::lxp.modalidad, ${inicio}, ${fin})
+      returning id`;
+    return rows[0]!.id;
+  });
+  revalidatePath('/grupos');
+  redirect(`/grupos/${id}`);
+}
+
+/** Edita los datos que el grupo SÍ posee: nombre, modalidad, fechas, docente. */
+export async function actualizarGrupo(
+  grupoId: string,
+  datos: {
+    nombre?: string;
+    modalidad?: 'sincrono' | 'asincrono';
+    fechaInicio?: string | null;
+    fechaFin?: string | null;
+    docenteId?: string | null;
+  },
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    if (datos.nombre !== undefined) {
+      const limpio = datos.nombre.trim();
+      if (limpio) await sql`update lxp.grupos set nombre = ${limpio} where id = ${grupoId}`;
+    }
+    if (datos.modalidad !== undefined) {
+      await sql`update lxp.grupos set modalidad = ${datos.modalidad}::lxp.modalidad where id = ${grupoId}`;
+    }
+    if (datos.fechaInicio !== undefined) {
+      await sql`update lxp.grupos set fecha_inicio = ${datos.fechaInicio || null} where id = ${grupoId}`;
+    }
+    if (datos.fechaFin !== undefined) {
+      await sql`update lxp.grupos set fecha_fin = ${datos.fechaFin || null} where id = ${grupoId}`;
+    }
+    if (datos.docenteId !== undefined) {
+      await sql`update lxp.grupos set docente_id = ${datos.docenteId || null} where id = ${grupoId}`;
+    }
+  });
+  refrescarGrupo(grupoId);
+}
+
 // ── Módulos ──────────────────────────────────────────────────────────────────
 export async function crearModulo(programaId: string): Promise<void> {
   const { userId } = await requireAutoria();
