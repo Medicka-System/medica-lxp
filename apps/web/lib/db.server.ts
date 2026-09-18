@@ -43,6 +43,50 @@ export async function comoAlumno<T>(
 }
 
 /**
+ * Igual que `comoAlumno` pero para el staff (Studio · §5B). Mismo mecanismo: rol
+ * de BD `authenticated` + claims con el `sub` del usuario, de modo que las MISMAS
+ * policies (`lxp.es_autoria()` / `lxp.es_staff()` vía `lxp.rol_actual()`) filtran
+ * igual que en producción. NO usa `service_role` — la autoría cae bajo RLS (§2/§10).
+ */
+export async function comoStaff<T>(
+  userId: string,
+  fn: (sql: Sql) => Promise<T>,
+): Promise<T> {
+  return comoAlumno(userId, fn);
+}
+
+/**
+ * Bootstrap de sesión de DEV para el staff (hasta el auth real del Sprint 11):
+ * resuelve al miembro del staff por email con una consulta directa (sin rol),
+ * simulando lo que en producción vendría del JWT. Solo roles de plataforma LXP
+ * distintos de `alumno` (§10: roles por plataforma).
+ */
+export async function resolverStaffDev(email: string): Promise<{
+  userId: string;
+  nombre: string;
+  email: string;
+  rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+} | null> {
+  const sql = getSql();
+  const rows = await sql<
+    {
+      user_id: string;
+      nombre: string;
+      email: string;
+      rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+    }[]
+  >`
+    select p.user_id, p.nombre, coalesce(p.email, u.email) as email, p.rol::text as rol
+    from lxp.perfiles p
+    join auth.users u on u.id = p.user_id
+    where u.email = ${email} and p.rol <> 'alumno'
+    limit 1`;
+  const row = rows[0];
+  if (!row) return null;
+  return { userId: row.user_id, nombre: row.nombre, email: row.email, rol: row.rol };
+}
+
+/**
  * Bootstrap de sesión de DEV (hasta el auth real del Sprint 11): resuelve el alumno
  * por email con una consulta directa (sin rol), simulando lo que en producción
  * vendría del JWT. Devuelve la identidad + datos de CORA (matrícula/programa).
