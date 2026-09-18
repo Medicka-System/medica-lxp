@@ -76,6 +76,13 @@ services:
       LRS_ENDPOINT: http://lrs:8080/xapi
       LRS_KEY: ${LRS_KEY:-campuslxp}
       LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
+      # Eco (§7A): MOCK por default (sin API key). Cambiar ECO_PROVIDER=anthropic +
+      # ANTHROPIC_API_KEY enchufa el modelo real sin tocar código. Modelos por paso
+      # salen de lxp.eco_config; estas envs son solo el interruptor de proveedor.
+      ECO_PROVIDER: ${ECO_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # RAG: servicio de embeddings self-hosted (BGE-M3 · §3), red interna del compose.
+      EMBEDDINGS_URL: http://embeddings:8001
     ports:
       - '${API_PORT:-8000}:8000'
     depends_on:
@@ -109,6 +116,10 @@ services:
       LRS_ENDPOINT: http://lrs:8080/xapi
       LRS_KEY: ${LRS_KEY:-campuslxp}
       LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
+      # Eco (§8): `indexar-rag` embebe contra el servicio local; `eco-evaluacion`
+      # dispara el lote llamando al `api` (el juicio vive en api/src/ai · §4).
+      EMBEDDINGS_URL: http://embeddings:8001
+      API_URL: http://api:8000
     depends_on:
       redis:
         condition: service_healthy
@@ -116,6 +127,28 @@ services:
         condition: service_healthy
       lrs:
         condition: service_started
+
+  embeddings:
+    # BGE-M3 self-hosted (§3): embeddings multilingües LOCALES para el RAG de Eco
+    # (nada de API de terceros · latencia). El worker `indexar-rag` y el api lo usan.
+    build:
+      context: ../services/embeddings
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-BAAI/bge-m3}
+      EMBEDDINGS_DEVICE: cpu
+    ports:
+      - '${EMBEDDINGS_PORT:-8001}:8001'
+    volumes:
+      # Cachea el modelo descargado (~2 GB) para no rebajarlo en cada arranque.
+      - embeddings_models:/models
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8001/health']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   web:
     build:
@@ -163,3 +196,4 @@ volumes:
   pg_data:
   redis_data:
   lrs_db:
+  embeddings_models:
