@@ -9,15 +9,48 @@
  * del Ateneo. La decisión de validar/calificar se ASIENTA aquí (insert/update bajo
  * RLS `es_docente_o_mas`).
  *
+ * CONECTADO A ECO (§7A · Sprint 5.3): la bandeja pre-analizada la LEE el web directo
+ * de `lxp.eco_propuestas` bajo RLS (`es_docente_o_mas`) — ver `PropuestaEcoResumen`.
+ * Disparar el análisis y el cierre humano pasan por `apps/api` (`_lib/eco.server.ts`),
+ * que es dominio/orquestación (permitido en `api` · §2), no proxy de CRUD.
+ *
  * PENDIENTE DE API (dominio / worker · §2/§8), marcado en cada punto:
  *   • Al aprobar un caso → encolar `calculo-competencia` + xAPI `validó` (§8.4/§7).
- *   • Eco (bandeja por confianza, nota sugerida, borradores de feedback) → §7A.
  *   • Nº de alumnos y avance por grupo → cruzar inscripción de CORA (Sprint 11) +
  *     proyección de competencia (worker · §3).
  *   • Próxima clase / iniciar clase → integración Zoom (Sprint 6, §9).
+ *   • Borrador de respuesta de consulta / Eco conversacional → NO hay endpoint aún en
+ *     `apps/api` (solo lote/confirmar/descartar/indexar/config). Ver `consultas`.
  */
 
+import type { EstudioDicom } from '@/components/dicom';
+
 export type DominioIaim = 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
+
+// ── Propuesta de Eco (bandeja pre-analizada · §7A) ──────────────────────────────
+/** Confianza con que Eco separa la bandeja (§7A): apto para lote vs uno a uno. */
+export type ClasificacionEco = 'listo' | 'requiere_criterio';
+
+/**
+ * Resumen de la propuesta que Eco dejó para un objeto (caso/entrega), leído de
+ * `lxp.eco_propuestas` (§7A). Es un BORRADOR: `notaSugerida`/`feedbackBorrador` son
+ * sugerencias; nada se asienta sin que el docente confirme. `notaSugerida` viene en
+ * escala 0–100 (contrato del `api`); la UI de entregas la muestra también sobre 10.
+ */
+export type PropuestaEcoResumen = {
+  propuestaId: string;
+  notaSugerida: number | null;
+  feedbackBorrador: string | null;
+  /** 0..1 — qué tan segura está Eco de su propia evaluación. */
+  confianza: number;
+  clasificacion: ClasificacionEco;
+  /** Desglose por criterio de la rúbrica (de `detalle.criterios`). */
+  criterios: { criterio: string; puntaje: number; comentario?: string }[];
+  /** Omisiones que Eco detectó (de `detalle.omisiones`). */
+  omisiones: string[];
+  /** Modelo que emitió el juicio (traza · de `detalle.modelo`). */
+  modelo: string | null;
+};
 
 export const DOMINIO_LABEL: Record<DominioIaim, string> = {
   indicacion: 'Indicación',
@@ -72,6 +105,8 @@ export type DocenteDashboard = {
 // ── Validación de casos (la cola clínica) ───────────────────────────────────────
 export type CasoValidacion = {
   id: string;
+  /** Grupo del caso (para disparar el análisis de Eco por grupo · §7A). */
+  grupoId: string | null;
   alumno: string;
   iniciales: string;
   organo: string | null;
@@ -87,6 +122,13 @@ export type CasoValidacion = {
   tieneDicom: boolean;
   series: number;
   cineLoop: boolean;
+  /**
+   * Estudio DICOM ya parseado/anonimizado para el visor real (Cornerstone3D). `null`
+   * cuando el caso aún no tiene estudio anonimizado (pipeline `procesar-dicom` · §8).
+   */
+  estudio: EstudioDicom | null;
+  /** Propuesta pre-analizada por Eco (bandeja · §7A); `null` si no se ha analizado. */
+  eco: PropuestaEcoResumen | null;
 };
 
 // ── Entregas por revisar ────────────────────────────────────────────────────────
@@ -95,9 +137,12 @@ export type EstadoEntrega = 'pendiente' | 'enviada' | 'calificada' | 'devuelta';
 
 export type EntregaRevision = {
   id: string;
+  /** Grupo de la entrega (para disparar el análisis de Eco por grupo · §7A). */
+  grupoId: string | null;
   alumno: string;
   iniciales: string;
   actividad: string;
+  actividadId: string;
   tipoActividad: TipoActividad;
   leccion: string | null;
   modulo: string | null;
@@ -107,6 +152,8 @@ export type EntregaRevision = {
   ecoSugerida: boolean;
   notaAlumno: string | null;
   creadoEn: Date;
+  /** Propuesta pre-analizada por Eco (bandeja · §7A); `null` si no se ha analizado. */
+  eco: PropuestaEcoResumen | null;
 };
 
 // ── Consultas 1:1 ───────────────────────────────────────────────────────────────

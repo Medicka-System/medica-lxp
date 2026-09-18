@@ -1,9 +1,11 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
   CabeceraDocente,
   CasoValidacion,
   ClaseAgenda,
+  ClasificacionEco,
   ConsultaDetalle,
   ConsultaHilo,
   DocenteDashboard,
@@ -13,6 +15,7 @@ import type {
   GrupoSeguimiento,
   MensajeConsulta,
   PostAteneoResumen,
+  PropuestaEcoResumen,
   RecursoDocente,
   TipoActividad,
 } from './contrato';
@@ -39,6 +42,84 @@ function corto(texto: string | null, max = 120): string | null {
   if (!t) return null;
   const linea = t.split(/\r?\n/)[0]!.trim();
   return linea.length > max ? `${linea.slice(0, max - 1)}…` : linea;
+}
+
+// ── Eco: fila de `lxp.eco_propuestas` → resumen para la UI (§7A) ─────────────────
+/** Columnas que traemos de `lxp.eco_propuestas` en los joins de la bandeja. */
+type FilaEco = {
+  eco_id: string | null;
+  eco_nota: number | null;
+  eco_feedback: string | null;
+  eco_confianza: number | null;
+  eco_clasificacion: string | null;
+  eco_detalle: unknown;
+};
+
+/**
+ * Arma el `PropuestaEcoResumen` a partir del LEFT JOIN a `eco_propuestas`. Devuelve
+ * `null` si el objeto no tiene propuesta vigente. `criterios`/`omisiones`/`modelo`
+ * salen del jsonb `detalle` (la traza del pipeline · §7A) de forma defensiva.
+ */
+function mapearEco(f: FilaEco): PropuestaEcoResumen | null {
+  if (!f.eco_id) return null;
+  const d = (f.eco_detalle ?? {}) as Record<string, unknown>;
+  const criteriosRaw = Array.isArray(d.criterios) ? (d.criterios as unknown[]) : [];
+  const criterios = criteriosRaw
+    .map((c) => {
+      const o = (c ?? {}) as Record<string, unknown>;
+      return {
+        criterio: typeof o.criterio === 'string' ? o.criterio : '',
+        puntaje: typeof o.puntaje === 'number' ? o.puntaje : 0,
+        comentario: typeof o.comentario === 'string' ? o.comentario : undefined,
+      };
+    })
+    .filter((c) => c.criterio);
+  const omisiones = Array.isArray(d.omisiones)
+    ? (d.omisiones as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [];
+  return {
+    propuestaId: f.eco_id,
+    notaSugerida: f.eco_nota,
+    feedbackBorrador: f.eco_feedback,
+    confianza: f.eco_confianza ?? 0,
+    clasificacion: (f.eco_clasificacion as ClasificacionEco) ?? 'requiere_criterio',
+    criterios,
+    omisiones,
+    modelo: typeof d.modelo === 'string' ? d.modelo : null,
+  };
+}
+
+/**
+ * Mapea las series anonimizadas del caso (`bitacora_casos.estudio_series`, jsonb
+ * `[{ series_uid, modalidad, frames, instancias, ref }]` · migración 0014) al
+ * contrato `EstudioDicom` que consume el visor real (Cornerstone3D · §4.7). El visor
+ * NO parsea binario: recibe `imageId`s opacos que el motor sabe cargar. Convención
+ * (ver `components/dicom/types.ts`): un `imageId` por frame; multi-frame = cine-loop.
+ *
+ * Solo devuelve un estudio si está `anonimizado` (§10: nunca montar PII). `null` si el
+ * caso aún no tiene estudio procesado — el pipeline `procesar-dicom` lo llena (§8).
+ */
+function mapearEstudio(casoId: string, seriesJson: unknown, estado: string | null): EstudioDicom | null {
+  if (estado && estado !== 'anonimizado') return null;
+  if (!Array.isArray(seriesJson) || seriesJson.length === 0) return null;
+
+  const series: SerieDicom[] = seriesJson.flatMap((raw, i): SerieDicom[] => {
+    const s = (raw ?? {}) as Record<string, unknown>;
+    const ref = typeof s.ref === 'string' && s.ref.trim() ? s.ref.trim() : null;
+    if (!ref) return []; // sin referencia en object storage no hay nada que cargar
+    const nFrames = typeof s.frames === 'number' && s.frames > 0 ? Math.floor(s.frames) : 1;
+    const serieId = typeof s.series_uid === 'string' && s.series_uid ? s.series_uid : `serie-${i + 1}`;
+    const modalidad = typeof s.modalidad === 'string' && s.modalidad ? s.modalidad : 'US';
+    // Multi-frame → un imageId por frame (`?frame=N`); estática → un único frame.
+    const frames = Array.from({ length: nFrames }, (_, f) => ({
+      imageId: nFrames > 1 ? `wadouri:${ref}?frame=${f}` : `wadouri:${ref}`,
+      indice: f,
+    }));
+    return [{ id: serieId, descripcion: `${modalidad} · ${serieId}`, modalidad, frames }];
+  });
+
+  if (series.length === 0) return null;
+  return { id: casoId, series };
 }
 
 // ── Cabecera (badge de la cola que define su día) ───────────────────────────────
@@ -157,8 +238,9 @@ async function getAteneoResumen(
 export async function getCasosPorValidar(userId: string): Promise<CasoValidacion[]> {
   return comoStaff(userId, async (sql) => {
     const rows = await sql<
-      {
+      ({
         id: string;
+        grupo_id: string | null;
         organo: string | null;
         dominio_iaim: DominioIaim | null;
         hallazgos: string | null;
@@ -168,27 +250,37 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
         alumno: string;
         modulo: string | null;
         dicom_ref: string | null;
+        estudio_series: unknown;
+        estudio_estado: string | null;
         series: number;
         cine_loop: boolean;
-      }[]
+      } & FilaEco)[]
     >`
-      select c.id, c.organo, c.dominio_iaim, c.hallazgos, c.diagnostico_presuntivo,
+      select c.id, c.grupo_id, c.organo, c.dominio_iaim, c.hallazgos, c.diagnostico_presuntivo,
              c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, c.estudio_dicom_ref as dicom_ref,
+             c.estudio_series, c.estudio_estado::text as estudio_estado,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
              exists (
                select 1 from jsonb_array_elements(c.estudio_series) s
                where (s->>'frames')::int > 1
-             ) as cine_loop
+             ) as cine_loop,
+             -- Bandeja de Eco (§7A): propuesta VIGENTE para este caso (RLS es_docente_o_mas).
+             ep.id as eco_id, ep.nota_sugerida::float8 as eco_nota, ep.feedback_borrador as eco_feedback,
+             ep.confianza_score::float8 as eco_confianza, ep.clasificacion::text as eco_clasificacion,
+             ep.detalle as eco_detalle
       from lxp.bitacora_casos c
       join lxp.perfiles a on a.user_id = c.id_alumno
       left join lxp.modulos m on m.id = c.modulo_id
+      left join lxp.eco_propuestas ep
+        on ep.objeto_tipo = 'caso' and ep.objeto_id = c.id and ep.estado = 'propuesta'
       where c.estado_validacion = 'pendiente'
       order by c.created_at asc`;
 
     const ahora = Date.now();
     return rows.map((r) => ({
       id: r.id,
+      grupoId: r.grupo_id,
       alumno: r.alumno,
       iniciales: iniciales(r.alumno),
       organo: r.organo,
@@ -202,6 +294,8 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       tieneDicom: !!r.dicom_ref,
       series: r.series,
       cineLoop: r.cine_loop,
+      estudio: mapearEstudio(r.id, r.estudio_series, r.estudio_estado),
+      eco: mapearEco(r),
     }));
   });
 }
@@ -218,8 +312,9 @@ function notaAlumnoDe(contenido: unknown): string | null {
 export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
   return comoStaff(userId, async (sql) => {
     const rows = await sql<
-      {
+      ({
         id: string;
+        grupo_id: string | null;
         estado: EstadoEntrega;
         nota: number | null;
         eco_sugerida: boolean;
@@ -227,28 +322,37 @@ export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
         created_at: Date;
         alumno: string;
         actividad: string;
+        actividad_id: string;
         tipo: TipoActividad;
         leccion: string | null;
         modulo: string | null;
-      }[]
+      } & FilaEco)[]
     >`
-      select e.id, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
-             al.nombre as alumno, ac.titulo as actividad, ac.tipo,
-             l.nombre as leccion, m.nombre as modulo
+      select e.id, e.grupo_id, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
+             al.nombre as alumno, ac.titulo as actividad, ac.id as actividad_id, ac.tipo,
+             l.nombre as leccion, m.nombre as modulo,
+             -- Bandeja de Eco (§7A): propuesta VIGENTE para esta entrega (RLS es_docente_o_mas).
+             ep.id as eco_id, ep.nota_sugerida::float8 as eco_nota, ep.feedback_borrador as eco_feedback,
+             ep.confianza_score::float8 as eco_confianza, ep.clasificacion::text as eco_clasificacion,
+             ep.detalle as eco_detalle
       from lxp.entregas e
       join lxp.perfiles al on al.user_id = e.id_alumno
       join lxp.actividades ac on ac.id = e.actividad_id
       left join lxp.lecciones l on l.id = ac.leccion_id
       left join lxp.modulos m on m.id = l.modulo_id
+      left join lxp.eco_propuestas ep
+        on ep.objeto_tipo = 'entrega' and ep.objeto_id = e.id and ep.estado = 'propuesta'
       order by
         case e.estado when 'enviada' then 0 when 'pendiente' then 1 else 2 end,
         e.created_at asc`;
 
     return rows.map((r) => ({
       id: r.id,
+      grupoId: r.grupo_id,
       alumno: r.alumno,
       iniciales: iniciales(r.alumno),
       actividad: r.actividad,
+      actividadId: r.actividad_id,
       tipoActividad: r.tipo,
       leccion: r.leccion,
       modulo: r.modulo,
@@ -257,6 +361,7 @@ export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
       ecoSugerida: r.eco_sugerida,
       notaAlumno: notaAlumnoDe(r.contenido),
       creadoEn: r.created_at,
+      eco: mapearEco(r),
     }));
   });
 }

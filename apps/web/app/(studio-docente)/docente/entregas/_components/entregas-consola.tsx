@@ -6,18 +6,29 @@
  * las pre-califica Eco contra la rúbrica del diseñador y el docente confirma o ajusta.
  * Eco nunca asienta la nota solo (§7A) — aquí la nota se ASIENTA con `calificarEntrega`.
  *
- * REAL: la lista (RLS `es_staff`) y la calificación (update `entregas` bajo RLS).
- * PLACEHOLDER (Sprint 5.3): la nota sugerida y el sustento de Eco contra la rúbrica.
+ * CONECTADO (§7A · 5.3): la lista (RLS `es_staff`), la calificación (update `entregas`
+ * bajo RLS) y el PRE-ANÁLISIS de Eco: la propuesta se LEE de `lxp.eco_propuestas` (en
+ * `datos.ts`), se DISPARA con `analizarConEco` y se puede DESCARTAR con
+ * `descartarPropuestaEco`.
+ *
+ * NOTA de contrato (documentada · §13): Eco propone la nota en escala 0–100 y esta
+ * consola asienta en 0–10. Por eso mostramos la sugerencia de Eco convertida (≈ /10),
+ * prellenamos el campo, y el ASIENTO se hace aquí con `calificarEntrega` (0–10,
+ * `eco_sugerida=true`) — NO se enruta por el `confirmar` del api (evita el choque de
+ * escalas y la doble escritura). El cierre/loop de `eco_correcciones` en confirm de
+ * ENTREGAS queda como concern del api hasta reconciliar la escala.
+ *
  * Un solo color de atención: ÁMBAR para lo que espera lectura; violeta = Eco (§5A).
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, ClipboardCheck, Clock, Search, Sparkles, TriangleAlert } from 'lucide-react';
+import { Check, ClipboardCheck, Clock, Search, Sparkles, TriangleAlert, Wand2, X } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
 import type { EntregaRevision, EstadoEntrega } from '../../../_lib/contrato';
 import { calificarEntrega } from '../../../_lib/acciones';
+import { analizarConEco, descartarPropuestaEco } from '../../../_lib/eco.server';
 
 const ESTADO_LABEL: Record<EstadoEntrega, string> = {
   pendiente: 'Pendiente',
@@ -36,6 +47,12 @@ function metaEntrega(e: EntregaRevision): string {
   return [e.modulo, e.leccion].filter(Boolean).join(' · ');
 }
 
+/** Eco califica 0–100; la consola asienta 0–10. Convierte para prellenar el campo. */
+function notaEcoA10(nota100: number | null): string {
+  if (nota100 == null) return '';
+  return (Math.round((nota100 / 10) * 10) / 10).toFixed(1);
+}
+
 export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
   const router = useRouter();
   const [lista, setLista] = useState(entregas);
@@ -44,7 +61,9 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
   const [nota, setNota] = useState('');
   const [feedback, setFeedback] = useState('');
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ecoAviso, setEcoAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, startTransition] = useTransition();
+  const [ecoOcupado, startEco] = useTransition();
 
   useEffect(() => {
     setLista(entregas);
@@ -53,11 +72,15 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
 
   const seleccion = lista.find((e) => e.id === seleccionId) ?? null;
 
+  // Al cambiar de entrega: prellena la nota (la ya asentada, o la de Eco ≈/10) y el
+  // borrador de feedback de Eco (§7A) para que el docente edite.
   useEffect(() => {
-    setNota(seleccion?.nota != null ? String(seleccion.nota) : '');
-    setFeedback('');
+    if (!seleccion) return;
+    setNota(seleccion.nota != null ? String(seleccion.nota) : notaEcoA10(seleccion.eco?.notaSugerida ?? null));
+    setFeedback(seleccion.eco?.feedbackBorrador ?? '');
     setResultado(null);
-  }, [seleccionId, seleccion?.nota]);
+    setEcoAviso(null);
+  }, [seleccionId, seleccion?.nota, seleccion?.eco?.notaSugerida, seleccion?.eco?.feedbackBorrador]);
 
   const listaFiltrada = useMemo(() => {
     const q = filtro.trim().toLowerCase();
@@ -75,8 +98,9 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
       return;
     }
     const entregaId = seleccion.id;
+    const usoEco = !!seleccion.eco; // la nota se informó de una sugerencia de Eco (§7A)
     startTransition(async () => {
-      const r = await calificarEntrega({ entregaId, nota: n, feedback, ecoSugerida: false });
+      const r = await calificarEntrega({ entregaId, nota: n, feedback, ecoSugerida: usoEco });
       if (!r.ok) {
         setResultado({ ok: false, texto: r.error });
         return;
@@ -85,6 +109,38 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
       setLista((prev) =>
         prev.map((e) => (e.id === entregaId ? { ...e, estado: 'calificada', nota: n } : e)),
       );
+      router.refresh();
+    });
+  }
+
+  function analizar() {
+    if (!seleccion) return;
+    const grupoId = seleccion.grupoId;
+    const actividadId = seleccion.actividadId;
+    startEco(async () => {
+      const r = await analizarConEco({ grupoId, modo: 'entregas', actividadId });
+      if (!r.ok) {
+        setEcoAviso({ ok: false, texto: r.error });
+        return;
+      }
+      setEcoAviso({
+        ok: true,
+        texto: `Eco pre-analizó ${r.resumen?.total ?? 0} entrega(s): ${r.resumen?.listos ?? 0} listas · ${r.resumen?.requierenCriterio ?? 0} requieren tu criterio.`,
+      });
+      router.refresh();
+    });
+  }
+
+  function descartar() {
+    if (!seleccion?.eco) return;
+    const propuestaId = seleccion.eco.propuestaId;
+    startEco(async () => {
+      const r = await descartarPropuestaEco({ propuestaId, revalidar: '/docente/entregas' });
+      if (!r.ok) {
+        setEcoAviso({ ok: false, texto: r.error });
+        return;
+      }
+      setEcoAviso({ ok: true, texto: 'Sugerencia de Eco descartada. Califique con su criterio.' });
       router.refresh();
     });
   }
@@ -159,6 +215,18 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
                         {ESTADO_LABEL[e.estado]}
                       </span>
                       <span className="text-[10px] text-muted-foreground">{TIPO_LABEL[e.tipoActividad]}</span>
+                      {e.eco && (
+                        <span
+                          className={`inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[10px] font-bold ${
+                            e.eco.clasificacion === 'listo'
+                              ? 'bg-accent text-accent-foreground'
+                              : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                          }`}
+                        >
+                          <Sparkles aria-hidden className="h-2.5 w-2.5" strokeWidth={2} />
+                          {notaEcoA10(e.eco.notaSugerida)}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </button>
@@ -186,10 +254,35 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
                   {metaEntrega(seleccion) ? ` · ${metaEntrega(seleccion)}` : ''}
                 </p>
               </div>
-              <span className={`ml-auto ${mono} text-[11.5px] text-muted-foreground`}>
-                entregada {haceCuanto(seleccion.creadoEn)}
-              </span>
+              <button
+                type="button"
+                onClick={analizar}
+                disabled={ecoOcupado || !seleccion.grupoId}
+                title={seleccion.grupoId ? undefined : 'La entrega no tiene grupo asociado'}
+                className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white disabled:opacity-50 ${focusRing}`}
+              >
+                {ecoOcupado ? (
+                  <Clock aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Wand2 aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+                {seleccion.eco ? 'Re-analizar con Eco' : 'Analizar con Eco'}
+              </button>
             </div>
+
+            {ecoAviso && (
+              <div
+                role="status"
+                className={`mt-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 text-[12.5px] font-medium ${
+                  ecoAviso.ok
+                    ? 'border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+                    : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                }`}
+              >
+                <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+                <span>{ecoAviso.texto}</span>
+              </div>
+            )}
 
             {/* respuesta del alumno */}
             <section className="mt-5 rounded-xl border border-border bg-card p-[18px] shadow-rest">
@@ -199,23 +292,97 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
               </p>
             </section>
 
-            {/* Eco — pre-calificación (placeholder) */}
-            <section className="mt-4 rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest" style={{ background: '#fbfbff' }}>
-              <div className="flex items-center gap-2.5">
-                <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
-                  <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                </span>
-                <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-calificación de Eco</p>
-                <span className="ml-auto inline-flex h-[22px] items-center rounded-full border border-border bg-card px-2 text-[10px] font-bold text-muted-foreground">
-                  Demostración
-                </span>
-              </div>
-              <p className={`mt-3 text-[12.5px] leading-relaxed ${softText}`}>
-                {seleccion.tipoActividad === 'autoevaluacion'
-                  ? 'Las autoevaluaciones se autocalifican por opción múltiple. Al conectar Eco verá el acierto por pregunta para auditar y liberar.'
-                  : 'Al conectarse, Eco compara la respuesta contra la rúbrica del diseñador y sugiere nota + comentario. Usted confirma o ajusta — nada se asienta sin usted.'}
-              </p>
-            </section>
+            {/* Eco — pre-calificación (real · §7A) */}
+            {seleccion.eco ? (
+              <section className="mt-4 rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest" style={{ background: '#fbfbff' }}>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
+                    <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  </span>
+                  <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-calificación de Eco</p>
+                  <span
+                    className={`inline-flex h-[22px] items-center rounded-full px-2 text-[10.5px] font-bold ${
+                      seleccion.eco.clasificacion === 'listo'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                    }`}
+                  >
+                    {seleccion.eco.clasificacion === 'listo' ? 'Lista para confirmar' : 'Requiere tu criterio'}
+                  </span>
+                  <span className={`ml-auto ${mono} text-[11.5px] text-muted-foreground`}>
+                    confianza {Math.round(seleccion.eco.confianza * 100)}%
+                  </span>
+                </div>
+
+                {seleccion.eco.notaSugerida != null && (
+                  <p className="mt-3 flex items-baseline gap-2">
+                    <span className={`${mono} text-[22px] font-extrabold text-secondary`}>
+                      {notaEcoA10(seleccion.eco.notaSugerida)}
+                    </span>
+                    <span className="text-[11.5px] text-muted-foreground">
+                      / 10 sugerida por Eco ({Math.round(seleccion.eco.notaSugerida)}/100 contra la rúbrica)
+                    </span>
+                  </p>
+                )}
+
+                {seleccion.eco.criterios.length > 0 && (
+                  <ul className="mt-3 space-y-1.5">
+                    {seleccion.eco.criterios.map((cr, i) => (
+                      <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                        <span className={`${mono} mt-0.5 shrink-0 font-bold text-secondary`}>{Math.round(cr.puntaje)}</span>
+                        <span className={softText}>
+                          <span className="font-semibold text-foreground">{cr.criterio}</span>
+                          {cr.comentario ? ` — ${cr.comentario}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {seleccion.eco.omisiones.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {seleccion.eco.omisiones.map((o, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--warning-foreground)]"
+                      >
+                        Omisión: {o}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11.5px] leading-snug text-muted-foreground">
+                    Eco propone contra la rúbrica del diseñador; usted confirma o ajusta abajo. Nada se
+                    asienta sin usted.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={descartar}
+                    disabled={ecoOcupado}
+                    className={`inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-border bg-card px-2.5 text-[11.5px] font-bold text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50 ${focusRing}`}
+                  >
+                    <X aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+                    Descartar sugerencia
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <section className="mt-4 rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest" style={{ background: '#fbfbff' }}>
+                <div className="flex items-center gap-2.5">
+                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
+                    <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  </span>
+                  <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-calificación de Eco</p>
+                </div>
+                <p className={`mt-3 text-[12.5px] leading-relaxed ${softText}`}>
+                  {seleccion.tipoActividad === 'autoevaluacion'
+                    ? 'Las autoevaluaciones se autocalifican por opción múltiple. Pídele a Eco que pre-analice el lote para auditar el acierto por pregunta.'
+                    : 'Aún sin pre-analizar. Pulse «Analizar con Eco» para que compare la respuesta contra la rúbrica y sugiera nota + comentario. Usted confirma o ajusta.'}
+                </p>
+              </section>
+            )}
 
             {/* calificar */}
             <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">

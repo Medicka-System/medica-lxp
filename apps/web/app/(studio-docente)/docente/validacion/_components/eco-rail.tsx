@@ -1,11 +1,15 @@
 'use client';
 
 /**
- * Eco — rail colapsable de la validación (PLACEHOLDER · §7A). Colapsado es una cinta
- * de 56px; abierto, un panel con el encuadre "propone · usted firma" y un chat de
- * demostración. El pre-análisis real (comparar la respuesta del alumno contra la
- * verdad del caso, veredicto, nota y borrador) lo construye la infra de Eco en
- * apps/api (Sprint 5.3). Aquí queda el hueco listo y cableable a POST /ai/eco.
+ * Eco — rail colapsable de la validación (§7A). Colapsado es una cinta de 56px; abierto,
+ * un panel con el encuadre "propone · usted firma" y un chat de demostración.
+ *
+ * IMPORTANTE (contrato · §13): el pre-análisis EN LOTE de Eco YA está conectado —
+ * se lee de `lxp.eco_propuestas` y se dispara/cierra desde la consola (`eco.server.ts`).
+ * Este chat es CONVERSACIONAL ("resume el Grupo B", "redacta feedback"), y para eso
+ * `apps/api` NO expone endpoint todavía (solo el pipeline en lote: /ai/lote,
+ * /ai/propuestas/:id/confirmar|descartar, /ai/indexar, /ai/config). Por eso el chat
+ * sigue en modo demostración: se conectará cuando exista el endpoint conversacional.
  */
 
 import { useState } from 'react';
@@ -44,7 +48,7 @@ export function EcoRailValidacion({
       {
         id: idE,
         de: 'eco',
-        texto: `Eco (demostración): «${t}». El pre-análisis real —contra la verdad del caso, con veredicto y borrador— llega al conectar la infra de Eco (apps/api · RAG). Usted siempre firma.`,
+        texto: `Eco (demostración): «${t}». El pre-análisis EN LOTE ya está conectado (botón «Analizar con Eco» de cada caso). El CHAT conversacional se activará cuando apps/api exponga su endpoint; hoy solo corre el pipeline en lote. Usted siempre firma.`,
       },
     ]);
     setN(idE);
