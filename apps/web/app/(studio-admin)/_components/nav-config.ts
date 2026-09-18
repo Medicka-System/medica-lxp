@@ -24,6 +24,7 @@ export const SECCIONES: SeccionAdmin[] = [
   { id: 'grupos', etiqueta: 'Grupos', href: '/admin/grupos' },
   { id: 'programas', etiqueta: 'Programas', href: '/admin/programas' },
   { id: 'analitica', etiqueta: 'Analítica', href: '/admin/analitica' },
+  { id: 'anuncios', etiqueta: 'Anuncios', href: '/admin/anuncios' },
 ];
 
 /** Secciones aún sin ruta (se muestran deshabilitadas para señalar el mapa y el RBAC). */
