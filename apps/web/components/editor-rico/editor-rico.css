@@ -1,0 +1,214 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   EditorRico — estilo del lienzo y del contenido renderizado (§5A).
+   Todo sale de tokens semánticos (var(--…)), sin hex, así el contenido hereda el
+   MODO LECTURA (claro/sepia/oscuro) sin tocar nada: al vivir dentro de un
+   contenedor [data-tema-lectura], las variables ya vienen reescritas.
+   Prefijo `er-`/`.editor-rico-prose` para no colisionar con utilidades globales.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import 'katex/dist/katex.min.css';
+
+/* ── Contenido (prosa) — compartido por edición y lectura ── */
+.editor-rico-prose {
+  color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+.editor-rico-prose > :first-child {
+  margin-top: 0;
+}
+.editor-rico-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.editor-rico-prose h1 {
+  font-size: 1.55em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 1.4em 0 0.5em;
+}
+.editor-rico-prose h2 {
+  font-size: 1.28em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 1.3em 0 0.45em;
+}
+.editor-rico-prose h3 {
+  font-size: 1.1em;
+  font-weight: 700;
+  margin: 1.15em 0 0.4em;
+}
+.editor-rico-prose p {
+  margin: 0.7em 0;
+}
+.editor-rico-prose ul,
+.editor-rico-prose ol {
+  margin: 0.7em 0;
+  padding-left: 1.5em;
+}
+.editor-rico-prose ul {
+  list-style: disc;
+}
+.editor-rico-prose ol {
+  list-style: decimal;
+}
+.editor-rico-prose li {
+  margin: 0.25em 0;
+}
+.editor-rico-prose li > p {
+  margin: 0.2em 0;
+}
+.editor-rico-prose a {
+  color: var(--secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.editor-rico-prose strong {
+  font-weight: 700;
+}
+.editor-rico-prose mark {
+  background: var(--warning-surface);
+  color: var(--warning-foreground);
+  padding: 0.05em 0.2em;
+  border-radius: 4px;
+}
+.editor-rico-prose blockquote {
+  border-left: 3px solid var(--primary);
+  margin: 1em 0;
+  padding: 0.15em 0 0.15em 1em;
+  color: var(--foreground-soft);
+}
+.editor-rico-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.editor-rico-prose pre {
+  background: var(--sidebar);
+  color: var(--sidebar-foreground);
+  border-radius: var(--radius-control);
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.editor-rico-prose pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: 0.85em;
+}
+.editor-rico-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+/* Imágenes */
+.editor-rico-prose img,
+.editor-rico-prose .er-imagen {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-control);
+  margin: 0.8em 0;
+}
+.editor-rico-prose img.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Embeds (YouTube) */
+.editor-rico-prose .er-embed,
+.editor-rico-prose div[data-youtube-video] {
+  margin: 1em 0;
+}
+.editor-rico-prose div[data-youtube-video] iframe,
+.editor-rico-prose iframe {
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: auto;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+/* Tablas */
+.editor-rico-prose table,
+.editor-rico-prose .er-tabla {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  overflow: hidden;
+  table-layout: fixed;
+}
+.editor-rico-prose th,
+.editor-rico-prose td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.7em;
+  text-align: left;
+  vertical-align: top;
+  position: relative;
+}
+.editor-rico-prose th {
+  background: var(--muted);
+  font-weight: 700;
+}
+/* Celda seleccionada y asas de columna del editor de tablas de ProseMirror. */
+.editor-rico-prose .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  pointer-events: none;
+}
+.editor-rico-prose .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--primary);
+  cursor: col-resize;
+}
+
+/* Fórmulas KaTeX */
+.editor-rico-prose .tiptap-mathematics-render {
+  padding: 0 0.15em;
+}
+.editor-rico-prose .tiptap-mathematics-render[data-type='block-math'] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+.editor-rico-prose .tiptap-mathematics-render--editable {
+  cursor: pointer;
+  border-radius: 5px;
+}
+.editor-rico-prose .tiptap-mathematics-render--editable:hover {
+  background: var(--accent);
+}
+
+/* ── Lienzo editable (ProseMirror) ── */
+.editor-rico-lienzo .ProseMirror {
+  outline: none;
+  min-height: var(--er-min-alto, 260px);
+}
+.editor-rico-lienzo .ProseMirror :where(.tableWrapper) {
+  overflow-x: auto;
+}
+
+/* Placeholder pintado en React (no hay extensión de placeholder · §3). */
+.editor-rico-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--placeholder);
+  pointer-events: none;
+  user-select: none;
+}

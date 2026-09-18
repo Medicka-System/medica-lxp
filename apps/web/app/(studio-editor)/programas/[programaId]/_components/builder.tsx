@@ -398,9 +398,10 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                   })}
                 </div>
                 <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
-                  El editor a fondo de cada bloque —subir el loop, armar el H5P, escribir las
-                  preguntas— se abrirá desde el propio bloque (próximamente). Aquí defines el
-                  esqueleto y el orden.
+                  El editor a fondo de cada bloque se abre desde el propio bloque: la{' '}
+                  <span className="font-semibold text-foreground">Teoría</span> ya abre su editor de
+                  contenido rico con «Editar»; el resto —subir el loop, armar el H5P, escribir las
+                  preguntas— llega pronto. Aquí defines el esqueleto y el orden.
                 </p>
               </div>
             </>
@@ -695,6 +696,16 @@ function BloqueFila({
       <span className={`${mono} shrink-0 whitespace-nowrap text-[11.5px] text-muted-foreground`}>
         {bloque.meta}
       </span>
+      {bloque.tipo === 'teoria' && bloque.fuente === 'contenido' && (
+        <Link
+          href={`/teoria/${bloque.id}`}
+          aria-label={`Editar la teoría de ${bloque.titulo}`}
+          className={`inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+        >
+          <Pencil aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Editar
+        </Link>
+      )}
       <button
         type="button"
         aria-label={`Eliminar bloque ${bloque.titulo}`}
