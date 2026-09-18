@@ -11,6 +11,7 @@ export const QUEUE_OTORGAR_BADGES = 'otorgar-badges' as const;
 export const QUEUE_PROCESAR_DICOM = 'procesar-dicom' as const;
 export const QUEUE_INDEXAR_RAG = 'indexar-rag' as const;
 export const QUEUE_ECO_EVALUACION = 'eco-evaluacion' as const;
+export const QUEUE_INGESTA_GRABACION_ZOOM = 'ingesta-grabacion-zoom' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -75,6 +76,32 @@ export interface EcoEvaluacionJob {
   actividadId?: string;
   /** Qué pre-analizar: entregas de una actividad o casos de bitácora del grupo. */
   modo: 'entregas' | 'casos';
+}
+
+/**
+ * Job `ingesta-grabacion-zoom` (§8, job #3 · Sprint 6). El `api` lo encola al recibir
+ * el webhook `recording.completed` de Zoom (firma ya validada). El `worker` DESCARGA
+ * la grabación de Zoom (URL temporal + token) → la SUBE a object storage con la URL
+ * firmada que provee el `api` (el worker no firma) → marca la fila de videoteca como
+ * `listo` y emite xAPI de disponibilidad. Las grabaciones NO se quedan en Zoom Cloud (§9).
+ */
+export interface IngestaGrabacionZoomJob {
+  /** Fila de `lxp.videoteca` creada por el webhook (estado `procesando`). */
+  videotecaId: string;
+  /** Clase de `lxp.clases` a la que pertenece la grabación (grupo/lección). */
+  claseId: string;
+  /** Clave destino de la grabación en object storage. */
+  refDestino: string;
+  /** URL de DESCARGA de la grabación en Zoom (temporal). */
+  urlDescargaZoom: string;
+  /** Token `download_token` de Zoom para autenticar la descarga (si aplica). */
+  tokenDescarga?: string;
+  /** URL firmada de ESCRITURA del destino en object storage (el api la firma). */
+  urlSubidaDestino: string;
+  /** `user_id` del docente de la clase (actor del statement de disponibilidad). */
+  docenteId?: string;
+  /** Nombre de la clase, para el statement xAPI. */
+  titulo?: string;
 }
 
 /** Reintentos/backoff de los jobs de dominio (§8). */

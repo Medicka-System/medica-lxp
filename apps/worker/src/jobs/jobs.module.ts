@@ -8,8 +8,9 @@ import { OtorgarBadgesWorker } from './otorgar-badges.worker';
 import { ProcesarDicomWorker } from './procesar-dicom.worker';
 import { IndexarRagWorker } from './indexar-rag.worker';
 import { EcoEvaluacionWorker } from './eco-evaluacion.worker';
+import { IngestaGrabacionZoomWorker } from './ingesta-grabacion-zoom.worker';
 
-/** Consumidores BullMQ del dominio (§8, jobs 2, 4-9 y 10-11 de Eco). */
+/** Consumidores BullMQ del dominio (§8, jobs 2-11). */
 @Module({
   providers: [
     CalculoCompetenciaWorker,
@@ -21,6 +22,7 @@ import { EcoEvaluacionWorker } from './eco-evaluacion.worker';
     ProcesarDicomWorker,
     IndexarRagWorker,
     EcoEvaluacionWorker,
+    IngestaGrabacionZoomWorker,
   ],
 })
 export class JobsModule {}
