@@ -79,6 +79,28 @@ export type Hotspot = {
   descripcion?: string;
 };
 
+/** Tipo de paquete de contenido empaquetado (Articulate y compatibles). */
+export type TipoPaquete = 'scorm12' | 'scorm2004' | 'xapi';
+
+/** Estado de un paquete subido a lo largo de la ingesta (descompresión + manifiesto). */
+export type EstadoPaquete = 'sin_subir' | 'procesando' | 'listo' | 'error';
+
+/**
+ * Paquete SCORM/xAPI. La descompresión (adm-zip) y el parseo del manifiesto
+ * (fast-xml-parser: `imsmanifest.xml` / `tincan.xml`) ocurren en `apps/api` — este bloque
+ * solo sube el .zip y reproduce el lanzador servido.
+ */
+export type PaqueteContenido = {
+  id?: string;
+  tipo?: TipoPaquete;
+  titulo?: string;
+  estado?: EstadoPaquete;
+  /** URL del lanzador servido por la API (iframe). `null` hasta que esté listo. */
+  lanzadorUrl?: string | null;
+  /** Mensaje de error de ingesta, si `estado === 'error'`. */
+  error?: string;
+};
+
 /**
  * Resuelve una URL firmada de media (GET /media/url). PENDIENTE DE API: mientras no
  * exista el servicio, devuelve null y el bloque muestra su estado de "media pendiente".
