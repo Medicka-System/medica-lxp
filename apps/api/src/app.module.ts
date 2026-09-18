@@ -8,6 +8,7 @@ import { HitosModule } from './hitos/hitos.module';
 import { CertificadosModule } from './certificados/certificados.module';
 import { BadgesModule } from './badges/badges.module';
 import { HerenciaModule } from './herencia/herencia.module';
+import { PublicacionModule } from './publicacion/publicacion.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { HerenciaModule } from './herencia/herencia.module';
     CertificadosModule,
     BadgesModule,
     HerenciaModule,
+    PublicacionModule,
   ],
 })
 export class AppModule {}
