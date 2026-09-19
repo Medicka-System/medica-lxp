@@ -20,6 +20,7 @@ import {
   Check,
   CheckCircle2,
   ClipboardList,
+  Eye,
   Loader2,
   Minus,
   Moon,
@@ -60,7 +61,21 @@ function esTema(v: string | null): v is Tema {
   return v === 'claro' || v === 'sepia' || v === 'oscuro';
 }
 
-export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
+export function LectorLeccion({
+  leccion,
+  preview = false,
+}: {
+  leccion: LeccionCompleta;
+  /**
+   * Modo VISTA PREVIA para staff (§5B): mismo render que ve el alumno, pero navega
+   * entre lecciones por la ruta de preview (que no exige `publicado`), no registra
+   * progreso y sale de vuelta al builder. El alumno real nunca lo usa.
+   */
+  preview?: boolean;
+}) {
+  // Base de navegación: en preview las vecinas van por la ruta de staff (que sí ve
+  // borradores); en el campus, por la ruta normal del alumno.
+  const baseLeccion = preview ? '/studio/preview/leccion' : '/leccion';
   const [tema, setTema] = useState<Tema>('claro');
   const [fs, setFs] = useState<number>(FS_DEFECTO);
   const [completada, setCompletada] = useState(leccion.completada);
@@ -98,12 +113,12 @@ export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
       {/* ══ Header en tono ══ */}
       <header className="sticky top-0 z-10 flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-card px-4 sm:px-6">
         <Link
-          href={`/cursos`}
-          aria-label="Salir de la lección"
+          href={preview ? `/studio/programas/${leccion.contexto.programaId}` : `/cursos`}
+          aria-label={preview ? 'Salir de la vista previa' : 'Salir de la lección'}
           className="inline-flex h-10 items-center gap-2 rounded-control px-2.5 text-[13px] font-semibold text-foreground-soft transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <X className="h-[19px] w-[19px]" strokeWidth={1.75} />
-          <span className="hidden sm:inline">Salir</span>
+          <span className="hidden sm:inline">{preview ? 'Salir de la vista previa' : 'Salir'}</span>
         </Link>
 
         <div className="min-w-0 flex-1 text-center">
@@ -164,6 +179,16 @@ export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
         </div>
       </header>
 
+      {/* ══ Aviso de vista previa (solo staff) ══ */}
+      {preview && (
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-2 text-center">
+          <Eye className="h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+          <p className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
+            Vista previa como alumno · el alumno real solo lo verá cuando publiques. No se registra progreso.
+          </p>
+        </div>
+      )}
+
       {/* ══ Cuerpo ══ */}
       <div className="flex-1">
         <article className="mx-auto w-full max-w-[760px] px-5 py-10 sm:px-8">
@@ -201,7 +226,7 @@ export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               {leccion.anterior ? (
                 <Link
-                  href={`/leccion/${leccion.anterior.id}`}
+                  href={`${baseLeccion}/${leccion.anterior.id}`}
                   className="inline-flex h-11 items-center gap-2 rounded-control border border-border bg-card px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent"
                 >
                   <ArrowLeft className="h-[17px] w-[17px]" strokeWidth={1.75} />
@@ -211,7 +236,12 @@ export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
                 <span />
               )}
 
-              {completada ? (
+              {preview ? (
+                <span className="inline-flex h-11 items-center gap-2 rounded-control border border-dashed border-border px-5 text-[13px] font-semibold text-muted-foreground">
+                  <Eye className="h-[17px] w-[17px]" strokeWidth={1.75} />
+                  Vista previa
+                </span>
+              ) : completada ? (
                 <span className="inline-flex h-11 items-center gap-2 rounded-control bg-accent px-5 text-[13.5px] font-bold text-accent-foreground">
                   <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={2} />
                   Lección completada
@@ -230,7 +260,7 @@ export function LectorLeccion({ leccion }: { leccion: LeccionCompleta }) {
 
               {leccion.siguiente ? (
                 <Link
-                  href={`/leccion/${leccion.siguiente.id}`}
+                  href={`${baseLeccion}/${leccion.siguiente.id}`}
                   className="inline-flex h-11 items-center gap-2 rounded-control bg-secondary px-4 text-[13px] font-semibold text-secondary-foreground transition-colors hover:opacity-90"
                 >
                   <span className="max-w-[160px] truncate">{leccion.siguiente.nombre}</span>

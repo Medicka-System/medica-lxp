@@ -47,7 +47,7 @@ import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/e
 import { haceCuanto } from '@/lib/format';
 import type { Bloque, Modulo, ProgramaBuilder, TipoBloque } from '@/lib/studio/datos';
 import {
-  actualizarHorasModulo,
+  actualizarHorasLeccion,
   crearBloque,
   crearLeccion,
   crearModulo,
@@ -57,12 +57,17 @@ import {
   moverBloque,
   moverLeccion,
   moverModulo,
-  publicarPrograma,
   renombrarBloque,
   renombrarLeccion,
   renombrarModulo,
   renombrarPrograma,
 } from '@/lib/studio/acciones';
+import {
+  obtenerHistorial,
+  obtenerVersionSnapshot,
+  publicarPrograma,
+  type VersionHistorial,
+} from '@/lib/studio/publicacion-acciones';
 
 /* ───────────────────────── Config visual de bloques ───────────────────────── */
 
@@ -132,6 +137,10 @@ function TextoEditable({
           }
         }}
         aria-label={ariaLabel}
+        // El texto SIEMPRE oscuro: el campo abre sobre `bg-card` (blanco) aunque el
+        // rótulo en reposo venga en claro (p.ej. el título del programa en el header
+        // navy usa `text-sidebar-foreground`). Inline gana al color del className.
+        style={{ color: 'var(--foreground)' }}
         className={`min-w-0 rounded-[7px] border border-secondary bg-card px-1.5 py-0.5 outline-none ${className ?? ''}`}
       />
     );
@@ -167,7 +176,9 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
     moduloInicial?.lecciones[0]?.id,
   );
   const [dialogo, setDialogo] = useState(false);
+  const [historial, setHistorial] = useState(false);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
+  const [errorPub, setErrorPub] = useState<string | null>(null);
 
   // Si la lección seleccionada desaparece (borrada), reselecciona una válida.
   const todasLecciones = modulos.flatMap((m) => m.lecciones);
@@ -187,6 +198,15 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const modulo = modulos.find((m) => m.lecciones.some((l) => l.id === leccionId));
   const leccion = modulo?.lecciones.find((l) => l.id === leccionId);
   const publicado = estado === 'publicado';
+
+  // Primera lección del programa (orden módulo → lección) para abrir la vista previa.
+  const primeraLeccion = todasLecciones[0];
+
+  /** Abre la vista previa como alumno del borrador en una pestaña nueva (solo staff). */
+  function abrirVistaPrevia() {
+    if (!primeraLeccion) return;
+    window.open(`/studio/preview/leccion/${primeraLeccion.id}`, '_blank', 'noopener,noreferrer');
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
@@ -228,15 +248,23 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           </span>
           <button
             type="button"
-            title="Vista previa como alumno (próximamente)"
-            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
+            onClick={abrirVistaPrevia}
+            disabled={!primeraLeccion}
+            title={
+              primeraLeccion
+                ? 'Ver el curso como lo verá el alumno (borrador · pestaña nueva)'
+                : 'Agrega una lección para previsualizar'
+            }
+            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${focusRingDark}`}
           >
             <Eye aria-hidden className="h-4 w-4" strokeWidth={1.75} />
             Vista previa
           </button>
           <button
             type="button"
-            onClick={() => router.refresh()}
+            // Cada edición ya se auto-guarda (server actions · web→Supabase). Este botón
+            // da feedback visible: relee el árbol y actualiza el indicador "guardado".
+            onClick={() => correr(async () => router.refresh())}
             className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
           >
             <Save aria-hidden className="h-4 w-4" strokeWidth={1.75} />
@@ -271,7 +299,8 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
         ))}
         <button
           type="button"
-          title="Historial de versiones (próximamente)"
+          onClick={() => setHistorial(true)}
+          title="Ver el historial de versiones publicadas"
           className={`ml-auto inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
         >
           <History aria-hidden className="h-4 w-4" strokeWidth={1.75} />
@@ -345,10 +374,31 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                   ariaLabel="Renombrar la lección"
                 />
               </h1>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+              <div className="mt-2.5 flex flex-wrap items-center gap-3">
                 <span className={`${mono} text-[12px] text-muted-foreground`}>
                   {leccion.bloques.length} bloques
                 </span>
+                <span aria-hidden className="h-3.5 w-px bg-border" />
+                {/* Las horas acumulables se definen AQUÍ, en la lección; el módulo y
+                    el programa las suman solos (mig 0022 · trigger). */}
+                <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <input
+                    key={leccion.id}
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    defaultValue={leccion.horas}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v !== leccion.horas) {
+                        correr(() => actualizarHorasLeccion(id, leccion.id, v));
+                      }
+                    }}
+                    aria-label={`Horas de la lección ${leccion.titulo}`}
+                    className={`h-7 w-16 rounded-[7px] border border-border bg-muted px-2 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+                  />
+                  horas de la lección
+                </label>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-2.5">
@@ -503,10 +553,37 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           version={version}
           onCerrar={() => setDialogo(false)}
           onConfirmar={() => {
-            correr(() => publicarPrograma(id, !publicado));
+            setErrorPub(null);
+            correr(async () => {
+              const r = await publicarPrograma(id, !publicado);
+              if (!r.ok) setErrorPub(r.error);
+            });
             setDialogo(false);
           }}
         />
+      )}
+
+      {/* ───── Modal de historial de versiones ───── */}
+      {historial && (
+        <ModalHistorial programaId={id} versionActual={version} onCerrar={() => setHistorial(false)} />
+      )}
+
+      {/* ───── Aviso de error de publicación (dominio no disponible / transición inválida) ───── */}
+      {errorPub && (
+        <div
+          role="alert"
+          className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-[11px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-4 py-3 shadow-lg"
+        >
+          <span className="text-[12.5px] font-semibold text-[color:var(--destructive-foreground)]">{errorPub}</span>
+          <button
+            type="button"
+            onClick={() => setErrorPub(null)}
+            aria-label="Cerrar aviso"
+            className={`grid h-6 w-6 place-items-center rounded-md text-[color:var(--destructive-foreground)] hover:bg-white/40 ${focusRing}`}
+          >
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -581,21 +658,6 @@ function ModuloArbol({
 
       {abierto && (
         <div className="mb-1.5 ml-[26px] mt-0.5 border-l-[1.5px] border-border pl-3">
-          <div className="flex items-center gap-2 px-2 pb-1 pt-1.5">
-            <input
-              type="number"
-              min={0}
-              defaultValue={modulo.horas}
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (v !== modulo.horas) correr(() => actualizarHorasModulo(programaId, modulo.id, v));
-              }}
-              aria-label={`Horas del módulo ${modulo.titulo}`}
-              className="h-7 w-16 rounded-[7px] border border-border bg-muted px-2 text-[12px] outline-none focus:border-secondary"
-            />
-            <span className="text-[11.5px] text-muted-foreground">horas del módulo</span>
-          </div>
-
           {modulo.lecciones.map((l, iL) => {
             const sel = l.id === leccionId;
             return (
@@ -852,6 +914,183 @@ function DialogoPublicar({
               )}
             </button>
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Modal de historial de versiones ───────────────────────── */
+
+/** Forma mínima del snapshot congelado que se muestra en el historial (§5B · api). */
+type SnapshotResumen = {
+  programa?: { nombre?: string };
+  modulos?: { nombre?: string; horas?: number; lecciones?: unknown[] }[];
+};
+
+function ModalHistorial({
+  programaId,
+  versionActual,
+  onCerrar,
+}: {
+  programaId: string;
+  versionActual: number;
+  onCerrar: () => void;
+}) {
+  const [versiones, setVersiones] = useState<VersionHistorial[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [seleccion, setSeleccion] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<SnapshotResumen | null>(null);
+  const [cargandoSnap, setCargandoSnap] = useState(false);
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
+  useEffect(() => {
+    let vivo = true;
+    obtenerHistorial(programaId)
+      .then((v) => {
+        if (!vivo) return;
+        setVersiones(v);
+        if (v[0]) seleccionar(v[0].version);
+      })
+      .catch(() => vivo && setError('No se pudo cargar el historial (¿está levantada la API?).'));
+    return () => {
+      vivo = false;
+    };
+  }, [programaId]);
+
+  function seleccionar(version: number) {
+    setSeleccion(version);
+    setSnapshot(null);
+    setCargandoSnap(true);
+    obtenerVersionSnapshot(programaId, version)
+      .then((s) => setSnapshot((s ?? {}) as SnapshotResumen))
+      .catch(() => setSnapshot(null))
+      .finally(() => setCargandoSnap(false));
+  }
+
+  const lecciones = (m: { lecciones?: unknown[] }) => (Array.isArray(m.lecciones) ? m.lecciones.length : 0);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Historial de versiones"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="flex max-h-[80vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-border px-6 pb-4 pt-6">
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} text-secondary`}>Versionado</p>
+            <h2 className="mt-2 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
+              Historial de versiones publicadas
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+          {/* Lista de versiones */}
+          <div className="min-h-0 overflow-y-auto border-r border-border p-3">
+            {error && <p className="px-2 py-3 text-[12.5px] text-destructive">{error}</p>}
+            {!error && versiones === null && (
+              <p className={`px-2 py-3 text-[12.5px] ${softText}`}>Cargando…</p>
+            )}
+            {!error && versiones?.length === 0 && (
+              <p className={`px-2 py-3 text-[12.5px] leading-relaxed ${softText}`}>
+                Aún no hay versiones publicadas. Al publicar el programa se congela la primera.
+              </p>
+            )}
+            {versiones?.map((v) => {
+              const sel = v.version === seleccion;
+              return (
+                <button
+                  key={v.version}
+                  type="button"
+                  onClick={() => seleccionar(v.version)}
+                  aria-current={sel ? 'true' : undefined}
+                  className={`mb-1 flex w-full items-center gap-2.5 rounded-[9px] p-2.5 text-left ${
+                    sel ? 'bg-accent shadow-[inset_0_0_0_1px_var(--primary)]' : 'hover:bg-muted'
+                  } ${focusRing}`}
+                >
+                  <span
+                    aria-hidden
+                    className={`${mono} grid h-[30px] w-[34px] shrink-0 place-items-center rounded-[9px] text-[11px] font-bold ${
+                      sel ? 'bg-primary text-[color:var(--sidebar)]' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    v{v.version}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-[12.5px] font-semibold leading-snug">Versión {v.version}</span>
+                      {v.version === versionActual && (
+                        <span className="inline-flex h-4 items-center rounded-full bg-accent px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-accent-foreground">
+                          actual
+                        </span>
+                      )}
+                    </span>
+                    <span className={`${mono} mt-0.5 block text-[10.5px] text-muted-foreground`}>
+                      {haceCuanto(new Date(v.publicadoEn))}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Detalle de la versión seleccionada */}
+          <div className="min-h-0 overflow-y-auto p-5">
+            {seleccion === null ? (
+              <p className={`text-[13px] ${softText}`}>Selecciona una versión para ver su contenido congelado.</p>
+            ) : cargandoSnap ? (
+              <p className={`text-[13px] ${softText}`}>Cargando la versión…</p>
+            ) : snapshot ? (
+              <>
+                <p className={`${kicker} text-muted-foreground`}>Snapshot congelado · v{seleccion}</p>
+                <h3 className="mt-1.5 text-[16px] font-bold tracking-[-0.01em]">
+                  {snapshot.programa?.nombre ?? 'Programa'}
+                </h3>
+                <p className={`${mono} mt-1 text-[11.5px] text-muted-foreground`}>
+                  {snapshot.modulos?.length ?? 0} módulos ·{' '}
+                  {(snapshot.modulos ?? []).reduce((s, m) => s + lecciones(m), 0)} lecciones
+                </p>
+                <ol className="mt-3.5 flex flex-col gap-1.5">
+                  {(snapshot.modulos ?? []).map((m, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-2.5 rounded-[9px] border border-border bg-card px-3 py-2.5"
+                    >
+                      <span className={`${mono} shrink-0 text-[11px] text-muted-foreground`}>
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                        {m.nombre ?? 'Módulo'}
+                      </span>
+                      <span className={`${mono} shrink-0 text-[11px] text-muted-foreground`}>
+                        {typeof m.horas === 'number' ? `${Math.round(m.horas)} h · ` : ''}
+                        {lecciones(m)} lecciones
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : (
+              <p className={`text-[13px] ${softText}`}>No se pudo cargar el snapshot de esta versión.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -85,7 +85,7 @@ export type Bloque = {
   orden: number;
 };
 
-export type Leccion = { id: string; titulo: string; orden: number; bloques: Bloque[] };
+export type Leccion = { id: string; titulo: string; orden: number; horas: number; bloques: Bloque[] };
 export type Modulo = {
   id: string;
   clave: string;
@@ -146,8 +146,8 @@ export async function getProgramaBuilder(
 
     const moduloIds = modulos.map((m) => m.id);
     const lecciones = moduloIds.length
-      ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number }[]>`
-          select id, modulo_id, nombre, orden from lxp.lecciones
+      ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number; horas: number }[]>`
+          select id, modulo_id, nombre, orden, horas::float8 as horas from lxp.lecciones
           where modulo_id in ${sql(moduloIds)} order by orden, created_at`
       : [];
 
@@ -202,6 +202,7 @@ export async function getProgramaBuilder(
         id: l.id,
         titulo: l.nombre,
         orden: l.orden,
+        horas: l.horas,
         bloques: bloquesPorLeccion.get(l.id) ?? [],
       });
       leccionesPorModulo.set(l.modulo_id, arr);

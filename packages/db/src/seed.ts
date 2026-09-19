@@ -164,28 +164,31 @@ async function seed(sql: Sql): Promise<void> {
       returning id`,
   );
 
+  // Las horas se definen POR LECCIÓN (mig 0022); el módulo las SUMA solo (trigger).
+  // Se dejan las horas del módulo en 0: el trigger las recalcula al insertar lecciones.
   const m1 = first(
     await sql<{ id: string }[]>`
-      insert into lxp.modulos (programa_id, nombre, orden, horas)
-      values (${programa.id}, 'Fundamentos y física', 1, 8) returning id`,
+      insert into lxp.modulos (programa_id, nombre, orden)
+      values (${programa.id}, 'Fundamentos y física', 1) returning id`,
   );
   const m2 = first(
     await sql<{ id: string }[]>`
-      insert into lxp.modulos (programa_id, nombre, orden, horas)
-      values (${programa.id}, 'Abdomen y FAST', 2, 12) returning id`,
+      insert into lxp.modulos (programa_id, nombre, orden)
+      values (${programa.id}, 'Abdomen y FAST', 2) returning id`,
   );
 
+  // Horas por lección → el módulo 1 suma 8 h (4+4) y el módulo 2 suma 12 h.
   const l1 = first(
     await sql<{ id: string }[]>`
-      insert into lxp.lecciones (modulo_id, nombre, orden)
-      values (${m1.id}, 'Principios de la imagen', 1) returning id`,
+      insert into lxp.lecciones (modulo_id, nombre, orden, horas)
+      values (${m1.id}, 'Principios de la imagen', 1, 4) returning id`,
   );
   await sql`
-    insert into lxp.lecciones (modulo_id, nombre, orden)
-    values (${m1.id}, 'Artefactos', 2)`;
+    insert into lxp.lecciones (modulo_id, nombre, orden, horas)
+    values (${m1.id}, 'Artefactos', 2, 4)`;
   await sql`
-    insert into lxp.lecciones (modulo_id, nombre, orden)
-    values (${m2.id}, 'Protocolo FAST', 1)`;
+    insert into lxp.lecciones (modulo_id, nombre, orden, horas)
+    values (${m2.id}, 'Protocolo FAST', 1, 12)`;
 
   await sql`
     insert into lxp.contenidos (leccion_id, tipo, titulo, cuerpo, orden)
