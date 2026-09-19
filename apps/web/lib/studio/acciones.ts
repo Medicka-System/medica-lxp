@@ -6,6 +6,7 @@ import { requireAutoria } from '@/lib/studio/session';
 import { comoStaff } from '@/lib/db.server';
 import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
+import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 
 /**
  * Server actions del Studio de autoría (§5B). Son CRUD simple `web → Supabase`
@@ -298,13 +299,24 @@ export async function eliminarModulo(programaId: string, moduloId: string): Prom
 }
 
 // ── Lecciones ──────────────────────────────────────────────────────────────────
-export async function crearLeccion(programaId: string, moduloId: string): Promise<void> {
+/**
+ * Crea una lección con su TIPO (§5C · mig 0023). El tipo se elige en el selector al
+ * "Agregar lección" y decide qué editor la abre; su contenido vivirá en `bloques`
+ * (teoría) o en `lecciones.config` (resto). `config` arranca vacío ({}); lo llena el
+ * editor de cada tipo. CRUD directo bajo RLS (Regla de Oro §2).
+ */
+export async function crearLeccion(
+  programaId: string,
+  moduloId: string,
+  tipo: TipoLeccion = 'teoria',
+): Promise<void> {
   const { userId } = await requireAutoria();
+  const t = comoTipoLeccion(tipo); // normaliza el crudo del cliente al enum
   await comoStaff(userId, async (sql) => {
     await sql`
-      insert into lxp.lecciones (modulo_id, nombre, orden)
+      insert into lxp.lecciones (modulo_id, nombre, tipo, orden)
       values (
-        ${moduloId}, 'Lección sin título',
+        ${moduloId}, 'Lección sin título', ${t}::lxp.leccion_tipo,
         coalesce((select max(orden) + 1 from lxp.lecciones where modulo_id = ${moduloId}), 0)
       )`;
   });

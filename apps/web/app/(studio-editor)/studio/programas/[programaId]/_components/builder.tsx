@@ -25,73 +25,45 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  BookOpen,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   Eye,
-  FileCheck2,
   History,
-  MessageSquare,
   Pencil,
   Plus,
   Save,
-  SlidersHorizontal,
   Trash2,
   Upload,
-  Video,
   X,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
-import type { Bloque, Modulo, ProgramaBuilder, TipoBloque } from '@/lib/studio/datos';
+import type { Modulo, ProgramaBuilder } from '@/lib/studio/datos';
+import {
+  INFO_TIPO_LECCION,
+  TIPOS_LECCION,
+  type TipoLeccion,
+} from '@/lib/studio/leccion-tipos';
 import {
   actualizarHorasLeccion,
-  crearBloque,
   crearLeccion,
   crearModulo,
-  eliminarBloque,
   eliminarLeccion,
   eliminarModulo,
-  moverBloque,
   moverLeccion,
   moverModulo,
-  renombrarBloque,
   renombrarLeccion,
   renombrarModulo,
   renombrarPrograma,
 } from '@/lib/studio/acciones';
+import { EditorDeLeccion, VISUAL_TIPO } from './editores-leccion';
 import {
   obtenerHistorial,
   obtenerVersionSnapshot,
   publicarPrograma,
   type VersionHistorial,
 } from '@/lib/studio/publicacion-acciones';
-
-/* ───────────────────────── Config visual de bloques ───────────────────────── */
-
-const BLOQUE: Record<
-  TipoBloque,
-  { rotulo: string; corto: string; icono: typeof Video; clase: string }
-> = {
-  video: { rotulo: 'Contenido · Cine-loop', corto: 'Cine-loop o video', icono: Video, clase: 'bg-accent text-accent-foreground' },
-  teoria: { rotulo: 'Contenido · Teoría', corto: 'Teoría', icono: BookOpen, clase: 'bg-accent text-accent-foreground' },
-  h5p: { rotulo: 'Contenido · H5P', corto: 'H5P interactivo', icono: SlidersHorizontal, clase: 'bg-accent text-accent-foreground' },
-  autoevaluacion: {
-    rotulo: 'Autoevaluación',
-    corto: 'Autoevaluación',
-    icono: CheckCircle2,
-    clase: 'bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
-  },
-  tarea: {
-    rotulo: 'Tarea',
-    corto: 'Tarea',
-    icono: FileCheck2,
-    clase: 'bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]',
-  },
-  foro: { rotulo: 'Foro del grupo', corto: 'Foro del grupo', icono: MessageSquare, clase: 'bg-sidebar text-sidebar-foreground' },
-};
 
 /* ───────────────────────── Edición inline ───────────────────────── */
 
@@ -179,6 +151,8 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const [historial, setHistorial] = useState(false);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
   const [errorPub, setErrorPub] = useState<string | null>(null);
+  // Módulo al que se le está agregando una lección → abre el selector de tipo (§5C).
+  const [selectorModulo, setSelectorModulo] = useState<string | null>(null);
 
   // Si la lección seleccionada desaparece (borrada), reselecciona una válida.
   const todasLecciones = modulos.flatMap((m) => m.lecciones);
@@ -346,6 +320,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                   setAbierto((a) => (a.includes(m.id) ? a.filter((x) => x !== m.id) : [...a, m.id]))
                 }
                 onSeleccionarLeccion={setLeccionId}
+                onAgregarLeccion={setSelectorModulo}
                 correr={correr}
               />
             ))}
@@ -367,18 +342,17 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                 Módulo {modulo.clave} · {modulo.titulo} · Lección{' '}
                 {modulo.lecciones.findIndex((l) => l.id === leccion.id) + 1}
               </p>
-              <h1 className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
-                <TextoEditable
-                  valor={leccion.titulo}
-                  onGuardar={(v) => correr(() => renombrarLeccion(id, leccion.id, v))}
-                  ariaLabel="Renombrar la lección"
-                />
-              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+                  <TextoEditable
+                    valor={leccion.titulo}
+                    onGuardar={(v) => correr(() => renombrarLeccion(id, leccion.id, v))}
+                    ariaLabel="Renombrar la lección"
+                  />
+                </h1>
+                <ChipTipo tipo={leccion.tipo} />
+              </div>
               <div className="mt-2.5 flex flex-wrap items-center gap-3">
-                <span className={`${mono} text-[12px] text-muted-foreground`}>
-                  {leccion.bloques.length} bloques
-                </span>
-                <span aria-hidden className="h-3.5 w-px bg-border" />
                 {/* Las horas acumulables se definen AQUÍ, en la lección; el módulo y
                     el programa las suman solos (mig 0022 · trigger). */}
                 <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -401,58 +375,18 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                 </label>
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center gap-2.5">
-                <h2 className="text-[15px] font-bold tracking-[-0.01em]">Bloques de actividad</h2>
-                <span className="text-[12.5px] text-muted-foreground">
-                  Reordena con ↑/↓ sobre el asa; define aquí el esqueleto y el orden.
-                </span>
-              </div>
-
-              <ol className="mt-3.5 flex flex-col gap-2">
-                {leccion.bloques.map((b, i) => (
-                  <BloqueFila
-                    key={`${b.fuente}-${b.id}`}
-                    programaId={id}
-                    leccionId={leccion.id}
-                    bloque={b}
-                    indice={i}
-                    total={leccion.bloques.length}
-                    correr={correr}
-                  />
-                ))}
-              </ol>
-
-              {/* agregar bloque */}
-              <div className="mt-3.5 rounded-xl border-[1.5px] border-dashed border-[color:var(--track)] bg-card p-4">
-                <p className={`${kicker} text-muted-foreground`}>Agregar bloque</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(Object.keys(BLOQUE) as TipoBloque[]).map((t) => {
-                    const cfg = BLOQUE[t];
-                    const Icono = cfg.icono;
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => correr(() => crearBloque(id, leccion.id, t))}
-                        className={`inline-flex h-11 items-center gap-2.5 rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
-                      >
-                        <span
-                          aria-hidden
-                          className={`grid h-[26px] w-[26px] place-items-center rounded-lg ${cfg.clase}`}
-                        >
-                          <Icono className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                        </span>
-                        {cfg.corto}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
-                  El editor a fondo de cada bloque se abre desde el propio bloque: la{' '}
-                  <span className="font-semibold text-foreground">Teoría</span> ya abre su editor de
-                  contenido rico con «Editar»; el resto —subir el loop, armar el H5P, escribir las
-                  preguntas— llega pronto. Aquí defines el esqueleto y el orden.
-                </p>
+              {/* El builder detecta el tipo y muestra el editor de ese tipo (hoy un
+                  placeholder). Cada agente enchufa su editor en EDITORES_LECCION (§5C). */}
+              <div className="mt-5">
+                <EditorDeLeccion
+                  programaId={id}
+                  leccionId={leccion.id}
+                  tipo={leccion.tipo}
+                  titulo={leccion.titulo}
+                  config={leccion.config}
+                  bloques={leccion.bloques}
+                  correr={correr}
+                />
               </div>
             </>
           ) : (
@@ -568,6 +502,19 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
         <ModalHistorial programaId={id} versionActual={version} onCerrar={() => setHistorial(false)} />
       )}
 
+      {/* ───── Selector de tipo de la nueva lección (§5C) ───── */}
+      {selectorModulo && (
+        <SelectorTipoLeccion
+          onCerrar={() => setSelectorModulo(null)}
+          onElegir={(tipo) => {
+            const moduloId = selectorModulo;
+            setSelectorModulo(null);
+            setAbierto((a) => (a.includes(moduloId) ? a : [...a, moduloId]));
+            correr(() => crearLeccion(id, moduloId, tipo));
+          }}
+        />
+      )}
+
       {/* ───── Aviso de error de publicación (dominio no disponible / transición inválida) ───── */}
       {errorPub && (
         <div
@@ -600,6 +547,7 @@ function ModuloArbol({
   leccionId,
   onAlternar,
   onSeleccionarLeccion,
+  onAgregarLeccion,
   correr,
 }: {
   programaId: string;
@@ -610,6 +558,7 @@ function ModuloArbol({
   leccionId: string | undefined;
   onAlternar: () => void;
   onSeleccionarLeccion: (id: string) => void;
+  onAgregarLeccion: (moduloId: string) => void;
   correr: (accion: () => Promise<void>) => void;
 }) {
   return (
@@ -660,6 +609,7 @@ function ModuloArbol({
         <div className="mb-1.5 ml-[26px] mt-0.5 border-l-[1.5px] border-border pl-3">
           {modulo.lecciones.map((l, iL) => {
             const sel = l.id === leccionId;
+            const IconoTipo = VISUAL_TIPO[l.tipo].icono;
             return (
               <div
                 key={l.id}
@@ -677,6 +627,13 @@ function ModuloArbol({
                       : undefined
                   }
                 />
+                <span
+                  aria-hidden
+                  title={INFO_TIPO_LECCION[l.tipo].rotulo}
+                  className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md ${VISUAL_TIPO[l.tipo].clase}`}
+                >
+                  <IconoTipo className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                </span>
                 <button
                   type="button"
                   onClick={() => onSeleccionarLeccion(l.id)}
@@ -704,7 +661,7 @@ function ModuloArbol({
           })}
           <button
             type="button"
-            onClick={() => correr(() => crearLeccion(programaId, modulo.id))}
+            onClick={() => onAgregarLeccion(modulo.id)}
             className={`flex w-full items-center gap-1.5 rounded-[9px] p-2 text-left text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
           >
             <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.4} />
@@ -716,67 +673,91 @@ function ModuloArbol({
   );
 }
 
-/* ───────────────────────── Bloque (fila) ───────────────────────── */
+/* ───────────────────────── Chip de tipo de lección ───────────────────────── */
 
-function BloqueFila({
-  programaId,
-  leccionId,
-  bloque,
-  indice,
-  total,
-  correr,
-}: {
-  programaId: string;
-  leccionId: string;
-  bloque: Bloque;
-  indice: number;
-  total: number;
-  correr: (accion: () => Promise<void>) => void;
-}) {
-  const cfg = BLOQUE[bloque.tipo];
-  const Icono = cfg.icono;
+function ChipTipo({ tipo }: { tipo: TipoLeccion }) {
+  const info = INFO_TIPO_LECCION[tipo];
+  const { icono: Icono, clase } = VISUAL_TIPO[tipo];
   return (
-    <li className="flex items-center gap-3 rounded-[11px] border border-border bg-card px-3.5 py-3 transition-colors hover:border-primary">
-      <Asa
-        ariaLabel={`Reordenar bloque ${bloque.titulo}`}
-        onArriba={indice > 0 ? () => correr(() => moverBloque(programaId, leccionId, bloque.id, 'arriba')) : undefined}
-        onAbajo={indice < total - 1 ? () => correr(() => moverBloque(programaId, leccionId, bloque.id, 'abajo')) : undefined}
-      />
-      <span aria-hidden className={`grid h-9 w-9 shrink-0 place-items-center rounded-[10px] ${cfg.clase}`}>
-        <Icono className="h-[18px] w-[18px]" strokeWidth={1.75} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className={`${kicker} block tracking-[0.12em] text-muted-foreground`}>{cfg.rotulo}</span>
-        <span className="mt-1 block text-[13.5px] font-semibold leading-snug">
-          <TextoEditable
-            valor={bloque.titulo}
-            onGuardar={(v) => correr(() => renombrarBloque(programaId, bloque.fuente, bloque.id, v))}
-            ariaLabel="Renombrar el bloque"
-          />
-        </span>
-      </span>
-      <span className={`${mono} shrink-0 whitespace-nowrap text-[11.5px] text-muted-foreground`}>
-        {bloque.meta}
-      </span>
-      {bloque.tipo === 'teoria' && bloque.fuente === 'contenido' && (
-        <Link
-          href={`/studio/teoria/${bloque.id}`}
-          aria-label={`Editar la teoría de ${bloque.titulo}`}
-          className={`inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground ${focusRing}`}
-        >
-          <Pencil aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Editar
-        </Link>
-      )}
-      <button
-        type="button"
-        aria-label={`Eliminar bloque ${bloque.titulo}`}
-        onClick={() => correr(() => eliminarBloque(programaId, bloque.fuente, bloque.id))}
-        className={`grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-muted hover:text-destructive ${focusRing}`}
-      >
-        <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-      </button>
-    </li>
+    <span
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11.5px] font-bold ${clase}`}
+    >
+      <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+      {info.rotulo}
+    </span>
+  );
+}
+
+/* ───────────────────────── Selector de tipo de lección (§5C) ───────────────────────── */
+
+function SelectorTipoLeccion({
+  onCerrar,
+  onElegir,
+}: {
+  onCerrar: () => void;
+  onElegir: (tipo: TipoLeccion) => void;
+}) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Elige el tipo de la nueva lección"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="w-full max-w-[640px] overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-border px-6 pb-4 pt-6">
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} text-secondary`}>Nueva lección</p>
+            <h2 className="mt-2 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
+              ¿Qué tipo de lección?
+            </h2>
+            <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+              El tipo decide qué editor la construye. Se elige ahora y no cambia después.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5 p-5">
+          {TIPOS_LECCION.map((t) => {
+            const info = INFO_TIPO_LECCION[t];
+            const { icono: Icono, clase } = VISUAL_TIPO[t];
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => onElegir(t)}
+                className={`flex items-start gap-3 rounded-[12px] border border-border bg-card p-3.5 text-left transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
+              >
+                <span aria-hidden className={`grid h-9 w-9 shrink-0 place-items-center rounded-[10px] ${clase}`}>
+                  <Icono className="h-[18px] w-[18px]" strokeWidth={1.75} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-bold leading-snug">{info.rotulo}</span>
+                  <span className={`mt-0.5 block text-[11.5px] leading-relaxed ${softText}`}>
+                    {info.descripcion}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 

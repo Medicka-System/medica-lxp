@@ -7,6 +7,7 @@ import type {
   UsoRecurso,
 } from '@/lib/studio/contenido-contrato';
 import type { CasoEditor, CasoResumen, DominioIaim } from '@/lib/studio/casos-contrato';
+import { comoTipoLeccion, type BloqueTeoria, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 
 /**
  * Lecturas del Studio (autoría · §5B). TODAS corren con RLS vía `comoStaff`: las
@@ -72,20 +73,26 @@ export async function getProgramas(userId: string): Promise<ProgramaResumen[]> {
 }
 
 // ── Builder de un programa (árbol completo) ────────────────────────────────────
-/** Tipos de bloque del builder (§5B): contenido (video/teoría/H5P) + actividad. */
+/**
+ * Tipos de bloque del modelo VIEJO (contenidos/actividades). Se conserva solo para
+ * las acciones legacy de `acciones.ts` que aún tocan esas tablas (el reader del
+ * alumno las lee). El builder nuevo NO usa este tipo: cada lección tiene su `tipo`
+ * (`TipoLeccion`) y su contenido vive en `bloques` (teoría) o `config` (§5C · mig 0023).
+ */
 export type TipoBloque = 'video' | 'teoria' | 'h5p' | 'autoevaluacion' | 'tarea' | 'foro';
 
-/** Un bloque es una fila de `contenidos` O de `actividades`; se distinguen por `fuente`. */
-export type Bloque = {
+/** Una lección MONO-TIPO (§5C · mig 0023): su `tipo` decide qué editor la abre. */
+export type Leccion = {
   id: string;
-  fuente: 'contenido' | 'actividad';
-  tipo: TipoBloque;
   titulo: string;
-  meta: string;
   orden: number;
+  horas: number;
+  tipo: TipoLeccion;
+  /** Config de los tipos config-backed (video/autoeval/tarea/foro/h5p/xapi). {} en teoría. */
+  config: Record<string, unknown>;
+  /** Bloques ordenables de teoría (lxp.bloques). Vacío en tipos config-backed. */
+  bloques: BloqueTeoria[];
 };
-
-export type Leccion = { id: string; titulo: string; orden: number; horas: number; bloques: Bloque[] };
 export type Modulo = {
   id: string;
   clave: string;
@@ -104,16 +111,6 @@ export type ProgramaBuilder = {
   actualizado: Date;
   totales: { modulos: number; horas: number; lecciones: number; bloques: number };
   modulos: Modulo[];
-};
-
-/** contenido_tipo (BD) → tipo de bloque del builder. */
-const CONTENIDO_A_BLOQUE: Record<string, TipoBloque> = {
-  video: 'video',
-  texto: 'teoria',
-  h5p: 'h5p',
-  scorm: 'h5p',
-  xapi: 'h5p',
-  quiz: 'autoevaluacion',
 };
 
 export async function getProgramaBuilder(
@@ -146,54 +143,46 @@ export async function getProgramaBuilder(
 
     const moduloIds = modulos.map((m) => m.id);
     const lecciones = moduloIds.length
-      ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number; horas: number }[]>`
-          select id, modulo_id, nombre, orden, horas::float8 as horas from lxp.lecciones
+      ? await sql<
+          {
+            id: string;
+            modulo_id: string;
+            nombre: string;
+            orden: number;
+            horas: number;
+            tipo: string;
+            config: Record<string, unknown>;
+          }[]
+        >`
+          select id, modulo_id, nombre, orden, horas::float8 as horas,
+                 tipo::text as tipo, config
+          from lxp.lecciones
           where modulo_id in ${sql(moduloIds)} order by orden, created_at`
       : [];
 
     const leccionIds = lecciones.map((l) => l.id);
-    const contenidos = leccionIds.length
+    // Bloques de las lecciones tipo `teoria` (lxp.bloques · mig 0023). El resto de
+    // tipos guarda su contenido en `lecciones.config` (no hay filas aquí).
+    const bloques = leccionIds.length
       ? await sql<
-          { id: string; leccion_id: string; tipo: string; titulo: string; orden: number }[]
+          {
+            id: string;
+            leccion_id: string;
+            orden: number;
+            tipo_bloque: string;
+            config: Record<string, unknown>;
+          }[]
         >`
-          select id, leccion_id, tipo::text as tipo, titulo, orden from lxp.contenidos
-          where leccion_id in ${sql(leccionIds)} order by orden, created_at`
-      : [];
-    const actividades = leccionIds.length
-      ? await sql<
-          { id: string; leccion_id: string; tipo: string; titulo: string; orden: number }[]
-        >`
-          select id, leccion_id, tipo::text as tipo, titulo, orden from lxp.actividades
+          select id, leccion_id, orden, tipo_bloque, config from lxp.bloques
           where leccion_id in ${sql(leccionIds)} order by orden, created_at`
       : [];
 
-    // Ensambla bloques por lección (contenidos + actividades unidos por `orden`).
-    const bloquesPorLeccion = new Map<string, Bloque[]>();
-    for (const c of contenidos) {
-      const arr = bloquesPorLeccion.get(c.leccion_id) ?? [];
-      arr.push({
-        id: c.id,
-        fuente: 'contenido',
-        tipo: CONTENIDO_A_BLOQUE[c.tipo] ?? 'teoria',
-        titulo: c.titulo,
-        meta: metaContenido(c.tipo),
-        orden: c.orden,
-      });
-      bloquesPorLeccion.set(c.leccion_id, arr);
+    const bloquesPorLeccion = new Map<string, BloqueTeoria[]>();
+    for (const b of bloques) {
+      const arr = bloquesPorLeccion.get(b.leccion_id) ?? [];
+      arr.push({ id: b.id, orden: b.orden, tipoBloque: b.tipo_bloque, config: b.config ?? {} });
+      bloquesPorLeccion.set(b.leccion_id, arr);
     }
-    for (const a of actividades) {
-      const arr = bloquesPorLeccion.get(a.leccion_id) ?? [];
-      arr.push({
-        id: a.id,
-        fuente: 'actividad',
-        tipo: (a.tipo as TipoBloque) ?? 'tarea',
-        titulo: a.titulo,
-        meta: metaActividad(a.tipo),
-        orden: a.orden,
-      });
-      bloquesPorLeccion.set(a.leccion_id, arr);
-    }
-    for (const arr of bloquesPorLeccion.values()) arr.sort((x, y) => x.orden - y.orden);
 
     const leccionesPorModulo = new Map<string, Leccion[]>();
     for (const l of lecciones) {
@@ -203,6 +192,8 @@ export async function getProgramaBuilder(
         titulo: l.nombre,
         orden: l.orden,
         horas: l.horas,
+        tipo: comoTipoLeccion(l.tipo),
+        config: l.config ?? {},
         bloques: bloquesPorLeccion.get(l.id) ?? [],
       });
       leccionesPorModulo.set(l.modulo_id, arr);
@@ -217,7 +208,9 @@ export async function getProgramaBuilder(
       lecciones: leccionesPorModulo.get(m.id) ?? [],
     }));
 
-    const totalBloques = contenidos.length + actividades.length;
+    // "Bloques" del programa = bloques de teoría (lxp.bloques). Los tipos
+    // config-backed no aportan filas: su contenido vive en lecciones.config.
+    const totalBloques = bloques.length;
 
     return {
       id: prog.id,
@@ -746,21 +739,3 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
   }
 }
 
-function metaContenido(tipo: string): string {
-  return {
-    video: 'Cine-loop o video',
-    texto: 'Lectura',
-    h5p: 'H5P interactivo',
-    scorm: 'Paquete SCORM',
-    xapi: 'Paquete xAPI',
-    quiz: 'Quiz',
-  }[tipo] ?? 'Contenido';
-}
-
-function metaActividad(tipo: string): string {
-  return {
-    tarea: 'se acredita al validar',
-    autoevaluacion: 'autoevaluación',
-    foro: 'discusión cerrada del grupo',
-  }[tipo] ?? 'actividad';
-}
