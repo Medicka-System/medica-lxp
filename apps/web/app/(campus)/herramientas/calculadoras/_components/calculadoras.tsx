@@ -10,19 +10,12 @@ import { useState } from 'react';
 import { Baby, Calculator, Droplets, HeartPulse } from 'lucide-react';
 import { card, kicker, mono } from '@/components/tokens';
 import type { CalculadoraCatalogo } from '@/lib/campus/calculadoras-contrato';
-
-/** Redondea a `dec` decimales devolviendo número (evita -0). */
-function redondea(n: number, dec = 1): number {
-  const f = 10 ** dec;
-  return Math.round(n * f) / f + 0;
-}
-
-/** Convierte el input a número finito o null. */
-function num(v: string): number | null {
-  if (v.trim() === '') return null;
-  const n = Number(v.replace(',', '.'));
-  return Number.isFinite(n) ? n : null;
-}
+import {
+  aNumero as num,
+  edadGestacionalLcc,
+  feviTeichholz,
+  volumenVesical,
+} from '@/lib/campus/calculadoras-formulas';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 function fechaLarga(d: Date): string {
@@ -130,7 +123,7 @@ function VolumenVesical() {
   const [al, setAl] = useState('');
   const L = num(l), A = num(an), H = num(al);
   const ok = L !== null && A !== null && H !== null && L > 0 && A > 0 && H > 0;
-  const vol = ok ? redondea(0.52 * L! * A! * H!, 1) : null;
+  const vol = ok ? volumenVesical(L!, A!, H!) : null;
   const nota =
     vol === null
       ? undefined
@@ -161,24 +154,12 @@ function VolumenVesical() {
 
 /* ───────────────────── 2 · FEVI por Teichholz ───────────────────── */
 
-/** Volumen VI (mL) por Teichholz a partir del diámetro D (cm): 7·D³/(2.4+D). */
-function volTeichholz(d: number): number {
-  return (7 * d ** 3) / (2.4 + d);
-}
-
 function FraccionEyeccion() {
   const [dd, setDd] = useState('');
   const [ds, setDs] = useState('');
   const D = num(dd), S = num(ds);
-  const ok = D !== null && S !== null && D > 0 && S > 0 && S < D;
-  let fevi: number | null = null;
-  let edv = 0;
-  let esv = 0;
-  if (ok) {
-    edv = volTeichholz(D!);
-    esv = volTeichholz(S!);
-    fevi = redondea(((edv - esv) / edv) * 100, 0);
-  }
+  const calc = D !== null && S !== null ? feviTeichholz(D, S) : null;
+  const fevi = calc ? calc.fevi : null;
   const banda =
     fevi === null
       ? undefined
@@ -199,11 +180,11 @@ function FraccionEyeccion() {
         <Campo etiqueta="DVI diástole (DVITD)" unidad="cm" valor={dd} onChange={setDd} />
         <Campo etiqueta="DVI sístole (DVITS)" unidad="cm" valor={ds} onChange={setDs} />
       </div>
-      {fevi !== null && banda ? (
+      {calc && banda ? (
         <Resultado
-          valor={String(fevi)}
+          valor={String(calc.fevi)}
           unidad="%"
-          nota={`${banda.txt} · VDF ${redondea(edv, 0)} mL · VSF ${redondea(esv, 0)} mL.`}
+          nota={`${banda.txt} · VDF ${calc.vdf} mL · VSF ${calc.vsf} mL.`}
           tono={banda.tono}
         />
       ) : (
@@ -223,16 +204,14 @@ function EdadGestacional() {
   const [crl, setCrl] = useState('');
   const [fecha, setFecha] = useState('');
   const C = num(crl);
-  const ok = C !== null && C >= 2 && C <= 95;
-  // Robinson-Fleming (1975): días = 8.052·√LCC(mm) + 23.73.
-  const dias = ok ? 8.052 * Math.sqrt(C!) + 23.73 : null;
-  const semanas = dias !== null ? Math.floor(dias / 7) : null;
-  const restoDias = dias !== null ? Math.round(dias - semanas! * 7) : null;
+  const eg = C !== null ? edadGestacionalLcc(C) : null;
+  const semanas = eg ? eg.semanas : null;
+  const restoDias = eg ? eg.restoDias : null;
   let fpp: string | null = null;
-  if (dias !== null && fecha) {
+  if (eg && fecha) {
     const base = new Date(fecha + 'T00:00:00');
     if (!Number.isNaN(base.getTime())) {
-      const edd = new Date(base.getTime() + (280 - dias) * 86400000);
+      const edd = new Date(base.getTime() + (280 - eg.dias) * 86400000);
       fpp = fechaLarga(edd);
     }
   }
