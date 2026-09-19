@@ -132,6 +132,10 @@ function TextoEditable({
           }
         }}
         aria-label={ariaLabel}
+        // El texto SIEMPRE oscuro: el campo abre sobre `bg-card` (blanco) aunque el
+        // rótulo en reposo venga en claro (p.ej. el título del programa en el header
+        // navy usa `text-sidebar-foreground`). Inline gana al color del className.
+        style={{ color: 'var(--foreground)' }}
         className={`min-w-0 rounded-[7px] border border-secondary bg-card px-1.5 py-0.5 outline-none ${className ?? ''}`}
       />
     );
