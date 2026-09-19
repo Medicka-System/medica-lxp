@@ -8,7 +8,10 @@ import { CorreccionesService } from './correcciones/correcciones.service';
 import { MockProvider } from './proveedores/mock.proveedor';
 import { AnthropicProvider } from './proveedores/anthropic.proveedor';
 import { ProveedorFactory } from './proveedores/proveedor.factory';
+import { SimuladorController } from './simuladores/simulador.controller';
+import { SimuladorService } from './simuladores/simulador.service';
 import { TtsModule } from '../tts/tts.module';
+import { XapiModule } from '../xapi/xapi.module';
 
 /**
  * Eco — asistente de IA transversal (§4 `src/ai` · §7A). Todo el engine
@@ -17,11 +20,14 @@ import { TtsModule } from '../tts/tts.module';
  *   · adaptadores de LLM intercambiables (`ProveedorFactory`: mock/anthropic)
  *   · pipeline tools-first (`EvaluacionPipeline`) + RAG (`EmbeddingsService`)
  *   · cierre humano (`CorreccionesService`) — Eco propone, el docente decide.
- * Usa DbModule y ColasModule (globales). No reimplementa dominio de otros módulos.
+ *   · simuladores IA (`SimuladorService` · Sprint 7) — reusan el pipeline para
+ *     entrenar al alumno contra la verdad del caso; NO reconstruyen Eco.
+ * Usa DbModule y ColasModule (globales); importa XapiModule para emitir eventos de
+ * práctica. No reimplementa dominio de otros módulos.
  */
 @Module({
-  imports: [TtsModule],
-  controllers: [AiController],
+  imports: [TtsModule, XapiModule],
+  controllers: [AiController, SimuladorController],
   providers: [
     AiService,
     EcoConfigService,
@@ -31,6 +37,7 @@ import { TtsModule } from '../tts/tts.module';
     MockProvider,
     AnthropicProvider,
     ProveedorFactory,
+    SimuladorService,
   ],
   exports: [AiService, EcoConfigService],
 })
