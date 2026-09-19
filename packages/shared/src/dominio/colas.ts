@@ -2,6 +2,7 @@
  * Contratos de las colas de dominio (§8) — nombres y payloads compartidos entre el
  * productor (`api`) y los consumidores (`worker`), para no desincronizarse.
  */
+import type { TipoNotificacion } from './notificaciones';
 export const QUEUE_CALCULO_COMPETENCIA = 'calculo-competencia' as const;
 export const QUEUE_DETECCION_DECAIMIENTO = 'deteccion-decaimiento' as const;
 export const QUEUE_PROGRAMAR_REPASO = 'programar-repaso' as const;
@@ -13,6 +14,7 @@ export const QUEUE_INDEXAR_RAG = 'indexar-rag' as const;
 export const QUEUE_ECO_EVALUACION = 'eco-evaluacion' as const;
 export const QUEUE_INGESTA_GRABACION_ZOOM = 'ingesta-grabacion-zoom' as const;
 export const QUEUE_RENDER_TTS = 'render-tts' as const;
+export const QUEUE_NOTIFICACIONES = 'notificaciones' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -116,6 +118,32 @@ export interface IngestaGrabacionZoomJob {
 export interface RenderTtsJob {
   /** Fila de `lxp.tts_audios` a renderizar (creada por el `api`, estado `procesando`). */
   audioId: string;
+}
+
+/**
+ * Job `notificaciones` (§8, job #12 · Sprint 8.5). El productor (`api` en el flujo de
+ * validación; `worker` en hitos/certificados/badges/repaso; o web-originado vía el
+ * endpoint interno) encola un evento "para este usuario, de este tipo". El worker
+ * `notificaciones` aporta buffer/retry y dispara el DESPACHO llamando al `api` (patrón
+ * worker→servicio, igual que `eco-evaluacion`/`render-tts`): el motor lee la preferencia
+ * del usuario, inserta la fila in-app y envía por los canales opt-in (correo/WhatsApp).
+ *
+ * `titulo`/`cuerpo` son opcionales: si se omiten, el motor los deriva de la plantilla
+ * transaccional del `tipo` con `datos`. Los anuncios traen su texto ya redactado.
+ */
+export interface NotificacionJob {
+  /** Destinatario: `user_id` del perfil LXP (§6). */
+  userId: string;
+  tipo: TipoNotificacion;
+  /** Título corto (in-app + asunto de correo). Si falta, lo pone la plantilla. */
+  titulo?: string;
+  /** Cuerpo en texto plano. Si falta, lo pone la plantilla. */
+  cuerpo?: string;
+  /** Entidad que originó el evento, para el deep-link (ej. 'caso'/'certificado'). */
+  entidadTipo?: string;
+  entidadId?: string;
+  /** Datos para la plantilla (folio, nota, dominio…). Sin PII de paciente (§10). */
+  datos?: Record<string, unknown>;
 }
 
 /** Reintentos/backoff de los jobs de dominio (§8). */

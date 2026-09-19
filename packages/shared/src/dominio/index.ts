@@ -6,3 +6,4 @@ export * from './hitos';
 export * from './certificados';
 export * from './badges';
 export * from './colas';
+export * from './notificaciones';
