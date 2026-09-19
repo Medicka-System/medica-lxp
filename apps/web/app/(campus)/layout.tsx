@@ -1,5 +1,6 @@
 import { getSesionAlumno } from '@/lib/session';
 import { getShellData } from '@/lib/datos';
+import { contarNoLeidas } from '@/lib/campus/notificaciones-datos';
 import { CampusShell } from '@/components/campus/shell';
 
 /** Datos por usuario (RLS) → render dinámico, no estático. */
@@ -12,12 +13,16 @@ export const dynamic = 'force-dynamic';
  */
 export default async function CampusLayout({ children }: { children: React.ReactNode }) {
   const alumno = await getSesionAlumno();
-  const shell = await getShellData(alumno.userId);
+  const [shell, noLeidas] = await Promise.all([
+    getShellData(alumno.userId),
+    contarNoLeidas(alumno.userId),
+  ]);
 
   return (
     <CampusShell
       usuario={{ nombre: alumno.nombre, matricula: alumno.matricula }}
       casosPendientes={shell.casosPendientes}
+      noLeidas={noLeidas}
     >
       {children}
     </CampusShell>
