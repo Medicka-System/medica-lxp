@@ -5,7 +5,7 @@
   "description": "Next.js 16 — UI, PWA (Serwist), mobile-first. Campus (alumno) + Studio (staff).",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && serwist build serwist.config.mjs",
+    "build": "next build --webpack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",

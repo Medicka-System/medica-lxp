@@ -101,7 +101,7 @@ Fija cada dependencia a su **última estable** al momento de instalar; abajo el 
 
 - **Monorepo:** pnpm (workspaces) + Turborepo
 - **Runtime:** Node 20 LTS · TypeScript 5.x (strict)
-- **Front:** Next.js 16+ (App Router), React 19, Tailwind, shadcn/ui (**personalizado**, no defaults — ver §5A), Serwist (`@serwist/next`) — sucesor de next-pwa, para Next 16 + Turbopack
+- **Front:** Next.js 16+ (App Router), React 19, Tailwind, shadcn/ui (**personalizado**, no defaults — ver §5A), Serwist (`@serwist/next`) — sucesor de next-pwa, para Next 16 + Turbopack. **Bundler: `next dev` usa Turbopack; el build de PRODUCCIÓN usa `next build --webpack`** — decisión por **incompatibilidad de los codecs WASM de Cornerstone3D (`@cornerstonejs/dicom-image-loader`) con Turbopack** (cuelgan el build al entrar al grafo vía el visor DICOM). `next.config.mjs` stubea `fs`/`path`/`crypto` a vacío en ambos bundlers. No es un TODO: es el modo de build soportado hasta que Turbopack resuelva el WASM/Node-builtins
 - **Backend/dominio:** NestJS 10+ (`apps/api`) + worker NestJS standalone (`apps/worker`)
 - **Colas:** BullMQ + Redis 7 (**Redis propio del LXP**, separado del de CORA/CRM)
 - **Datos:** **Supabase compartido con CORA** (Postgres 15 + Auth + RLS). Esquema `lxp` propio; lee `public` (esquema de CORA) en solo lectura. Hoy en **Supabase Cloud**; destino **VPS de BD dedicado** self-hosted. Extensión **pgvector** para RAG
