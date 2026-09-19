@@ -57,12 +57,12 @@ import {
   moverBloque,
   moverLeccion,
   moverModulo,
-  publicarPrograma,
   renombrarBloque,
   renombrarLeccion,
   renombrarModulo,
   renombrarPrograma,
 } from '@/lib/studio/acciones';
+import { publicarPrograma } from '@/lib/studio/publicacion-acciones';
 
 /* ───────────────────────── Config visual de bloques ───────────────────────── */
 
@@ -172,6 +172,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   );
   const [dialogo, setDialogo] = useState(false);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
+  const [errorPub, setErrorPub] = useState<string | null>(null);
 
   // Si la lección seleccionada desaparece (borrada), reselecciona una válida.
   const todasLecciones = modulos.flatMap((m) => m.lecciones);
@@ -528,10 +529,32 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           version={version}
           onCerrar={() => setDialogo(false)}
           onConfirmar={() => {
-            correr(() => publicarPrograma(id, !publicado));
+            setErrorPub(null);
+            correr(async () => {
+              const r = await publicarPrograma(id, !publicado);
+              if (!r.ok) setErrorPub(r.error);
+            });
             setDialogo(false);
           }}
         />
+      )}
+
+      {/* ───── Aviso de error de publicación (dominio no disponible / transición inválida) ───── */}
+      {errorPub && (
+        <div
+          role="alert"
+          className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-[11px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-4 py-3 shadow-lg"
+        >
+          <span className="text-[12.5px] font-semibold text-[color:var(--destructive-foreground)]">{errorPub}</span>
+          <button
+            type="button"
+            onClick={() => setErrorPub(null)}
+            aria-label="Cerrar aviso"
+            className={`grid h-6 w-6 place-items-center rounded-md text-[color:var(--destructive-foreground)] hover:bg-white/40 ${focusRing}`}
+          >
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
       )}
     </div>
   );

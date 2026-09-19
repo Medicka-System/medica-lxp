@@ -12,10 +12,9 @@ import type { DominioIaim } from '@/lib/studio/casos-contrato';
  * bajo RLS (Regla de Oro §2 — NO pasan por NestJS): cada acción corre con
  * `comoStaff`, así que las policies `lxp.es_autoria()` son el segundo candado.
  *
- * PENDIENTE DE API (dominio · §2, SPRINTS 4.5): la PUBLICACIÓN con versionado real
- * (snapshot de la versión, "cambios sin publicar" calculados, aviso a los docentes
- * de los grupos, estado `revisión`) vive en `apps/api`. Aquí solo se alterna la
- * visibilidad `publicado` (columna simple) para que un borrador no lo vea el alumno.
+ * La PUBLICACIÓN con versionado real (snapshot de la versión, máquina de estados
+ * borrador→revisión→publicado, historial) es DOMINIO (§2, Sprint 4.5): vive en
+ * `apps/api` y el web la dispara desde `publicacion-acciones.ts`, no desde aquí.
  */
 
 /** video/teoría/H5P → tabla `contenidos`; tarea/autoevaluación/foro → `actividades`. */
@@ -58,14 +57,10 @@ export async function renombrarPrograma(programaId: string, nombre: string): Pro
   refrescar(programaId);
 }
 
-/** Alterna la visibilidad. El versionado/aviso real es PENDIENTE DE API (ver cabecera). */
-export async function publicarPrograma(programaId: string, publicado: boolean): Promise<void> {
-  const { userId } = await requireAutoria();
-  await comoStaff(userId, async (sql) => {
-    await sql`update lxp.programas set publicado = ${publicado} where id = ${programaId}`;
-  });
-  refrescar(programaId);
-}
+// La PUBLICACIÓN con versionado NO es CRUD (§2): vive en `apps/api` (módulo
+// `publicacion`) y el web la dispara desde `publicacion-acciones.ts`. No se toca la
+// columna `publicado` a mano — la fuente de verdad es `estado` (mig 0013) y el
+// trigger la sincroniza; escribir `publicado` directo lo revierte.
 
 // ── Herramientas (administración · plantillas/calculadoras/simuladores) ─────────
 // La ESTRUCTURA de administración (crear/renombrar/publicar) es CRUD real bajo RLS
