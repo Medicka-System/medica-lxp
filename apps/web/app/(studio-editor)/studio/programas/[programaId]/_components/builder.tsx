@@ -62,7 +62,12 @@ import {
   renombrarModulo,
   renombrarPrograma,
 } from '@/lib/studio/acciones';
-import { publicarPrograma } from '@/lib/studio/publicacion-acciones';
+import {
+  obtenerHistorial,
+  obtenerVersionSnapshot,
+  publicarPrograma,
+  type VersionHistorial,
+} from '@/lib/studio/publicacion-acciones';
 
 /* ───────────────────────── Config visual de bloques ───────────────────────── */
 
@@ -171,6 +176,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
     moduloInicial?.lecciones[0]?.id,
   );
   const [dialogo, setDialogo] = useState(false);
+  const [historial, setHistorial] = useState(false);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
   const [errorPub, setErrorPub] = useState<string | null>(null);
 
@@ -276,7 +282,8 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
         ))}
         <button
           type="button"
-          title="Historial de versiones (próximamente)"
+          onClick={() => setHistorial(true)}
+          title="Ver el historial de versiones publicadas"
           className={`ml-auto inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
         >
           <History aria-hidden className="h-4 w-4" strokeWidth={1.75} />
@@ -537,6 +544,11 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
             setDialogo(false);
           }}
         />
+      )}
+
+      {/* ───── Modal de historial de versiones ───── */}
+      {historial && (
+        <ModalHistorial programaId={id} versionActual={version} onCerrar={() => setHistorial(false)} />
       )}
 
       {/* ───── Aviso de error de publicación (dominio no disponible / transición inválida) ───── */}
@@ -885,6 +897,183 @@ function DialogoPublicar({
               )}
             </button>
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Modal de historial de versiones ───────────────────────── */
+
+/** Forma mínima del snapshot congelado que se muestra en el historial (§5B · api). */
+type SnapshotResumen = {
+  programa?: { nombre?: string };
+  modulos?: { nombre?: string; horas?: number; lecciones?: unknown[] }[];
+};
+
+function ModalHistorial({
+  programaId,
+  versionActual,
+  onCerrar,
+}: {
+  programaId: string;
+  versionActual: number;
+  onCerrar: () => void;
+}) {
+  const [versiones, setVersiones] = useState<VersionHistorial[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [seleccion, setSeleccion] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<SnapshotResumen | null>(null);
+  const [cargandoSnap, setCargandoSnap] = useState(false);
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
+  useEffect(() => {
+    let vivo = true;
+    obtenerHistorial(programaId)
+      .then((v) => {
+        if (!vivo) return;
+        setVersiones(v);
+        if (v[0]) seleccionar(v[0].version);
+      })
+      .catch(() => vivo && setError('No se pudo cargar el historial (¿está levantada la API?).'));
+    return () => {
+      vivo = false;
+    };
+  }, [programaId]);
+
+  function seleccionar(version: number) {
+    setSeleccion(version);
+    setSnapshot(null);
+    setCargandoSnap(true);
+    obtenerVersionSnapshot(programaId, version)
+      .then((s) => setSnapshot((s ?? {}) as SnapshotResumen))
+      .catch(() => setSnapshot(null))
+      .finally(() => setCargandoSnap(false));
+  }
+
+  const lecciones = (m: { lecciones?: unknown[] }) => (Array.isArray(m.lecciones) ? m.lecciones.length : 0);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Historial de versiones"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="flex max-h-[80vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-border px-6 pb-4 pt-6">
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} text-secondary`}>Versionado</p>
+            <h2 className="mt-2 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
+              Historial de versiones publicadas
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+          {/* Lista de versiones */}
+          <div className="min-h-0 overflow-y-auto border-r border-border p-3">
+            {error && <p className="px-2 py-3 text-[12.5px] text-destructive">{error}</p>}
+            {!error && versiones === null && (
+              <p className={`px-2 py-3 text-[12.5px] ${softText}`}>Cargando…</p>
+            )}
+            {!error && versiones?.length === 0 && (
+              <p className={`px-2 py-3 text-[12.5px] leading-relaxed ${softText}`}>
+                Aún no hay versiones publicadas. Al publicar el programa se congela la primera.
+              </p>
+            )}
+            {versiones?.map((v) => {
+              const sel = v.version === seleccion;
+              return (
+                <button
+                  key={v.version}
+                  type="button"
+                  onClick={() => seleccionar(v.version)}
+                  aria-current={sel ? 'true' : undefined}
+                  className={`mb-1 flex w-full items-center gap-2.5 rounded-[9px] p-2.5 text-left ${
+                    sel ? 'bg-accent shadow-[inset_0_0_0_1px_var(--primary)]' : 'hover:bg-muted'
+                  } ${focusRing}`}
+                >
+                  <span
+                    aria-hidden
+                    className={`${mono} grid h-[30px] w-[34px] shrink-0 place-items-center rounded-[9px] text-[11px] font-bold ${
+                      sel ? 'bg-primary text-[color:var(--sidebar)]' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    v{v.version}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-[12.5px] font-semibold leading-snug">Versión {v.version}</span>
+                      {v.version === versionActual && (
+                        <span className="inline-flex h-4 items-center rounded-full bg-accent px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-accent-foreground">
+                          actual
+                        </span>
+                      )}
+                    </span>
+                    <span className={`${mono} mt-0.5 block text-[10.5px] text-muted-foreground`}>
+                      {haceCuanto(new Date(v.publicadoEn))}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Detalle de la versión seleccionada */}
+          <div className="min-h-0 overflow-y-auto p-5">
+            {seleccion === null ? (
+              <p className={`text-[13px] ${softText}`}>Selecciona una versión para ver su contenido congelado.</p>
+            ) : cargandoSnap ? (
+              <p className={`text-[13px] ${softText}`}>Cargando la versión…</p>
+            ) : snapshot ? (
+              <>
+                <p className={`${kicker} text-muted-foreground`}>Snapshot congelado · v{seleccion}</p>
+                <h3 className="mt-1.5 text-[16px] font-bold tracking-[-0.01em]">
+                  {snapshot.programa?.nombre ?? 'Programa'}
+                </h3>
+                <p className={`${mono} mt-1 text-[11.5px] text-muted-foreground`}>
+                  {snapshot.modulos?.length ?? 0} módulos ·{' '}
+                  {(snapshot.modulos ?? []).reduce((s, m) => s + lecciones(m), 0)} lecciones
+                </p>
+                <ol className="mt-3.5 flex flex-col gap-1.5">
+                  {(snapshot.modulos ?? []).map((m, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-2.5 rounded-[9px] border border-border bg-card px-3 py-2.5"
+                    >
+                      <span className={`${mono} shrink-0 text-[11px] text-muted-foreground`}>
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                        {m.nombre ?? 'Módulo'}
+                      </span>
+                      <span className={`${mono} shrink-0 text-[11px] text-muted-foreground`}>
+                        {typeof m.horas === 'number' ? `${Math.round(m.horas)} h · ` : ''}
+                        {lecciones(m)} lecciones
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : (
+              <p className={`text-[13px] ${softText}`}>No se pudo cargar el snapshot de esta versión.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

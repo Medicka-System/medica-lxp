@@ -49,6 +49,14 @@ type EstadoResp = {
   visible_para_alumno: boolean;
 };
 
+/** Metadatos de una versión publicada (historial). */
+export type VersionHistorial = {
+  version: number;
+  notas: string | null;
+  publicadoPor: string | null;
+  publicadoEn: string;
+};
+
 export type ResultadoPublicacion =
   | { ok: true; estado: EstadoPublicacion; version: number }
   | { ok: false; error: string };
@@ -135,4 +143,34 @@ export async function publicarPrograma(
       error: 'No se pudo contactar el dominio de publicación (apps/api). ¿Está levantada la API?',
     };
   }
+}
+
+/** Lee el historial de versiones publicadas (para el modal de historial · §5B). */
+export async function obtenerHistorial(programaId: string): Promise<VersionHistorial[]> {
+  await requireAutoria();
+  const res = await fetch(`${BASE(programaId)}/historial`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`historial HTTP ${res.status}`);
+  const rows = (await res.json()) as {
+    version: number;
+    notas: string | null;
+    publicado_por: string | null;
+    publicado_en: string;
+  }[];
+  return rows.map((r) => ({
+    version: r.version,
+    notas: r.notas,
+    publicadoPor: r.publicado_por,
+    publicadoEn: r.publicado_en,
+  }));
+}
+
+/** Trae el snapshot congelado de una versión (para ver/seleccionar en el historial). */
+export async function obtenerVersionSnapshot(
+  programaId: string,
+  version: number,
+): Promise<unknown> {
+  await requireAutoria();
+  const res = await fetch(`${BASE(programaId)}/versiones/${version}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`versión ${version} HTTP ${res.status}`);
+  return res.json();
 }
