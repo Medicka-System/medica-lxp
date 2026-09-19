@@ -52,7 +52,7 @@ export const GRUPOS: GrupoNav[] = [
     items: [
       { id: 'reportes', etiqueta: 'Mis reportes', icono: FileText, href: '/herramientas/reportes' },
       { id: 'consultas', etiqueta: 'Consultas', icono: MessageCircle, href: '/herramientas/consultas' },
-      { id: 'calculadoras', etiqueta: 'Calculadoras', icono: Calculator, href: '/calculadoras' },
+      { id: 'calculadoras', etiqueta: 'Calculadoras', icono: Calculator, href: '/herramientas/calculadoras' },
       { id: 'simuladores', etiqueta: 'Simuladores', icono: MonitorPlay, href: '/simuladores' },
     ],
   },
