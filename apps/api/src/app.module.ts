@@ -21,6 +21,7 @@ import { PaquetesModule } from './paquetes/paquetes.module';
 import { H5pModule } from './h5p/h5p.module';
 import { RubricasModule } from './rubricas/rubricas.module';
 import { ReactivosModule } from './reactivos/reactivos.module';
+import { NotificacionesModule } from './notificaciones/notificaciones.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ReactivosModule } from './reactivos/reactivos.module';
     H5pModule,
     RubricasModule,
     ReactivosModule,
+    NotificacionesModule,
   ],
 })
 export class AppModule {}
