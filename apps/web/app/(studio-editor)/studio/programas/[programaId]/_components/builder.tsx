@@ -957,7 +957,10 @@ function ModalHistorial({
         setVersiones(v);
         if (v[0]) seleccionar(v[0].version);
       })
-      .catch(() => vivo && setError('No se pudo cargar el historial (¿está levantada la API?).'));
+      .catch((e) => {
+        console.error('[ModalHistorial] fallo al cargar historial:', e);
+        if (vivo) setError('No se pudo cargar el historial (¿está levantada la API?).');
+      });
     return () => {
       vivo = false;
     };

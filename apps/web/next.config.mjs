@@ -1,3 +1,42 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+/**
+ * Env del monorepo. `web` NO carga por sí solo el `.env` de la RAÍZ: Next solo lee
+ * `.env` del directorio de la app y turbo solo PASA `DATABASE_URL` si ya está en el
+ * shell (`globalPassThroughEnv`). El `api` sí lo carga explícito (packages/db/env.ts),
+ * por eso respondía aunque el shell no tuviera la var. Sin esto, arrancar `pnpm dev`
+ * en un shell sin `DATABASE_URL` tumbaba TODO el Studio ("DATABASE_URL no definido
+ * para web" en resolverStaffDev → 500 del layout). Cargamos el `.env` de la raíz aquí
+ * sin pisar el entorno real (producción manda). Corre al iniciar el server (dev y prod).
+ */
+function cargarEnvRaiz() {
+  try {
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    const texto = readFileSync(resolve(aqui, '../../.env'), 'utf8');
+    for (const linea of texto.split('\n')) {
+      const l = linea.trim();
+      if (!l || l.startsWith('#')) continue;
+      const i = l.indexOf('=');
+      if (i === -1) continue;
+      const clave = l.slice(0, i).trim();
+      if (clave in process.env) continue; // el entorno real (Docker/prod) manda
+      let valor = l.slice(i + 1).trim();
+      if (
+        (valor.startsWith('"') && valor.endsWith('"')) ||
+        (valor.startsWith("'") && valor.endsWith("'"))
+      ) {
+        valor = valor.slice(1, -1);
+      }
+      process.env[clave] = valor;
+    }
+  } catch {
+    // Sin `.env` en la raíz (p. ej. prod con env inyectado): se ignora.
+  }
+}
+cargarEnvRaiz();
+
 /**
  * PWA con Serwist en "configurator mode" (§3) — compatible con Next 16 + Turbopack.
  * El service worker NO se inyecta aquí (eso usaba webpack y rompe con Turbopack):

@@ -137,7 +137,11 @@ export async function publicarPrograma(
 
     refrescar(programaId);
     return { ok: true, estado: actual.estado, version: actual.version };
-  } catch {
+  } catch (e) {
+    // §5: nunca tragar la excepción. El mensaje al usuario es amable, pero el
+    // motivo real (api caída vs. api respondió 500/400) queda en el log del server
+    // para no volver a diagnosticar mal un 500 del dominio como "api caída".
+    console.error('[publicarPrograma] fallo al publicar/despublicar:', e);
     return {
       ok: false,
       error: 'No se pudo contactar el dominio de publicación (apps/api). ¿Está levantada la API?',

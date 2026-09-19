@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
 import {
@@ -41,7 +42,7 @@ export class PublicacionController {
 
   /** Estado actual + acciones posibles + visibilidad para alumno. */
   @Get('estado')
-  estado(@Param('programaId') programaId: string): Promise<{
+  estado(@Param('programaId', ParseUUIDPipe) programaId: string): Promise<{
     programa_id: string;
     nombre: string;
     estado: EstadoPublicacion;
@@ -56,7 +57,7 @@ export class PublicacionController {
   @Post('transicion')
   @HttpCode(200)
   transicion(
-    @Param('programaId') programaId: string,
+    @Param('programaId', ParseUUIDPipe) programaId: string,
     @Body() body: TransicionBody,
   ): Promise<ResultadoTransicion> {
     if (!body?.accion || !ACCIONES.includes(body.accion)) {
@@ -72,14 +73,14 @@ export class PublicacionController {
 
   /** Historial de versiones publicadas (metadatos). */
   @Get('historial')
-  historial(@Param('programaId') programaId: string): Promise<VersionMeta[]> {
+  historial(@Param('programaId', ParseUUIDPipe) programaId: string): Promise<VersionMeta[]> {
     return this.publicacion.historial(programaId);
   }
 
   /** Snapshot congelado de una versión concreta. */
   @Get('versiones/:version')
   version(
-    @Param('programaId') programaId: string,
+    @Param('programaId', ParseUUIDPipe) programaId: string,
     @Param('version', ParseIntPipe) version: number,
   ): Promise<unknown> {
     return this.publicacion.snapshot(programaId, version);
