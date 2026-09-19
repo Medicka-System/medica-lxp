@@ -11,10 +11,10 @@ export type SeccionStudio = {
 // diseñador (lanzar encuestas) son piezas posteriores; se agregan al existir sus
 // rutas para no dejar enlaces a 404.
 export const SECCIONES: SeccionStudio[] = [
-  { id: 'programas', etiqueta: 'Programas', href: '/programas' },
-  { id: 'grupos', etiqueta: 'Grupos', href: '/grupos' },
-  { id: 'contenido', etiqueta: 'Contenido', href: '/contenido' },
-  { id: 'casos', etiqueta: 'Casos', href: '/casos' },
+  { id: 'programas', etiqueta: 'Programas', href: '/studio/programas' },
+  { id: 'grupos', etiqueta: 'Grupos', href: '/studio/grupos' },
+  { id: 'contenido', etiqueta: 'Contenido', href: '/studio/contenido' },
+  { id: 'casos', etiqueta: 'Casos', href: '/studio/casos' },
 ];
 
 /** "Herramientas ▾" colapsa Plantillas · Calculadoras · Simuladores (§5B). */
@@ -31,21 +31,21 @@ export const HERRAMIENTAS: HerramientaStudio[] = [
     id: 'plantillas',
     etiqueta: 'Plantillas',
     nota: 'Estructuras de reporte por estudio',
-    href: '/herramientas/plantillas',
+    href: '/studio/herramientas/plantillas',
     icono: LayoutTemplate,
   },
   {
     id: 'calculadoras',
     etiqueta: 'Calculadoras',
     nota: 'Fórmulas publicadas al campus',
-    href: '/herramientas/calculadoras',
+    href: '/studio/herramientas/calculadoras',
     icono: Calculator,
   },
   {
     id: 'simuladores',
     etiqueta: 'Simuladores',
     nota: 'Escenarios de práctica con Eco',
-    href: '/herramientas/simuladores',
+    href: '/studio/herramientas/simuladores',
     icono: MonitorPlay,
   },
 ];

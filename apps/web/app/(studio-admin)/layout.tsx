@@ -25,7 +25,7 @@ export default async function StudioAdminLayout({
   const staff = await getSesionStaff();
   if (!ROLES_ADMIN.includes(staff.rol as (typeof ROLES_ADMIN)[number])) {
     // Diseñador → su Studio; docente → su consola; alumno → Campus.
-    redirect(staff.rol === 'docente' ? '/inicio' : '/programas');
+    redirect(staff.rol === 'docente' ? '/inicio' : '/studio/programas');
   }
   const esSuper = staff.rol === 'super_admin';
 

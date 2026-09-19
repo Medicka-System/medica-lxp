@@ -29,8 +29,8 @@ export async function guardarTeoriaCuerpo(
   await comoStaff(userId, async (sql) => {
     await sql`update lxp.contenidos set cuerpo = ${cuerpo || null} where id = ${contenidoId}`;
   });
-  revalidatePath(`/teoria/${contenidoId}`);
-  if (programaId) revalidatePath(`/programas/${programaId}`);
+  revalidatePath(`/studio/teoria/${contenidoId}`);
+  if (programaId) revalidatePath(`/studio/programas/${programaId}`);
 }
 
 /** Renombra el bloque de teoría (título del contenido). */
@@ -45,6 +45,6 @@ export async function renombrarTeoria(
   await comoStaff(userId, async (sql) => {
     await sql`update lxp.contenidos set titulo = ${limpio} where id = ${contenidoId}`;
   });
-  revalidatePath(`/teoria/${contenidoId}`);
-  if (programaId) revalidatePath(`/programas/${programaId}`);
+  revalidatePath(`/studio/teoria/${contenidoId}`);
+  if (programaId) revalidatePath(`/studio/programas/${programaId}`);
 }

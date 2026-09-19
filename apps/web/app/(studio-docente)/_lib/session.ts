@@ -41,7 +41,7 @@ export const requireDocente = cache(async (): Promise<SesionDocente> => {
     );
   }
   if (staff.rol !== 'docente') {
-    redirect(staff.rol === 'disenador_instruccional' ? '/programas' : '/inicio');
+    redirect(staff.rol === 'disenador_instruccional' ? '/studio/programas' : '/inicio');
   }
   return { userId: staff.userId, nombre: staff.nombre, email: staff.email };
 });

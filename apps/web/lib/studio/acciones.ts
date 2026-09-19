@@ -31,8 +31,8 @@ const BLOQUE_A_ACTIVIDAD: Partial<Record<TipoBloque, string>> = {
 };
 
 function refrescar(programaId?: string) {
-  revalidatePath('/programas');
-  if (programaId) revalidatePath(`/programas/${programaId}`);
+  revalidatePath('/studio/programas');
+  if (programaId) revalidatePath(`/studio/programas/${programaId}`);
 }
 
 // ── Programa ───────────────────────────────────────────────────────────────────
@@ -44,8 +44,8 @@ export async function crearPrograma(): Promise<void> {
       values ('Programa sin título', false, 1) returning id`;
     return rows[0]!.id;
   });
-  revalidatePath('/programas');
-  redirect(`/programas/${id}`);
+  revalidatePath('/studio/programas');
+  redirect(`/studio/programas/${id}`);
 }
 
 export async function renombrarPrograma(programaId: string, nombre: string): Promise<void> {
@@ -73,7 +73,7 @@ export async function publicarPrograma(programaId: string, publicado: boolean): 
 // prompts) se edita en sus sprints propios (6.5 reportes, 7 simuladores, 8 calc.) —
 // aquí queda como placeholder; no se inventa.
 function refrescarHerramienta(tipo: TipoHerramienta) {
-  revalidatePath(`/herramientas/${tipo}`);
+  revalidatePath(`/studio/herramientas/${tipo}`);
 }
 
 export async function crearHerramienta(tipo: TipoHerramienta): Promise<void> {
@@ -127,8 +127,8 @@ export async function publicarHerramienta(
 
 // ── Casos (curaduría · lxp.casos_biblioteca, escribe es_staff) ──────────────────
 function refrescarCaso(casoId?: string) {
-  revalidatePath('/casos');
-  if (casoId) revalidatePath(`/casos/${casoId}`);
+  revalidatePath('/studio/casos');
+  if (casoId) revalidatePath(`/studio/casos/${casoId}`);
 }
 
 /** Crea un caso "por curar" cargado por staff (metadatos; el DICOM se adjunta luego
@@ -142,8 +142,8 @@ export async function crearCaso(): Promise<void> {
       returning id`;
     return rows[0]!.id;
   });
-  revalidatePath('/casos');
-  redirect(`/casos/${id}`);
+  revalidatePath('/studio/casos');
+  redirect(`/studio/casos/${id}`);
 }
 
 /**
@@ -205,8 +205,8 @@ export async function publicarCaso(casoId: string, publicado: boolean): Promise<
 
 // ── Grupos (instancias del programa · §6) ──────────────────────────────────────
 function refrescarGrupo(grupoId?: string) {
-  revalidatePath('/grupos');
-  if (grupoId) revalidatePath(`/grupos/${grupoId}`);
+  revalidatePath('/studio/grupos');
+  if (grupoId) revalidatePath(`/studio/grupos/${grupoId}`);
 }
 
 /** Instancia un grupo a partir de un programa. CRUD simple (Regla de Oro §2). */
@@ -228,8 +228,8 @@ export async function crearGrupo(datos: {
       returning id`;
     return rows[0]!.id;
   });
-  revalidatePath('/grupos');
-  redirect(`/grupos/${id}`);
+  revalidatePath('/studio/grupos');
+  redirect(`/studio/grupos/${id}`);
 }
 
 /** Edita los datos que el grupo SÍ posee: nombre, modalidad, fechas, docente. */
