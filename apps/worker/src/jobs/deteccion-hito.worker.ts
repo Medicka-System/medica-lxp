@@ -3,10 +3,12 @@ import type { Job } from 'bullmq';
 import {
   QUEUE_DETECCION_HITO,
   QUEUE_EMISION_CERTIFICADO,
+  QUEUE_NOTIFICACIONES,
   QUEUE_OTORGAR_BADGES,
   detectarHitos,
   type AlumnoJob,
   type HitoJob,
+  type NotificacionJob,
 } from '@campus/shared';
 import { DbService } from '../db/db.service';
 import { ColasProducer } from '../colas/colas-producer';
@@ -50,6 +52,13 @@ export class DeteccionHitoWorker extends TrabajadorBase {
         horas_umbral: h.horas_umbral,
       } satisfies HitoJob);
       await this.colas.encolar(QUEUE_OTORGAR_BADGES, { alumnoId } satisfies AlumnoJob);
+      // Notifica al alumno el hito recién cruzado (§8 job #12).
+      await this.colas.encolar(QUEUE_NOTIFICACIONES, {
+        userId: alumnoId,
+        tipo: 'hito_alcanzado',
+        entidadTipo: 'hito',
+        datos: { horas_umbral: h.horas_umbral },
+      } satisfies NotificacionJob);
     }
 
     if (nuevos.length > 0) {

@@ -8,6 +8,7 @@ import {
 import { DbService } from '../db/db.service';
 import { CompetenciaService } from '../competencia/competencia.service';
 import { XapiService } from '../xapi/xapi.service';
+import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import {
   cargarCasoValidacion,
   registrarValidacion,
@@ -42,6 +43,7 @@ export class ValidacionService {
     private readonly db: DbService,
     private readonly competencia: CompetenciaService,
     private readonly xapi: XapiService,
+    private readonly notif: NotificacionesService,
   ) {}
 
   /** El docente aprueba el caso: dispara competencia + xAPI. */
@@ -105,6 +107,13 @@ export class ValidacionService {
       );
       // Dominio: recalcula la competencia del alumno (motor Sprint 3, vía cola).
       const competenciaJobId = await this.competencia.recalcular(caso.id_alumno);
+      // Notifica al alumno que su caso fue aprobado (§8 job #12).
+      await this.notif.encolar({
+        userId: caso.id_alumno,
+        tipo: 'caso_validado',
+        entidadTipo: 'caso',
+        entidadId: casoId,
+      });
       this.logger.log(
         `Caso ${casoId} aprobado por ${docenteId}: competencia encolada (${competenciaJobId}).`,
       );
@@ -126,6 +135,14 @@ export class ValidacionService {
         { success: false },
       ),
     );
+    // Notifica al alumno que su caso necesita ajustes (§8 job #12).
+    await this.notif.encolar({
+      userId: caso.id_alumno,
+      tipo: 'caso_rechazado',
+      entidadTipo: 'caso',
+      entidadId: casoId,
+      datos: feedback ? { feedback } : undefined,
+    });
     this.logger.log(`Caso ${casoId} rechazado por ${docenteId}.`);
     return { validacionId, casoId, alumnoId: caso.id_alumno, decision };
   }
