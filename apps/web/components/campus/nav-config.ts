@@ -10,6 +10,7 @@ import {
   Home,
   Library,
   LifeBuoy,
+  MessageCircle,
   MessagesSquare,
   MonitorPlay,
   NotebookPen,
@@ -50,6 +51,7 @@ export const GRUPOS: GrupoNav[] = [
     titulo: 'Mis herramientas',
     items: [
       { id: 'reportes', etiqueta: 'Mis reportes', icono: FileText, href: '/herramientas/reportes' },
+      { id: 'consultas', etiqueta: 'Consultas', icono: MessageCircle, href: '/herramientas/consultas' },
       { id: 'calculadoras', etiqueta: 'Calculadoras', icono: Calculator, href: '/calculadoras' },
       { id: 'simuladores', etiqueta: 'Simuladores', icono: MonitorPlay, href: '/simuladores' },
     ],
