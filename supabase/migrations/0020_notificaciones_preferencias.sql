@@ -1,5 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0019 · Motor de notificaciones (§8 job #12 · Sprint 8.5) — SOLO esquema `lxp`
+-- 0020 · Motor de notificaciones (§8 job #12 · Sprint 8.5) — SOLO esquema `lxp`
+-- (0019 lo reservó la rama s7-simu para sesiones_simulador; esta usa 0020)
 --
 -- Un evento "para este usuario, de este tipo" se persiste como notificación in-app
 -- (la campana) y se despacha por los canales opt-in (correo/WhatsApp) según la
