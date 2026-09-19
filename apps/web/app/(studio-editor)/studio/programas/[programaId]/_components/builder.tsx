@@ -47,7 +47,7 @@ import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/e
 import { haceCuanto } from '@/lib/format';
 import type { Bloque, Modulo, ProgramaBuilder, TipoBloque } from '@/lib/studio/datos';
 import {
-  actualizarHorasModulo,
+  actualizarHorasLeccion,
   crearBloque,
   crearLeccion,
   crearModulo,
@@ -349,10 +349,31 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
                   ariaLabel="Renombrar la lección"
                 />
               </h1>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+              <div className="mt-2.5 flex flex-wrap items-center gap-3">
                 <span className={`${mono} text-[12px] text-muted-foreground`}>
                   {leccion.bloques.length} bloques
                 </span>
+                <span aria-hidden className="h-3.5 w-px bg-border" />
+                {/* Las horas acumulables se definen AQUÍ, en la lección; el módulo y
+                    el programa las suman solos (mig 0022 · trigger). */}
+                <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <input
+                    key={leccion.id}
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    defaultValue={leccion.horas}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v !== leccion.horas) {
+                        correr(() => actualizarHorasLeccion(id, leccion.id, v));
+                      }
+                    }}
+                    aria-label={`Horas de la lección ${leccion.titulo}`}
+                    className={`h-7 w-16 rounded-[7px] border border-border bg-muted px-2 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+                  />
+                  horas de la lección
+                </label>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-2.5">
@@ -585,21 +606,6 @@ function ModuloArbol({
 
       {abierto && (
         <div className="mb-1.5 ml-[26px] mt-0.5 border-l-[1.5px] border-border pl-3">
-          <div className="flex items-center gap-2 px-2 pb-1 pt-1.5">
-            <input
-              type="number"
-              min={0}
-              defaultValue={modulo.horas}
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (v !== modulo.horas) correr(() => actualizarHorasModulo(programaId, modulo.id, v));
-              }}
-              aria-label={`Horas del módulo ${modulo.titulo}`}
-              className="h-7 w-16 rounded-[7px] border border-border bg-muted px-2 text-[12px] outline-none focus:border-secondary"
-            />
-            <span className="text-[11.5px] text-muted-foreground">horas del módulo</span>
-          </div>
-
           {modulo.lecciones.map((l, iL) => {
             const sel = l.id === leccionId;
             return (

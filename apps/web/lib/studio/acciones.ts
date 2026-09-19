@@ -294,19 +294,6 @@ export async function renombrarModulo(
   refrescar(programaId);
 }
 
-export async function actualizarHorasModulo(
-  programaId: string,
-  moduloId: string,
-  horas: number,
-): Promise<void> {
-  const { userId } = await requireAutoria();
-  const valor = Number.isFinite(horas) && horas >= 0 ? horas : 0;
-  await comoStaff(userId, async (sql) => {
-    await sql`update lxp.modulos set horas = ${valor} where id = ${moduloId}`;
-  });
-  refrescar(programaId);
-}
-
 export async function eliminarModulo(programaId: string, moduloId: string): Promise<void> {
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
@@ -325,6 +312,24 @@ export async function crearLeccion(programaId: string, moduloId: string): Promis
         ${moduloId}, 'Lección sin título',
         coalesce((select max(orden) + 1 from lxp.lecciones where modulo_id = ${moduloId}), 0)
       )`;
+  });
+  refrescar(programaId);
+}
+
+/**
+ * Las horas acumulables se definen POR LECCIÓN (§5B · mig 0022). El módulo y el
+ * programa muestran la SUMA (la mantiene el trigger `lecciones_recalc_horas`); no
+ * hay campo de horas editable a nivel módulo.
+ */
+export async function actualizarHorasLeccion(
+  programaId: string,
+  leccionId: string,
+  horas: number,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  const valor = Number.isFinite(horas) && horas >= 0 ? horas : 0;
+  await comoStaff(userId, async (sql) => {
+    await sql`update lxp.lecciones set horas = ${valor} where id = ${leccionId}`;
   });
   refrescar(programaId);
 }
