@@ -20,6 +20,7 @@
     "seed": "tsx src/seed.ts",
     "seed:clean": "tsx src/seed.ts --clean",
     "test:rls": "tsx src/test-rls.ts",
+    "test:model": "tsx src/test-modelo.ts",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
