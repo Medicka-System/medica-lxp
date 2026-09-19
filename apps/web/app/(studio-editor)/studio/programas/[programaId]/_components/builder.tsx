@@ -199,6 +199,15 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const leccion = modulo?.lecciones.find((l) => l.id === leccionId);
   const publicado = estado === 'publicado';
 
+  // Primera lección del programa (orden módulo → lección) para abrir la vista previa.
+  const primeraLeccion = todasLecciones[0];
+
+  /** Abre la vista previa como alumno del borrador en una pestaña nueva (solo staff). */
+  function abrirVistaPrevia() {
+    if (!primeraLeccion) return;
+    window.open(`/studio/preview/leccion/${primeraLeccion.id}`, '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
@@ -239,8 +248,14 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           </span>
           <button
             type="button"
-            title="Vista previa como alumno (próximamente)"
-            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
+            onClick={abrirVistaPrevia}
+            disabled={!primeraLeccion}
+            title={
+              primeraLeccion
+                ? 'Ver el curso como lo verá el alumno (borrador · pestaña nueva)'
+                : 'Agrega una lección para previsualizar'
+            }
+            className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${focusRingDark}`}
           >
             <Eye aria-hidden className="h-4 w-4" strokeWidth={1.75} />
             Vista previa
