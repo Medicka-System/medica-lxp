@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { comoStaff } from '@/lib/db.server';
+import { encolarNotificacion } from '@/lib/campus/notificaciones-cliente';
 import { requireDocente } from './session';
 
 /**
@@ -112,21 +113,35 @@ export async function responderConsulta(input: {
   const { userId } = await requireDocente();
   const cuerpo = input.cuerpo.trim();
   if (!cuerpo) return { ok: false, error: 'Escribe una respuesta antes de enviar.' };
+  let alumnoId = '';
+  let asunto = '';
   try {
-    await comoStaff(userId, async (sql) => {
-      await sql.begin(async (tx) => {
+    ({ alumnoId, asunto } = await comoStaff(userId, async (sql) => {
+      return sql.begin(async (tx) => {
         await tx`
           insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo)
           values (${input.consultaId}, ${userId}, ${cuerpo})`;
         // Tomar la consulta si aún no tiene docente asignado (canal 1:1).
-        await tx`
+        const rows = await tx<{ id_alumno: string; asunto: string }[]>`
           update lxp.consultas
           set id_docente = coalesce(id_docente, ${userId})
-          where id = ${input.consultaId}`;
-      });
-    });
+          where id = ${input.consultaId}
+          returning id_alumno, asunto`;
+        return { alumnoId: rows[0]?.id_alumno ?? '', asunto: rows[0]?.asunto ?? '' };
+      }) as Promise<{ alumnoId: string; asunto: string }>;
+    }));
   } catch {
     return { ok: false, error: 'No se pudo enviar la respuesta. Inténtalo de nuevo.' };
+  }
+  // Avisa al alumno que su consulta tiene respuesta (motor §8 job #12, best-effort).
+  if (alumnoId) {
+    await encolarNotificacion({
+      userId: alumnoId,
+      tipo: 'respuesta_consulta',
+      entidadTipo: 'consulta',
+      entidadId: input.consultaId,
+      datos: { asunto },
+    });
   }
   revalidatePath('/docente/consultas');
   revalidatePath(`/docente/consultas/${input.consultaId}`);

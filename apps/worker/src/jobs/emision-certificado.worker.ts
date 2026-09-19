@@ -2,11 +2,14 @@ import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   QUEUE_EMISION_CERTIFICADO,
+  QUEUE_NOTIFICACIONES,
   generarFolio,
   tituloCertificado,
   type HitoJob,
+  type NotificacionJob,
 } from '@campus/shared';
 import { DbService } from '../db/db.service';
+import { ColasProducer } from '../colas/colas-producer';
 import { TrabajadorBase } from './trabajador-base';
 
 /**
@@ -17,7 +20,10 @@ import { TrabajadorBase } from './trabajador-base';
 export class EmisionCertificadoWorker extends TrabajadorBase {
   protected readonly nombre = QUEUE_EMISION_CERTIFICADO;
 
-  constructor(private readonly db: DbService) {
+  constructor(
+    private readonly db: DbService,
+    private readonly colas: ColasProducer,
+  ) {
     super();
   }
 
@@ -39,7 +45,18 @@ export class EmisionCertificadoWorker extends TrabajadorBase {
       returning id`;
 
     const emitido = insertado.length > 0;
-    if (emitido) this.logger.log(`Certificado ${folio} emitido para ${alumnoId}.`);
+    if (emitido) {
+      this.logger.log(`Certificado ${folio} emitido para ${alumnoId}.`);
+      // Notifica al alumno que su certificado está listo (§8 job #12). Solo al emitir
+      // (folio único → idempotente): no re-notifica si ya existía.
+      await this.colas.encolar(QUEUE_NOTIFICACIONES, {
+        userId: alumnoId,
+        tipo: 'certificado_emitido',
+        entidadTipo: 'certificado',
+        entidadId: insertado[0]?.id,
+        datos: { folio, titulo },
+      } satisfies NotificacionJob);
+    }
     return { folio, emitido };
   }
 }

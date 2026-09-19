@@ -1,14 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
+  QUEUE_NOTIFICACIONES,
   QUEUE_OTORGAR_BADGES,
   badgesAOtorgar,
   type AlumnoJob,
   type BadgeCatalogo,
   type ContextoBadges,
+  type NotificacionJob,
   type ReglaBadge,
 } from '@campus/shared';
 import { DbService } from '../db/db.service';
+import { ColasProducer } from '../colas/colas-producer';
 import { TrabajadorBase } from './trabajador-base';
 
 /**
@@ -20,7 +23,10 @@ import { TrabajadorBase } from './trabajador-base';
 export class OtorgarBadgesWorker extends TrabajadorBase {
   protected readonly nombre = QUEUE_OTORGAR_BADGES;
 
-  constructor(private readonly db: DbService) {
+  constructor(
+    private readonly db: DbService,
+    private readonly colas: ColasProducer,
+  ) {
     super();
   }
 
@@ -62,12 +68,21 @@ export class OtorgarBadgesWorker extends TrabajadorBase {
         select badge_id from lxp.badges_otorgados where id_perfil = ${alumnoId}`
     ).map((r) => r.badge_id);
 
+    const claves = new Map(catalogo.map((b) => [b.id, b.clave]));
     const otorgar = badgesAOtorgar(catalogo, ctx, yaOtorgados);
     for (const badgeId of otorgar) {
       await sql`
         insert into lxp.badges_otorgados (badge_id, id_perfil)
         values (${badgeId}, ${alumnoId})
         on conflict (badge_id, id_perfil) do nothing`;
+      // Notifica al alumno la insignia recién otorgada (§8 job #12).
+      await this.colas.encolar(QUEUE_NOTIFICACIONES, {
+        userId: alumnoId,
+        tipo: 'badge_otorgado',
+        entidadTipo: 'badge',
+        entidadId: badgeId,
+        datos: { badge: claves.get(badgeId) ?? '' },
+      } satisfies NotificacionJob);
     }
 
     if (otorgar.length > 0) this.logger.log(`Badges otorgados a ${alumnoId}: ${otorgar.length}.`);

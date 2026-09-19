@@ -104,10 +104,12 @@ function ItemLateral({
 export function CampusShell({
   usuario,
   casosPendientes,
+  noLeidas = 0,
   children,
 }: {
   usuario: ShellUsuario;
   casosPendientes: number;
+  noLeidas?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -212,18 +214,21 @@ export function CampusShell({
             </form>
 
             <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label={`Notificaciones${casosPendientes ? `: ${casosPendientes} sin leer` : ''}`}
-                className={`relative grid h-11 w-11 place-items-center rounded-full text-foreground transition-colors hover:bg-accent ${focusLight}`}
+              <Link
+                href="/notificaciones"
+                aria-label={`Notificaciones${noLeidas ? `: ${noLeidas} sin leer` : ''}`}
+                aria-current={esActivo(pathname, '/notificaciones') ? 'page' : undefined}
+                className={`relative grid h-11 w-11 place-items-center rounded-full text-foreground transition-colors hover:bg-accent ${focusLight} ${
+                  esActivo(pathname, '/notificaciones') ? 'bg-accent text-secondary' : ''
+                }`}
               >
                 <Bell aria-hidden className="h-[19px] w-[19px]" strokeWidth={1.75} />
-                {casosPendientes > 0 && (
+                {noLeidas > 0 && (
                   <span aria-hidden className={`absolute right-1.5 top-1.5 grid h-[17px] min-w-[17px] place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-[color:var(--sidebar)] ${mono}`}>
-                    {casosPendientes}
+                    {noLeidas > 9 ? '9+' : noLeidas}
                   </span>
                 )}
-              </button>
+              </Link>
 
               <div className="relative" ref={cuentaRef}>
                 <button

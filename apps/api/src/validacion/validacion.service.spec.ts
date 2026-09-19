@@ -4,6 +4,7 @@ import type { Statement } from '@campus/shared';
 import { DbService } from '../db/db.service';
 import { CompetenciaService } from '../competencia/competencia.service';
 import { XapiService } from '../xapi/xapi.service';
+import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { BadRequestException } from '@nestjs/common';
 import { ValidacionService } from './validacion.service';
 import { ValidacionController } from './validacion.controller';
@@ -22,6 +23,7 @@ const registrar = repo.registrarValidacion as jest.Mock;
 describe('ValidacionService (flujo de validación del docente)', () => {
   const competencia = { recalcular: jest.fn() };
   const xapi = { encolar: jest.fn() };
+  const notif = { encolar: jest.fn() };
   const db = { sql: {} };
 
   async function crear(): Promise<ValidacionService> {
@@ -31,6 +33,7 @@ describe('ValidacionService (flujo de validación del docente)', () => {
         { provide: DbService, useValue: db },
         { provide: CompetenciaService, useValue: competencia },
         { provide: XapiService, useValue: xapi },
+        { provide: NotificacionesService, useValue: notif },
       ],
     }).compile();
     return moduleRef.get(ValidacionService);
@@ -39,6 +42,7 @@ describe('ValidacionService (flujo de validación del docente)', () => {
   beforeEach(() => {
     competencia.recalcular.mockResolvedValue('comp-job-1');
     xapi.encolar.mockResolvedValue('xapi-job');
+    notif.encolar.mockResolvedValue('notif-job');
     registrar.mockResolvedValue({ validacionId: 'val-1' });
   });
 
@@ -82,6 +86,10 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     expect(verbos.some((v) => v.endsWith('/verbs/valido'))).toBe(true);
     expect(verbos.some((v) => v.endsWith('/verbs/passed'))).toBe(true);
     expect(xapi.encolar).toHaveBeenCalledTimes(2);
+    // Notifica al alumno el caso aprobado (§8 job #12).
+    expect(notif.encolar).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'alumno-1', tipo: 'caso_validado' }),
+    );
   });
 
   it('la corrección sobre Eco viaja al repositorio (loop de mejora §7A)', async () => {
@@ -119,6 +127,14 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     const verbos = verbosEncolados();
     expect(verbos.some((v) => v.endsWith('/verbs/valido'))).toBe(true);
     expect(verbos.some((v) => v.endsWith('/verbs/failed'))).toBe(true);
+    // Notifica al alumno el caso rechazado, con el feedback (§8 job #12).
+    expect(notif.encolar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'alumno-2',
+        tipo: 'caso_rechazado',
+        datos: { feedback: 'imagen no diagnóstica' },
+      }),
+    );
   });
 
   it('caso inexistente: 404 y ninguna side-effect', async () => {

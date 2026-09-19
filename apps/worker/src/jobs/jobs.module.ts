@@ -10,8 +10,9 @@ import { IndexarRagWorker } from './indexar-rag.worker';
 import { EcoEvaluacionWorker } from './eco-evaluacion.worker';
 import { IngestaGrabacionZoomWorker } from './ingesta-grabacion-zoom.worker';
 import { RenderTtsWorker } from './render-tts.worker';
+import { NotificacionesWorker } from './notificaciones.worker';
 
-/** Consumidores BullMQ del dominio (§8, jobs 2-11 + course builder). */
+/** Consumidores BullMQ del dominio (§8, jobs 2-12 + course builder). */
 @Module({
   providers: [
     CalculoCompetenciaWorker,
@@ -25,6 +26,7 @@ import { RenderTtsWorker } from './render-tts.worker';
     EcoEvaluacionWorker,
     IngestaGrabacionZoomWorker,
     RenderTtsWorker,
+    NotificacionesWorker,
   ],
 })
 export class JobsModule {}

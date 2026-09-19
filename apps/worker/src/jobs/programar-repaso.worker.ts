@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
+  QUEUE_NOTIFICACIONES,
   QUEUE_PROGRAMAR_REPASO,
   proximoRepaso,
   type DominioIaim,
+  type NotificacionJob,
   type RepasoJob,
 } from '@campus/shared';
 import { DbService } from '../db/db.service';
+import { ColasProducer } from '../colas/colas-producer';
 import { TrabajadorBase } from './trabajador-base';
 import { casosAprobados } from './repositorio';
 
@@ -19,7 +22,10 @@ import { casosAprobados } from './repositorio';
 export class ProgramarRepasoWorker extends TrabajadorBase {
   protected readonly nombre = QUEUE_PROGRAMAR_REPASO;
 
-  constructor(private readonly db: DbService) {
+  constructor(
+    private readonly db: DbService,
+    private readonly colas: ColasProducer,
+  ) {
     super();
   }
 
@@ -43,6 +49,15 @@ export class ProgramarRepasoWorker extends TrabajadorBase {
       update lxp.competencia_dominios
          set proximo_repaso = ${fecha}::date, actualizado_en = now()
        where id_alumno = ${alumnoId} and dominio_iaim = ${dominio_iaim}::lxp.dominio_iaim`;
+
+    // Notifica al alumno el repaso agendado (§8 job #12): repaso espaciado a nivel
+    // de concepto — el aviso llega cuando toca refrescar el dominio.
+    await this.colas.encolar(QUEUE_NOTIFICACIONES, {
+      userId: alumnoId,
+      tipo: 'repaso_sugerido',
+      entidadTipo: 'dominio_iaim',
+      datos: { dominio: dominio_iaim, fecha: fecha.slice(0, 10) },
+    } satisfies NotificacionJob);
 
     this.logger.log(`Repaso de ${dominio_iaim} para ${alumnoId}: ${fecha.slice(0, 10)}.`);
     return { proximo_repaso: fecha };
