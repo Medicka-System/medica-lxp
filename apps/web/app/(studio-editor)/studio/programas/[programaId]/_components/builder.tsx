@@ -262,7 +262,9 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           </button>
           <button
             type="button"
-            onClick={() => router.refresh()}
+            // Cada edición ya se auto-guarda (server actions · web→Supabase). Este botón
+            // da feedback visible: relee el árbol y actualiza el indicador "guardado".
+            onClick={() => correr(async () => router.refresh())}
             className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
           >
             <Save aria-hidden className="h-4 w-4" strokeWidth={1.75} />
