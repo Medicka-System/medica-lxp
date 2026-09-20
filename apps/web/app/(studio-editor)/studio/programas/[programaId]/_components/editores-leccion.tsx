@@ -38,6 +38,8 @@ import { EditorTeoria } from './teoria/editor-teoria';
 import { EditorVideo } from './_editores/editor-video';
 import { EditorH5P } from './_editores/editor-h5p';
 import { EditorXapi } from './_editores/editor-xapi';
+import { EditorAutoevaluacion } from './editor-autoevaluacion';
+import { EditorTarea } from './editor-tarea';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
 export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string }> = {
@@ -107,8 +109,8 @@ function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
   teoria: EditorTeoria,
   video: EditorVideo,
-  autoevaluacion: PlaceholderEditor,
-  tarea: PlaceholderEditor,
+  autoevaluacion: EditorAutoevaluacion,
+  tarea: EditorTarea,
   foro: PlaceholderEditor,
   h5p: EditorH5P,
   xapi: EditorXapi,
