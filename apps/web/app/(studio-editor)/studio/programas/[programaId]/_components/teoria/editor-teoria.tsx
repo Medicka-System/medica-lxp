@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ChevronDown,
   Code,
   FileText,
   Image as ImageIcon,
@@ -155,7 +156,9 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
   }
 
   return (
-    <div className="grid gap-4">
+    // Ancho acotado al contenedor de la plataforma (§5A · máx 1240px centrado): los
+    // bloques NO se estiran con la ventana, quedan a la medida del resto del campus.
+    <div className="mx-auto grid w-full max-w-[1240px] gap-4">
       <div className="flex items-center gap-2.5">
         <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-accent text-accent-foreground">
           <Layers className="h-[18px] w-[18px]" strokeWidth={1.75} />
@@ -197,8 +200,10 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
       )}
 
       {/* Barra de acciones: agregar bloque (menú de sub-tipos) + insertar un recurso
-          que YA existe (Biblioteca de Contenido / Banco de Casos). */}
-      <div className="flex flex-wrap items-center gap-2.5">
+          que YA existe (Biblioteca de Contenido / Banco de Casos).
+          STICKY al pie del lienzo: con muchos bloques el botón "Agregar bloque"
+          SIEMPRE queda a la vista y alcanzable (patrón Gutenberg/Notion). */}
+      <div className="sticky bottom-0 z-10 -mb-6 mt-1 flex flex-wrap items-center gap-2.5 border-t border-border bg-background/95 py-3 backdrop-blur-sm">
         <div className="relative">
           <button
             type="button"
@@ -249,7 +254,7 @@ function MenuTipos({
     <>
       {/* velo para cerrar al hacer clic fuera */}
       <button type="button" aria-label="Cerrar menú" onClick={onCerrar} className="fixed inset-0 z-10 cursor-default" />
-      <div className="absolute left-0 top-full z-20 mt-2 w-[min(520px,86vw)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(520px,86vw)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <p className={`${kicker} text-secondary`}>Elige un tipo de bloque</p>
           <button
@@ -325,6 +330,10 @@ function BloqueItem({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: bloque.id,
   });
+
+  // Plegado local: permite contraer el cuerpo del bloque para navegar cómodo con
+  // muchos bloques (el chevron del encabezado lo alterna).
+  const [plegado, setPlegado] = useState(false);
 
   // Borrador local: el editor es controlado y guarda con un botón cuando hay cambios.
   const [draft, setDraft] = useState<Record<string, unknown>>(bloque.config);
@@ -414,6 +423,19 @@ function BloqueItem({
             ))}
           </svg>
         </button>
+        <button
+          type="button"
+          onClick={() => setPlegado((v) => !v)}
+          aria-expanded={!plegado}
+          aria-label={plegado ? `Desplegar bloque ${info.rotulo}` : `Plegar bloque ${info.rotulo}`}
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[color:var(--track)] ${focusRing}`}
+        >
+          <ChevronDown
+            aria-hidden
+            className={`h-[15px] w-[15px] transition-transform ${plegado ? '-rotate-90' : ''}`}
+            strokeWidth={2}
+          />
+        </button>
         <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-accent text-accent-foreground">
           <Icono className="h-[15px] w-[15px]" strokeWidth={1.75} />
         </span>
@@ -441,10 +463,12 @@ function BloqueItem({
         </button>
       </div>
 
-      {/* Cuerpo: editor del sub-tipo (controlado) */}
-      <div className="p-3.5">
-        <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} />
-      </div>
+      {/* Cuerpo: editor del sub-tipo (controlado). Se oculta al plegar el bloque. */}
+      {!plegado && (
+        <div className="p-3.5">
+          <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} />
+        </div>
+      )}
     </div>
   );
 }
