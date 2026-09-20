@@ -60,7 +60,12 @@ export type CasoEditor = {
   id: string;
   titulo: string;
   organo: string;
+  patologia: string;
   dominioIaim: DominioIaim | null;
+  tecnica: string;
+  equipo: string;
+  vineta: string;
+  etiquetas: string[];
   diagnostico: string;
   hallazgosClave: string[];
   puntosAprendizaje: string[];

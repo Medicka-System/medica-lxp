@@ -69,6 +69,29 @@ export type ModuloOpcion = {
   horas: number;
 };
 
+/** Docente elegible para asignar la validación del caso (§5B). */
+export type DocenteOpcion = {
+  id: string;
+  nombre: string;
+};
+
+/**
+ * Ficha completa del caso capturable/editable (§6 · mig 0025). Los campos heredables
+ * del módulo (órgano, dominio) vienen prellenados si se sube desde un módulo.
+ */
+export type FichaCaso = {
+  organo: string;
+  patologia: string;
+  dominio: DominioIaim | null;
+  tecnica: string;
+  equipo: string;
+  docenteId: string | null;
+  etiquetas: string[];
+  vineta: string;
+  hallazgos: string;
+  presuntivo: string;
+};
+
 export type CasoBitacora = {
   id: string;
   hallazgoCorto: string;
@@ -93,7 +116,14 @@ export type CasoDetalleBitacora = {
   presuntivo: string | null;
   modulo: string | null;
   organo: string | null;
+  patologia: string | null;
   dominio: DominioIaim | null;
+  tecnica: string | null;
+  equipo: string | null;
+  vineta: string | null;
+  etiquetas: string[];
+  docenteId: string | null;
+  docente: string | null;
   fecha: Date;
   estado: EstadoCaso;
   estudioEstado: EstudioEstado;
@@ -108,6 +138,7 @@ export type BitacoraData = {
   porDominio: { dominio: DominioIaim; casos: number; pct: number; enRepaso: boolean }[];
   porModulo: { modulo: string; casos: number }[];
   modulos: ModuloOpcion[];
+  docentes: DocenteOpcion[];
   items: CasoBitacora[];
 };
 

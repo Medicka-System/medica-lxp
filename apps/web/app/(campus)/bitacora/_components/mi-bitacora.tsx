@@ -33,15 +33,16 @@ import {
   ETIQUETA_FASE,
   type FaseDicom,
 } from '@/components/casos/subida-dicom';
+import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
 import {
-  DOMINIOS,
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
   type BitacoraData,
   type CasoBitacora,
-  type DominioIaim,
+  type DocenteOpcion,
   type EstadoCaso,
+  type FichaCaso,
   type ModuloOpcion,
 } from '@/lib/campus/bitacora-contrato';
 
@@ -57,17 +58,16 @@ const claseEstado: Record<EstadoCaso, string> = {
 
 function SheetSubirCaso({
   modulos,
+  docentes,
   onCerrar,
 }: {
   modulos: ModuloOpcion[];
+  docentes: DocenteOpcion[];
   onCerrar: () => void;
 }) {
   const router = useRouter();
   const [moduloId, setModuloId] = useState(modulos[0]?.id ?? '');
-  const [organo, setOrgano] = useState('');
-  const [dominio, setDominio] = useState<DominioIaim | ''>('');
-  const [hallazgos, setHallazgos] = useState('');
-  const [presuntivo, setPresuntivo] = useState('');
+  const [ficha, setFicha] = useState<FichaCaso>(fichaVacia());
   const [archivos, setArchivos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fase, setFase] = useState<FaseDicom>('idle');
@@ -88,7 +88,7 @@ function SheetSubirCaso({
   const enviar = async () => {
     setError(null);
     setFase('creando');
-    const r = await subirCaso({ moduloId, organo, dominio: dominio || null, hallazgos, presuntivo });
+    const r = await subirCaso({ moduloId, ...ficha });
     if (!r.ok) {
       setError(r.error);
       setFase('idle');
@@ -177,35 +177,8 @@ function SheetSubirCaso({
             </div>
           )}
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="block text-[11.5px] font-semibold">Órgano / región</span>
-              <input
-                type="text"
-                value={organo}
-                onChange={(e) => setOrgano(e.target.value)}
-                placeholder="Riñón, vesícula, útero…"
-                className="mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-              />
-            </label>
-            <label className="block">
-              <span className="block text-[11.5px] font-semibold">Dominio I-AIM</span>
-              <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
-                <select
-                  value={dominio}
-                  onChange={(e) => setDominio(e.target.value as DominioIaim | '')}
-                  className="w-full appearance-none bg-transparent text-[14px] font-medium text-foreground outline-none"
-                >
-                  <option value="">Sin especificar</option>
-                  {DOMINIOS.map((d) => (
-                    <option key={d} value={d}>
-                      {DOMINIO_LABEL[d]}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-              </span>
-            </label>
+          <div className="mt-5">
+            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
           </div>
 
           <div className="mt-5">
@@ -260,31 +233,6 @@ function SheetSubirCaso({
               </div>
             )}
           </div>
-
-          <label className="mt-5 block">
-            <span className="block text-[11.5px] font-semibold">Hallazgos</span>
-            <textarea
-              rows={4}
-              value={hallazgos}
-              onChange={(e) => setHallazgos(e.target.value)}
-              placeholder="Describa lo que vio: medidas, planos y lo que le hizo dudar."
-              className="mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-            />
-          </label>
-
-          <label className="mt-4 block">
-            <span className="block text-[11.5px] font-semibold">
-              Diagnóstico presuntivo{' '}
-              <span className="font-medium text-muted-foreground">· opcional</span>
-            </span>
-            <input
-              type="text"
-              value={presuntivo}
-              onChange={(e) => setPresuntivo(e.target.value)}
-              placeholder="Su impresión, aunque no esté seguro"
-              className="mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-            />
-          </label>
 
           {error && (
             <p
@@ -405,7 +353,7 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
 /* ───────────────────────────── Pantalla ───────────────────────────── */
 
 export function MiBitacora({ data }: { data: BitacoraData }) {
-  const { horas, casos, porDominio, porModulo, modulos, items } = data;
+  const { horas, casos, porDominio, porModulo, modulos, docentes, items } = data;
 
   const [estado, setEstado] = useState<'todos' | EstadoCaso>('todos');
   const [modulo, setModulo] = useState('Todos');
@@ -706,7 +654,9 @@ export function MiBitacora({ data }: { data: BitacoraData }) {
         Subir caso
       </button>
 
-      {sheet && <SheetSubirCaso modulos={modulos} onCerrar={() => setSheet(false)} />}
+      {sheet && (
+        <SheetSubirCaso modulos={modulos} docentes={docentes} onCerrar={() => setSheet(false)} />
+      )}
     </div>
   );
 }

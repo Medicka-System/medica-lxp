@@ -152,7 +152,12 @@ export async function guardarCaso(
   datos: {
     titulo?: string;
     organo?: string;
+    patologia?: string;
     dominio?: DominioIaim | null;
+    tecnica?: string;
+    equipo?: string;
+    vineta?: string;
+    etiquetas?: string[];
     diagnostico?: string;
     hallazgosClave?: string[];
     puntosAprendizaje?: string[];
@@ -167,6 +172,22 @@ export async function guardarCaso(
     }
     if (datos.organo !== undefined) {
       await sql`update lxp.casos_biblioteca set organo = ${datos.organo || null} where id = ${casoId}`;
+    }
+    if (datos.patologia !== undefined) {
+      await sql`update lxp.casos_biblioteca set patologia = ${datos.patologia || null} where id = ${casoId}`;
+    }
+    if (datos.tecnica !== undefined) {
+      await sql`update lxp.casos_biblioteca set tecnica = ${datos.tecnica || null} where id = ${casoId}`;
+    }
+    if (datos.equipo !== undefined) {
+      await sql`update lxp.casos_biblioteca set equipo = ${datos.equipo || null} where id = ${casoId}`;
+    }
+    if (datos.vineta !== undefined) {
+      await sql`update lxp.casos_biblioteca set vineta = ${datos.vineta || null} where id = ${casoId}`;
+    }
+    if (datos.etiquetas !== undefined) {
+      const limpio = [...new Set(datos.etiquetas.map((t) => t.trim().replace(/^#+/, '')).filter(Boolean))].slice(0, 12);
+      await sql`update lxp.casos_biblioteca set etiquetas = ${sql.json(limpio)} where id = ${casoId}`;
     }
     if (datos.dominio !== undefined) {
       if (datos.dominio) {

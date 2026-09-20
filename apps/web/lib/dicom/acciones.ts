@@ -109,11 +109,13 @@ export async function solicitarSubidaDicom(
   }
 }
 
-/** Paso 3: confirma que los crudos ya están en storage y encola la anonimización. */
+/** Paso 3: confirma que los crudos ya están en storage y encola la anonimización.
+ *  `anexar` = añadir estas series al estudio existente (editar); default reemplaza. */
 export async function confirmarSubidaDicom(
   casoId: string,
   archivos: ArchivoFuente[],
   tabla: TablaEstudioDicom = 'bitacora_casos',
+  anexar = false,
 ): Promise<ResultadoDicom<{ jobId: string }>> {
   if (!(await esMiCaso(tabla, casoId))) {
     return { ok: false, error: 'Ese caso no existe o no es tuyo.' };
@@ -124,7 +126,7 @@ export async function confirmarSubidaDicom(
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tabla, archivos }),
+        body: JSON.stringify({ tabla, archivos, anexar }),
         cache: 'no-store',
       },
     );
@@ -134,6 +136,35 @@ export async function confirmarSubidaDicom(
   } catch (e) {
     console.error('[confirmarSubidaDicom] fallo:', e);
     return { ok: false, error: 'No se pudo confirmar la subida del estudio (apps/api).' };
+  }
+}
+
+/** Quita UNA serie del estudio (editar caso). Gatea propiedad bajo RLS y delega el
+ *  borrado del binario + splice al `api` (único firmante). */
+export async function quitarSerieDicom(
+  casoId: string,
+  indice: number,
+  tabla: TablaEstudioDicom = 'bitacora_casos',
+): Promise<ResultadoDicom<{ series: number }>> {
+  if (!(await esMiCaso(tabla, casoId))) {
+    return { ok: false, error: 'Ese caso no existe o no es tuyo.' };
+  }
+  try {
+    const res = await fetch(
+      `${apiBase()}/dicom/casos/${encodeURIComponent(casoId)}/ingesta/quitar-serie`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tabla, indice }),
+        cache: 'no-store',
+      },
+    );
+    if (!res.ok) return { ok: false, error: `No se pudo quitar la serie (HTTP ${res.status}).` };
+    const d = (await res.json()) as { series: number };
+    return { ok: true, datos: { series: d.series } };
+  } catch (e) {
+    console.error('[quitarSerieDicom] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio DICOM (apps/api).' };
   }
 }
 

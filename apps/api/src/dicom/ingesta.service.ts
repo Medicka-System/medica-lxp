@@ -134,9 +134,12 @@ export class IngestaService {
     casoId: string,
     tabla: TablaEstudioDicom = 'bitacora_casos',
     archivos: ArchivoSolicitado[] = [{ indice: 0, esZip: false }],
+    anexar = false,
   ): Promise<{ encolado: true; cola: string; jobId: string }> {
     await this.exigirCaso(casoId, tabla);
-    await marcarEstado(this.db.sql, casoId, 'recibido', tabla);
+    // Al anexar no marcamos 'recibido' global (el estudio ya está anonimizado); el
+    // worker fija 'anonimizado' al terminar. Al reemplazar, sí pasa por 'recibido'.
+    if (!anexar) await marcarEstado(this.db.sql, casoId, 'recibido', tabla);
 
     const fuentes: FuenteDicom[] = archivos.map((a) => {
       const refCrudo = this.storage.claveCrudo(casoId, a.indice);
@@ -149,7 +152,7 @@ export class IngestaService {
       };
     });
 
-    const job: ProcesarDicomJob = { casoId, tabla, fuentes };
+    const job: ProcesarDicomJob = { casoId, tabla, fuentes, anexar };
     const jobId = await this.colas.encolar(QUEUE_PROCESAR_DICOM, job);
     return { encolado: true, cola: QUEUE_PROCESAR_DICOM, jobId };
   }
@@ -157,17 +160,68 @@ export class IngestaService {
   /**
    * Firma la ESCRITURA de `cantidad` series anonimizadas (worker→servicio). El worker
    * ya conoce el nº final de series tras descomprimir; el `api` firma un PUT por serie.
+   * `desde` desplaza el índice base para ANEXAR sin pisar refs existentes.
    */
   async firmarAnonimizados(
     casoId: string,
     tabla: TablaEstudioDicom,
     cantidad: number,
+    desde = 0,
   ): Promise<{ destinos: DestinoAnonimizado[] }> {
     await this.exigirCaso(casoId, tabla);
     const destinos: DestinoAnonimizado[] = Array.from({ length: Math.max(0, cantidad) }, (_, i) => {
-      const ref = this.storage.claveAnonimizado(casoId, i);
-      return { indice: i, ref, urlSubida: this.storage.firmarSubida(ref) };
+      const indice = desde + i;
+      const ref = this.storage.claveAnonimizado(casoId, indice);
+      return { indice, ref, urlSubida: this.storage.firmarSubida(ref) };
     });
     return { destinos };
+  }
+
+  /**
+   * Quita UNA serie del estudio (editar caso · §6): borra su binario anonimizado de
+   * object storage y la remueve de `estudio_series`. El `api` es el único firmante, así
+   * que el borrado del objeto se hace aquí (firma + DELETE). Si queda vacío, limpia el
+   * estado del estudio. La propiedad ya se validó en el web bajo RLS antes de llamar.
+   */
+  async quitarSerie(
+    casoId: string,
+    tabla: TablaEstudioDicom,
+    indice: number,
+  ): Promise<{ series: number }> {
+    const caso = await this.exigirCaso(casoId, tabla);
+    const series = caso.estudio_series;
+    if (indice < 0 || indice >= series.length) {
+      throw new NotFoundException(`La serie ${indice} no existe en el caso ${casoId}.`);
+    }
+    const [removida] = series.splice(indice, 1);
+    // Borra el binario anonimizado (idempotente: 404 = ya no está).
+    if (removida?.ref) {
+      const url = this.storage.firmarBorrado(removida.ref);
+      const resp = await fetch(url, { method: 'DELETE' }).catch(() => null);
+      if (resp && !resp.ok && resp.status !== 404) {
+        throw new Error(`No se pudo borrar la serie en storage (${resp.status}).`);
+      }
+    }
+    const vacio = series.length === 0;
+    const refPrimaria = vacio ? null : (series[0]!.ref ?? null);
+    const sql = this.db.sql;
+    if (tabla === 'casos_biblioteca') {
+      await sql`
+        update lxp.casos_biblioteca
+        set estudio_series = ${sql.json(series)},
+            estudio_dicom_ref = ${refPrimaria},
+            dicom_ref = ${refPrimaria},
+            estudio_estado = ${vacio ? null : 'anonimizado'}::lxp.estudio_dicom_estado,
+            anonimizado_en = case when ${vacio} then null else anonimizado_en end
+        where id = ${casoId}`;
+    } else {
+      await sql`
+        update lxp.bitacora_casos
+        set estudio_series = ${sql.json(series)},
+            estudio_dicom_ref = ${refPrimaria},
+            estudio_estado = ${vacio ? null : 'anonimizado'}::lxp.estudio_dicom_estado
+        where id = ${casoId}`;
+    }
+    return { series: series.length };
   }
 }

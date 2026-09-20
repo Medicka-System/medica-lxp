@@ -32,6 +32,8 @@ function archivosDe(v: unknown): ArchivoSolicitado[] {
 interface CuerpoIngesta {
   tabla?: TablaEstudioDicom;
   archivos?: ArchivoSolicitado[];
+  /** true = anexar al estudio existente (editar); false/omitido = reemplazar. */
+  anexar?: boolean;
 }
 
 /**
@@ -60,7 +62,12 @@ export class IngestaController {
     @Param('casoId') casoId: string,
     @Body() cuerpo: CuerpoIngesta = {},
   ): Promise<{ encolado: true; cola: string; jobId: string }> {
-    return this.ingesta.confirmarSubida(casoId, tablaDe(cuerpo.tabla), archivosDe(cuerpo.archivos));
+    return this.ingesta.confirmarSubida(
+      casoId,
+      tablaDe(cuerpo.tabla),
+      archivosDe(cuerpo.archivos),
+      cuerpo.anexar === true,
+    );
   }
 
   /** Firma la lectura de las series anonimizadas para el visor (409 si no listo). */
@@ -85,6 +92,19 @@ export class IngestaController {
   ) {
     const cantidad = typeof cuerpo?.cantidad === 'number' ? cuerpo.cantidad : 0;
     if (cantidad < 1) throw new BadRequestException('cantidad debe ser >= 1.');
-    return this.ingesta.firmarAnonimizados(casoId, tablaDe(cuerpo?.tabla), cantidad);
+    const desde = typeof cuerpo?.desde === 'number' && cuerpo.desde >= 0 ? cuerpo.desde : 0;
+    return this.ingesta.firmarAnonimizados(casoId, tablaDe(cuerpo?.tabla), cantidad, desde);
+  }
+
+  /** Quita UNA serie del estudio (editar caso): borra su binario + la saca de la ficha. */
+  @Post('ingesta/quitar-serie')
+  @HttpCode(200)
+  quitarSerie(
+    @Param('casoId') casoId: string,
+    @Body() cuerpo: { tabla?: TablaEstudioDicom; indice?: number },
+  ): Promise<{ series: number }> {
+    const indice = typeof cuerpo?.indice === 'number' ? cuerpo.indice : -1;
+    if (indice < 0) throw new BadRequestException('indice inválido.');
+    return this.ingesta.quitarSerie(casoId, tablaDe(cuerpo?.tabla), indice);
   }
 }

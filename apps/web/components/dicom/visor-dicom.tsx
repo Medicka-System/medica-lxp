@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, ImageOff, Film } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, ImageOff, Film, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { HerramientaId } from './herramientas';
 import type { MotorVisor } from './motor';
@@ -59,6 +59,22 @@ export function VisorDicom({
   onHerramientaChange,
 }: VisorDicomProps) {
   const [loop, setLoop] = useState(true);
+  const contenedorExtRef = useRef<HTMLDivElement | null>(null);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+
+  const alternarPantallaCompleta = useCallback(() => {
+    const el = contenedorExtRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.();
+  }, []);
+
+  useEffect(() => {
+    const onCambio = () => setPantallaCompleta(document.fullscreenElement === contenedorExtRef.current);
+    document.addEventListener('fullscreenchange', onCambio);
+    return () => document.removeEventListener('fullscreenchange', onCambio);
+  }, []);
+
   const visor = useVisorDicom({
     estudio,
     crearMotor,
@@ -105,8 +121,10 @@ export function VisorDicom({
 
   return (
     <div
+      ref={contenedorExtRef}
       className={cn(
         'flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-rest',
+        pantallaCompleta && 'h-screen w-screen rounded-none',
         className,
       )}
     >
@@ -155,6 +173,20 @@ export function VisorDicom({
               <Film size={11} strokeWidth={2} /> Cine
             </span>
           )}
+
+          {/* Pantalla completa — el visor es la herramienta de trabajo del médico. */}
+          <button
+            type="button"
+            onClick={alternarPantallaCompleta}
+            aria-label={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+            className="absolute bottom-3 right-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-black/45 text-white/85 transition-colors hover:bg-black/65 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          >
+            {pantallaCompleta ? (
+              <Minimize2 size={16} strokeWidth={2} />
+            ) : (
+              <Maximize2 size={16} strokeWidth={2} />
+            )}
+          </button>
 
           {!listo && !error && (
             <div className="z-10 flex flex-col items-center gap-2 text-white/70">

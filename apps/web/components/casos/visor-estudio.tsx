@@ -44,7 +44,8 @@ export function VisorEstudio({
   casoId,
   tabla = 'bitacora_casos',
   soloLectura = false,
-  className = 'min-h-[440px]',
+  // El visor manda: alto generoso por defecto (la herramienta de trabajo del médico).
+  className = 'h-[72vh] min-h-[520px]',
 }: {
   casoId: string;
   tabla?: TablaEstudioDicom;
@@ -62,8 +63,25 @@ export function VisorEstudio({
       const r = await lecturaEstudioDicom(casoId, tabla);
       if (!vivo) return;
       if (r.ok && r.datos.series.length > 0) {
-        setEstudio(armarEstudio(casoId, r.datos.series));
+        const armado = armarEstudio(casoId, r.datos.series);
+        setEstudio(armado);
         setEstado('listo');
+
+        // Miniaturas REALES por serie (Cornerstone renderiza el 1er frame). No bloquea
+        // el visor grande: merge sólo cambia `miniaturaUrl` (no los imageIds), así que
+        // `useVisorDicom` no recarga la serie activa.
+        try {
+          const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
+          const urls = await renderMiniaturas(armado.series.map((s) => s.frames[0]!.imageId));
+          if (!vivo) return;
+          setEstudio((prev) =>
+            prev && prev.id === armado.id
+              ? { ...prev, series: prev.series.map((s, i) => ({ ...s, miniaturaUrl: urls[i] ?? s.miniaturaUrl })) }
+              : prev,
+          );
+        } catch {
+          /* miniaturas son un adorno: si fallan, el selector cae a su ícono */
+        }
       } else {
         setError(r.ok ? 'El estudio no tiene series.' : r.error);
         setEstado('error');

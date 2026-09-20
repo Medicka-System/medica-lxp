@@ -76,6 +76,12 @@ export interface ProcesarDicomJob {
   tabla: TablaEstudioDicom;
   /** Fuentes crudas a procesar (uno o varios `.dcm`/`.zip`). */
   fuentes: FuenteDicom[];
+  /**
+   * true = AÑADIR estas series a las ya existentes (editar el estudio); false/omitido
+   * = reemplazar el estudio. Al anexar, el worker calcula el índice base a partir de
+   * las series actuales para no pisar refs.
+   */
+  anexar?: boolean;
 }
 
 /**
@@ -87,6 +93,8 @@ export interface FirmarAnonimizadosReq {
   tabla: TablaEstudioDicom;
   /** Número de series anonimizadas a persistir (una URL firmada por cada una). */
   cantidad: number;
+  /** Índice base (para anexar sin pisar refs existentes). Default 0. */
+  desde?: number;
 }
 
 /** Un destino firmado para persistir una serie anonimizada. */

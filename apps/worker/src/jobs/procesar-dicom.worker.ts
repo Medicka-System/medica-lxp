@@ -34,6 +34,12 @@ type TrazaEstudio = {
   verificado: boolean;
 };
 
+/** Índice de una serie a partir de su ref `.../{idx}.dcm` (para anexar sin pisar). */
+function indiceDeRef(ref: string | undefined): number {
+  const m = /(\d+)\.dcm$/.exec(ref ?? '');
+  return m ? Number(m[1]) : -1;
+}
+
 /**
  * `procesar-dicom` (§8, job #2 · rediseño MULTI-SERIE): al confirmarse la subida de
  * las FUENTES de un estudio (uno o varios `.dcm`, o un `.zip` con varias series), este
@@ -58,10 +64,16 @@ export class ProcesarDicomWorker extends TrabajadorBase {
   }
 
   async procesar(job: Job<ProcesarDicomJob>): Promise<{ casoId: string; series: number }> {
-    const { casoId, tabla, fuentes } = job.data;
+    const { casoId, tabla, fuentes, anexar = false } = job.data;
 
     try {
-      await this.marcarEstado(tabla, casoId, 'procesando');
+      // Al ANEXAR el estudio ya está anonimizado y visible: no lo pasamos a
+      // 'procesando' (evita 409 en el visor durante la edición). Al reemplazar, sí.
+      if (!anexar) await this.marcarEstado(tabla, casoId, 'procesando');
+
+      // Series ya existentes (para anexar sin pisar refs). Vacío si reemplaza.
+      const existentes = anexar ? await this.leerSeriesExistentes(tabla, casoId) : [];
+      const desde = existentes.reduce((max, s) => Math.max(max, indiceDeRef(s.ref) + 1), 0);
 
       // 1) Traer cada fuente cruda y expandir los zips a `.dcm` individuales.
       const crudos: ArrayBuffer[] = [];
@@ -82,21 +94,21 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         anonimizarDicomBinario(c),
       );
 
-      // 3) Pedir al `api` las URLs firmadas de escritura (una por serie). El `api` es
-      //    el único firmante (§3); el worker no tiene credenciales de storage.
-      const destinos = await this.firmarAnonimizados(casoId, tabla, anonimizados.length);
+      // 3) Pedir al `api` las URLs firmadas de escritura (una por serie), desde el
+      //    índice base. El `api` es el único firmante (§3).
+      const destinos = await this.firmarAnonimizados(casoId, tabla, anonimizados.length, desde);
       if (destinos.length < anonimizados.length) {
         throw new Error('El `api` firmó menos destinos que series a persistir.');
       }
 
-      // 4) Subir cada `.dcm` anonimizado a su destino y armar las series.
-      const series: SeriePersistida[] = [];
+      // 4) Subir cada `.dcm` anonimizado a su destino y armar las series NUEVAS.
+      const nuevas: SeriePersistida[] = [];
       for (let i = 0; i < anonimizados.length; i++) {
         const anon = anonimizados[i]!;
         const destino = destinos[i]!;
         await this.subirBinario(destino.urlSubida, anon.buffer);
         const s = anon.series[0];
-        series.push({
+        nuevas.push({
           series_uid: s?.series_uid ?? '',
           modalidad: s?.modalidad ?? 'US',
           frames: s?.frames ?? 1,
@@ -110,20 +122,40 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         await this.borrarCrudo(fuente.urlBorradoCrudo);
       }
 
-      // 6) Persistir metadatos + traza agregada. La referencia del estudio educativo
-      //    se fija SOLO ahora, junto con anonimizado_en (lo exige el CHECK de 0014/0024).
+      // 6) Persistir. Al anexar, concatena a las existentes; al reemplazar, sólo las
+      //    nuevas. La referencia del estudio se fija junto con anonimizado_en (CHECK 0014/0024).
+      const series = anexar ? [...existentes, ...nuevas] : nuevas;
       const traza = this.agregarTraza(anonimizados, destinos);
       await this.guardarEstudio(tabla, casoId, series, traza);
 
       this.logger.log(
-        `Caso ${casoId} (${tabla}) anonimizado: ${series.length} serie(s), ` +
-          `${traza.removidos_n} campo(s) PII removido(s).`,
+        `Caso ${casoId} (${tabla}) ${anexar ? 'ampliado' : 'anonimizado'}: ${series.length} serie(s) ` +
+          `(+${nuevas.length}), ${traza.removidos_n} campo(s) PII removido(s).`,
       );
       return { casoId, series: series.length };
     } catch (err) {
-      await this.marcarEstado(tabla, casoId, 'error');
+      // Al anexar NO marcamos 'error' para no ocultar el estudio ya anonimizado; el
+      // job reintenta. Al reemplazar sí, porque no hay estudio válido que preservar.
+      if (!anexar) await this.marcarEstado(tabla, casoId, 'error');
       throw err;
     }
+  }
+
+  /** Lee las series ya persistidas del caso (para anexar). */
+  private async leerSeriesExistentes(
+    tabla: TablaEstudioDicom,
+    casoId: string,
+  ): Promise<SeriePersistida[]> {
+    const sql = this.db.sql;
+    const rows =
+      tabla === 'casos_biblioteca'
+        ? await sql<{ estudio_series: SeriePersistida[] }[]>`
+            select coalesce(estudio_series, '[]'::jsonb) as estudio_series
+            from lxp.casos_biblioteca where id = ${casoId}`
+        : await sql<{ estudio_series: SeriePersistida[] }[]>`
+            select coalesce(estudio_series, '[]'::jsonb) as estudio_series
+            from lxp.bitacora_casos where id = ${casoId}`;
+    return rows[0]?.estudio_series ?? [];
   }
 
   /** Descomprime un `.zip` y devuelve los buffers de sus `.dcm` (ignora el resto). */
@@ -156,6 +188,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     casoId: string,
     tabla: TablaEstudioDicom,
     cantidad: number,
+    desde = 0,
   ): Promise<DestinoAnonimizado[]> {
     const base = process.env.API_URL ?? 'http://localhost:8000';
     const resp = await fetch(
@@ -163,7 +196,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tabla, cantidad }),
+        body: JSON.stringify({ tabla, cantidad, desde }),
       },
     );
     if (!resp.ok) {

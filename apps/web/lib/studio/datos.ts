@@ -536,7 +536,12 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           id: string;
           titulo: string;
           organo: string | null;
+          patologia: string | null;
           dominio_iaim: DominioIaim | null;
+          tecnica: string | null;
+          equipo: string | null;
+          vineta: string | null;
+          etiquetas: unknown;
           diagnostico_correcto: string | null;
           hallazgos_clave: unknown;
           puntos_aprendizaje: unknown;
@@ -547,7 +552,8 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           curador: string | null;
         }[]
       >`
-        select id, titulo, organo, dominio_iaim, diagnostico_correcto,
+        select id, titulo, organo, patologia, dominio_iaim, tecnica, equipo, vineta,
+               etiquetas, diagnostico_correcto,
                hallazgos_clave, puntos_aprendizaje, errores_comunes,
                publicado, estudio_estado::text as estudio_estado,
                coalesce(jsonb_array_length(estudio_series), 0)::int as series,
@@ -559,7 +565,12 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
       id: r.id,
       titulo: r.titulo,
       organo: r.organo ?? '',
+      patologia: r.patologia ?? '',
       dominioIaim: r.dominio_iaim,
+      tecnica: r.tecnica ?? '',
+      equipo: r.equipo ?? '',
+      vineta: r.vineta ?? '',
+      etiquetas: aTextos(r.etiquetas),
       diagnostico: r.diagnostico_correcto ?? '',
       hallazgosClave: aTextos(r.hallazgos_clave),
       puntosAprendizaje: aTextos(r.puntos_aprendizaje),

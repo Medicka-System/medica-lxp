@@ -172,3 +172,65 @@ export class MotorCornerstone implements MotorVisor {
 export function crearMotorCornerstone(): MotorVisor {
   return new MotorCornerstone();
 }
+
+/** Espera a que el WebGL pinte antes de leer el canvas (2 frames de gracia). */
+function esperarPintado(): Promise<void> {
+  return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+}
+
+/**
+ * Renderiza MINIATURAS reales (data URL JPEG) del primer frame de cada serie, con
+ * un único RenderingEngine offscreen (§4.7 · tira de series del detalle). Reusa el
+ * loader DICOM ya registrado; carga cada `imageId` en un viewport oculto, deja pintar
+ * y captura el canvas. Devuelve `null` por serie que no se pudo previsualizar (el
+ * selector cae entonces a su ícono). No lanza: las miniaturas son un adorno, no un
+ * requisito para ver el estudio.
+ */
+export async function renderMiniaturas(imageIds: string[]): Promise<(string | null)[]> {
+  if (imageIds.length === 0) return [];
+  try {
+    await inicializarCornerstone();
+  } catch {
+    return imageIds.map(() => null);
+  }
+
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:-10000px;top:0;width:160px;height:120px;pointer-events:none;';
+  document.body.appendChild(el);
+
+  const engineId = `thumb-engine-${++seq}`;
+  const viewportId = `thumb-vp-${seq}`;
+  const engine = new RenderingEngine(engineId);
+  const salida: (string | null)[] = [];
+
+  try {
+    engine.enableElement({
+      viewportId,
+      type: CoreEnums.ViewportType.STACK,
+      element: el as HTMLDivElement,
+    });
+    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+
+    for (const imageId of imageIds) {
+      try {
+        await viewport.setStack([imageId], 0);
+        viewport.render();
+        await esperarPintado();
+        const canvas = viewport.getCanvas();
+        salida.push(canvas ? canvas.toDataURL('image/jpeg', 0.6) : null);
+      } catch {
+        salida.push(null);
+      }
+    }
+  } catch {
+    while (salida.length < imageIds.length) salida.push(null);
+  } finally {
+    try {
+      engine.destroy();
+    } catch {
+      /* no-op */
+    }
+    el.remove();
+  }
+  return salida;
+}

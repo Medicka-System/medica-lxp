@@ -67,6 +67,7 @@ export async function ejecutarSubidaMulti(
   tabla: TablaEstudioDicom,
   archivos: File[],
   onFase: (f: FaseDicom, msg?: string) => void,
+  anexar = false,
 ): Promise<FaseDicom> {
   const fuentes: ArchivoFuente[] = archivos.map((f, i) => ({ indice: i, esZip: esZip(f) }));
 
@@ -88,7 +89,7 @@ export async function ejecutarSubidaMulti(
     }
   }
 
-  const conf = await confirmarSubidaDicom(casoId, fuentes, tabla);
+  const conf = await confirmarSubidaDicom(casoId, fuentes, tabla, anexar);
   if (!conf.ok) return onFase('error', conf.error), 'error';
 
   onFase('procesando');

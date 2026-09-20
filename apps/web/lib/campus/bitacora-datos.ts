@@ -5,11 +5,18 @@ import {
   type BitacoraData,
   type CasoBitacora,
   type CasoDetalleBitacora,
+  type DocenteOpcion,
   type DominioIaim,
   type EstadoCaso,
   type EstudioEstado,
   type ModuloOpcion,
 } from './bitacora-contrato';
+
+/** Normaliza un jsonb que debería ser arreglo de strings a string[] seguro. */
+function comoLista(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+}
 
 /**
  * Lectura de Mi Bitácora. Corre con RLS vía `comoAlumno`: el alumno solo ve SUS
@@ -26,6 +33,15 @@ function hallazgoCorto(hallazgos: string | null): string {
   return linea.length > 120 ? `${linea.slice(0, 117)}…` : linea;
 }
 
+/** Docentes disponibles para asignar la validación (SECURITY DEFINER · mig 0025). */
+export async function getDocentes(userId: string): Promise<DocenteOpcion[]> {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<{ user_id: string; nombre: string }[]>`
+      select user_id, nombre from lxp.docentes_disponibles()`;
+    return rows.map((d) => ({ id: d.user_id, nombre: d.nombre }));
+  });
+}
+
 /** Detalle de UN caso del alumno (para la pantalla completa con visor · §4.7). */
 export async function getCasoBitacora(
   userId: string,
@@ -40,7 +56,14 @@ export async function getCasoBitacora(
           presuntivo: string | null;
           modulo: string | null;
           organo: string | null;
+          patologia: string | null;
           dominio_iaim: DominioIaim | null;
+          tecnica: string | null;
+          equipo: string | null;
+          vineta: string | null;
+          etiquetas: unknown;
+          docente_id: string | null;
+          docente: string | null;
           created_at: Date;
           estado_validacion: EstadoCaso;
           estudio_estado: EstudioEstado;
@@ -51,8 +74,10 @@ export async function getCasoBitacora(
       >`
         select
           c.id, c.hallazgos, c.diagnostico_presuntivo as presuntivo,
-          m.nombre as modulo, c.organo, c.dominio_iaim, c.created_at,
-          c.estado_validacion, c.estudio_estado,
+          m.nombre as modulo, c.organo, c.patologia, c.dominio_iaim,
+          c.tecnica, c.equipo, c.vineta, c.etiquetas,
+          c.docente_id, lxp.nombre_de(c.docente_id) as docente,
+          c.created_at, c.estado_validacion, c.estudio_estado,
           coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
           exists (
             select 1 from jsonb_array_elements(c.estudio_series) s
@@ -76,7 +101,14 @@ export async function getCasoBitacora(
       presuntivo: r.presuntivo,
       modulo: r.modulo,
       organo: r.organo,
+      patologia: r.patologia,
       dominio: r.dominio_iaim,
+      tecnica: r.tecnica,
+      equipo: r.equipo,
+      vineta: r.vineta,
+      etiquetas: comoLista(r.etiquetas),
+      docenteId: r.docente_id,
+      docente: r.docente,
       fecha: r.created_at,
       estado: r.estado_validacion,
       estudioEstado: r.estudio_estado,
@@ -203,12 +235,19 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
       horas: m.horas,
     }));
 
+    // Docentes para asignar la validación (SECURITY DEFINER · mig 0025: la RLS de
+    // perfiles no deja al alumno listar otros perfiles).
+    const docentesRows = await sql<{ user_id: string; nombre: string }[]>`
+      select user_id, nombre from lxp.docentes_disponibles()`;
+    const docentes: DocenteOpcion[] = docentesRows.map((d) => ({ id: d.user_id, nombre: d.nombre }));
+
     return {
       horas: { acreditadas: horasAcreditadas, meta: 1000 },
       casos: { total: casos.length, aprobados, pendientes, rechazados },
       porDominio,
       porModulo,
       modulos,
+      docentes,
       items,
     };
   });

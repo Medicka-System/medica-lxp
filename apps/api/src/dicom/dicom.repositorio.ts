@@ -11,13 +11,13 @@ import type { Sql } from '@campus/db';
 import type { TablaEstudioDicom } from '@campus/shared';
 
 /** Serie persistida del estudio anonimizado (subconjunto de `estudio_series`). */
-export interface SerieEstudio {
+export type SerieEstudio = {
   series_uid: string;
   modalidad: string;
   frames: number;
   /** Clave del `.dcm` anonimizado de esta serie en object storage. */
   ref?: string;
-}
+};
 
 export interface CasoEstudio {
   id: string;
