@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ChevronDown,
   Code,
   FileText,
   Image as ImageIcon,
@@ -330,6 +331,10 @@ function BloqueItem({
     id: bloque.id,
   });
 
+  // Plegado local: permite contraer el cuerpo del bloque para navegar cómodo con
+  // muchos bloques (el chevron del encabezado lo alterna).
+  const [plegado, setPlegado] = useState(false);
+
   // Borrador local: el editor es controlado y guarda con un botón cuando hay cambios.
   const [draft, setDraft] = useState<Record<string, unknown>>(bloque.config);
   const [guardado, setGuardado] = useState<Record<string, unknown>>(bloque.config);
@@ -418,6 +423,19 @@ function BloqueItem({
             ))}
           </svg>
         </button>
+        <button
+          type="button"
+          onClick={() => setPlegado((v) => !v)}
+          aria-expanded={!plegado}
+          aria-label={plegado ? `Desplegar bloque ${info.rotulo}` : `Plegar bloque ${info.rotulo}`}
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[color:var(--track)] ${focusRing}`}
+        >
+          <ChevronDown
+            aria-hidden
+            className={`h-[15px] w-[15px] transition-transform ${plegado ? '-rotate-90' : ''}`}
+            strokeWidth={2}
+          />
+        </button>
         <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-accent text-accent-foreground">
           <Icono className="h-[15px] w-[15px]" strokeWidth={1.75} />
         </span>
@@ -445,10 +463,12 @@ function BloqueItem({
         </button>
       </div>
 
-      {/* Cuerpo: editor del sub-tipo (controlado) */}
-      <div className="p-3.5">
-        <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} />
-      </div>
+      {/* Cuerpo: editor del sub-tipo (controlado). Se oculta al plegar el bloque. */}
+      {!plegado && (
+        <div className="p-3.5">
+          <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} />
+        </div>
+      )}
     </div>
   );
 }
