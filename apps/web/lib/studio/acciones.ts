@@ -515,3 +515,81 @@ async function intercambiar(
   await sql.unsafe(`update ${tabla} set orden = $1 where id = $2`, [b.orden, a.id]);
   await sql.unsafe(`update ${tabla} set orden = $1 where id = $2`, [a.orden, b.id]);
 }
+
+// ── Bloques de TEORÍA (lxp.bloques · §5C · mig 0023) ────────────────────────────
+/**
+ * El contenido de una lección tipo `teoria` vive en `lxp.bloques` (filas ordenables ·
+ * mig 0023) — NO en `lecciones.config` ni en las tablas legacy `contenidos/actividades`.
+ * `tipo_bloque` es TEXT: lo define el editor de teoría (texto, imagen, caso, h5p…) sin
+ * pedir migración. `config` guarda el cuerpo del bloque; su forma la fija el editor.
+ *
+ * CRUD directo web→Supabase bajo RLS `lxp.es_autoria()` (Regla de Oro §2 · NO NestJS),
+ * igual que el resto del builder. El contrato del editor está en
+ * `docs/constructor-lecciones-contrato.md` (§3).
+ */
+export async function crearBloqueTeoria(
+  programaId: string,
+  leccionId: string,
+  tipoBloque: string,
+  config: Record<string, unknown> = {},
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  const limpio = tipoBloque.trim();
+  if (!limpio) return;
+  await comoStaff(userId, async (sql) => {
+    await sql`
+      insert into lxp.bloques (leccion_id, tipo_bloque, config, orden)
+      values (
+        ${leccionId}, ${limpio}, ${sql.json(config as Parameters<typeof sql.json>[0])},
+        coalesce((select max(orden) + 1 from lxp.bloques where leccion_id = ${leccionId}), 0)
+      )`;
+  });
+  refrescar(programaId);
+}
+
+export async function actualizarBloqueTeoria(
+  programaId: string,
+  bloqueId: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`update lxp.bloques set config = ${sql.json(config as Parameters<typeof sql.json>[0])} where id = ${bloqueId}`;
+  });
+  refrescar(programaId);
+}
+
+export async function eliminarBloqueTeoria(programaId: string, bloqueId: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`delete from lxp.bloques where id = ${bloqueId}`;
+  });
+  refrescar(programaId);
+}
+
+/**
+ * Reordena TODOS los bloques de la lección de una vez: escribe `orden` = índice en la
+ * lista recibida. Pensado para dnd-kit (que entrega el orden nuevo completo) y para el
+ * reorden por teclado. `orden` no es único → sin colisión al escribir. Solo toca los
+ * bloques que de verdad pertenecen a la lección (candado extra ante ids ajenos).
+ */
+export async function reordenarBloquesTeoria(
+  programaId: string,
+  leccionId: string,
+  idsEnOrden: string[],
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  if (idsEnOrden.length === 0) return;
+  await comoStaff(userId, async (sql) => {
+    const propios = await sql<{ id: string }[]>`
+      select id from lxp.bloques where leccion_id = ${leccionId}`;
+    const validos = new Set(propios.map((r) => r.id));
+    let orden = 0;
+    for (const id of idsEnOrden) {
+      if (!validos.has(id)) continue;
+      await sql`update lxp.bloques set orden = ${orden} where id = ${id} and leccion_id = ${leccionId}`;
+      orden += 1;
+    }
+  });
+  refrescar(programaId);
+}
