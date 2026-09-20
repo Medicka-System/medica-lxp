@@ -12,6 +12,7 @@
 
 import { useRef, useState } from 'react';
 import { H5PEditorUI, H5PPlayerUI } from '@lumieducation/h5p-react';
+import type { IContentMetadata } from '@lumieducation/h5p-server';
 import { Save } from 'lucide-react';
 import { focusRing } from '@/components/tokens';
 
@@ -24,14 +25,27 @@ export type H5PLienzoProps = {
   modo: 'ver' | 'editar';
   /** Id del contenido; `new` para crear uno nuevo en el editor. */
   contentId: string;
-  /** Prefijo del servidor H5P (§7 · api). Ej: `/h5p`. */
+  /** Prefijo del servidor H5P (§7 · api). Ej: `/h5p` o `https://api.host/h5p`. */
   base: string;
+  /** Lección destino: enlaza el contenido a la lección al guardar (POST /h5p/contenido). */
+  leccionId?: string;
+  /** Título con el que registrar el contenido en la lección. */
+  titulo?: string;
   onGuardado?: (contentId: string, metadata: unknown) => void;
   onError?: (mensaje: string) => void;
   onXapi?: (statement: unknown) => void;
 };
 
-export default function H5PLienzo({ modo, contentId, base, onGuardado, onError, onXapi }: H5PLienzoProps) {
+export default function H5PLienzo({
+  modo,
+  contentId,
+  base,
+  leccionId,
+  titulo,
+  onGuardado,
+  onError,
+  onXapi,
+}: H5PLienzoProps) {
   const editorRef = useRef<H5PEditorUI>(null);
   const raiz = base.replace(/\/$/, '');
   const [guardando, setGuardando] = useState(false);
@@ -42,17 +56,41 @@ export default function H5PLienzo({ modo, contentId, base, onGuardado, onError, 
         <H5PEditorUI
           ref={editorRef}
           contentId={contentId}
-          loadContentCallback={async (id) => json(await fetch(`${raiz}/editor/${id}`, { credentials: 'include' }))}
-          saveContentCallback={async (id, body) =>
-            json(
-              await fetch(`${raiz}/editor/${id === 'new' ? '' : id}`, {
+          // GET /h5p/editar (nuevo) · GET /h5p/editar/:id (existente) — modelo del editor.
+          loadContentCallback={async (id) =>
+            json(await fetch(`${raiz}/editar${id && id !== 'new' ? `/${id}` : ''}`))
+          }
+          // POST /h5p/contenido — guarda/actualiza y enlaza a la lección. El cliente H5P
+          // manda { library, params:{ params, metadata } }; el `api` espera params/metadata
+          // en el tope, así que se aplanan aquí.
+          saveContentCallback={async (id, body) => {
+            const rb = body as {
+              library: string;
+              params?: { params?: unknown; metadata?: unknown } | unknown;
+              metadata?: unknown;
+            };
+            const anidado =
+              rb.params && typeof rb.params === 'object' && 'params' in rb.params
+                ? (rb.params as { params?: unknown; metadata?: unknown })
+                : undefined;
+            const params = anidado ? anidado.params : rb.params;
+            const metadata = anidado ? anidado.metadata ?? {} : rb.metadata ?? {};
+            const r = (await json(
+              await fetch(`${raiz}/contenido`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(body),
+                body: JSON.stringify({
+                  contentId: id && id !== 'new' ? id : undefined,
+                  library: rb.library,
+                  params,
+                  metadata,
+                  leccionId,
+                  titulo,
+                }),
               }),
-            )
-          }
+            )) as { contentId: string };
+            return { contentId: r.contentId, metadata: metadata as IContentMetadata };
+          }}
           onSaved={(id, metadata) => onGuardado?.(id, metadata)}
           onSaveError={(m) => onError?.(m)}
         />
@@ -83,7 +121,8 @@ export default function H5PLienzo({ modo, contentId, base, onGuardado, onError, 
   return (
     <H5PPlayerUI
       contentId={contentId}
-      loadContentCallback={async (id) => json(await fetch(`${raiz}/play/${id}`, { credentials: 'include' }))}
+      // GET /h5p/contenido/:id/reproducir — modelo del player (emite xAPI al LRS).
+      loadContentCallback={async (id) => json(await fetch(`${raiz}/contenido/${id}/reproducir`))}
       onxAPIStatement={(statement) => onXapi?.(statement)}
     />
   );

@@ -37,6 +37,8 @@ export type BloqueH5PProps = {
    * bloque muestra "servidor pendiente" — no monta la UI (que fallaría sin backend).
    */
   servidorBase?: string | null;
+  /** Lección destino: enlaza el contenido a la lección al guardar (POST /h5p/contenido). */
+  leccionId?: string;
   titulo?: string;
   contexto?: string;
   onGuardado?: (contentId: string, metadata: unknown) => void;
@@ -47,6 +49,7 @@ export function BloqueH5P({
   modo = 'ver',
   contentId,
   servidorBase,
+  leccionId,
   titulo,
   contexto,
   onGuardado,
@@ -82,6 +85,8 @@ export function BloqueH5P({
           modo={modo}
           contentId={id}
           base={servidorBase}
+          leccionId={leccionId}
+          titulo={titulo}
           onGuardado={onGuardado}
           onError={setError}
           onXapi={onXapi}
