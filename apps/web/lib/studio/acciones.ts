@@ -341,6 +341,27 @@ export async function actualizarHorasLeccion(
   refrescar(programaId);
 }
 
+/**
+ * Guarda la CONFIG de una lección config-backed (§5C · mig 0023): video, H5P y xAPI
+ * (y a futuro autoeval/tarea/foro) guardan su contenido como un único objeto jsonb en
+ * `lecciones.config`. Cada editor de tipo posee la FORMA de su config y persiste el
+ * objeto completo (la lección es mono-tipo, así que no hay contención entre editores).
+ * CRUD directo `web → Supabase` bajo RLS `es_autoria` (Regla de Oro §2 · NO NestJS).
+ */
+export async function guardarConfigLeccion(
+  programaId: string,
+  leccionId: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`update lxp.lecciones set config = ${sql.json(
+      config as Parameters<typeof sql.json>[0],
+    )} where id = ${leccionId}`;
+  });
+  refrescar(programaId);
+}
+
 export async function renombrarLeccion(
   programaId: string,
   leccionId: string,
