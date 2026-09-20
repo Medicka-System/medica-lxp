@@ -62,6 +62,48 @@ services:
     volumes:
       - lrs_db:/db
 
+  minio:
+    # Object storage local S3-compatible (§3/§9): MinIO en path-style, donde el
+    # pipeline DICOM sube el estudio CRUDO y guarda el ANONIMIZADO. El `api` firma
+    # (SigV4) y el binario va cliente↔MinIO directo — nunca por el `api` ni Postgres.
+    # CORS abierto para que el navegador (subida) y el visor Cornerstone3D (lectura
+    # con URL firmada) puedan hablar con MinIO en local.
+    # quay.io es el registro oficial de MinIO (Docker Hub minio/minio suele estar
+    # bloqueado / rate-limited sin login).
+    image: quay.io/minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY_ID:-lxpminio}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_ACCESS_KEY:-lxpminio_dev_secret}
+      # Permite PUT (subida) y GET (visor wadouri) desde el navegador en local.
+      MINIO_API_CORS_ALLOW_ORIGIN: '*'
+    ports:
+      - '${STORAGE_PORT:-9000}:9000' # API S3
+      - '${STORAGE_CONSOLE_PORT:-9001}:9001' # Consola web (inspección local)
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  createbuckets:
+    # Init-container efímero: crea el bucket del pipeline una vez que MinIO responde
+    # y lo deja listo. No queda corriendo (exit 0). Idempotente (mc mb --ignore-existing).
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${STORAGE_ACCESS_KEY_ID:-lxpminio} ${STORAGE_SECRET_ACCESS_KEY:-lxpminio_dev_secret} &&
+      mc mb --ignore-existing local/${STORAGE_BUCKET:-campus-lxp-media} &&
+      echo 'Bucket ${STORAGE_BUCKET:-campus-lxp-media} listo.'
+      "
+    restart: 'no'
+
   api:
     build:
       context: ..
@@ -76,6 +118,15 @@ services:
       LRS_ENDPOINT: http://lrs:8080/xapi
       LRS_KEY: ${LRS_KEY:-campuslxp}
       LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
+      # Object storage (§3/§9): el `api` FIRMA subidas/lecturas contra MinIO. En la red
+      # compose el endpoint interno es http://minio:9000 (ver .env para el modo híbrido:
+      # con `pnpm dev` en host, STORAGE_ENDPOINT=http://localhost:9000 para que la URL
+      # firmada apunte a un host que el navegador también alcance).
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-campus-lxp-media}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-lxpminio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-lxpminio_dev_secret}
       # Eco (§7A): MOCK por default (sin API key). Cambiar ECO_PROVIDER=anthropic +
       # ANTHROPIC_API_KEY enchufa el modelo real sin tocar código. Modelos por paso
       # salen de lxp.eco_config; estas envs son solo el interruptor de proveedor.
@@ -120,6 +171,14 @@ services:
       # dispara el lote llamando al `api` (el juicio vive en api/src/ai · §4).
       EMBEDDINGS_URL: http://embeddings:8001
       API_URL: http://api:8000
+      # Object storage (§3/§9): `procesar-dicom` LEE el crudo, ESCRIBE el anonimizado
+      # y BORRA el crudo con las URLs firmadas que el `api` mete en el job (el worker
+      # no firma). Necesita alcanzar MinIO por la red compose (http://minio:9000).
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-campus-lxp-media}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-lxpminio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-lxpminio_dev_secret}
     depends_on:
       redis:
         condition: service_healthy
@@ -127,6 +186,10 @@ services:
         condition: service_healthy
       lrs:
         condition: service_started
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
 
   embeddings:
     # BGE-M3 self-hosted (§3): embeddings multilingües LOCALES para el RAG de Eco
@@ -197,3 +260,4 @@ volumes:
   redis_data:
   lrs_db:
   embeddings_models:
+  minio_data:
