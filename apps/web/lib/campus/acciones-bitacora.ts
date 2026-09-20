@@ -3,8 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
-import type { ResultadoAccion } from './resultado';
 import type { DominioIaim } from './bitacora-contrato';
+
+/** Resultado de `subirCaso`: devuelve el id para adjuntarle el estudio DICOM. */
+export type ResultadoSubirCaso = { ok: true; casoId: string } | { ok: false; error: string };
 
 /**
  * Server action de la bitácora. CRUD simple `web → Supabase` bajo RLS (Regla de Oro
@@ -14,10 +16,11 @@ import type { DominioIaim } from './bitacora-contrato';
  */
 
 /**
- * Sube un caso heredando el MÓDULO del contexto (y sus horas). El estudio DICOM NO
- * se adjunta aquí: el caso nace `pendiente` con `estudio_estado` 'pendiente' (a la
- * espera del pipeline de ingesta · 4.7). El CHECK de 0014 impide fijar
- * `estudio_dicom_ref` sin traza de anonimización, así que no se toca.
+ * Sube un caso heredando el MÓDULO del contexto (y sus horas). El caso nace
+ * `pendiente` con `estudio_estado` 'pendiente' (a la espera del pipeline de ingesta ·
+ * 4.7). El CHECK de 0014 impide fijar `estudio_dicom_ref` sin traza de anonimización,
+ * así que no se toca aquí: el estudio DICOM se adjunta DESPUÉS con el `casoId` que se
+ * devuelve (ver `dicom-acciones.ts` · solicitar → PUT directo → confirmar).
  */
 export async function subirCaso(datos: {
   moduloId: string;
@@ -25,7 +28,7 @@ export async function subirCaso(datos: {
   dominio: DominioIaim | null;
   hallazgos: string;
   presuntivo: string;
-}): Promise<ResultadoAccion> {
+}): Promise<ResultadoSubirCaso> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para subir casos.' };
@@ -33,9 +36,10 @@ export async function subirCaso(datos: {
   const hallazgos = datos.hallazgos.trim();
   if (!hallazgos) return { ok: false, error: 'Describe al menos un hallazgo antes de subir el caso.' };
 
+  let casoId: string;
   try {
-    await comoAlumno(alumno.userId, async (sql) => {
-      await sql`
+    casoId = await comoAlumno(alumno.userId, async (sql) => {
+      const rows = await sql<{ id: string }[]>`
         insert into lxp.bitacora_casos
           (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, diagnostico_presuntivo,
            origen, estado_validacion, estudio_estado)
@@ -49,12 +53,14 @@ export async function subirCaso(datos: {
           'alumno'::lxp.origen_caso,
           'pendiente'::lxp.estado_validacion,
           'pendiente'::lxp.estudio_dicom_estado
-        )`;
+        )
+        returning id`;
+      return rows[0]!.id;
     });
   } catch {
     return { ok: false, error: 'No se pudo subir el caso. Inténtalo de nuevo.' };
   }
   // PENDIENTE DE API: encolar xAPI `subió` en `envio-xapi` (§7). Ver contrato.
   revalidatePath('/bitacora');
-  return { ok: true };
+  return { ok: true, casoId };
 }
