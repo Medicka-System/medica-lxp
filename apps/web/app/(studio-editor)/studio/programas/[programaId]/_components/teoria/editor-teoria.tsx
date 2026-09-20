@@ -199,8 +199,10 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
       )}
 
       {/* Barra de acciones: agregar bloque (menú de sub-tipos) + insertar un recurso
-          que YA existe (Biblioteca de Contenido / Banco de Casos). */}
-      <div className="flex flex-wrap items-center gap-2.5">
+          que YA existe (Biblioteca de Contenido / Banco de Casos).
+          STICKY al pie del lienzo: con muchos bloques el botón "Agregar bloque"
+          SIEMPRE queda a la vista y alcanzable (patrón Gutenberg/Notion). */}
+      <div className="sticky bottom-0 z-10 -mb-6 mt-1 flex flex-wrap items-center gap-2.5 border-t border-border bg-background/95 py-3 backdrop-blur-sm">
         <div className="relative">
           <button
             type="button"
@@ -251,7 +253,7 @@ function MenuTipos({
     <>
       {/* velo para cerrar al hacer clic fuera */}
       <button type="button" aria-label="Cerrar menú" onClick={onCerrar} className="fixed inset-0 z-10 cursor-default" />
-      <div className="absolute left-0 top-full z-20 mt-2 w-[min(520px,86vw)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(520px,86vw)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <p className={`${kicker} text-secondary`}>Elige un tipo de bloque</p>
           <button
