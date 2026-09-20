@@ -18,14 +18,14 @@ export class StorageService {
   private readonly accessKey = process.env.STORAGE_ACCESS_KEY_ID ?? '';
   private readonly secretKey = process.env.STORAGE_SECRET_ACCESS_KEY ?? '';
 
-  /** Clave del estudio CRUDO (con PII) mientras se procesa. */
+  /** Clave del binario `.dcm` CRUDO (con PII) mientras se procesa. */
   claveCrudo(casoId: string): string {
-    return `dicom/crudo/${casoId}/estudio.json`;
+    return `dicom/crudo/${casoId}/estudio.dcm`;
   }
 
-  /** Clave del estudio ANONIMIZADO (educativo, sin PII). */
+  /** Clave del binario `.dcm` ANONIMIZADO (educativo, sin PII; lo lee el visor). */
   claveAnonimizado(casoId: string): string {
-    return `dicom/casos/${casoId}/estudio.json`;
+    return `dicom/casos/${casoId}/estudio.dcm`;
   }
 
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {

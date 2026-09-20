@@ -95,9 +95,13 @@ export const PII_KEYWORDS: ReadonlySet<string> = new Set([
   'StudyID',
 ]);
 
-/** ¿La clave es una etiqueta privada DICOM ("gggg,eeee" con grupo impar)? Se remueve. */
+/**
+ * ¿La clave es una etiqueta privada DICOM (grupo impar)? Se remueve. Acepta ambas
+ * formas: puntuada "gggg,eeee" (pipeline JSON) y contigua "ggggeeee" (así naturaliza
+ * dcmjs las etiquetas privadas/desconocidas al leer un binario P10 · anonimización real).
+ */
 export function esTagPrivado(clave: string): boolean {
-  const m = /^([0-9a-fA-F]{4}),([0-9a-fA-F]{4})$/.exec(clave);
+  const m = /^([0-9a-fA-F]{4}),?([0-9a-fA-F]{4})$/.exec(clave);
   if (!m) return false;
   const grupo = parseInt(m[1] as string, 16);
   return grupo % 2 === 1; // grupos impares = privados (PS3.5)

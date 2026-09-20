@@ -36,16 +36,17 @@ export interface RepasoJob {
 
 /**
  * Job `procesar-dicom` (§8, job #2). El `api` lo encola tras confirmarse la subida
- * del estudio crudo a object storage; el `worker` lo parsea, ANONIMIZA (bloqueante)
- * y persiste metadatos. Solo referencias/URLs (nunca el binario ni PII en el payload).
- * El signer es el `api`: las URLs firmadas viajan aquí para que el worker no firme.
+ * del binario `.dcm` crudo a object storage; el `worker` lo parsea (dcmjs), ANONIMIZA
+ * (bloqueante) y reescribe un `.dcm` anonimizado + metadatos. Solo referencias/URLs
+ * (nunca el binario ni PII en el payload). El signer es el `api`: las URLs firmadas
+ * viajan aquí para que el worker no firme.
  */
 export interface ProcesarDicomJob {
   /** Caso de bitácora al que pertenece el estudio. */
   casoId: string;
-  /** Clave del estudio CRUDO (con PII) en object storage. */
+  /** Clave del binario `.dcm` CRUDO (con PII) en object storage. */
   refCrudo: string;
-  /** Clave destino del estudio ANONIMIZADO. */
+  /** Clave destino del binario `.dcm` ANONIMIZADO. */
   refAnonimizado: string;
   /** URL firmada de LECTURA del estudio crudo. */
   urlLecturaCrudo: string;

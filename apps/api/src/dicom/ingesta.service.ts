@@ -1,15 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { QUEUE_PROCESAR_DICOM, type ProcesarDicomJob } from '@campus/shared';
 import { DbService } from '../db/db.service';
 import { ColasProducer } from '../colas/colas-producer';
 import { StorageService } from './storage.service';
-import { cargarCaso, marcarEstado } from './dicom.repositorio';
+import { cargarCaso, marcarEstado, type CasoEstudio, type SerieEstudio } from './dicom.repositorio';
 
 /** Respuesta al solicitar la subida de un estudio. */
 export interface SolicitudSubida {
   casoId: string;
   refCrudo: string;
   urlSubida: string;
+}
+
+/** Respuesta al pedir la lectura del estudio anonimizado (para el visor). */
+export interface LecturaEstudio {
+  casoId: string;
+  estado: string;
+  urlLectura: string;
+  series: SerieEstudio[];
 }
 
 /**
@@ -28,9 +36,31 @@ export class IngestaService {
     private readonly colas: ColasProducer,
   ) {}
 
-  private async exigirCaso(casoId: string): Promise<void> {
+  private async exigirCaso(casoId: string): Promise<CasoEstudio> {
     const caso = await cargarCaso(this.db.sql, casoId);
     if (!caso) throw new NotFoundException(`Caso ${casoId} no existe.`);
+    return caso;
+  }
+
+  /**
+   * Firma una URL de LECTURA de vida corta del estudio ANONIMIZADO, para que el
+   * visor Cornerstone3D lo cargue vía `wadouri:` (§4.7). El signer es el `api`
+   * (único con credenciales de storage · §3). Solo cuando el pipeline terminó
+   * (`anonimizado`): si sigue en proceso o falló, responde 409 (nada que mostrar).
+   */
+  async urlLecturaEstudio(casoId: string): Promise<LecturaEstudio> {
+    const caso = await this.exigirCaso(casoId);
+    if (caso.estudio_estado !== 'anonimizado' || !caso.estudio_dicom_ref) {
+      throw new ConflictException(
+        `El estudio del caso ${casoId} no está anonimizado (estado: ${caso.estudio_estado ?? 'sin estudio'}).`,
+      );
+    }
+    return {
+      casoId,
+      estado: caso.estudio_estado,
+      urlLectura: this.storage.firmarLectura(caso.estudio_dicom_ref),
+      series: caso.estudio_series,
+    };
   }
 
   /** Firma la subida del estudio crudo y deja el caso a la espera del binario. */
