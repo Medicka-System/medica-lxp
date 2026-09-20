@@ -8,50 +8,121 @@
  * clave, puntos de aprendizaje, errores comunes) — lo que habilita a Eco y a los
  * simuladores. Publicar a Biblioteca alterna `publicado`.
  *
- * PENDIENTE (ver lib/studio/casos-contrato.ts): el VISOR DICOM (Cornerstone3D),
- * series/anotaciones y la anonimización en ingesta son el Sprint 4.7 → aquí el visor
- * es un placeholder. "Anclar hallazgo a anotación" y "Marcar para Simulador" quedan
- * sin cablear (no hay anotaciones ni flag en el esquema).
+ * VISOR/ESTUDIO (§4.7 · rediseño multi-serie): el visor DICOM real (Cornerstone3D)
+ * es TRANSVERSAL — el mismo que la bitácora y la Biblioteca. Si el caso ya tiene
+ * estudio anonimizado se muestra; si no, el staff lo SUBE aquí con el uploader
+ * multi-archivo/`.zip` (tabla casos_biblioteca), anonimizado en ingesta (§10).
+ * "Anclar hallazgo a anotación" y "Marcar para Simulador" siguen pendientes (no hay
+ * anotaciones ni flag en el esquema).
  */
 
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   BookCopy,
   Check,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   MonitorPlay,
   Plus,
   Save,
   ShieldCheck,
   Sparkles,
+  Tag,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
 import { DOMINIO_LABEL, type CasoEditor, type DominioIaim } from '@/lib/studio/casos-contrato';
 import { guardarCaso, publicarCaso } from '@/lib/studio/acciones';
+import { quitarSerieDicom } from '@/lib/dicom/acciones';
+import { VisorEstudio } from '@/components/casos/visor-estudio';
+import {
+  SelectorArchivosDicom,
+  ejecutarSubidaMulti,
+  ETIQUETA_FASE,
+  type FaseDicom,
+} from '@/components/casos/subida-dicom';
 
 const DOMINIOS: DominioIaim[] = ['indicacion', 'adquisicion', 'interpretacion', 'decision_medica'];
 const campoBase =
   'mt-1.5 w-full rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
 
 export function EditorCaso({ caso }: { caso: CasoEditor }) {
+  const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [titulo, setTitulo] = useState(caso.titulo);
   const [organo, setOrgano] = useState(caso.organo);
+  const [patologia, setPatologia] = useState(caso.patologia);
   const [dominio, setDominio] = useState<DominioIaim | null>(caso.dominioIaim);
+  const [tecnica, setTecnica] = useState(caso.tecnica);
+  const [equipo, setEquipo] = useState(caso.equipo);
+  const [vineta, setVineta] = useState(caso.vineta);
+  const [etiquetas, setEtiquetas] = useState<string[]>(caso.etiquetas);
+  const [etiquetaNueva, setEtiquetaNueva] = useState('');
   const [diagnostico, setDiagnostico] = useState(caso.diagnostico);
   const [hallazgos, setHallazgos] = useState<string[]>(caso.hallazgosClave);
   const [puntos, setPuntos] = useState<string[]>(caso.puntosAprendizaje);
   const [errores, setErrores] = useState<string[]>(caso.erroresComunes);
   const [guardadoOk, setGuardadoOk] = useState(false);
 
+  // Estudio DICOM (staff → banco curado · tabla casos_biblioteca).
+  const listoEstudio = caso.estudioEstado === 'anonimizado';
+  const [archivos, setArchivos] = useState<File[]>([]);
+  const [fase, setFase] = useState<FaseDicom>('idle');
+  const [faseMsg, setFaseMsg] = useState('');
+  const [verNonce, setVerNonce] = useState(0);
+  const [quitando, setQuitando] = useState<number | null>(null);
+  const subiendo = fase === 'subiendo' || fase === 'procesando';
+
+  async function subirEstudio() {
+    if (archivos.length === 0) return;
+    // Anexa si ya hay estudio; si no, crea (reemplaza vacío).
+    const final = await ejecutarSubidaMulti(
+      caso.id,
+      'casos_biblioteca',
+      archivos,
+      (f, msg) => {
+        setFase(f);
+        setFaseMsg(msg ?? '');
+      },
+      listoEstudio,
+    );
+    if (final === 'anonimizado') {
+      setArchivos([]);
+      setFase('idle');
+      setVerNonce((n) => n + 1);
+      router.refresh();
+    }
+  }
+
+  async function quitarSerieEstudio(indice: number) {
+    setQuitando(indice);
+    const r = await quitarSerieDicom(caso.id, indice, 'casos_biblioteca');
+    setQuitando(null);
+    if (r.ok) {
+      setVerNonce((n) => n + 1);
+      router.refresh();
+    }
+  }
+
+  const agregarEtiqueta = () => {
+    const t = etiquetaNueva.trim().replace(/^#+/, '');
+    if (t && !etiquetas.includes(t) && etiquetas.length < 12) setEtiquetas([...etiquetas, t]);
+    setEtiquetaNueva('');
+  };
+
   const datos = () => ({
     titulo,
     organo,
+    patologia,
     dominio,
+    tecnica,
+    equipo,
+    vineta,
+    etiquetas: etiquetas.filter((x) => x.trim()),
     diagnostico,
     hallazgosClave: hallazgos.filter((x) => x.trim()),
     puntosAprendizaje: puntos.filter((x) => x.trim()),
@@ -140,36 +211,138 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* ════════ Visor (placeholder · Sprint 4.7) ════════ */}
+        {/* ════════ Visor DICOM real / uploader (§4.7 multi-serie) ════════ */}
         <div className="flex min-w-0 flex-1 flex-col bg-sidebar">
           <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
             <span className={`${kicker} text-white/55`}>Visor DICOM</span>
             <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-white/[0.1] px-2.5 text-[11px] font-semibold text-white/70">
-              Cornerstone3D · Sprint 4.7
+              Cornerstone3D
             </span>
-            <span className="ml-auto inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary/[0.16] px-2.5 text-[11px] font-bold text-primary">
-              <ShieldCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-              Anonimización en ingesta
-            </span>
-          </div>
-          <div className="relative grid min-h-0 flex-1 place-items-center">
             <span
-              aria-hidden
-              className="absolute inset-0"
-              style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
-            />
-            <div className="relative max-w-[360px] px-6 text-center">
-              <p className="text-[15px] font-bold text-white">El visor DICOM llega en el Sprint 4.7</p>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
-                Visor Cornerstone3D (series, cine-loops, anotación y medición) + anonimización
-                bloqueante en la ingesta. Mientras tanto, cataloga y estructura la verdad del caso a la
-                derecha; eso ya se guarda de verdad.
-              </p>
-            </div>
-            <span className={`${mono} absolute bottom-3.5 right-3.5 text-[10.5px] text-white/50`}>
-              {caso.tieneDicom ? 'estudio adjunto' : 'sin estudio'}
+              className={`ml-auto inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11px] font-bold ${
+                listoEstudio ? 'bg-primary/[0.16] text-primary' : 'bg-white/[0.1] text-white/70'
+              }`}
+            >
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+              {listoEstudio ? `Anonimizado · ${caso.series} ${caso.series === 1 ? 'serie' : 'series'}` : 'Anonimización en ingesta'}
             </span>
           </div>
+
+          {listoEstudio ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <VisorEstudio key={verNonce} casoId={caso.id} tabla="casos_biblioteca" className="h-[64vh] min-h-[460px]" />
+
+              {/* Gestor de series: quitar + agregar (anexa al estudio) */}
+              <div className="mt-4 rounded-xl bg-card p-3.5">
+                <div className="flex items-center gap-2">
+                  <p className={`${kicker} text-muted-foreground`}>Series del estudio</p>
+                  <span className={`${mono} ml-auto text-[12px] text-muted-foreground`}>
+                    {caso.series} {caso.series === 1 ? 'serie' : 'series'}
+                  </span>
+                </div>
+                <ul className="mt-3 flex flex-wrap gap-1.5">
+                  {Array.from({ length: caso.series }).map((_, i) => (
+                    <li
+                      key={i}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 text-[12px] font-semibold"
+                    >
+                      Serie {i + 1}
+                      <button
+                        type="button"
+                        onClick={() => quitarSerieEstudio(i)}
+                        disabled={quitando !== null}
+                        aria-label={`Quitar serie ${i + 1}`}
+                        className={`grid h-5 w-5 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-[color:var(--destructive-surface)] hover:text-[color:var(--destructive-foreground)] disabled:opacity-50 ${focusRing}`}
+                      >
+                        {quitando === i ? (
+                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.2} />
+                        ) : (
+                          <Trash2 className="h-3 w-3" strokeWidth={1.9} />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mb-2 mt-3.5 text-[11.5px] font-semibold">Agregar series</p>
+                {fase !== 'idle' && fase !== 'anonimizado' ? (
+                  <div className="flex items-center gap-2.5 rounded-[12px] border border-border bg-muted p-4 text-[13px]">
+                    {fase === 'error' ? (
+                      <span className="text-[color:var(--destructive-foreground)]">{faseMsg || ETIQUETA_FASE.error}</span>
+                    ) : (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-secondary" strokeWidth={2} />
+                        <span className="font-semibold">{ETIQUETA_FASE[fase]}</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <SelectorArchivosDicom value={archivos} onChange={setArchivos} bloqueado={subiendo} />
+                )}
+                {archivos.length > 0 && fase === 'idle' && (
+                  <button
+                    type="button"
+                    onClick={subirEstudio}
+                    className={`mt-3 inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+                  >
+                    Agregar {archivos.length} {archivos.length === 1 ? 'serie' : 'series'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
+              />
+              <div className="relative mx-auto max-w-[520px] p-6">
+                <p className="text-[15px] font-bold text-white">Suba el estudio del caso</p>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
+                  Varias series (.dcm) a la vez o un <strong>.zip</strong> con el estudio completo. Se
+                  anonimizan en la ingesta (§10) antes de entrar al banco. El visor Cornerstone3D las
+                  muestra al terminar.
+                </p>
+                <div className="mt-4 rounded-xl bg-card p-3.5">
+                  {fase !== 'idle' && fase !== 'anonimizado' ? (
+                    <div className="flex items-center gap-2.5 rounded-[12px] border border-border bg-muted p-4 text-[13px]">
+                      {fase === 'error' ? (
+                        <span className="text-[color:var(--destructive-foreground)]">{faseMsg || ETIQUETA_FASE.error}</span>
+                      ) : (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin text-secondary" strokeWidth={2} />
+                          <span className="font-semibold">{ETIQUETA_FASE[fase]}</span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <SelectorArchivosDicom value={archivos} onChange={setArchivos} bloqueado={subiendo} />
+                  )}
+                  {archivos.length > 0 && fase === 'idle' && (
+                    <button
+                      type="button"
+                      onClick={subirEstudio}
+                      className={`mt-3.5 inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+                    >
+                      Subir {archivos.length} {archivos.length === 1 ? 'serie' : 'series'}
+                    </button>
+                  )}
+                  {fase === 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFase('idle');
+                        setFaseMsg('');
+                      }}
+                      className={`mt-3 h-10 rounded-[9px] border border-border bg-card px-4 text-[12.5px] font-semibold ${focusRing}`}
+                    >
+                      Reintentar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ════════ Panel de autoría (real) ════════ */}
@@ -181,10 +354,26 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
               <span className="block text-[11.5px] font-semibold">Título del caso</span>
               <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className={`${campoBase} h-10`} placeholder="Diagnóstico principal" />
             </label>
-            <label className="mt-3 block">
-              <span className="block text-[11.5px] font-semibold">Órgano</span>
-              <input value={organo} onChange={(e) => setOrgano(e.target.value)} className={`${campoBase} h-10`} placeholder="Riñón, Vesícula, Útero…" />
-            </label>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold">Órgano</span>
+                <input value={organo} onChange={(e) => setOrgano(e.target.value)} className={`${campoBase} h-10`} placeholder="Riñón, Vesícula…" />
+              </label>
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold">Patología</span>
+                <input value={patologia} onChange={(e) => setPatologia(e.target.value)} className={`${campoBase} h-10`} placeholder="Litiasis, colecistitis…" />
+              </label>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold">Técnica</span>
+                <input value={tecnica} onChange={(e) => setTecnica(e.target.value)} className={`${campoBase} h-10`} placeholder="Modo B, Doppler…" />
+              </label>
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold">Equipo</span>
+                <input value={equipo} onChange={(e) => setEquipo(e.target.value)} className={`${campoBase} h-10`} placeholder="Convexo 3.5–5 MHz…" />
+              </label>
+            </div>
             <div className="mt-3">
               <span className="block text-[11.5px] font-semibold">Dominio I-AIM</span>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -207,6 +396,16 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
               </div>
             </div>
             <label className="mt-3 block">
+              <span className="block text-[11.5px] font-semibold">Viñeta clínica</span>
+              <textarea
+                rows={3}
+                value={vineta}
+                onChange={(e) => setVineta(e.target.value)}
+                placeholder="Edad, motivo de consulta y contexto — sin datos que identifiquen al paciente."
+                className={`${campoBase} resize-y py-2.5 leading-relaxed`}
+              />
+            </label>
+            <label className="mt-3 block">
               <span className="block text-[11.5px] font-semibold">Diagnóstico confirmado</span>
               <textarea
                 rows={2}
@@ -216,6 +415,42 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
                 className={`${campoBase} resize-none py-2.5 leading-relaxed`}
               />
             </label>
+
+            <div className="mt-3">
+              <span className="block text-[11.5px] font-semibold">Etiquetas</span>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-[10px] border border-border bg-card p-2 focus-within:border-secondary">
+                {etiquetas.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full bg-accent px-2.5 text-[12px] font-semibold text-accent-foreground"
+                  >
+                    <Tag aria-hidden className="h-3 w-3" strokeWidth={1.75} />#{t}
+                    <button
+                      type="button"
+                      onClick={() => setEtiquetas(etiquetas.filter((x) => x !== t))}
+                      aria-label={`Quitar ${t}`}
+                      className={`grid h-4 w-4 place-items-center rounded-full hover:bg-[color:var(--track)] ${focusRing}`}
+                    >
+                      <Trash2 className="h-2.5 w-2.5" strokeWidth={2} />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  value={etiquetaNueva}
+                  onChange={(e) => setEtiquetaNueva(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault();
+                      agregarEtiqueta();
+                    }
+                  }}
+                  onBlur={agregarEtiqueta}
+                  placeholder={etiquetas.length ? '' : '#litiasis, #doppler…'}
+                  className="h-7 min-w-[120px] flex-1 bg-transparent px-1 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
           </section>
 
           {/* verdad del caso */}

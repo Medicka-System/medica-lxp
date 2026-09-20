@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, ImageOff, Film } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, ImageOff, Film, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { HerramientaId } from './herramientas';
 import type { MotorVisor } from './motor';
@@ -25,6 +25,11 @@ export interface VisorDicomProps {
   soloLectura?: boolean;
   /** Oculta el selector de series (una sola serie o miniatura). */
   ocultarSeries?: boolean;
+  /**
+   * Dónde va el selector de series: rail vertical a la izquierda (default) o TIRA
+   * horizontal debajo del visor (§ detalle de caso — el visor manda a lo ancho).
+   */
+  seriesLayout?: 'vertical' | 'horizontal';
   /** Clase para el contenedor externo (alto/ancho). */
   className?: string;
   onHerramientaChange?: (id: HerramientaId) => void;
@@ -49,10 +54,27 @@ export function VisorDicom({
   crearMotor = crearMotorPorDefecto,
   soloLectura = false,
   ocultarSeries = false,
+  seriesLayout = 'vertical',
   className,
   onHerramientaChange,
 }: VisorDicomProps) {
   const [loop, setLoop] = useState(true);
+  const contenedorExtRef = useRef<HTMLDivElement | null>(null);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+
+  const alternarPantallaCompleta = useCallback(() => {
+    const el = contenedorExtRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.();
+  }, []);
+
+  useEffect(() => {
+    const onCambio = () => setPantallaCompleta(document.fullscreenElement === contenedorExtRef.current);
+    document.addEventListener('fullscreenchange', onCambio);
+    return () => document.removeEventListener('fullscreenchange', onCambio);
+  }, []);
+
   const visor = useVisorDicom({
     estudio,
     crearMotor,
@@ -94,11 +116,15 @@ export function VisorDicom({
 
   const total = serieActiva.frames.length;
   const mostrarSeries = !ocultarSeries && series.length > 1;
+  const seriesHorizontal = mostrarSeries && seriesLayout === 'horizontal';
+  const seriesVertical = mostrarSeries && seriesLayout === 'vertical';
 
   return (
     <div
+      ref={contenedorExtRef}
       className={cn(
         'flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-rest',
+        pantallaCompleta && 'h-screen w-screen rounded-none',
         className,
       )}
     >
@@ -112,11 +138,12 @@ export function VisorDicom({
       )}
 
       <div className="flex min-h-0 flex-1">
-        {mostrarSeries && (
+        {seriesVertical && (
           <SelectorSeries
             series={series}
             activaId={serieActivaId}
             onSeleccionar={seleccionarSerie}
+            orientacion="vertical"
           />
         )}
 
@@ -147,6 +174,20 @@ export function VisorDicom({
             </span>
           )}
 
+          {/* Pantalla completa — el visor es la herramienta de trabajo del médico. */}
+          <button
+            type="button"
+            onClick={alternarPantallaCompleta}
+            aria-label={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+            className="absolute bottom-3 right-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-black/45 text-white/85 transition-colors hover:bg-black/65 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          >
+            {pantallaCompleta ? (
+              <Minimize2 size={16} strokeWidth={2} />
+            ) : (
+              <Maximize2 size={16} strokeWidth={2} />
+            )}
+          </button>
+
           {!listo && !error && (
             <div className="z-10 flex flex-col items-center gap-2 text-white/70">
               <Loader2 className="animate-spin" size={26} strokeWidth={1.75} />
@@ -172,6 +213,15 @@ export function VisorDicom({
           onToggleLoop={() => setLoop((v) => !v)}
         />
       )}
+
+      {seriesHorizontal && (
+        <SelectorSeries
+          series={series}
+          activaId={serieActivaId}
+          onSeleccionar={seleccionarSerie}
+          orientacion="horizontal"
+        />
+      )}
     </div>
   );
 }
@@ -180,15 +230,31 @@ interface SelectorSeriesProps {
   series: EstudioDicom['series'];
   activaId: string;
   onSeleccionar: (id: string) => void;
+  orientacion?: 'vertical' | 'horizontal';
 }
 
-/** Rail de series (miniaturas) para estudios con más de una serie. */
-function SelectorSeries({ series, activaId, onSeleccionar }: SelectorSeriesProps) {
+/**
+ * Selector de series (miniaturas). `vertical` = rail a la izquierda (visor embebido);
+ * `horizontal` = TIRA debajo del visor (§ detalle de caso — fiel al mock: el visor
+ * manda a lo ancho y las series se navegan como una tira de estudio).
+ */
+function SelectorSeries({
+  series,
+  activaId,
+  onSeleccionar,
+  orientacion = 'vertical',
+}: SelectorSeriesProps) {
+  const horizontal = orientacion === 'horizontal';
   return (
     <div
       role="tablist"
       aria-label="Series del estudio"
-      className="flex w-[104px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-border bg-card p-2"
+      className={cn(
+        'flex bg-card',
+        horizontal
+          ? 'w-full shrink-0 flex-row gap-2 overflow-x-auto border-t border-border p-2.5'
+          : 'w-[104px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-border p-2',
+      )}
     >
       {series.map((s) => {
         const activa = s.id === activaId;
@@ -201,12 +267,18 @@ function SelectorSeries({ series, activaId, onSeleccionar }: SelectorSeriesProps
             onClick={() => onSeleccionar(s.id)}
             className={cn(
               'group flex flex-col gap-1 rounded-control border p-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              horizontal ? 'w-[104px] shrink-0' : '',
               activa
                 ? 'border-primary bg-accent'
                 : 'border-border hover:border-secondary/40 hover:bg-accent',
             )}
           >
-            <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-[7px] bg-[#1A1A1A]">
+            <div
+              className={cn(
+                'relative flex items-center justify-center overflow-hidden rounded-[7px] bg-[#1A1A1A]',
+                horizontal ? 'aspect-video' : 'aspect-square',
+              )}
+            >
               {s.miniaturaUrl ? (
                 // Miniatura simple desde object storage; no requiere next/image.
                 <img src={s.miniaturaUrl} alt="" className="h-full w-full object-cover" />

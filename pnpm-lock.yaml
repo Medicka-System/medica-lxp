@@ -307,6 +307,9 @@ importers:
       '@nestjs/core':
         specifier: ^10.4.15
         version: 10.4.22(@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@10.4.22)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      adm-zip:
+        specifier: ^0.6.1
+        version: 0.6.1
       bullmq:
         specifier: ^5.34.5
         version: 5.81.5
@@ -332,6 +335,9 @@ importers:
       '@nestjs/schematics':
         specifier: ^10.2.3
         version: 10.2.3(chokidar@3.6.0)(typescript@5.9.3)
+      '@types/adm-zip':
+        specifier: ^0.5.8
+        version: 0.5.8
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14

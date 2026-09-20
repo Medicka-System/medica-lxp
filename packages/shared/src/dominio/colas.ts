@@ -35,25 +35,79 @@ export interface RepasoJob {
 }
 
 /**
- * Job `procesar-dicom` (§8, job #2). El `api` lo encola tras confirmarse la subida
- * del binario `.dcm` crudo a object storage; el `worker` lo parsea (dcmjs), ANONIMIZA
- * (bloqueante) y reescribe un `.dcm` anonimizado + metadatos. Solo referencias/URLs
- * (nunca el binario ni PII en el payload). El signer es el `api`: las URLs firmadas
- * viajan aquí para que el worker no firme.
+ * Tabla dueña de un estudio DICOM. El visor es TRANSVERSAL (§ rediseño casos
+ * multi-serie): un estudio anonimizado pertenece a un caso de la bitácora del
+ * alumno o a un caso del banco curado (Studio/Casos → Biblioteca).
+ */
+export type TablaEstudioDicom = 'bitacora_casos' | 'casos_biblioteca';
+
+/**
+ * Una FUENTE subida por el cliente para un caso: un `.dcm` suelto (una serie) o un
+ * `.zip` que trae varias series de un mismo estudio. El binario va cliente → object
+ * storage directo (§2); aquí solo referencias/URLs firmadas por el `api`.
+ */
+export interface FuenteDicom {
+  /** Orden de subida (para nombrar las claves crudas de forma estable). */
+  indice: number;
+  /** Clave del binario CRUDO (con PII) en object storage. */
+  refCrudo: string;
+  /** URL firmada de LECTURA del crudo. */
+  urlLecturaCrudo: string;
+  /** URL firmada de BORRADO del crudo (se elimina tras anonimizar). */
+  urlBorradoCrudo: string;
+  /** true si el crudo es un `.zip` que el worker descomprime en N series (§10). */
+  esZip: boolean;
+}
+
+/**
+ * Job `procesar-dicom` (§8, job #2 · rediseño multi-serie). El `api` lo encola tras
+ * confirmarse la subida de las FUENTES crudas a object storage; el `worker` las trae,
+ * descomprime los `.zip` (adm-zip, server-side · §10), parsea cada `.dcm` (dcmjs),
+ * ANONIMIZA (bloqueante) y reescribe un `.dcm` anonimizado por SERIE. Como el número
+ * final de series de un `.zip` no se conoce hasta descomprimir, el worker pide al `api`
+ * las URLs firmadas de escritura de los anonimizados (patrón worker→servicio, igual que
+ * render-tts/notificaciones): el `api` sigue siendo el ÚNICO firmante (§3). Solo
+ * referencias/URLs en el payload (nunca el binario ni PII).
  */
 export interface ProcesarDicomJob {
-  /** Caso de bitácora al que pertenece el estudio. */
+  /** Caso al que pertenece el estudio. */
   casoId: string;
-  /** Clave del binario `.dcm` CRUDO (con PII) en object storage. */
-  refCrudo: string;
-  /** Clave destino del binario `.dcm` ANONIMIZADO. */
-  refAnonimizado: string;
-  /** URL firmada de LECTURA del estudio crudo. */
-  urlLecturaCrudo: string;
-  /** URL firmada de ESCRITURA del estudio anonimizado. */
-  urlSubidaAnonimizado: string;
-  /** URL firmada de BORRADO del estudio crudo (se elimina tras anonimizar). */
-  urlBorradoCrudo: string;
+  /** Tabla dueña del estudio (bitácora del alumno o banco curado). */
+  tabla: TablaEstudioDicom;
+  /** Fuentes crudas a procesar (uno o varios `.dcm`/`.zip`). */
+  fuentes: FuenteDicom[];
+  /**
+   * true = AÑADIR estas series a las ya existentes (editar el estudio); false/omitido
+   * = reemplazar el estudio. Al anexar, el worker calcula el índice base a partir de
+   * las series actuales para no pisar refs.
+   */
+  anexar?: boolean;
+}
+
+/**
+ * Petición del worker al `api` para firmar la ESCRITURA de los `.dcm` anonimizados
+ * (`POST /dicom/casos/:casoId/ingesta/firmar-anonimizados`). El worker ya conoce el
+ * número final de series (tras descomprimir los zips); el `api` firma un PUT por serie.
+ */
+export interface FirmarAnonimizadosReq {
+  tabla: TablaEstudioDicom;
+  /** Número de series anonimizadas a persistir (una URL firmada por cada una). */
+  cantidad: number;
+  /** Índice base (para anexar sin pisar refs existentes). Default 0. */
+  desde?: number;
+}
+
+/** Un destino firmado para persistir una serie anonimizada. */
+export interface DestinoAnonimizado {
+  indice: number;
+  /** Clave destino del `.dcm` anonimizado en object storage. */
+  ref: string;
+  /** URL firmada de ESCRITURA de esa serie. */
+  urlSubida: string;
+}
+
+export interface FirmarAnonimizadosResp {
+  destinos: DestinoAnonimizado[];
 }
 
 /**

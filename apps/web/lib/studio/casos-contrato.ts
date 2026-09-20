@@ -47,16 +47,34 @@ export type CasoResumen = {
   cuando: Date;
 };
 
+/** Estado del estudio DICOM del caso curado (espejo del enum, null si no hay). */
+export type EstudioEstadoCaso =
+  | 'pendiente'
+  | 'recibido'
+  | 'procesando'
+  | 'anonimizado'
+  | 'error'
+  | null;
+
 export type CasoEditor = {
   id: string;
   titulo: string;
   organo: string;
+  patologia: string;
   dominioIaim: DominioIaim | null;
+  tecnica: string;
+  equipo: string;
+  vineta: string;
+  etiquetas: string[];
   diagnostico: string;
   hallazgosClave: string[];
   puntosAprendizaje: string[];
   erroresComunes: string[];
   publicado: boolean;
   tieneDicom: boolean;
+  /** Estado del pipeline del estudio (para mostrar visor/uploader/estado). */
+  estudioEstado: EstudioEstadoCaso;
+  /** Nº de series anonimizadas del estudio. */
+  series: number;
   curador: string | null;
 };

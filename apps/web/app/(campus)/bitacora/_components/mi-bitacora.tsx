@@ -11,38 +11,38 @@
  * (Sprint 4.7) y la validación/horas acreditadas son dominio (ver bitacora-contrato).
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Check,
   ChevronDown,
   Eye,
-  FileCheck2,
   Loader2,
   NotebookText,
   Plus,
   Search,
-  Upload,
   X,
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { fechaCorta } from '@/lib/format';
 import { VisorDicomPlaceholder } from '../../_components/visor-dicom';
-import { VisorEstudioCaso } from '../../_components/visor-estudio-caso';
+import {
+  SelectorArchivosDicom,
+  ejecutarSubidaMulti,
+  ETIQUETA_FASE,
+  type FaseDicom,
+} from '@/components/casos/subida-dicom';
+import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
 import {
-  solicitarSubidaDicom,
-  confirmarSubidaDicom,
-  estadoEstudioDicom,
-} from '@/lib/campus/dicom-acciones';
-import {
-  DOMINIOS,
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
   type BitacoraData,
   type CasoBitacora,
-  type DominioIaim,
+  type DocenteOpcion,
   type EstadoCaso,
+  type FichaCaso,
   type ModuloOpcion,
 } from '@/lib/campus/bitacora-contrato';
 
@@ -54,76 +54,21 @@ const claseEstado: Record<EstadoCaso, string> = {
     'border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] text-[color:var(--destructive-foreground)]',
 };
 
-/* ─────────────────── Subida del estudio DICOM ─────────────────── */
-
-type FaseDicom = 'idle' | 'creando' | 'subiendo' | 'procesando' | 'anonimizado' | 'error';
-
-const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Flujo de ingesta del `.dcm` (§8): solicitar URL firmada → PUT del binario DIRECTO
- * a MinIO (nunca por el api/web · §2) → confirmar (encola procesar-dicom) → sondear
- * el estado hasta `anonimizado`/`error`. Devuelve la fase final.
- */
-async function ejecutarSubidaDicom(
-  casoId: string,
-  archivo: File,
-  onFase: (f: FaseDicom, msg?: string) => void,
-): Promise<FaseDicom> {
-  onFase('subiendo');
-  const sol = await solicitarSubidaDicom(casoId);
-  if (!sol.ok) return onFase('error', sol.error), 'error';
-
-  const put = await fetch(sol.datos.urlSubida, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/dicom' },
-    body: archivo,
-  }).catch(() => null);
-  if (!put || !put.ok) {
-    return onFase('error', `No se pudo subir el archivo a storage (${put?.status ?? 'sin red'}).`), 'error';
-  }
-
-  const conf = await confirmarSubidaDicom(casoId);
-  if (!conf.ok) return onFase('error', conf.error), 'error';
-
-  onFase('procesando');
-  for (let i = 0; i < 40; i++) {
-    await dormir(1500);
-    const est = await estadoEstudioDicom(casoId);
-    if (!est.ok) continue;
-    if (est.datos.estado === 'anonimizado') return onFase('anonimizado'), 'anonimizado';
-    if (est.datos.estado === 'error') {
-      return onFase('error', 'La anonimización falló. Revisa que sea un DICOM (.dcm) válido.'), 'error';
-    }
-  }
-  return onFase('error', 'El procesamiento está tardando más de lo esperado. Revisa el worker.'), 'error';
-}
-
-const ETIQUETA_FASE: Record<Exclude<FaseDicom, 'idle'>, string> = {
-  creando: 'Guardando el caso…',
-  subiendo: 'Subiendo el estudio a storage…',
-  procesando: 'Anonimizando el estudio…',
-  anonimizado: 'Estudio anonimizado y listo',
-  error: 'No se pudo procesar el estudio',
-};
-
 /* ─────────────────── Hoja corta de subida ─────────────────── */
 
 function SheetSubirCaso({
   modulos,
+  docentes,
   onCerrar,
 }: {
   modulos: ModuloOpcion[];
+  docentes: DocenteOpcion[];
   onCerrar: () => void;
 }) {
   const router = useRouter();
-  const inputArchivo = useRef<HTMLInputElement>(null);
   const [moduloId, setModuloId] = useState(modulos[0]?.id ?? '');
-  const [organo, setOrgano] = useState('');
-  const [dominio, setDominio] = useState<DominioIaim | ''>('');
-  const [hallazgos, setHallazgos] = useState('');
-  const [presuntivo, setPresuntivo] = useState('');
-  const [archivo, setArchivo] = useState<File | null>(null);
+  const [ficha, setFicha] = useState<FichaCaso>(fichaVacia());
+  const [archivos, setArchivos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fase, setFase] = useState<FaseDicom>('idle');
   const [faseMsg, setFaseMsg] = useState('');
@@ -131,33 +76,35 @@ function SheetSubirCaso({
   const modulo = modulos.find((m) => m.id === moduloId) ?? null;
   const ocupado = fase === 'creando' || fase === 'subiendo' || fase === 'procesando';
 
-  const elegirArchivo = (f: File | null) => {
+  const elegirArchivos = (f: File[]) => {
     setError(null);
-    setFase('idle');
-    setFaseMsg('');
-    setArchivo(f);
+    if (fase !== 'idle') {
+      setFase('idle');
+      setFaseMsg('');
+    }
+    setArchivos(f);
   };
 
   const enviar = async () => {
     setError(null);
     setFase('creando');
-    const r = await subirCaso({ moduloId, organo, dominio: dominio || null, hallazgos, presuntivo });
+    const r = await subirCaso({ moduloId, ...ficha });
     if (!r.ok) {
       setError(r.error);
       setFase('idle');
       return;
     }
     // Sin estudio: el caso queda registrado, cerramos.
-    if (!archivo) {
+    if (archivos.length === 0) {
       onCerrar();
       router.refresh();
       return;
     }
-    const final = await ejecutarSubidaDicom(r.casoId, archivo, (f, msg) => {
+    const final = await ejecutarSubidaMulti(r.casoId, 'bitacora_casos', archivos, (f, msg) => {
       setFase(f);
       setFaseMsg(msg ?? '');
     });
-    // Refresca la bitácora para que la tarjeta muestre el visor del estudio.
+    // Refresca la bitácora para que la tarjeta muestre el estudio anonimizado.
     if (final === 'anonimizado') router.refresh();
   };
 
@@ -230,46 +177,14 @@ function SheetSubirCaso({
             </div>
           )}
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="block text-[11.5px] font-semibold">Órgano / región</span>
-              <input
-                type="text"
-                value={organo}
-                onChange={(e) => setOrgano(e.target.value)}
-                placeholder="Riñón, vesícula, útero…"
-                className="mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-              />
-            </label>
-            <label className="block">
-              <span className="block text-[11.5px] font-semibold">Dominio I-AIM</span>
-              <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
-                <select
-                  value={dominio}
-                  onChange={(e) => setDominio(e.target.value as DominioIaim | '')}
-                  className="w-full appearance-none bg-transparent text-[14px] font-medium text-foreground outline-none"
-                >
-                  <option value="">Sin especificar</option>
-                  {DOMINIOS.map((d) => (
-                    <option key={d} value={d}>
-                      {DOMINIO_LABEL[d]}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-              </span>
-            </label>
+          <div className="mt-5">
+            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
           </div>
 
           <div className="mt-5">
-            <span className="block text-[11.5px] font-semibold">Estudio DICOM (.dcm)</span>
-            <input
-              ref={inputArchivo}
-              type="file"
-              accept=".dcm,application/dicom"
-              className="sr-only"
-              onChange={(e) => elegirArchivo(e.target.files?.[0] ?? null)}
-            />
+            <span className="block text-[11.5px] font-semibold">
+              Series del estudio · DICOM (.dcm) o .zip
+            </span>
 
             {/* Progreso del pipeline (una vez enviado) */}
             {fase !== 'idle' ? (
@@ -285,7 +200,7 @@ function SheetSubirCaso({
               >
                 <span aria-hidden className="mt-px shrink-0">
                   {fase === 'anonimizado' ? (
-                    <FileCheck2 className="h-5 w-5 text-secondary" strokeWidth={2} />
+                    <Check className="h-5 w-5 text-secondary" strokeWidth={2.4} />
                   ) : fase === 'error' ? (
                     <X className="h-5 w-5 text-[color:var(--destructive-foreground)]" strokeWidth={2.2} />
                   ) : (
@@ -304,81 +219,20 @@ function SheetSubirCaso({
                     {faseMsg ||
                       (fase === 'anonimizado'
                         ? 'La PII del paciente se removió; ya puede verse en el visor.'
-                        : 'El binario va directo a storage; el worker lo anonimiza (§10).')}
+                        : 'Las series van directo a storage; el worker las anonimiza (§10).')}
                   </p>
                 </div>
-              </div>
-            ) : archivo ? (
-              <div className="mt-3.5 flex items-center gap-3 rounded-[12px] border border-border bg-card p-4">
-                <span
-                  aria-hidden
-                  className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-accent text-secondary"
-                >
-                  <FileCheck2 className="h-[20px] w-[20px]" strokeWidth={1.75} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13.5px] font-bold">{archivo.name}</p>
-                  <p className={`${mono} mt-0.5 text-[11.5px] text-muted-foreground`}>
-                    {(archivo.size / 1024).toFixed(0)} KB · se anonimiza al subirse
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => elegirArchivo(null)}
-                  aria-label="Quitar archivo"
-                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
-                >
-                  <X className="h-[16px] w-[16px]" strokeWidth={2} />
-                </button>
               </div>
             ) : (
-              <div className="mt-3.5 rounded-[12px] border-[1.5px] border-dashed border-[color:var(--track)] bg-muted p-6 text-center">
-                <span
-                  aria-hidden
-                  className="mx-auto grid h-[46px] w-[46px] place-items-center rounded-full bg-card text-secondary"
-                >
-                  <Upload className="h-[22px] w-[22px]" strokeWidth={1.75} />
-                </span>
-                <p className="mt-3 text-[14px] font-bold">Adjunte su estudio en DICOM</p>
-                <p className="mt-1 text-[12.5px] text-muted-foreground">
-                  Se sube directo a storage y se <strong>anonimiza</strong> al procesarse (§10). Opcional:
-                  también puede registrar el caso sin estudio.
+              <div className="mt-3.5">
+                <SelectorArchivosDicom value={archivos} onChange={elegirArchivos} />
+                <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+                  Suba varias series a la vez o un <strong>.zip</strong> con el estudio completo. Es
+                  opcional: también puede registrar el caso sin estudio.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => inputArchivo.current?.click()}
-                  className={`mt-3.5 h-11 rounded-full border border-border bg-card px-5 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
-                >
-                  Elegir archivo .dcm
-                </button>
               </div>
             )}
           </div>
-
-          <label className="mt-5 block">
-            <span className="block text-[11.5px] font-semibold">Hallazgos</span>
-            <textarea
-              rows={4}
-              value={hallazgos}
-              onChange={(e) => setHallazgos(e.target.value)}
-              placeholder="Describa lo que vio: medidas, planos y lo que le hizo dudar."
-              className="mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-            />
-          </label>
-
-          <label className="mt-4 block">
-            <span className="block text-[11.5px] font-semibold">
-              Diagnóstico presuntivo{' '}
-              <span className="font-medium text-muted-foreground">· opcional</span>
-            </span>
-            <input
-              type="text"
-              value={presuntivo}
-              onChange={(e) => setPresuntivo(e.target.value)}
-              placeholder="Su impresión, aunque no esté seguro"
-              className="mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-            />
-          </label>
 
           {error && (
             <p
@@ -410,7 +264,11 @@ function SheetSubirCaso({
               className={`inline-flex h-12 shrink-0 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
             >
               {ocupado && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />}
-              {ocupado ? ETIQUETA_FASE[fase as Exclude<FaseDicom, 'idle'>] : archivo ? 'Subir caso y estudio' : 'Subir caso'}
+              {ocupado
+                ? ETIQUETA_FASE[fase as Exclude<FaseDicom, 'idle'>]
+                : archivos.length > 0
+                  ? 'Subir caso y estudio'
+                  : 'Subir caso'}
             </button>
           )}
         </div>
@@ -422,7 +280,6 @@ function SheetSubirCaso({
 /* ─────────────────── Tarjeta de caso ─────────────────── */
 
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
-  const [verEstudio, setVerEstudio] = useState(false);
   const tieneEstudio = c.estudioEstado === 'anonimizado';
   const etiquetaEstudio =
     c.organo ??
@@ -442,7 +299,7 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
         c.estado === 'rechazado' ? 'border-[color:var(--destructive-border)]' : 'border-border'
       }`}
     >
-      <div className="relative">
+      <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
         <VisorDicomPlaceholder
           etiqueta={etiquetaEstudio}
           alto={156}
@@ -450,54 +307,16 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
           piezas={c.piezas}
         />
         {tieneEstudio && (
-          <button
-            type="button"
-            onClick={() => setVerEstudio(true)}
-            className={`absolute inset-0 grid place-items-center bg-[rgba(15,45,82,.35)] opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 ${focusRing}`}
-            aria-label="Ver estudio anonimizado"
+          <span
+            className="absolute inset-0 grid place-items-center bg-[rgba(15,45,82,.35)] opacity-0 transition-opacity hover:opacity-100"
+            aria-hidden
           >
             <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-[13px] font-bold text-secondary shadow-lg">
               <Eye className="h-4 w-4" strokeWidth={2} /> Ver estudio
             </span>
-          </button>
+          </span>
         )}
-      </div>
-
-      {verEstudio && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Estudio DICOM anonimizado"
-          className="fixed inset-0 z-50 grid place-items-center p-4 sm:p-8"
-          style={{ background: 'rgba(15,45,82,.55)' }}
-          onClick={() => setVerEstudio(false)}
-        >
-          <div
-            className="w-full max-w-[880px] overflow-hidden rounded-2xl bg-card shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-              <p className="min-w-0 text-[15px] font-extrabold tracking-[-0.01em]">
-                Estudio anonimizado
-              </p>
-              <span className={`${mono} truncate text-[11.5px] text-muted-foreground`}>
-                {c.hallazgoCorto}
-              </span>
-              <button
-                type="button"
-                onClick={() => setVerEstudio(false)}
-                aria-label="Cerrar"
-                className={`ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
-              >
-                <X className="h-[18px] w-[18px]" strokeWidth={2} />
-              </button>
-            </div>
-            <div className="p-4">
-              <VisorEstudioCaso casoId={c.id} />
-            </div>
-          </div>
-        </div>
-      )}
+      </Link>
 
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -534,7 +353,7 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
 /* ───────────────────────────── Pantalla ───────────────────────────── */
 
 export function MiBitacora({ data }: { data: BitacoraData }) {
-  const { horas, casos, porDominio, porModulo, modulos, items } = data;
+  const { horas, casos, porDominio, porModulo, modulos, docentes, items } = data;
 
   const [estado, setEstado] = useState<'todos' | EstadoCaso>('todos');
   const [modulo, setModulo] = useState('Todos');
@@ -835,7 +654,9 @@ export function MiBitacora({ data }: { data: BitacoraData }) {
         Subir caso
       </button>
 
-      {sheet && <SheetSubirCaso modulos={modulos} onCerrar={() => setSheet(false)} />}
+      {sheet && (
+        <SheetSubirCaso modulos={modulos} docentes={docentes} onCerrar={() => setSheet(false)} />
+      )}
     </div>
   );
 }

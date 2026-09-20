@@ -536,19 +536,28 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           id: string;
           titulo: string;
           organo: string | null;
+          patologia: string | null;
           dominio_iaim: DominioIaim | null;
+          tecnica: string | null;
+          equipo: string | null;
+          vineta: string | null;
+          etiquetas: unknown;
           diagnostico_correcto: string | null;
           hallazgos_clave: unknown;
           puntos_aprendizaje: unknown;
           errores_comunes: unknown;
           publicado: boolean;
-          dicom_ref: string | null;
+          estudio_estado: import('./casos-contrato').EstudioEstadoCaso;
+          series: number;
           curador: string | null;
         }[]
       >`
-        select id, titulo, organo, dominio_iaim, diagnostico_correcto,
+        select id, titulo, organo, patologia, dominio_iaim, tecnica, equipo, vineta,
+               etiquetas, diagnostico_correcto,
                hallazgos_clave, puntos_aprendizaje, errores_comunes,
-               publicado, dicom_ref, lxp.nombre_de(curador_id) as curador
+               publicado, estudio_estado::text as estudio_estado,
+               coalesce(jsonb_array_length(estudio_series), 0)::int as series,
+               lxp.nombre_de(curador_id) as curador
         from lxp.casos_biblioteca where id = ${casoId} limit 1`
     )[0];
     if (!r) return null;
@@ -556,13 +565,20 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
       id: r.id,
       titulo: r.titulo,
       organo: r.organo ?? '',
+      patologia: r.patologia ?? '',
       dominioIaim: r.dominio_iaim,
+      tecnica: r.tecnica ?? '',
+      equipo: r.equipo ?? '',
+      vineta: r.vineta ?? '',
+      etiquetas: aTextos(r.etiquetas),
       diagnostico: r.diagnostico_correcto ?? '',
       hallazgosClave: aTextos(r.hallazgos_clave),
       puntosAprendizaje: aTextos(r.puntos_aprendizaje),
       erroresComunes: aTextos(r.errores_comunes),
       publicado: r.publicado,
-      tieneDicom: !!r.dicom_ref,
+      tieneDicom: r.estudio_estado === 'anonimizado',
+      estudioEstado: r.estudio_estado,
+      series: r.series,
       curador: r.curador,
     };
   });

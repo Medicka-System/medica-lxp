@@ -138,10 +138,11 @@ export function CasosBanco({ casos }: { casos: CasoResumen[] }) {
       <div className="mt-4 flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-3">
         <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
         <p className="text-[12px] leading-relaxed text-[color:var(--info-foreground)]">
-          El banco muestra los casos curados (lxp.casos_biblioteca). El puente que trae los casos del
-          alumno validados por un docente desde su bitácora, el origen y los estados Simulador/Archivado
-          son <span className="font-bold">pendientes de DB/API</span>; el DICOM (visor + anonimización)
-          es el Sprint 4.7.
+          El banco muestra los casos curados (lxp.casos_biblioteca). Abra un caso para ver su estudio
+          en el <span className="font-bold">visor DICOM</span>, subir series (varios .dcm o .zip,
+          anonimizadas al procesarse · §10) y estructurar su verdad. El puente que trae los casos del
+          alumno validados desde su bitácora y los estados Simulador/Archivado siguen
+          <span className="font-bold"> pendientes de DB/API</span>.
         </p>
       </div>
 
