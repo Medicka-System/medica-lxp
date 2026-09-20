@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, ChevronDown, Search } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
+import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { SECCIONES } from './nav-config';
 
 export type DocenteUsuario = { nombre: string; iniciales: string };
@@ -50,9 +51,9 @@ export function ShellDocente({
         >
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[12px] font-extrabold text-[color:var(--sidebar)]"
+            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[color:var(--sidebar)]"
           >
-            MC
+            <LogoSimbolo className="h-[72%] w-[72%]" />
           </span>
           <span className="flex flex-col leading-[1.15]">
             <span className="text-[13.5px] font-bold text-sidebar-foreground">Studio</span>

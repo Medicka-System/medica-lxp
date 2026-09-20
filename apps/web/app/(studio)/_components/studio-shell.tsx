@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, ChevronDown, LayoutTemplate } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
+import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { SECCIONES, HERRAMIENTAS } from './nav-config';
 
 export type StudioUsuario = { nombre: string; iniciales: string; rol: string };
@@ -65,9 +66,9 @@ export function StudioShell({
         >
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[12px] font-extrabold text-[color:var(--sidebar)]"
+            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[color:var(--sidebar)]"
           >
-            MC
+            <LogoSimbolo className="h-[72%] w-[72%]" />
           </span>
           <span className="min-w-0">
             <span className="block text-[13.5px] font-bold leading-tight text-sidebar-foreground">

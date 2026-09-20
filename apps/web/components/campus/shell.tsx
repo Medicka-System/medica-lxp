@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { mono, kickerMini } from '@/components/tokens';
 import { iniciales } from '@/components/avatar';
+import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components/campus/nav-config';
 
 const focusDark =
@@ -195,8 +196,8 @@ export function CampusShell({
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="fixed inset-x-0 top-0 z-30 flex h-[68px] items-center gap-3 border-b border-border bg-card px-4 sm:px-6">
             <Link href="/inicio" className="flex shrink-0 items-center gap-3 lg:w-[240px]">
-              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-sidebar text-[14px] font-extrabold text-sidebar-foreground">
-                MC
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-sidebar text-sidebar-foreground">
+                <LogoSimbolo className="h-[70%] w-[70%]" />
               </span>
               <span className="hidden min-w-0 leading-tight sm:block">
                 <span className="block truncate text-[14px] font-bold">Médica</span>

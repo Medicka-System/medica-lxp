@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, ChevronDown, Lock, Search, ShieldCheck } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
+import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { EcoMark } from './eco-mark';
 import { SECCIONES, SECCIONES_FUTURAS } from './nav-config';
 
@@ -55,9 +56,9 @@ export function AdminShell({
         >
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[12px] font-extrabold text-[color:var(--sidebar)]"
+            className="grid h-8 w-8 place-items-center rounded-[9px] bg-primary text-[color:var(--sidebar)]"
           >
-            MC
+            <LogoSimbolo className="h-[72%] w-[72%]" />
           </span>
           <span className="flex flex-col leading-[1.15]">
             <span className="text-[13.5px] font-bold text-sidebar-foreground">Studio</span>
