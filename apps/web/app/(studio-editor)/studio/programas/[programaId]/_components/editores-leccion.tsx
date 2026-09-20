@@ -34,6 +34,7 @@ import {
   type TipoLeccion,
 } from '@/lib/studio/leccion-tipos';
 import { kicker, softText } from '@/lib/studio/estilos';
+import { EditorAutoevaluacion } from './editor-autoevaluacion';
 import { EditorTarea } from './editor-tarea';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
@@ -104,7 +105,7 @@ function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
   teoria: PlaceholderEditor,
   video: PlaceholderEditor,
-  autoevaluacion: PlaceholderEditor,
+  autoevaluacion: EditorAutoevaluacion,
   tarea: EditorTarea,
   foro: PlaceholderEditor,
   h5p: PlaceholderEditor,
