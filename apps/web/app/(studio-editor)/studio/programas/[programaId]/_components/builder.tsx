@@ -153,6 +153,13 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const [errorPub, setErrorPub] = useState<string | null>(null);
   // Módulo al que se le está agregando una lección → abre el selector de tipo (§5C).
   const [selectorModulo, setSelectorModulo] = useState<string | null>(null);
+  // Lección recién creada pendiente de auto-seleccionar. Guardamos el módulo y los ids
+  // que YA existían al crearla: cuando el árbol revalidado traiga un id nuevo en ese
+  // módulo, esa es la lección nueva → se selecciona. Comparar ids (no "la última")
+  // evita la carrera de elegir sobre el árbol viejo antes de que llegue la nueva.
+  const [nuevaPendiente, setNuevaPendiente] = useState<{ moduloId: string; previos: string[] } | null>(
+    null,
+  );
 
   // Si la lección seleccionada desaparece (borrada), reselecciona una válida.
   const todasLecciones = modulos.flatMap((m) => m.lecciones);
@@ -161,6 +168,19 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
       setLeccionId(todasLecciones[0]?.id);
     }
   }, [leccionId, todasLecciones]);
+
+  // Auto-selección de la lección recién creada: cuando el árbol revalidado trae un id
+  // que no existía al crearla, esa es la nueva → la selecciona y abre su editor. Espera
+  // al refresh, así no pelea con el efecto de reselección de arriba.
+  useEffect(() => {
+    if (!nuevaPendiente) return;
+    const mod = modulos.find((m) => m.id === nuevaPendiente.moduloId);
+    const nueva = mod?.lecciones.find((l) => !nuevaPendiente.previos.includes(l.id));
+    if (nueva) {
+      setLeccionId(nueva.id);
+      setNuevaPendiente(null);
+    }
+  }, [modulos, nuevaPendiente]);
 
   function correr(accion: () => Promise<void>) {
     iniciar(async () => {
@@ -510,6 +530,9 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
             const moduloId = selectorModulo;
             setSelectorModulo(null);
             setAbierto((a) => (a.includes(moduloId) ? a : [...a, moduloId]));
+            // Ids existentes ANTES de crear: el que aparezca de más es la nueva lección.
+            const previos = modulos.find((m) => m.id === moduloId)?.lecciones.map((l) => l.id) ?? [];
+            setNuevaPendiente({ moduloId, previos });
             correr(() => crearLeccion(id, moduloId, tipo));
           }}
         />
