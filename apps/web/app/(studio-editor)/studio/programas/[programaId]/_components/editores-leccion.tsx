@@ -34,6 +34,7 @@ import {
   type TipoLeccion,
 } from '@/lib/studio/leccion-tipos';
 import { kicker, softText } from '@/lib/studio/estilos';
+import { EditorTarea } from './editor-tarea';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
 export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string }> = {
@@ -104,7 +105,7 @@ export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionPr
   teoria: PlaceholderEditor,
   video: PlaceholderEditor,
   autoevaluacion: PlaceholderEditor,
-  tarea: PlaceholderEditor,
+  tarea: EditorTarea,
   foro: PlaceholderEditor,
   h5p: PlaceholderEditor,
   xapi: PlaceholderEditor,
