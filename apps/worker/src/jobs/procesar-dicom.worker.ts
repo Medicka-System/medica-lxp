@@ -3,22 +3,19 @@ import type { Job } from 'bullmq';
 import { QUEUE_PROCESAR_DICOM, type ProcesarDicomJob } from '@campus/shared';
 import { DbService } from '../db/db.service';
 import { TrabajadorBase } from './trabajador-base';
-import {
-  anonimizarEstudio,
-  verificarSinPII,
-  type EstudioDicom,
-} from './dicom/anonimizacion';
+import { anonimizarDicomBinario } from './dicom/anonimizacion-binaria';
 
 /**
- * `procesar-dicom` (§8, job #2 · Sprint 4.7): al confirmarse la subida de un
- * estudio, lo parsea, lo ANONIMIZA de forma BLOQUEANTE (quita PII del paciente,
- * §10) y persiste metadatos (series/multi-frame) + traza. NINGÚN caso educativo se
- * guarda con PII: si algo sobrevive a la verificación, el job falla (reintenta) y
- * no se fija la referencia del estudio.
+ * `procesar-dicom` (§8, job #2 · Sprint 4.7 · rama dicom-upload): al confirmarse la
+ * subida de un estudio, trae el binario `.dcm` CRUDO de object storage, lo parsea con
+ * dcmjs, lo ANONIMIZA de forma BLOQUEANTE (quita PII del paciente, §10) y reescribe un
+ * `.dcm` anonimizado que persiste + su traza. NINGÚN caso educativo se guarda con PII:
+ * si algo sobrevive a la verificación, el job falla (reintenta) y no se fija la
+ * referencia del estudio.
  *
  * El binario vive en object storage; el `api` (signer) provee URLs firmadas en el
- * job — este worker solo hace fetch, no firma. El parseo P10 real (dcmjs) se cablea
- * en integración (dependencia a acordar); aquí el crudo es el dataset ya parseado.
+ * job — este worker solo hace fetch/put/delete, no firma. El `.dcm` anonimizado es el
+ * que carga el visor Cornerstone3D vía `wadouri:` (URL firmada de lectura).
  */
 @Injectable()
 export class ProcesarDicomWorker extends TrabajadorBase {
@@ -38,29 +35,24 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         update lxp.bitacora_casos set estudio_estado = 'procesando'
         where id = ${casoId}`;
 
-      // 1) Traer el estudio crudo (con PII) desde object storage.
-      const estudioCrudo = await this.leerEstudio(urlLecturaCrudo);
+      // 1) Traer el binario `.dcm` crudo (con PII) desde object storage.
+      const crudo = await this.leerBinario(urlLecturaCrudo);
 
-      // 2) Anonimizar (puro) + 3) VERIFICAR bloqueante (§10): nada persiste con PII.
-      const { estudio, traza } = anonimizarEstudio(estudioCrudo);
-      const restos = verificarSinPII(estudio);
-      if (restos.length > 0) {
-        throw new Error(
-          `Anonimización incompleta del caso ${casoId}: sobrevive PII → ${restos.join(', ')}`,
-        );
-      }
+      // 2) Parsear + anonimizar + 3) VERIFICAR bloqueante (§10): nada persiste con PII.
+      //    `anonimizarDicomBinario` lanza si sobrevive PII.
+      const { buffer, traza, series: seriesAnon } = anonimizarDicomBinario(crudo);
 
-      // 4) Guardar el estudio ANONIMIZADO y 5) borrar el crudo (PII fuera del storage).
-      await this.subirEstudio(urlSubidaAnonimizado, estudio);
+      // 4) Guardar el `.dcm` ANONIMIZADO y 5) borrar el crudo (PII fuera del storage).
+      await this.subirBinario(urlSubidaAnonimizado, buffer);
       await this.borrarCrudo(urlBorradoCrudo);
 
       // 6) Persistir metadatos + traza. La referencia del estudio educativo se fija
       //    SOLO ahora, junto con anonimizado_en (lo exige el CHECK de 0014).
-      const series = estudio.series.map((s) => ({
+      const series = seriesAnon.map((s) => ({
         series_uid: s.series_uid,
         modalidad: s.modalidad,
         frames: s.frames,
-        instancias: s.instancias ?? null,
+        instancias: s.instancias,
         ref: refAnonimizado,
       }));
       await sql`
@@ -84,28 +76,25 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     }
   }
 
-  /** Lee y valida el estudio crudo (JSON del dataset parseado). */
-  private async leerEstudio(url: string): Promise<EstudioDicom> {
+  /** Descarga el binario del estudio (crudo o anonimizado) como ArrayBuffer. */
+  private async leerBinario(url: string): Promise<ArrayBuffer> {
     const resp = await fetch(url);
     if (!resp.ok) {
       throw new Error(`No se pudo leer el estudio crudo (${resp.status}).`);
     }
-    const data = (await resp.json()) as Partial<EstudioDicom>;
-    if (!data || typeof data.dataset !== 'object' || !Array.isArray(data.series)) {
-      throw new Error('El estudio crudo no tiene la forma esperada {dataset, series}.');
+    const buf = await resp.arrayBuffer();
+    if (buf.byteLength === 0) {
+      throw new Error('El estudio crudo está vacío.');
     }
-    return {
-      study_uid: data.study_uid ?? '',
-      dataset: data.dataset,
-      series: data.series,
-    };
+    return buf;
   }
 
-  private async subirEstudio(url: string, estudio: EstudioDicom): Promise<void> {
+  private async subirBinario(url: string, buffer: Buffer): Promise<void> {
     const resp = await fetch(url, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(estudio),
+      headers: { 'content-type': 'application/dicom' },
+      // Vista tipada del Buffer (evita enviar el pool subyacente completo).
+      body: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
     });
     if (!resp.ok) {
       throw new Error(`No se pudo guardar el estudio anonimizado (${resp.status}).`);
