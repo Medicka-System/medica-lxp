@@ -8,19 +8,23 @@
  * clave, puntos de aprendizaje, errores comunes) — lo que habilita a Eco y a los
  * simuladores. Publicar a Biblioteca alterna `publicado`.
  *
- * PENDIENTE (ver lib/studio/casos-contrato.ts): el VISOR DICOM (Cornerstone3D),
- * series/anotaciones y la anonimización en ingesta son el Sprint 4.7 → aquí el visor
- * es un placeholder. "Anclar hallazgo a anotación" y "Marcar para Simulador" quedan
- * sin cablear (no hay anotaciones ni flag en el esquema).
+ * VISOR/ESTUDIO (§4.7 · rediseño multi-serie): el visor DICOM real (Cornerstone3D)
+ * es TRANSVERSAL — el mismo que la bitácora y la Biblioteca. Si el caso ya tiene
+ * estudio anonimizado se muestra; si no, el staff lo SUBE aquí con el uploader
+ * multi-archivo/`.zip` (tabla casos_biblioteca), anonimizado en ingesta (§10).
+ * "Anclar hallazgo a anotación" y "Marcar para Simulador" siguen pendientes (no hay
+ * anotaciones ni flag en el esquema).
  */
 
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   BookCopy,
   Check,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   MonitorPlay,
   Plus,
   Save,
@@ -32,12 +36,20 @@ import {
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
 import { DOMINIO_LABEL, type CasoEditor, type DominioIaim } from '@/lib/studio/casos-contrato';
 import { guardarCaso, publicarCaso } from '@/lib/studio/acciones';
+import { VisorEstudio } from '@/components/casos/visor-estudio';
+import {
+  SelectorArchivosDicom,
+  ejecutarSubidaMulti,
+  ETIQUETA_FASE,
+  type FaseDicom,
+} from '@/components/casos/subida-dicom';
 
 const DOMINIOS: DominioIaim[] = ['indicacion', 'adquisicion', 'interpretacion', 'decision_medica'];
 const campoBase =
   'mt-1.5 w-full rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
 
 export function EditorCaso({ caso }: { caso: CasoEditor }) {
+  const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [titulo, setTitulo] = useState(caso.titulo);
   const [organo, setOrgano] = useState(caso.organo);
@@ -47,6 +59,25 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
   const [puntos, setPuntos] = useState<string[]>(caso.puntosAprendizaje);
   const [errores, setErrores] = useState<string[]>(caso.erroresComunes);
   const [guardadoOk, setGuardadoOk] = useState(false);
+
+  // Estudio DICOM (staff → banco curado · tabla casos_biblioteca).
+  const listoEstudio = caso.estudioEstado === 'anonimizado';
+  const [archivos, setArchivos] = useState<File[]>([]);
+  const [fase, setFase] = useState<FaseDicom>('idle');
+  const [faseMsg, setFaseMsg] = useState('');
+  const subiendo = fase === 'subiendo' || fase === 'procesando';
+
+  async function subirEstudio() {
+    if (archivos.length === 0) return;
+    const final = await ejecutarSubidaMulti(caso.id, 'casos_biblioteca', archivos, (f, msg) => {
+      setFase(f);
+      setFaseMsg(msg ?? '');
+    });
+    if (final === 'anonimizado') {
+      setArchivos([]);
+      router.refresh();
+    }
+  }
 
   const datos = () => ({
     titulo,
@@ -140,36 +171,81 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* ════════ Visor (placeholder · Sprint 4.7) ════════ */}
+        {/* ════════ Visor DICOM real / uploader (§4.7 multi-serie) ════════ */}
         <div className="flex min-w-0 flex-1 flex-col bg-sidebar">
           <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
             <span className={`${kicker} text-white/55`}>Visor DICOM</span>
             <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-white/[0.1] px-2.5 text-[11px] font-semibold text-white/70">
-              Cornerstone3D · Sprint 4.7
+              Cornerstone3D
             </span>
-            <span className="ml-auto inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary/[0.16] px-2.5 text-[11px] font-bold text-primary">
-              <ShieldCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-              Anonimización en ingesta
-            </span>
-          </div>
-          <div className="relative grid min-h-0 flex-1 place-items-center">
             <span
-              aria-hidden
-              className="absolute inset-0"
-              style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
-            />
-            <div className="relative max-w-[360px] px-6 text-center">
-              <p className="text-[15px] font-bold text-white">El visor DICOM llega en el Sprint 4.7</p>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
-                Visor Cornerstone3D (series, cine-loops, anotación y medición) + anonimización
-                bloqueante en la ingesta. Mientras tanto, cataloga y estructura la verdad del caso a la
-                derecha; eso ya se guarda de verdad.
-              </p>
-            </div>
-            <span className={`${mono} absolute bottom-3.5 right-3.5 text-[10.5px] text-white/50`}>
-              {caso.tieneDicom ? 'estudio adjunto' : 'sin estudio'}
+              className={`ml-auto inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11px] font-bold ${
+                listoEstudio ? 'bg-primary/[0.16] text-primary' : 'bg-white/[0.1] text-white/70'
+              }`}
+            >
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+              {listoEstudio ? `Anonimizado · ${caso.series} ${caso.series === 1 ? 'serie' : 'series'}` : 'Anonimización en ingesta'}
             </span>
           </div>
+
+          {listoEstudio ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <VisorEstudio casoId={caso.id} tabla="casos_biblioteca" className="min-h-[440px]" />
+            </div>
+          ) : (
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)' }}
+              />
+              <div className="relative mx-auto max-w-[520px] p-6">
+                <p className="text-[15px] font-bold text-white">Suba el estudio del caso</p>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
+                  Varias series (.dcm) a la vez o un <strong>.zip</strong> con el estudio completo. Se
+                  anonimizan en la ingesta (§10) antes de entrar al banco. El visor Cornerstone3D las
+                  muestra al terminar.
+                </p>
+                <div className="mt-4 rounded-xl bg-card p-3.5">
+                  {fase !== 'idle' && fase !== 'anonimizado' ? (
+                    <div className="flex items-center gap-2.5 rounded-[12px] border border-border bg-muted p-4 text-[13px]">
+                      {fase === 'error' ? (
+                        <span className="text-[color:var(--destructive-foreground)]">{faseMsg || ETIQUETA_FASE.error}</span>
+                      ) : (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin text-secondary" strokeWidth={2} />
+                          <span className="font-semibold">{ETIQUETA_FASE[fase]}</span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <SelectorArchivosDicom value={archivos} onChange={setArchivos} bloqueado={subiendo} />
+                  )}
+                  {archivos.length > 0 && fase === 'idle' && (
+                    <button
+                      type="button"
+                      onClick={subirEstudio}
+                      className={`mt-3.5 inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+                    >
+                      Subir {archivos.length} {archivos.length === 1 ? 'serie' : 'series'}
+                    </button>
+                  )}
+                  {fase === 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFase('idle');
+                        setFaseMsg('');
+                      }}
+                      className={`mt-3 h-10 rounded-[9px] border border-border bg-card px-4 text-[12.5px] font-semibold ${focusRing}`}
+                    >
+                      Reintentar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ════════ Panel de autoría (real) ════════ */}

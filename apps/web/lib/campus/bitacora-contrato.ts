@@ -85,6 +85,23 @@ export type CasoBitacora = {
   feedback: string | null;
 };
 
+/** Detalle de un caso de la bitácora (para la pantalla completa con visor · §4.7). */
+export type CasoDetalleBitacora = {
+  id: string;
+  hallazgoCorto: string;
+  hallazgos: string | null;
+  presuntivo: string | null;
+  modulo: string | null;
+  organo: string | null;
+  dominio: DominioIaim | null;
+  fecha: Date;
+  estado: EstadoCaso;
+  estudioEstado: EstudioEstado;
+  series: number;
+  cineLoop: boolean;
+  feedback: string | null;
+};
+
 export type BitacoraData = {
   horas: { acreditadas: number; meta: number };
   casos: { total: number; aprobados: number; pendientes: number; rechazados: number };

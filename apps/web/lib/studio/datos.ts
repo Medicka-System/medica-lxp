@@ -542,13 +542,16 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           puntos_aprendizaje: unknown;
           errores_comunes: unknown;
           publicado: boolean;
-          dicom_ref: string | null;
+          estudio_estado: import('./casos-contrato').EstudioEstadoCaso;
+          series: number;
           curador: string | null;
         }[]
       >`
         select id, titulo, organo, dominio_iaim, diagnostico_correcto,
                hallazgos_clave, puntos_aprendizaje, errores_comunes,
-               publicado, dicom_ref, lxp.nombre_de(curador_id) as curador
+               publicado, estudio_estado::text as estudio_estado,
+               coalesce(jsonb_array_length(estudio_series), 0)::int as series,
+               lxp.nombre_de(curador_id) as curador
         from lxp.casos_biblioteca where id = ${casoId} limit 1`
     )[0];
     if (!r) return null;
@@ -562,7 +565,9 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
       puntosAprendizaje: aTextos(r.puntos_aprendizaje),
       erroresComunes: aTextos(r.errores_comunes),
       publicado: r.publicado,
-      tieneDicom: !!r.dicom_ref,
+      tieneDicom: r.estudio_estado === 'anonimizado',
+      estudioEstado: r.estudio_estado,
+      series: r.series,
       curador: r.curador,
     };
   });

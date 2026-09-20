@@ -4,6 +4,7 @@ import {
   DOMINIOS,
   type BitacoraData,
   type CasoBitacora,
+  type CasoDetalleBitacora,
   type DominioIaim,
   type EstadoCaso,
   type EstudioEstado,
@@ -23,6 +24,67 @@ function hallazgoCorto(hallazgos: string | null): string {
   if (!t) return 'Caso sin hallazgos capturados';
   const linea = t.split(/\r?\n/)[0]!.trim();
   return linea.length > 120 ? `${linea.slice(0, 117)}…` : linea;
+}
+
+/** Detalle de UN caso del alumno (para la pantalla completa con visor · §4.7). */
+export async function getCasoBitacora(
+  userId: string,
+  casoId: string,
+): Promise<CasoDetalleBitacora | null> {
+  return comoAlumno(userId, async (sql) => {
+    const r = (
+      await sql<
+        {
+          id: string;
+          hallazgos: string | null;
+          presuntivo: string | null;
+          modulo: string | null;
+          organo: string | null;
+          dominio_iaim: DominioIaim | null;
+          created_at: Date;
+          estado_validacion: EstadoCaso;
+          estudio_estado: EstudioEstado;
+          series: number;
+          cine_loop: boolean;
+          feedback: string | null;
+        }[]
+      >`
+        select
+          c.id, c.hallazgos, c.diagnostico_presuntivo as presuntivo,
+          m.nombre as modulo, c.organo, c.dominio_iaim, c.created_at,
+          c.estado_validacion, c.estudio_estado,
+          coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
+          exists (
+            select 1 from jsonb_array_elements(c.estudio_series) s
+            where (s->>'frames')::int > 1
+          ) as cine_loop,
+          v.feedback
+        from lxp.bitacora_casos c
+        left join lxp.modulos m on m.id = c.modulo_id
+        left join lateral (
+          select feedback from lxp.validaciones
+          where caso_id = c.id order by created_at desc limit 1
+        ) v on true
+        where c.id = ${casoId} and c.id_alumno = ${userId}
+        limit 1`
+    )[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      hallazgoCorto: hallazgoCorto(r.hallazgos),
+      hallazgos: r.hallazgos,
+      presuntivo: r.presuntivo,
+      modulo: r.modulo,
+      organo: r.organo,
+      dominio: r.dominio_iaim,
+      fecha: r.created_at,
+      estado: r.estado_validacion,
+      estudioEstado: r.estudio_estado,
+      series: r.series,
+      cineLoop: r.cine_loop,
+      feedback: r.feedback,
+    };
+  });
 }
 
 export async function getBitacora(userId: string): Promise<BitacoraData> {

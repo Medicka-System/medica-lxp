@@ -25,6 +25,11 @@ export interface VisorDicomProps {
   soloLectura?: boolean;
   /** Oculta el selector de series (una sola serie o miniatura). */
   ocultarSeries?: boolean;
+  /**
+   * Dónde va el selector de series: rail vertical a la izquierda (default) o TIRA
+   * horizontal debajo del visor (§ detalle de caso — el visor manda a lo ancho).
+   */
+  seriesLayout?: 'vertical' | 'horizontal';
   /** Clase para el contenedor externo (alto/ancho). */
   className?: string;
   onHerramientaChange?: (id: HerramientaId) => void;
@@ -49,6 +54,7 @@ export function VisorDicom({
   crearMotor = crearMotorPorDefecto,
   soloLectura = false,
   ocultarSeries = false,
+  seriesLayout = 'vertical',
   className,
   onHerramientaChange,
 }: VisorDicomProps) {
@@ -94,6 +100,8 @@ export function VisorDicom({
 
   const total = serieActiva.frames.length;
   const mostrarSeries = !ocultarSeries && series.length > 1;
+  const seriesHorizontal = mostrarSeries && seriesLayout === 'horizontal';
+  const seriesVertical = mostrarSeries && seriesLayout === 'vertical';
 
   return (
     <div
@@ -112,11 +120,12 @@ export function VisorDicom({
       )}
 
       <div className="flex min-h-0 flex-1">
-        {mostrarSeries && (
+        {seriesVertical && (
           <SelectorSeries
             series={series}
             activaId={serieActivaId}
             onSeleccionar={seleccionarSerie}
+            orientacion="vertical"
           />
         )}
 
@@ -172,6 +181,15 @@ export function VisorDicom({
           onToggleLoop={() => setLoop((v) => !v)}
         />
       )}
+
+      {seriesHorizontal && (
+        <SelectorSeries
+          series={series}
+          activaId={serieActivaId}
+          onSeleccionar={seleccionarSerie}
+          orientacion="horizontal"
+        />
+      )}
     </div>
   );
 }
@@ -180,15 +198,31 @@ interface SelectorSeriesProps {
   series: EstudioDicom['series'];
   activaId: string;
   onSeleccionar: (id: string) => void;
+  orientacion?: 'vertical' | 'horizontal';
 }
 
-/** Rail de series (miniaturas) para estudios con más de una serie. */
-function SelectorSeries({ series, activaId, onSeleccionar }: SelectorSeriesProps) {
+/**
+ * Selector de series (miniaturas). `vertical` = rail a la izquierda (visor embebido);
+ * `horizontal` = TIRA debajo del visor (§ detalle de caso — fiel al mock: el visor
+ * manda a lo ancho y las series se navegan como una tira de estudio).
+ */
+function SelectorSeries({
+  series,
+  activaId,
+  onSeleccionar,
+  orientacion = 'vertical',
+}: SelectorSeriesProps) {
+  const horizontal = orientacion === 'horizontal';
   return (
     <div
       role="tablist"
       aria-label="Series del estudio"
-      className="flex w-[104px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-border bg-card p-2"
+      className={cn(
+        'flex bg-card',
+        horizontal
+          ? 'w-full shrink-0 flex-row gap-2 overflow-x-auto border-t border-border p-2.5'
+          : 'w-[104px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-border p-2',
+      )}
     >
       {series.map((s) => {
         const activa = s.id === activaId;
@@ -201,12 +235,18 @@ function SelectorSeries({ series, activaId, onSeleccionar }: SelectorSeriesProps
             onClick={() => onSeleccionar(s.id)}
             className={cn(
               'group flex flex-col gap-1 rounded-control border p-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              horizontal ? 'w-[104px] shrink-0' : '',
               activa
                 ? 'border-primary bg-accent'
                 : 'border-border hover:border-secondary/40 hover:bg-accent',
             )}
           >
-            <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-[7px] bg-[#1A1A1A]">
+            <div
+              className={cn(
+                'relative flex items-center justify-center overflow-hidden rounded-[7px] bg-[#1A1A1A]',
+                horizontal ? 'aspect-video' : 'aspect-square',
+              )}
+            >
               {s.miniaturaUrl ? (
                 // Miniatura simple desde object storage; no requiere next/image.
                 <img src={s.miniaturaUrl} alt="" className="h-full w-full object-cover" />

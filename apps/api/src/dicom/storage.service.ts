@@ -18,14 +18,21 @@ export class StorageService {
   private readonly accessKey = process.env.STORAGE_ACCESS_KEY_ID ?? '';
   private readonly secretKey = process.env.STORAGE_SECRET_ACCESS_KEY ?? '';
 
-  /** Clave del binario `.dcm` CRUDO (con PII) mientras se procesa. */
-  claveCrudo(casoId: string): string {
-    return `dicom/crudo/${casoId}/estudio.dcm`;
+  /**
+   * Clave del binario CRUDO (con PII) mientras se procesa. Una por FUENTE subida
+   * (un `.dcm` suelto o un `.zip`); `indice` la hace estable por caso. El worker
+   * descomprime los zips server-side (§10) antes de anonimizar.
+   */
+  claveCrudo(casoId: string, indice: number): string {
+    return `dicom/crudo/${casoId}/${indice}`;
   }
 
-  /** Clave del binario `.dcm` ANONIMIZADO (educativo, sin PII; lo lee el visor). */
-  claveAnonimizado(casoId: string): string {
-    return `dicom/casos/${casoId}/estudio.dcm`;
+  /**
+   * Clave del binario `.dcm` ANONIMIZADO de una SERIE (educativo, sin PII; lo lee el
+   * visor). Un estudio tiene N series → N claves `0.dcm`, `1.dcm`, …
+   */
+  claveAnonimizado(casoId: string, indice: number): string {
+    return `dicom/casos/${casoId}/${indice}.dcm`;
   }
 
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {

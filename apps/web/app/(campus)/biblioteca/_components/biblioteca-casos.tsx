@@ -2,16 +2,16 @@
 
 /**
  * Biblioteca de casos — acervo curado del alumno (§6/§7A). Filtros por órgano y
- * dominio I-AIM + búsqueda; grid de casos; detalle con la verdad estructurada
- * (hallazgos clave, diagnóstico, puntos de aprendizaje, errores comunes) y el visor
- * DICOM placeholder (4.7). Datos reales por RLS (solo casos publicados).
+ * dominio I-AIM + búsqueda; grid de casos. Cada tarjeta abre el detalle a PANTALLA
+ * COMPLETA (biblioteca/[id]) con el visor DICOM real y la verdad estructurada. Datos
+ * reales por RLS (solo casos publicados).
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { BookMarked, GraduationCap, Library, Search, Stethoscope, TriangleAlert, X } from 'lucide-react';
-import { card, kicker, mono } from '@/components/tokens';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { BookMarked, Library, Search } from 'lucide-react';
+import { card, kicker, mono, focusRing } from '@/components/tokens';
 import { Badge } from '@/components/ui/badge';
-import { fechaCorta } from '@/lib/format';
 import { VisorDicomPlaceholder } from '../../_components/visor-dicom';
 import { DOMINIO_LABEL, DOMINIOS, type DominioIaim } from '@/lib/campus/bitacora-contrato';
 import type { BibliotecaData, CasoAcervo } from '@/lib/campus/biblioteca-contrato';
@@ -22,7 +22,6 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
   const [q, setQ] = useState('');
   const [organo, setOrgano] = useState<string>(TODOS);
   const [dominio, setDominio] = useState<DominioIaim | typeof TODOS>(TODOS);
-  const [abierto, setAbierto] = useState<CasoAcervo | null>(null);
 
   const filtrados = useMemo(() => {
     const texto = q.trim().toLowerCase();
@@ -99,24 +98,21 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
       ) : (
         <div className="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {filtrados.map((c) => (
-            <TarjetaCaso key={c.id} caso={c} onAbrir={() => setAbierto(c)} />
+            <TarjetaCaso key={c.id} caso={c} />
           ))}
         </div>
       )}
-
-      {abierto && <DetalleCaso caso={abierto} onCerrar={() => setAbierto(null)} />}
     </div>
   );
 }
 
 /* ─────────────────────────── Tarjeta ─────────────────────────── */
 
-function TarjetaCaso({ caso, onAbrir }: { caso: CasoAcervo; onAbrir: () => void }) {
+function TarjetaCaso({ caso }: { caso: CasoAcervo }) {
   return (
-    <button
-      type="button"
-      onClick={onAbrir}
-      className={`${card} group flex flex-col overflow-hidden text-left transition-shadow hover:shadow-[0_8px_24px_rgba(17,24,39,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2`}
+    <Link
+      href={`/biblioteca/${caso.id}`}
+      className={`${card} group flex flex-col overflow-hidden text-left transition-shadow hover:shadow-[0_8px_24px_rgba(17,24,39,0.10)] ${focusRing}`}
     >
       <VisorDicomPlaceholder etiqueta={caso.organo ?? caso.titulo} alto={148} loop={caso.tieneDicom} />
       <div className="flex min-h-0 flex-1 flex-col p-4">
@@ -136,102 +132,6 @@ function TarjetaCaso({ caso, onAbrir }: { caso: CasoAcervo; onAbrir: () => void 
           {caso.curador && <span className="truncate">{caso.curador}</span>}
         </div>
       </div>
-    </button>
-  );
-}
-
-/* ─────────────────────────── Detalle ─────────────────────────── */
-
-function Seccion({
-  titulo,
-  icono: Icono,
-  items,
-  vacio,
-}: {
-  titulo: string;
-  icono: typeof Stethoscope;
-  items: string[];
-  vacio: string;
-}) {
-  return (
-    <div>
-      <p className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.1em] text-secondary">
-        <Icono className="h-[15px] w-[15px]" strokeWidth={2} />
-        {titulo}
-      </p>
-      {items.length > 0 ? (
-        <ul className="mt-2 space-y-1.5">
-          {items.map((t, i) => (
-            <li key={i} className="flex gap-2 text-[13.5px] leading-relaxed text-foreground">
-              <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-              {t}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1.5 text-[12.5px] text-muted-foreground">{vacio}</p>
-      )}
-    </div>
-  );
-}
-
-function DetalleCaso({ caso, onCerrar }: { caso: CasoAcervo; onCerrar: () => void }) {
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
-    document.addEventListener('keydown', esc);
-    return () => document.removeEventListener('keydown', esc);
-  }, [onCerrar]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={caso.titulo}>
-      <button type="button" aria-label="Cerrar" onClick={onCerrar} className="absolute inset-0 bg-[color:var(--sidebar)]/55" />
-      <div className="relative flex max-h-[92dvh] w-full max-w-[720px] flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-[0_20px_60px_rgba(17,24,39,0.25)] sm:rounded-2xl">
-        <div className="flex items-start gap-3 border-b border-border p-5">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {caso.dominio && <Badge variant="accent" size="sm">{DOMINIO_LABEL[caso.dominio]}</Badge>}
-              {caso.organo && <Badge variant="neutral" size="sm">{caso.organo}</Badge>}
-            </div>
-            <h2 className="mt-2 text-[18px] font-bold leading-tight">{caso.titulo}</h2>
-            <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-              {caso.curador ? `Curado por ${caso.curador} · ` : ''}
-              {fechaCorta(caso.fecha)}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCerrar}
-            aria-label="Cerrar"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent"
-          >
-            <X className="h-5 w-5" strokeWidth={1.75} />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <VisorDicomPlaceholder etiqueta={caso.organo ?? caso.titulo} alto={220} loop={caso.tieneDicom} radio="rounded-xl" />
-          {!caso.tieneDicom && (
-            <p className="mt-2 text-center text-[11.5px] text-muted-foreground">
-              Este caso aún no tiene estudio DICOM asociado.
-            </p>
-          )}
-
-          <div className="mt-6 space-y-6">
-            <Seccion titulo="Hallazgos clave" icono={BookMarked} items={caso.hallazgosClave} vacio="Sin hallazgos capturados." />
-            <div>
-              <p className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.1em] text-secondary">
-                <Stethoscope className="h-[15px] w-[15px]" strokeWidth={2} />
-                Diagnóstico
-              </p>
-              <p className="mt-1.5 text-[14px] font-semibold leading-relaxed">
-                {caso.diagnostico ?? <span className="font-normal text-muted-foreground">Sin diagnóstico registrado.</span>}
-              </p>
-            </div>
-            <Seccion titulo="Puntos de aprendizaje" icono={GraduationCap} items={caso.puntosAprendizaje} vacio="Sin puntos de aprendizaje." />
-            <Seccion titulo="Errores comunes" icono={TriangleAlert} items={caso.erroresComunes} vacio="Sin errores comunes registrados." />
-          </div>
-        </div>
-      </div>
-    </div>
+    </Link>
   );
 }
