@@ -10,6 +10,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "jest",
+    "muestra:dicom": "node scripts/generar-dicom-muestra.cjs",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
