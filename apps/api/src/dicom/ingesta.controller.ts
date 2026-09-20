@@ -1,5 +1,5 @@
 import { Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { IngestaService, type SolicitudSubida } from './ingesta.service';
+import { IngestaService, type LecturaEstudio, type SolicitudSubida } from './ingesta.service';
 
 /**
  * Ingesta DICOM (§8/§9 · Sprint 4.7). Dominio/orquestación, no proxy de CRUD: emite
@@ -24,5 +24,12 @@ export class IngestaController {
     @Param('casoId') casoId: string,
   ): Promise<{ encolado: true; cola: string; jobId: string }> {
     return this.ingesta.confirmarSubida(casoId);
+  }
+
+  /** Firma la lectura del estudio anonimizado para el visor (409 si aún no lo está). */
+  @Post('ingesta/estudio')
+  @HttpCode(200)
+  estudio(@Param('casoId') casoId: string): Promise<LecturaEstudio> {
+    return this.ingesta.urlLecturaEstudio(casoId);
   }
 }

@@ -4,15 +4,27 @@
  */
 import type { Sql } from '@campus/db';
 
+/** Serie persistida del estudio anonimizado (subconjunto de `estudio_series`). */
+export interface SerieEstudio {
+  series_uid: string;
+  modalidad: string;
+  frames: number;
+}
+
 export interface CasoEstudio {
   id: string;
   estudio_estado: string | null;
+  estudio_dicom_ref: string | null;
+  estudio_series: SerieEstudio[];
 }
 
-/** Caso de bitácora (id + estado del estudio); `null` si no existe. */
+/** Caso de bitácora (id + estado/ref/series del estudio); `null` si no existe. */
 export async function cargarCaso(sql: Sql, casoId: string): Promise<CasoEstudio | null> {
   const rows = await sql<CasoEstudio[]>`
-    select id, estudio_estado::text as estudio_estado
+    select id,
+           estudio_estado::text as estudio_estado,
+           estudio_dicom_ref,
+           coalesce(estudio_series, '[]'::jsonb) as estudio_series
     from lxp.bitacora_casos where id = ${casoId}`;
   return rows[0] ?? null;
 }
