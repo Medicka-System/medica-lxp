@@ -35,6 +35,9 @@ import {
 } from '@/lib/studio/leccion-tipos';
 import { kicker, softText } from '@/lib/studio/estilos';
 import { EditorTeoria } from './teoria/editor-teoria';
+import { EditorVideo } from './_editores/editor-video';
+import { EditorH5P } from './_editores/editor-h5p';
+import { EditorXapi } from './_editores/editor-xapi';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
 export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string }> = {
@@ -103,12 +106,12 @@ function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
  */
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
   teoria: EditorTeoria,
-  video: PlaceholderEditor,
+  video: EditorVideo,
   autoevaluacion: PlaceholderEditor,
   tarea: PlaceholderEditor,
   foro: PlaceholderEditor,
-  h5p: PlaceholderEditor,
-  xapi: PlaceholderEditor,
+  h5p: EditorH5P,
+  xapi: EditorXapi,
 };
 
 /** Renderiza el editor registrado para el tipo de la lección (placeholder por defecto). */
