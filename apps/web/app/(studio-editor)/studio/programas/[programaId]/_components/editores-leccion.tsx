@@ -34,6 +34,7 @@ import {
   type TipoLeccion,
 } from '@/lib/studio/leccion-tipos';
 import { kicker, softText } from '@/lib/studio/estilos';
+import { EditorTeoria } from './teoria/editor-teoria';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
 export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string }> = {
@@ -98,10 +99,10 @@ function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
 
 /**
  * tipo → componente de editor. Cada agente reemplaza SU entrada por su editor real.
- * Hoy todas apuntan al placeholder (esta rama es solo el modelo + el flujo).
+ * `teoria` ya tiene editor por bloques (§5C); el resto sigue en placeholder.
  */
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
-  teoria: PlaceholderEditor,
+  teoria: EditorTeoria,
   video: PlaceholderEditor,
   autoevaluacion: PlaceholderEditor,
   tarea: PlaceholderEditor,
