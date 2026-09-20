@@ -148,7 +148,7 @@ function EditorTexto({ config, onCambio }: { config: ConfigTexto; onCambio: (c: 
   return (
     <EditorRico
       contenidoInicial={config.html ?? ''}
-      placeholder="Escribe la teoría… (formato, listas, tablas, fórmulas KaTeX, importar Word)"
+      placeholder="Escribe la teoría…"
       onChange={(html) => onCambio({ html })}
       ariaLabel="Contenido del bloque de texto"
     />
