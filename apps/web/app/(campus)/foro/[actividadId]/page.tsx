@@ -20,6 +20,7 @@ export default async function ForoPage({
   const data = await getForo(alumno.userId, alumno.nombre, actividadId);
   if (!data) notFound();
 
-  const puedePublicar = alumno.accesoActivo && data.grupoId !== null;
+  // Además del acceso y el grupo, se honra la ventana del diseñador (§5C).
+  const puedePublicar = alumno.accesoActivo && data.grupoId !== null && data.ventana.abierto;
   return <ForoDiscusion data={data} puedePublicar={puedePublicar} />;
 }

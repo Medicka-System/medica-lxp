@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
+import { comoConfigForo, estadoVentanaForo } from '@/lib/studio/foro-config';
 import type { ResultadoAccion } from './resultado';
 
 /**
@@ -10,6 +11,10 @@ import type { ResultadoAccion } from './resultado';
  * (Regla de Oro §2): corren con `comoAlumno`, así que la policy `foro_insert`
  * (autor_id = auth.uid() + acceso_activo) es el segundo candado. El cuerpo es el
  * HTML del EditorRico.
+ *
+ * La VENTANA de apertura/cierre que fija el diseñador (§5C · `lecciones.config`) se
+ * refuerza aquí como segundo candado: fuera de fechas no se publica, aunque la UI ya
+ * oculte el compositor.
  */
 
 async function publicar(
@@ -25,11 +30,28 @@ async function publicar(
   if (!grupoId) return { ok: false, error: 'Este foro aún no tiene un grupo asignado.' };
 
   try {
-    await comoAlumno(alumno.userId, async (sql) => {
+    const error = await comoAlumno(alumno.userId, async (sql) => {
+      // Refuerza la ventana del diseñador (config de la lección del foro).
+      const fila = (
+        await sql<{ config: Record<string, unknown> | null }[]>`
+          select l.config
+          from lxp.actividades a
+          join lxp.lecciones l on l.id = a.leccion_id
+          where a.id = ${actividadId} and a.tipo = 'foro'
+          limit 1`
+      )[0];
+      const ventana = estadoVentanaForo(comoConfigForo(fila?.config), new Date());
+      if (!ventana.abierto) {
+        return ventana.estado === 'programado'
+          ? 'Este foro aún no abre.'
+          : 'Este foro ya cerró.';
+      }
       await sql`
         insert into lxp.foro_mensajes (actividad_id, grupo_id, autor_id, parent_id, cuerpo)
         values (${actividadId}, ${grupoId}, ${alumno.userId}, ${parentId}, ${texto})`;
+      return null;
     });
+    if (error) return { ok: false, error };
   } catch {
     return { ok: false, error: 'No se pudo publicar. Inténtalo de nuevo.' };
   }

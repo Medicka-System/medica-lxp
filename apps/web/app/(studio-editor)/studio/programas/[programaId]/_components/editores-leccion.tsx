@@ -40,6 +40,7 @@ import { EditorH5P } from './_editores/editor-h5p';
 import { EditorXapi } from './_editores/editor-xapi';
 import { EditorAutoevaluacion } from './editor-autoevaluacion';
 import { EditorTarea } from './editor-tarea';
+import { EditorForo } from './editor-foro';
 
 /** Ícono + acento por tipo (selector de tipo y placeholders · §5A). */
 export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string }> = {
@@ -103,15 +104,16 @@ function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
 }
 
 /**
- * tipo → componente de editor. Cada agente reemplaza SU entrada por su editor real.
- * `teoria` ya tiene editor por bloques (§5C); el resto sigue en placeholder.
+ * tipo → componente de editor. Los 7 tipos ya tienen editor real (§5C):
+ * teoria (bloques), video/h5p/xapi (config), autoevaluacion/tarea (config), foro.
+ * `PlaceholderEditor` queda solo como fallback de `EditorDeLeccion`.
  */
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
   teoria: EditorTeoria,
   video: EditorVideo,
   autoevaluacion: EditorAutoevaluacion,
   tarea: EditorTarea,
-  foro: PlaceholderEditor,
+  foro: EditorForo,
   h5p: EditorH5P,
   xapi: EditorXapi,
 };

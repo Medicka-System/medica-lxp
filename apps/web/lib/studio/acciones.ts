@@ -7,6 +7,7 @@ import { comoStaff } from '@/lib/db.server';
 import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
+import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
 
 /**
  * Server actions del Studio de autoría (§5B). Son CRUD simple `web → Supabase`
@@ -380,6 +381,79 @@ export async function eliminarLeccion(programaId: string, leccionId: string): Pr
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
     await sql`delete from lxp.lecciones where id = ${leccionId}`;
+  });
+  refrescar(programaId);
+}
+
+// ── Foro (lección tipo `foro` · §5C) ─────────────────────────────────────────────
+/** Convierte HTML del EditorRico a texto plano (fallback de instrucciones). */
+function aTextoPlano(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Guarda la config del foro de una lección (§5C · mig 0023) y la ENCHUFA al motor
+ * de foro que YA existe (Sprint 5 · `lxp.foro_mensajes`). CRUD directo bajo RLS
+ * (Regla de Oro §2 · `es_autoria`). NO reconstruye el motor: lo configura.
+ *
+ * El motor ancla los mensajes en `foro_mensajes.actividad_id` (FK a `actividades`).
+ * Una lección tipo `foro` guarda su config en `lecciones.config`, no en
+ * `actividades`; por eso esta acción PUENTEA una actividad foro de respaldo (patrón
+ * sancionado por el contrato: puentear tablas viejas es decisión del editor del
+ * tipo). Es idempotente: reutiliza la actividad si ya existe. La fuente de verdad
+ * de lo que el alumno ve (instrucciones, reglas, ventana, valor) sigue siendo
+ * `lecciones.config`; a `actividades` solo se sincroniza título + fallback de texto.
+ */
+export async function guardarConfigForo(
+  programaId: string,
+  leccionId: string,
+  config: ConfigForo,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  const cfg = comoConfigForo(config); // normaliza el crudo del cliente
+  await comoStaff(userId, async (sql) => {
+    // Título de la lección → título del foro de respaldo (lo muestra el motor).
+    const lec = (
+      await sql<{ nombre: string }[]>`select nombre from lxp.lecciones where id = ${leccionId} limit 1`
+    )[0];
+    const titulo = lec?.nombre?.trim() || 'Foro de la lección';
+    const instruccionesPlano = aTextoPlano(cfg.instrucciones) || null;
+
+    // 1. Asegura la actividad foro de respaldo (ancla del motor · idempotente).
+    const existente = (
+      await sql<{ id: string }[]>`
+        select id from lxp.actividades
+        where leccion_id = ${leccionId} and tipo = 'foro'
+        order by orden, created_at limit 1`
+    )[0];
+
+    let actividadId: string;
+    if (existente) {
+      actividadId = existente.id;
+      await sql`
+        update lxp.actividades
+        set titulo = ${titulo}, instrucciones = ${instruccionesPlano}
+        where id = ${actividadId}`;
+    } else {
+      const orden = (
+        await sql<{ n: number }[]>`
+          select coalesce(max(orden) + 1, 0)::int as n from lxp.actividades where leccion_id = ${leccionId}`
+      )[0]!.n;
+      actividadId = (
+        await sql<{ id: string }[]>`
+          insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
+          values (${leccionId}, 'foro'::lxp.actividad_tipo, ${titulo}, ${instruccionesPlano}, ${orden})
+          returning id`
+      )[0]!.id;
+    }
+
+    // 2. Persiste la config (con el ancla) en lecciones.config — fuente de verdad.
+    const final: ConfigForo = { ...cfg, actividadId };
+    await sql`update lxp.lecciones set config = ${sql.json(final)} where id = ${leccionId}`;
   });
   refrescar(programaId);
 }

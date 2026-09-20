@@ -10,13 +10,21 @@
  */
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, CornerDownRight, MessageSquare, Send } from 'lucide-react';
+import {
+  CalendarClock,
+  ChevronLeft,
+  CornerDownRight,
+  ListChecks,
+  MessageSquare,
+  Send,
+} from 'lucide-react';
 import { EditorRico, ContenidoRico } from '@/components/editor-rico';
 import { Avatar, iniciales } from '@/components/avatar';
 import { card, kicker, softText, focusRing, mono } from '@/components/tokens';
 import { haceCuanto } from '@/lib/format';
 import type { ForoData, MensajeForo } from '@/lib/campus/foro-datos';
 import type { ResultadoAccion } from '@/lib/campus/resultado';
+import type { EstadoVentanaForo } from '@/lib/studio/foro-config';
 import { crearPostForo, responderForo } from '@/lib/campus/foro-acciones';
 
 export function ForoDiscusion({
@@ -26,7 +34,7 @@ export function ForoDiscusion({
   data: ForoData;
   puedePublicar: boolean;
 }) {
-  const { actividad, grupoId, mensajes } = data;
+  const { actividad, config, ventana, grupoId, mensajes } = data;
 
   return (
     <div className="mx-auto w-full max-w-[860px] px-5 py-8 sm:px-6">
@@ -45,10 +53,44 @@ export function ForoDiscusion({
         <MessageSquare aria-hidden className="h-6 w-6 shrink-0 text-secondary" strokeWidth={1.75} />
         {actividad.titulo}
       </h1>
+
+      {/* Modalidad · ventana · valor de la participación (config del diseñador). */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <ChipMeta texto={config.modalidad === 'sincrono' ? 'Discusión síncrona' : 'Discusión asíncrona'} />
+        <ChipVentanaAlumno estado={ventana.estado} />
+        {config.participacion.califica && (
+          <ChipMeta
+            texto={
+              config.participacion.puntos !== null
+                ? `Participación · ${config.participacion.puntos} pts`
+                : 'Participación calificada'
+            }
+          />
+        )}
+      </div>
+
       {actividad.instrucciones && (
-        <p className={`mt-2 max-w-[66ch] text-[13.5px] leading-relaxed ${softText}`}>
-          {actividad.instrucciones}
-        </p>
+        <div className="mt-3 max-w-[66ch]">
+          <ContenidoRico html={actividad.instrucciones} />
+        </div>
+      )}
+
+      {/* Reglas de participación (si el diseñador las definió). */}
+      {config.reglas.length > 0 && (
+        <div className={`${card} mt-5 p-4`}>
+          <p className={`${kicker} flex items-center gap-1.5 text-secondary`}>
+            <ListChecks aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+            Reglas de participación
+          </p>
+          <ul className="mt-2.5 flex flex-col gap-1.5">
+            {config.reglas.map((r, i) => (
+              <li key={`${i}-${r}`} className="flex items-start gap-2.5 text-[13px] leading-relaxed">
+                <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" />
+                <span className="min-w-0">{r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* ── Composer del tema ── */}
@@ -66,7 +108,7 @@ export function ForoDiscusion({
               onEnviar={(html) => crearPostForo(actividad.id, grupoId!, html)}
             />
           ) : (
-            <AvisoSinPublicar grupoId={grupoId} />
+            <AvisoSinPublicar grupoId={grupoId} ventana={ventana.estado} />
           )}
         </div>
       </section>
@@ -252,14 +294,60 @@ function Composer({
 }
 
 /* ── Aviso cuando no se puede publicar ── */
-function AvisoSinPublicar({ grupoId }: { grupoId: string | null }) {
+function AvisoSinPublicar({
+  grupoId,
+  ventana,
+}: {
+  grupoId: string | null;
+  ventana: EstadoVentanaForo;
+}) {
+  // La ventana manda sobre el resto: si el foro no abre o ya cerró, se dice eso.
+  const mensaje =
+    ventana === 'programado'
+      ? 'Este foro aún no abre. Vuelve cuando comience la ventana de participación.'
+      : ventana === 'cerrado'
+        ? 'Este foro ya cerró. Puedes leer la discusión, pero ya no se admiten mensajes.'
+        : grupoId === null
+          ? 'Este foro aún no tiene un grupo asignado; no se puede publicar por ahora.'
+          : 'Tu acceso está en pausa. Ponte al corriente para participar en el foro.';
   return (
     <div className="rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3">
-      <p className="text-[12.5px] font-semibold text-[color:var(--warning-foreground)]">
-        {grupoId === null
-          ? 'Este foro aún no tiene un grupo asignado; no se puede publicar por ahora.'
-          : 'Tu acceso está en pausa. Ponte al corriente para participar en el foro.'}
-      </p>
+      <p className="text-[12.5px] font-semibold text-[color:var(--warning-foreground)]">{mensaje}</p>
     </div>
+  );
+}
+
+/* ── Chips de meta (modalidad, valor) y de ventana ── */
+function ChipMeta({ texto }: { texto: string }) {
+  return (
+    <span className="inline-flex h-7 items-center whitespace-nowrap rounded-full bg-accent px-2.5 text-[11.5px] font-bold text-accent-foreground">
+      {texto}
+    </span>
+  );
+}
+
+function ChipVentanaAlumno({ estado }: { estado: EstadoVentanaForo }) {
+  const mapa = {
+    siempre: { texto: 'Abierto', clase: 'bg-accent text-accent-foreground' },
+    abierto: { texto: 'Abierto', clase: 'bg-accent text-accent-foreground' },
+    programado: {
+      texto: 'Aún no abre',
+      clase:
+        'border border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
+    },
+    cerrado: {
+      texto: 'Cerrado',
+      clase:
+        'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]',
+    },
+  } as const;
+  const { texto, clase } = mapa[estado];
+  return (
+    <span
+      className={`inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11.5px] font-bold ${clase}`}
+    >
+      <CalendarClock aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+      {texto}
+    </span>
   );
 }
