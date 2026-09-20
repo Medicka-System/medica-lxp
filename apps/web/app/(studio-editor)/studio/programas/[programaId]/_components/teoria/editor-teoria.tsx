@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   Images,
   Layers,
+  Library,
   Link as LinkIcon,
   Package,
   Plus,
@@ -68,6 +69,7 @@ import {
   type TipoBloqueTeoria,
 } from './tipos-bloque';
 import { EditorBloque } from './editores-bloque';
+import { SelectorRecurso, type InsercionBloque } from './selector-recurso';
 
 /** Resuelve el nombre de ícono del registro (string) al componente Lucide. */
 const ICONOS: Record<string, LucideIcon> = {
@@ -96,6 +98,7 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
   // Orden local optimista (se reconcilia con el árbol del builder tras revalidar).
   const [ordenIds, setOrdenIds] = useState<string[]>(() => bloques.map((b) => b.id));
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
 
   // Reconcilia cuando cambia el CONJUNTO de bloques (agregar/borrar): adopta el orden
   // del servidor. Un reorden puro no cambia el conjunto, así que no pisa el optimista.
@@ -146,6 +149,11 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
     correr(() => crearBloqueTeoria(programaId, leccionId, tipo, configInicial(tipo)));
   }
 
+  function insertarRecurso({ tipoBloque, config }: InsercionBloque) {
+    setSelectorAbierto(false);
+    correr(() => crearBloqueTeoria(programaId, leccionId, tipoBloque, config));
+  }
+
   return (
     <div className="grid gap-4">
       <div className="flex items-center gap-2.5">
@@ -188,26 +196,36 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
         </DndContext>
       )}
 
-      {/* Barra de acciones: agregar bloque (menú de sub-tipos). "Insertar recurso"
-          existente (Biblioteca / Banco de Casos) se enchufa en la pieza siguiente. */}
-      <div className="relative">
+      {/* Barra de acciones: agregar bloque (menú de sub-tipos) + insertar un recurso
+          que YA existe (Biblioteca de Contenido / Banco de Casos). */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuAbierto((v) => !v)}
+            aria-expanded={menuAbierto}
+            className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+          >
+            <Plus aria-hidden className="h-4 w-4" strokeWidth={2.4} />
+            Agregar bloque
+          </button>
+
+          {menuAbierto && <MenuTipos onCerrar={() => setMenuAbierto(false)} onElegir={agregar} />}
+        </div>
+
         <button
           type="button"
-          onClick={() => setMenuAbierto((v) => !v)}
-          aria-expanded={menuAbierto}
-          className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+          onClick={() => setSelectorAbierto(true)}
+          className={`inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-bold text-foreground transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground ${focusRing}`}
         >
-          <Plus aria-hidden className="h-4 w-4" strokeWidth={2.4} />
-          Agregar bloque
+          <Library aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+          Insertar recurso
         </button>
-
-        {menuAbierto && (
-          <MenuTipos
-            onCerrar={() => setMenuAbierto(false)}
-            onElegir={agregar}
-          />
-        )}
       </div>
+
+      {selectorAbierto && (
+        <SelectorRecurso onCerrar={() => setSelectorAbierto(false)} onInsertar={insertarRecurso} />
+      )}
     </div>
   );
 }
