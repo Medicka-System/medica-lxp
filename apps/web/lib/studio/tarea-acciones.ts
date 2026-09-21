@@ -5,6 +5,15 @@ import { requireAutoria } from '@/lib/studio/session';
 import { comoStaff } from '@/lib/db.server';
 import { comoTareaConfig, type RubricaCatalogo, type TareaConfig } from '@/lib/studio/tarea-contrato';
 
+/** Convierte HTML del EditorRico a texto plano (fallback de instrucciones · como el foro). */
+function aTextoPlano(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Server actions del editor de lección `tarea` (§5C · course builder).
  *
@@ -67,7 +76,48 @@ export async function guardarTarea(
   const { userId } = await requireAutoria();
   const config = comoTareaConfig(datos);
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.lecciones set config = ${sql.json(config as never)} where id = ${leccionId}`;
+    // La entrega del alumno se ancla en `entregas.actividad_id` (FK a `actividades`,
+    // NOT NULL hasta fase 3). Una lección tipo `tarea` guarda su config en
+    // `lecciones.config`, no en `actividades`; por eso —igual que el foro (§5C)— esta
+    // acción PUENTEA una actividad `tarea` de respaldo, idempotente: la reutiliza si ya
+    // existe. La fuente de verdad de lo que el alumno ve (lineamientos, rúbrica, valor)
+    // sigue siendo `lecciones.config`; a `actividades` solo se sincroniza título,
+    // fallback de instrucciones y la rúbrica seleccionada (para la evaluación · Eco §7A).
+    const lec = (
+      await sql<{ nombre: string }[]>`select nombre from lxp.lecciones where id = ${leccionId} limit 1`
+    )[0];
+    const titulo = lec?.nombre?.trim() || 'Tarea';
+    const instruccionesPlano = aTextoPlano(config.lineamientos ?? '') || null;
+
+    const existente = (
+      await sql<{ id: string }[]>`
+        select id from lxp.actividades
+        where leccion_id = ${leccionId} and tipo = 'tarea'
+        order by orden, created_at limit 1`
+    )[0];
+
+    let actividadId: string;
+    if (existente) {
+      actividadId = existente.id;
+      await sql`
+        update lxp.actividades
+        set titulo = ${titulo}, instrucciones = ${instruccionesPlano}, rubrica_id = ${config.rubricaId ?? null}
+        where id = ${actividadId}`;
+    } else {
+      const orden = (
+        await sql<{ n: number }[]>`
+          select coalesce(max(orden) + 1, 0)::int as n from lxp.actividades where leccion_id = ${leccionId}`
+      )[0]!.n;
+      actividadId = (
+        await sql<{ id: string }[]>`
+          insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, rubrica_id, orden)
+          values (${leccionId}, 'tarea'::lxp.actividad_tipo, ${titulo}, ${instruccionesPlano}, ${config.rubricaId ?? null}, ${orden})
+          returning id`
+      )[0]!.id;
+    }
+
+    const final: TareaConfig = { ...config, actividadId };
+    await sql`update lxp.lecciones set config = ${sql.json(final as never)} where id = ${leccionId}`;
   });
   refrescar(programaId);
 }

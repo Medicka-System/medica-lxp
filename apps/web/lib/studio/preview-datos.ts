@@ -33,6 +33,7 @@ export async function getLeccionPreview(
         id: string;
         nombre: string;
         descripcion: string | null;
+        tipo: string;
         modulo_id: string;
         modulo: string;
         programa_id: string;
@@ -40,7 +41,7 @@ export async function getLeccionPreview(
       }[]
     >`
       select
-        l.id, l.nombre, l.descripcion,
+        l.id, l.nombre, l.descripcion, l.tipo::text as tipo,
         m.id as modulo_id, m.nombre as modulo,
         pr.id as programa_id, pr.nombre as programa
       from lxp.lecciones l
@@ -86,6 +87,7 @@ export async function getLeccionPreview(
       id: leccion.id,
       nombre: leccion.nombre,
       descripcion: leccion.descripcion,
+      tipo: leccion.tipo,
       contexto: {
         programaId: leccion.programa_id,
         programa: leccion.programa,

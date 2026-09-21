@@ -56,6 +56,12 @@ export type LeccionCompleta = {
   id: string;
   nombre: string;
   descripcion: string | null;
+  /**
+   * Tipo de la lección en el modelo nuevo (enum `lxp.leccion_tipo` · mig 0023). El
+   * lector inmersivo sirve las lecciones de contenido; los tipos de ACTIVIDAD
+   * (`tarea`/`foro`) se redirigen a su pantalla propia desde la ruta de lección.
+   */
+  tipo: string;
   contexto: LeccionContexto;
   bloques: BloqueContenido[];
   anterior: LeccionVecina | null;
