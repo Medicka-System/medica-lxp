@@ -4,7 +4,8 @@ import { BloqueVideo } from './bloque-video';
 
 // Smoke test del bloque VIDEO. Se ejercita la ruta `src=null` (media pendiente):
 // valida que los imports de Vidstack + CSS resuelven y que el aviso de contrato
-// (GET /media/url) se muestra sin montar el custom element del player en jsdom.
+// (GET /media/url) se muestra sin montar el custom element del player en jsdom
+// (Vidstack no soporta jsdom con una fuente real).
 describe('BloqueVideo', () => {
   it('muestra el aviso de media pendiente cuando no hay fuente', () => {
     render(<BloqueVideo src={null} titulo="Ecografía FAST" contexto="POCUS · Módulo 2" />);

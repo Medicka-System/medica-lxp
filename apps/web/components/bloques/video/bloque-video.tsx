@@ -74,6 +74,11 @@ export type BloqueVideoProps = {
    * (§5A · mig 0027). Se llama una vez cuando el player está listo.
    */
   onApi?: (api: VideoApi) => void;
+  /**
+   * Alumno (mock leccion-estudio): botón "Guardar nota" en la card que captura el
+   * MOMENTO actual del video. Recibe el segundo redondeado. Undefined → no se muestra.
+   */
+  onGuardarMomento?: (segundos: number) => void;
 };
 
 /** API imperativa que BloqueVideo expone a su contenedor (marcadores de nota). */
@@ -89,11 +94,13 @@ export function BloqueVideo({
   modo = 'ver',
   onCambioHitos,
   onApi,
+  onGuardarMomento,
 }: BloqueVideoProps) {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const editable = modo === 'editar' && typeof onCambioHitos === 'function';
-  const [tab, setTab] = useState<'transcripcion' | 'hitos'>(
-    transcripcion.length > 0 ? 'transcripcion' : 'hitos',
+  // Hitos primero (mock leccion-estudio): arranca en Hitos si los hay.
+  const [tab, setTab] = useState<'hitos' | 'transcripcion'>(
+    hitos.length > 0 ? 'hitos' : transcripcion.length > 0 ? 'transcripcion' : 'hitos',
   );
 
   const hitosOrdenados = useMemo(
@@ -119,97 +126,96 @@ export function BloqueVideo({
   }
 
   return (
-    // Apilado (mock leccion-lectura · "sala de estudio"): el reproductor ocupa TODO el
-    // ancho de la columna —mantiene el tamaño grande del fallback— y los tabs
-    // (transcripción / hitos) van DEBAJO, no en una columna lateral que lo encoja.
-    <div className="min-w-0">
-      {/* ════════ Reproductor + riel de hitos ════════ */}
-      <div className="min-w-0">
-        <div className={`${card} overflow-hidden`}>
-          <MediaPlayer
-            ref={playerRef}
-            src={src}
-            title={titulo}
-            playsInline
-            crossOrigin
-            style={ESTILO_PLAYER}
-            className="aspect-video w-full overflow-hidden bg-[color:var(--sidebar)] font-sans"
-          >
-            <MediaProvider>
-              {poster && <Poster className="vds-poster" src={poster} alt={titulo ?? 'Video'} />}
-            </MediaProvider>
-            <DefaultVideoLayout icons={defaultLayoutIcons} />
-          </MediaPlayer>
+    // UNA card unificada (mock leccion-estudio · "sala de estudio"): video + timeline
+    // de hitos, luego título + "Guardar nota", luego los tabs (HITOS primero,
+    // Transcripción después) — todo con divisiones limpias, no piezas sueltas.
+    <div className={`${card} min-w-0 overflow-hidden`}>
+      <MediaPlayer
+        ref={playerRef}
+        src={src}
+        title={titulo}
+        playsInline
+        crossOrigin
+        style={ESTILO_PLAYER}
+        className="aspect-video w-full overflow-hidden bg-[color:var(--sidebar)] font-sans"
+      >
+        <MediaProvider>
+          {poster && <Poster className="vds-poster" src={poster} alt={titulo ?? 'Video'} />}
+        </MediaProvider>
+        <DefaultVideoLayout icons={defaultLayoutIcons} />
+      </MediaPlayer>
 
-          <RielHitos
+      {/* Timeline con marcadores de hitos */}
+      <RielHitos
+        playerRef={playerRef}
+        hitos={hitosOrdenados}
+        editable={editable}
+        onIr={irA}
+        onMarcar={(tiempo) => {
+          const nuevo: HitoVideo = { id: crypto.randomUUID(), tiempo, titulo: `Hito ${hitos.length + 1}` };
+          onCambioHitos?.([...hitos, nuevo]);
+          setTab('hitos');
+        }}
+      />
+
+      {/* Título de la actividad + guardar nota al minuto actual (alumno) */}
+      {(titulo || onGuardarMomento) && (
+        <div className="flex items-center gap-4 border-t border-border px-5 py-4">
+          <div className="min-w-0 flex-1">
+            {titulo && <p className="truncate text-[14.5px] font-bold leading-snug">{titulo}</p>}
+            {contexto && <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{contexto}</p>}
+          </div>
+          {onGuardarMomento && (
+            <button
+              type="button"
+              onClick={() => onGuardarMomento(Math.floor(playerRef.current?.currentTime ?? 0))}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+            >
+              <Bookmark aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Guardar nota
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Tabs: HITOS primero, TRANSCRIPCIÓN después (mock) */}
+      <div role="tablist" aria-label="Consulta del video" className="flex border-t border-border">
+        <TabBoton
+          activo={tab === 'hitos'}
+          onClick={() => setTab('hitos')}
+          icono={Bookmark}
+          etiqueta="Hitos"
+          cuenta={hitosOrdenados.length}
+        />
+        <TabBoton
+          activo={tab === 'transcripcion'}
+          onClick={() => setTab('transcripcion')}
+          icono={FileText}
+          etiqueta="Transcripción"
+          cuenta={transcripcion.length}
+        />
+      </div>
+
+      <div className="max-h-[520px] min-h-[260px] overflow-y-auto">
+        {tab === 'hitos' ? (
+          <PanelHitos
             playerRef={playerRef}
             hitos={hitosOrdenados}
             editable={editable}
             onIr={irA}
             onMarcar={(tiempo) => {
-              const nuevo: HitoVideo = {
-                id: crypto.randomUUID(),
-                tiempo,
-                titulo: `Hito ${hitos.length + 1}`,
-              };
+              const nuevo: HitoVideo = { id: crypto.randomUUID(), tiempo, titulo: `Hito ${hitos.length + 1}` };
               onCambioHitos?.([...hitos, nuevo]);
-              setTab('hitos');
             }}
+            onRenombrar={(id, titulo2) =>
+              onCambioHitos?.(hitos.map((h) => (h.id === id ? { ...h, titulo: titulo2 } : h)))
+            }
+            onBorrar={(id) => onCambioHitos?.(hitos.filter((h) => h.id !== id))}
           />
-        </div>
-
-        {(titulo || contexto) && (
-          <div className="mt-3">
-            {titulo && <p className="text-[15px] font-bold leading-snug">{titulo}</p>}
-            {contexto && <p className="mt-1 text-[12px] text-muted-foreground">{contexto}</p>}
-          </div>
+        ) : (
+          <PanelTranscripcion playerRef={playerRef} cues={transcripcion} onIr={irA} editable={editable} />
         )}
       </div>
-
-      {/* ════════ Panel: Transcripción | Hitos (debajo del reproductor) ════════ */}
-      <aside className={`${card} mt-4 flex min-w-0 flex-col overflow-hidden`}>
-        <div role="tablist" aria-label="Consulta del video" className="flex shrink-0 border-b border-border">
-          <TabBoton
-            activo={tab === 'transcripcion'}
-            onClick={() => setTab('transcripcion')}
-            icono={FileText}
-            etiqueta="Transcripción"
-            cuenta={transcripcion.length}
-          />
-          <TabBoton
-            activo={tab === 'hitos'}
-            onClick={() => setTab('hitos')}
-            icono={Bookmark}
-            etiqueta="Hitos"
-            cuenta={hitosOrdenados.length}
-          />
-        </div>
-
-        <div className="min-h-[280px] flex-1 overflow-y-auto max-h-[520px]">
-          {tab === 'transcripcion' ? (
-            <PanelTranscripcion playerRef={playerRef} cues={transcripcion} onIr={irA} editable={editable} />
-          ) : (
-            <PanelHitos
-              playerRef={playerRef}
-              hitos={hitosOrdenados}
-              editable={editable}
-              onIr={irA}
-              onMarcar={(tiempo) => {
-                const nuevo: HitoVideo = {
-                  id: crypto.randomUUID(),
-                  tiempo,
-                  titulo: `Hito ${hitos.length + 1}`,
-                };
-                onCambioHitos?.([...hitos, nuevo]);
-              }}
-              onRenombrar={(id, titulo2) =>
-                onCambioHitos?.(hitos.map((h) => (h.id === id ? { ...h, titulo: titulo2 } : h)))
-              }
-              onBorrar={(id) => onCambioHitos?.(hitos.filter((h) => h.id !== id))}
-            />
-          )}
-        </div>
-      </aside>
     </div>
   );
 }

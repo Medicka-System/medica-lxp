@@ -30,11 +30,17 @@ export default async function LeccionPage({
   const { leccionId } = await params;
   const alumno = await getSesionAlumno();
 
-  // Modelo nuevo: lección tipo `video` → render propio (null si no es video).
+  // Modelo nuevo: lección tipo `video` → render propio (null si no es video). Trae el
+  // menú del curso (rail) y las notas del alumno, igual que la teoría (3 columnas).
   const video = await getLeccionVideo(alumno.userId, leccionId);
   if (video) {
-    const notasVideo = await getNotasLeccion(alumno.userId, leccionId);
-    return <LeccionVideo leccion={video} notasIniciales={notasVideo} />;
+    const [contenidoCurso, notasVideo] = await Promise.all([
+      getContenidoCurso(alumno.userId, video.contexto.programaId, video.id),
+      getNotasLeccion(alumno.userId, leccionId),
+    ]);
+    return (
+      <LeccionVideo leccion={video} contenidoCurso={contenidoCurso} notasIniciales={notasVideo} />
+    );
   }
 
   const leccion = await getLeccion(alumno.userId, leccionId);
