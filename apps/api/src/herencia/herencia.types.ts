@@ -46,11 +46,31 @@ export interface ActividadTpl {
   orden: number;
 }
 
+/**
+ * Bloque de teoría del modelo NUEVO (`lxp.bloques` · mig 0023). Passthrough en la
+ * herencia: se hereda tal cual (no hay override por bloque en esta fase).
+ */
+export interface BloqueTpl {
+  id: string;
+  orden: number;
+  tipo_bloque: string;
+  config: unknown;
+}
+
 export interface LeccionTpl {
   id: string;
   nombre: string;
   descripcion: string | null;
   orden: number;
+  /**
+   * Modelo NUEVO (mig 0023, opcional en esta fase aditiva): tipo de la lección +
+   * su `config` jsonb + `bloques` de teoría. Se HEREDAN sin override por ahora
+   * (passthrough): el grupo aún no los personaliza. El modelo viejo
+   * (contenidos/actividades) sigue vivo abajo.
+   */
+  tipo?: string;
+  config?: unknown;
+  bloques?: BloqueTpl[];
   contenidos: ContenidoTpl[];
   actividades: ActividadTpl[];
 }
