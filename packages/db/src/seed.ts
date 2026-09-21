@@ -34,6 +34,7 @@ async function clean(sql: Sql): Promise<void> {
   await sql.unsafe(`
     truncate
       lxp.perfiles, lxp.programas, lxp.modulos, lxp.lecciones, lxp.contenidos,
+      lxp.bloques, lxp.reproduccion_progreso,
       lxp.grupos, lxp.grupo_overrides, lxp.actividades, lxp.rubricas, lxp.entregas,
       lxp.foro_mensajes, lxp.bitacora_casos, lxp.validaciones, lxp.reportes,
       lxp.posts_ateneo, lxp.comentarios_ateneo, lxp.casos_biblioteca, lxp.simuladores,
@@ -156,16 +157,23 @@ async function seed(sql: Sql): Promise<void> {
     set acceso_activo = lxp.cora_acceso_activo(p.user_id)
     where p.rol = 'alumno'`;
 
-  // ── Contenido (1 programa · 2 módulos · lecciones · actividad · rúbrica) ─
+  // ═════════════════════════════════════════════════════════════════════════
+  // CURSO DEMO en el MODELO NUEVO (mig 0023/0026): la lección es MONO-TIPO; su
+  // contenido vive en `lxp.bloques` (teoría) o `lxp.lecciones.config` (el resto).
+  // Se siembra 1 lección de CADA uno de los 7 tipos, con contenido de ejemplo.
+  //   ⚠️ estado = 'publicado' (no basta `publicado=true`): la policy programas_read
+  //      exige estado='publicado' para que el alumno lo vea (mig 0013).
+  // ═════════════════════════════════════════════════════════════════════════
   const programa = first(
     await sql<{ id: string }[]>`
-      insert into lxp.programas (nombre, descripcion, publicado, version)
-      values ('POCUS Esencial', 'Ultrasonido diagnóstico a pie de cama', true, 1)
+      insert into lxp.programas (nombre, descripcion, publicado, estado, version)
+      values ('Ultrasonografía Básica — Demo',
+              'Curso demo del constructor nuevo: una lección de cada tipo.',
+              true, 'publicado'::lxp.estado_publicacion, 1)
       returning id`,
   );
 
   // Las horas se definen POR LECCIÓN (mig 0022); el módulo las SUMA solo (trigger).
-  // Se dejan las horas del módulo en 0: el trigger las recalcula al insertar lecciones.
   const m1 = first(
     await sql<{ id: string }[]>`
       insert into lxp.modulos (programa_id, nombre, orden)
@@ -174,48 +182,234 @@ async function seed(sql: Sql): Promise<void> {
   const m2 = first(
     await sql<{ id: string }[]>`
       insert into lxp.modulos (programa_id, nombre, orden)
-      values (${programa.id}, 'Abdomen y FAST', 2) returning id`,
+      values (${programa.id}, 'Adquisición y actividades', 2) returning id`,
   );
 
-  // Horas por lección → el módulo 1 suma 8 h (4+4) y el módulo 2 suma 12 h.
-  const l1 = first(
+  /** Crea una lección MONO-TIPO (mig 0023) y devuelve su id. */
+  async function crearLeccion(p: {
+    moduloId: string;
+    nombre: string;
+    orden: number;
+    horas: number;
+    tipo: string;
+    config?: unknown;
+  }): Promise<string> {
+    const row = first(
+      await sql<{ id: string }[]>`
+        insert into lxp.lecciones (modulo_id, nombre, orden, horas, tipo, config)
+        values (${p.moduloId}, ${p.nombre}, ${p.orden}, ${p.horas},
+                ${p.tipo}::lxp.leccion_tipo, ${sql.json((p.config ?? {}) as never)})
+        returning id`,
+    );
+    return row.id;
+  }
+
+  // ── (1) TEORÍA → bloques ordenables en lxp.bloques ──────────────────────
+  const lTeoria = await crearLeccion({
+    moduloId: m1.id, nombre: 'Principios de la imagen', orden: 1, horas: 3, tipo: 'teoria',
+  });
+  await sql`
+    insert into lxp.bloques (leccion_id, orden, tipo_bloque, config) values
+      (${lTeoria}, 1, 'parrafo', ${sql.json({
+        html: '<h2>Formación de la imagen</h2><p>El ultrasonido se genera por el <strong>efecto piezoeléctrico</strong>: el transductor emite pulsos y recibe los ecos reflejados en las interfaces de distinta impedancia acústica.</p>',
+      })}),
+      (${lTeoria}, 2, 'imagen', ${sql.json({
+        url: 'https://placehold.co/800x450?text=Transductor+lineal',
+        alt: 'Esquema de un transductor lineal',
+        pie: 'Figura 1. Emisión y recepción del pulso.',
+      })}),
+      (${lTeoria}, 3, 'html', ${sql.json({
+        html: '<blockquote>La <em>impedancia acústica</em> (Z) es el producto de la densidad del medio por la velocidad del sonido.</blockquote>',
+      })}),
+      (${lTeoria}, 4, 'enlace', ${sql.json({
+        url: 'https://www.pocus101.com/', titulo: 'POCUS 101 — recurso externo',
+      })})`;
+
+  // ── (2) VIDEO → config (ref + transcripción + highlights) ───────────────
+  await crearLeccion({
+    moduloId: m1.id, nombre: 'Artefactos en modo B', orden: 2, horas: 2, tipo: 'video',
+    config: {
+      ref: 'demo/videos/artefactos-modo-b.mp4',
+      titulo: 'Artefactos en modo B',
+      transcripcion:
+        'En esta clase revisamos los artefactos más comunes: sombra acústica, refuerzo posterior y reverberación (colas de cometa)...',
+      highlights: [
+        { t: 15, titulo: 'Sombra acústica' },
+        { t: 92, titulo: 'Refuerzo posterior' },
+        { t: 174, titulo: 'Reverberación / colas de cometa' },
+      ],
+    },
+  });
+
+  // ── (5=módulo) ENCUESTA de fin de módulo NO es un tipo de lección: se omite.
+  //    Los 7 tipos son teoria/video/autoevaluacion/tarea/foro/h5p/xapi (mig 0023).
+
+  // ── (3) AUTOEVALUACIÓN → config con reactivos (shape autoeval-contrato) ──
+  await crearLeccion({
+    moduloId: m2.id, nombre: 'Autoevaluación: fundamentos', orden: 1, horas: 1, tipo: 'autoevaluacion',
+    config: {
+      descripcion: 'Responde para verificar tu comprensión de los fundamentos.',
+      intentos: 0,
+      barajar: false,
+      mostrarRetro: true,
+      reactivos: [
+        {
+          id: 'r-demo-1', tipo: 'opcion_multiple',
+          enunciado: '¿Qué propiedad determina la reflexión del ultrasonido en una interfaz?',
+          opciones: [
+            { clave: 'a', texto: 'La frecuencia del operador' },
+            { clave: 'b', texto: 'La diferencia de impedancia acústica' },
+            { clave: 'c', texto: 'El color del gel' },
+          ],
+          correcta: 'b', puntaje: 1, dominio: 'interpretacion', retro: 'La reflexión depende del salto de impedancia (Z).',
+          origen: 'manual',
+        },
+        {
+          id: 'r-demo-2', tipo: 'verdadero_falso',
+          enunciado: 'El refuerzo posterior aparece detrás de estructuras llenas de líquido.',
+          opciones: [
+            { clave: 'v', texto: 'Verdadero' },
+            { clave: 'f', texto: 'Falso' },
+          ],
+          correcta: 'v', puntaje: 1, origen: 'manual',
+        },
+        {
+          id: 'r-demo-3', tipo: 'multi',
+          enunciado: 'Selecciona los artefactos de modo B:',
+          opciones: [
+            { clave: 'a', texto: 'Sombra acústica' },
+            { clave: 'b', texto: 'Reverberación' },
+            { clave: 'c', texto: 'Efecto Doppler' },
+          ],
+          correcta: ['a', 'b'], puntaje: 2, origen: 'manual',
+        },
+        {
+          id: 'r-demo-4', tipo: 'abierta',
+          enunciado: 'Explica con tus palabras qué es la impedancia acústica.',
+          opciones: [], correcta: null, puntaje: 2, origen: 'manual',
+        },
+      ],
+    },
+  });
+
+  // ── (4) TAREA → config referencia una RÚBRICA del catálogo (mig 0018) ────
+  const rubricaCatalogo = first(
     await sql<{ id: string }[]>`
-      insert into lxp.lecciones (modulo_id, nombre, orden, horas)
-      values (${m1.id}, 'Principios de la imagen', 1, 4) returning id`,
+      insert into lxp.rubricas (nombre, tipo, descripcion, publicado, creado_por, criterios)
+      values ('Rúbrica de entrega — Planos básicos', 'tareas'::lxp.rubrica_tipo,
+              'Evalúa la identificación de planos y la calidad de imagen.', true, ${disenador},
+              ${sql.json([
+                { criterio: 'Plano correcto', descripcion: 'Identifica el plano solicitado', peso: 0.5 },
+                { criterio: 'Calidad de imagen', descripcion: 'Ganancia y profundidad adecuadas', peso: 0.5 },
+              ])})
+      returning id`,
   );
-  await sql`
-    insert into lxp.lecciones (modulo_id, nombre, orden, horas)
-    values (${m1.id}, 'Artefactos', 2, 4)`;
-  await sql`
-    insert into lxp.lecciones (modulo_id, nombre, orden, horas)
-    values (${m2.id}, 'Protocolo FAST', 1, 12)`;
+  const lTarea = await crearLeccion({
+    moduloId: m2.id, nombre: 'Tarea: identifica los planos', orden: 2, horas: 2, tipo: 'tarea',
+    config: {
+      rubricaId: rubricaCatalogo.id,
+      lineamientos: '<p>Sube 3 imágenes en los planos <strong>longitudinal</strong>, <strong>transversal</strong> y <strong>oblicuo</strong>.</p>',
+      valor: 10,
+      entrega: 'archivo',
+    },
+  });
+  // Actividad de respaldo (modelo viejo, aún vivo): entregas.actividad_id es NOT NULL,
+  // así que la lección tarea del modelo nuevo mantiene una actividad de respaldo hasta
+  // fase 3 (igual que el foro). La rúbrica canónica es la del catálogo (config.rubricaId).
+  const actTarea = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, rubrica_id, orden)
+      values (${lTarea}, 'tarea'::lxp.actividad_tipo, 'Tarea: identifica los planos',
+              'Sube 3 imágenes.', ${rubricaCatalogo.id}, 1)
+      returning id`,
+  );
 
-  await sql`
-    insert into lxp.contenidos (leccion_id, tipo, titulo, cuerpo, orden)
-    values
-      (${l1.id}, ${'video'}::lxp.contenido_tipo, 'Cómo se forma la imagen', null, 1),
-      (${l1.id}, ${'texto'}::lxp.contenido_tipo, 'Lectura: impedancia acústica', 'Contenido de ejemplo.', 2)`;
-
-  const act1 = first(
+  // ── (6) FORO → config (consigna/reglas/modalidad) + actividad de respaldo ─
+  // El motor de mensajes (foro_mensajes) se ancla a una actividad foro de respaldo
+  // (modelo viejo, aún vivo) Y a la lección (leccion_id · mig 0026).
+  const lForo = await crearLeccion({
+    moduloId: m2.id, nombre: 'Foro: tu primer caso', orden: 3, horas: 1, tipo: 'foro',
+  });
+  const actForo = first(
     await sql<{ id: string }[]>`
       insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
-      values (${l1.id}, ${'tarea'}::lxp.actividad_tipo, 'Identifica los planos', 'Sube 3 imágenes.', 1)
+      values (${lForo}, 'foro'::lxp.actividad_tipo, 'Foro: tu primer caso', 'Comparte un caso de práctica.', 1)
+      returning id`,
+  );
+  // Ahora que existe la actividad de respaldo, se fija en la config del foro.
+  await sql`
+    update lxp.lecciones
+    set config = ${sql.json({
+      instrucciones: '<p>Comparte un caso real de tu práctica y comenta al menos el de un compañero.</p>',
+      reglas: ['Respeta la privacidad del paciente', 'Fundamenta tus hallazgos'],
+      modalidad: 'asincrono',
+      aperturaEn: null,
+      cierreEn: null,
+      participacion: { califica: false, puntos: null, minPosts: 1, minComentarios: 1 },
+      actividadId: actForo.id,
+    })}
+    where id = ${lForo}`;
+
+  // ── (7) H5P → config con contentId placeholder ──────────────────────────
+  await crearLeccion({
+    moduloId: m2.id, nombre: 'Interactivo H5P: anatomía', orden: 4, horas: 1, tipo: 'h5p',
+    config: { contentId: 'demo-h5p-0001', titulo: 'Interactivo H5P: anatomía' },
+  });
+
+  // ── (8) xAPI → config con ref del paquete placeholder ───────────────────
+  await crearLeccion({
+    moduloId: m2.id, nombre: 'Paquete xAPI: repaso', orden: 5, horas: 1, tipo: 'xapi',
+    config: { paqueteRef: 'demo/paquetes/repaso-xapi.zip', tipo: 'xapi', titulo: 'Paquete xAPI: repaso' },
+  });
+
+  // ── Grupos LXP (síncrono/asíncrono) de la plantilla ────────────────────
+  const grupoSync = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
+      values (${programa.id}, 'Demo 2026-A (síncrono)', ${'sincrono'}::lxp.modalidad, '2026-02-01', ${docente})
       returning id`,
   );
   await sql`
-    insert into lxp.rubricas (actividad_id, criterios)
-    values (${act1.id}, ${sql.json([
-      { criterio: 'Plano correcto', peso: 0.5 },
-      { criterio: 'Calidad de imagen', peso: 0.5 },
-    ])})`;
+    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
+    values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente})`;
 
-  // ── Grupos LXP (síncrono/asíncrono) de la plantilla ────────────────────
+  // ── Foro: 1-2 mensajes de ejemplo (anclados a leccion_id · mig 0026) ────
+  const foroRaiz = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, cuerpo)
+      values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${alumnos.a1},
+              'Comparto un FAST positivo que realicé la semana pasada.')
+      returning id`,
+  );
   await sql`
-    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
-    values (${programa.id}, 'POCUS 2026-A (síncrono)', ${'sincrono'}::lxp.modalidad, '2026-02-01', ${docente})`;
+    insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, parent_id, cuerpo)
+    values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${docente}, ${foroRaiz.id},
+            'Buen hallazgo. Describe el receso donde viste el líquido libre.')`;
+
+  // ── Entrega de a1 a la TAREA: anclada por leccion_id (modelo nuevo · 0026) Y
+  //    por actividad_id (respaldo, NOT NULL hasta fase 3). ─────────────────
   await sql`
-    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
-    values (${programa.id}, 'POCUS 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente})`;
+    insert into lxp.entregas (actividad_id, leccion_id, grupo_id, id_alumno, contenido, estado)
+    values (${actTarea.id}, ${lTarea}, ${grupoSync.id}, ${alumnos.a1},
+            ${sql.json({ nota_alumno: 'Adjunto 3 planos.' })}, ${'enviada'}::lxp.entrega_estado)`;
+
+  // ── Inscripción de a1: señal de progreso que dispara la heurística
+  //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.
+  //    reproduccion_progreso.contenido_id es NOT NULL FK a lxp.contenidos (modelo
+  //    viejo, aún vivo), así que se crea un contenido "puente" en la lección video
+  //    del demo y se ancla el progreso a ÉL y a la LECCIÓN (leccion_id · mig 0026).
+  //    (La bitácora de a1 —abajo— también lo inscribe vía modulo_id; esto refuerza
+  //    la rama de reproducción, que es la que valida el re-cableo de players.)
+  const contPuente = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.contenidos (leccion_id, tipo, titulo, recurso_ref, orden)
+      values (${lTeoria}, ${'video'}::lxp.contenido_tipo, 'Puente de progreso (demo)',
+              'demo/videos/artefactos-modo-b.mp4', 99)
+      returning id`,
+  );
+  await sql`
+    insert into lxp.reproduccion_progreso (alumno_id, contenido_id, leccion_id, porcentaje, completado)
+    values (${alumnos.a1}, ${contPuente.id}, ${lTeoria}, 100, true)`;
 
   // ── Bitácora: casos en varios estados (para probar RLS de aislamiento) ──
   const casoAprobado = first(
@@ -250,10 +444,7 @@ async function seed(sql: Sql): Promise<void> {
     insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
     values (${casoAprobado.id}, ${docente}, ${'aprobado'}::lxp.decision_validacion, 'Buen reconocimiento del espacio de Morrison.')`;
 
-  // Entrega de a1 a la tarea.
-  await sql`
-    insert into lxp.entregas (actividad_id, id_alumno, contenido, estado)
-    values (${act1.id}, ${alumnos.a1}, ${sql.json({ nota_alumno: 'Adjunto 3 planos.' })}, ${'enviada'}::lxp.entrega_estado)`;
+  // (La entrega de a1 a la tarea ya se sembró arriba, anclada por leccion_id · mig 0026.)
 
   // ── Ateneo (uno aprobado, uno pendiente) ───────────────────────────────
   await sql`
