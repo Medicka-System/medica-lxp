@@ -7,7 +7,7 @@
  * campus-lxp-mocks/alumno/shell-menus.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -25,6 +25,7 @@ import { mono, kickerMini } from '@/components/tokens';
 import { iniciales } from '@/components/avatar';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components/campus/nav-config';
+import { ModoLecturaContext } from '@/components/campus/modo-lectura';
 
 const focusDark =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--sidebar)]';
@@ -114,7 +115,12 @@ export function CampusShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [colapsado, setColapsado] = useState(false);
+  // El modo lectura (teoría/autoeval · §5A) CONTRAE el lateral para dar aire a la
+  // lectura; fuera de él, manda el toggle manual del usuario. El ancho anima solo
+  // (transition-[width]), respetando prefers-reduced-motion.
+  const modoLectura = useContext(ModoLecturaContext);
+  const [colapsadoManual, setColapsadoManual] = useState(false);
+  const colapsado = (modoLectura?.activo ?? false) || colapsadoManual;
   const [cuentaAbierta, setCuentaAbierta] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
   const cuentaRef = useRef<HTMLDivElement>(null);
@@ -175,7 +181,7 @@ export function CampusShell({
             </div>
             <button
               type="button"
-              onClick={() => setColapsado((v) => !v)}
+              onClick={() => setColapsadoManual((v) => !v)}
               aria-label={colapsado ? 'Expandir el menú' : 'Colapsar el menú'}
               aria-pressed={colapsado}
               className={`mt-3 flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[13px] font-semibold text-white/60 transition-colors hover:bg-white/8 hover:text-white ${focusDark} ${

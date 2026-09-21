@@ -103,7 +103,10 @@ export function BloqueVideo({
   }
 
   return (
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    // Apilado (mock leccion-lectura · "sala de estudio"): el reproductor ocupa TODO el
+    // ancho de la columna —mantiene el tamaño grande del fallback— y los tabs
+    // (transcripción / hitos) van DEBAJO, no en una columna lateral que lo encoja.
+    <div className="min-w-0">
       {/* ════════ Reproductor + riel de hitos ════════ */}
       <div className="min-w-0">
         <div className={`${card} overflow-hidden`}>
@@ -147,8 +150,8 @@ export function BloqueVideo({
         )}
       </div>
 
-      {/* ════════ Panel: Transcripción | Hitos ════════ */}
-      <aside className={`${card} flex min-w-0 flex-col overflow-hidden`}>
+      {/* ════════ Panel: Transcripción | Hitos (debajo del reproductor) ════════ */}
+      <aside className={`${card} mt-4 flex min-w-0 flex-col overflow-hidden`}>
         <div role="tablist" aria-label="Consulta del video" className="flex shrink-0 border-b border-border">
           <TabBoton
             activo={tab === 'transcripcion'}
