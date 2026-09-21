@@ -3,12 +3,70 @@ import { comoAlumno } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
 import {
   esLeccionInteractiva,
+  type AutoevalAlumno,
   type BloqueContenido,
   type ConfigLeccion,
   type ContenidoTipo,
   type LeccionCompleta,
   type LeccionVecina,
+  type ReactivoAlumno,
+  type TipoLeccionAlumno,
+  type TipoReactivoAlumno,
 } from './leccion-contrato';
+
+const TIPOS_REACTIVO: readonly TipoReactivoAlumno[] = [
+  'opcion_multiple',
+  'multi',
+  'verdadero_falso',
+  'abierta',
+];
+
+/**
+ * Proyecta el `config` de una lección autoevaluación (modelo nuevo · mig 0023) a la
+ * vista del ALUMNO: enunciado + opciones, SIN la clave correcta ni la retro (la
+ * autocalificación es server-authoritative · §7A). Defensivo ante config crudo.
+ */
+export function autoevalDeConfig(
+  config: Record<string, unknown> | null,
+  yaRespondida: boolean,
+): AutoevalAlumno {
+  const c = (config ?? {}) as Record<string, unknown>;
+  const crudos = Array.isArray(c.reactivos) ? (c.reactivos as unknown[]) : [];
+  const reactivos: ReactivoAlumno[] = [];
+  for (const r of crudos) {
+    if (!r || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    const id = typeof o.id === 'string' && o.id ? o.id : null;
+    const enunciado = typeof o.enunciado === 'string' ? o.enunciado.trim() : '';
+    if (!id || !enunciado) continue;
+    const tipo: TipoReactivoAlumno = TIPOS_REACTIVO.includes(
+      o.tipo as TipoReactivoAlumno,
+    )
+      ? (o.tipo as TipoReactivoAlumno)
+      : 'opcion_multiple';
+    const opciones = Array.isArray(o.opciones)
+      ? (o.opciones as unknown[])
+          .map((op) => {
+            const oo = (op ?? {}) as Record<string, unknown>;
+            return { clave: String(oo.clave ?? ''), texto: String(oo.texto ?? '') };
+          })
+          .filter((op) => op.clave || op.texto)
+      : [];
+    reactivos.push({
+      id,
+      tipo,
+      enunciado,
+      imagen:
+        typeof o.imagen === 'string' && o.imagen.trim() ? o.imagen.trim() : undefined,
+      opciones,
+    });
+  }
+  return {
+    descripcion: typeof c.descripcion === 'string' ? c.descripcion : undefined,
+    reactivos,
+    yaRespondida,
+  };
+}
 
 /**
  * Lectura de una lección (contenido + navegación). Corre con RLS vía `comoAlumno`:
@@ -31,7 +89,7 @@ export async function getLeccion(
         id: string;
         nombre: string;
         descripcion: string | null;
-        tipo: string;
+        tipo: TipoLeccionAlumno;
         config: Record<string, unknown> | null;
         modulo_id: string;
         modulo: string;
@@ -101,6 +159,20 @@ export async function getLeccion(
     const interactivo = esLeccionInteractiva(tipo);
     const compat = interactivo ? contenidos.find((c) => c.tipo === tipo) ?? null : null;
 
+    // Autoevaluación (modelo nuevo): el examen vive en lecciones.config. ¿Ya hay un
+    // intento? Se resuelve por la entrega anclada a la lección (leccion_id · mig 0026).
+    let autoeval: AutoevalAlumno | null = null;
+    let autoevalRespondida = false;
+    if (leccion.tipo === 'autoevaluacion') {
+      const previa = await sql<{ existe: boolean }[]>`
+        select exists (
+          select 1 from lxp.entregas
+          where leccion_id = ${leccionId} and id_alumno = ${userId}
+        ) as existe`;
+      autoevalRespondida = previa[0]?.existe ?? false;
+      autoeval = autoevalDeConfig(leccion.config, autoevalRespondida);
+    }
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
@@ -115,11 +187,16 @@ export async function getLeccion(
         modulo: leccion.modulo,
       },
       bloques,
+      autoeval,
       anterior,
       siguiente,
+      // Interactivos (h5p/xapi): completada = progreso del ancla compat. Autoeval:
+      // completada si ya hay un intento registrado. El resto: todos sus bloques listos.
       completada: interactivo
         ? (compat?.completado ?? false)
-        : bloques.length > 0 && bloques.every((b) => b.completado),
+        : leccion.tipo === 'autoevaluacion'
+          ? autoevalRespondida
+          : bloques.length > 0 && bloques.every((b) => b.completado),
     };
   });
 }

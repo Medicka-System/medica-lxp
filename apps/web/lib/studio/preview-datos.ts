@@ -1,13 +1,16 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import { autoevalDeConfig } from '@/lib/campus/leccion-datos';
 import {
   esLeccionInteractiva,
+  type AutoevalAlumno,
   type BloqueContenido,
   type ConfigLeccion,
   type ContenidoTipo,
   type LeccionCompleta,
   type LeccionVecina,
+  type TipoLeccionAlumno,
 } from '@/lib/campus/leccion-contrato';
 
 /**
@@ -36,7 +39,7 @@ export async function getLeccionPreview(
         id: string;
         nombre: string;
         descripcion: string | null;
-        tipo: string;
+        tipo: TipoLeccionAlumno;
         config: Record<string, unknown> | null;
         modulo_id: string;
         modulo: string;
@@ -94,6 +97,12 @@ export async function getLeccionPreview(
       ? contenidos.find((c) => c.tipo === tipo) ?? null
       : null;
 
+    // En preview el staff ve el examen tal como quedará; nunca "ya respondida".
+    const autoeval: AutoevalAlumno | null =
+      leccion.tipo === 'autoevaluacion'
+        ? autoevalDeConfig(leccion.config, false)
+        : null;
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
@@ -108,6 +117,7 @@ export async function getLeccionPreview(
         modulo: leccion.modulo,
       },
       bloques,
+      autoeval,
       anterior,
       siguiente,
       completada: false,

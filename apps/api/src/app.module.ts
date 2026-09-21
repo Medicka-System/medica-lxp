@@ -22,6 +22,7 @@ import { H5pModule } from './h5p/h5p.module';
 import { RubricasModule } from './rubricas/rubricas.module';
 import { ReactivosModule } from './reactivos/reactivos.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
+import { AutoevaluacionModule } from './autoevaluacion/autoevaluacion.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { NotificacionesModule } from './notificaciones/notificaciones.module';
     RubricasModule,
     ReactivosModule,
     NotificacionesModule,
+    AutoevaluacionModule,
   ],
 })
 export class AppModule {}

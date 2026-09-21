@@ -42,6 +42,44 @@ export type BloqueContenido = {
   completado: boolean;
 };
 
+/** Tipo de la lección en el modelo NUEVO (enum lxp.leccion_tipo · mig 0023). */
+export type TipoLeccionAlumno =
+  | 'teoria'
+  | 'video'
+  | 'autoevaluacion'
+  | 'tarea'
+  | 'foro'
+  | 'h5p'
+  | 'xapi';
+
+/** Tipo de reactivo (== enum lxp.reactivo_tipo · autoeval-contrato del diseñador). */
+export type TipoReactivoAlumno =
+  | 'opcion_multiple'
+  | 'multi'
+  | 'verdadero_falso'
+  | 'abierta';
+
+/**
+ * Un reactivo tal como lo VE el alumno: SIN la clave correcta ni la retroalimentación.
+ * La verdad (correcta/retro) nunca se envía al cliente antes de responder — la
+ * autocalificación es server-authoritative (§7A · api /autoevaluacion/calificar).
+ */
+export type ReactivoAlumno = {
+  id: string;
+  tipo: TipoReactivoAlumno;
+  enunciado: string;
+  imagen?: string;
+  opciones: { clave: string; texto: string }[];
+};
+
+/** Autoevaluación lista para el alumno (modelo nuevo · lxp.lecciones.config · mig 0023). */
+export type AutoevalAlumno = {
+  descripcion?: string;
+  reactivos: ReactivoAlumno[];
+  /** El alumno ya envió un intento (existe entrega anclada a la lección · mig 0026). */
+  yaRespondida: boolean;
+};
+
 /** Enlace a una lección vecina (anterior/siguiente) dentro del programa. */
 export type LeccionVecina = { id: string; nombre: string };
 
@@ -87,6 +125,8 @@ export type LeccionCompleta = {
   contenidoId: string | null;
   contexto: LeccionContexto;
   bloques: BloqueContenido[];
+  /** Presente solo cuando `tipo === 'autoevaluacion'` (se lee de lecciones.config). */
+  autoeval: AutoevalAlumno | null;
   anterior: LeccionVecina | null;
   siguiente: LeccionVecina | null;
   /** Todos los bloques con progreso están completos (o no hay bloques). */
