@@ -116,9 +116,11 @@ export function EntregasConsola({ entregas }: { entregas: EntregaRevision[] }) {
   function analizar() {
     if (!seleccion) return;
     const grupoId = seleccion.grupoId;
-    const actividadId = seleccion.actividadId;
+    // Ancla preferente por lección (modelo nuevo · mig 0026); si no, la actividad (viejo).
+    const leccionId = seleccion.leccionId ?? undefined;
+    const actividadId = seleccion.actividadId || undefined;
     startEco(async () => {
-      const r = await analizarConEco({ grupoId, modo: 'entregas', actividadId });
+      const r = await analizarConEco({ grupoId, modo: 'entregas', leccionId, actividadId });
       if (!r.ok) {
         setEcoAviso({ ok: false, texto: r.error });
         return;

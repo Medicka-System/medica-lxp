@@ -82,6 +82,9 @@ export async function construirSnapshot(
     from lxp.modulos where programa_id = ${programaId}
     order by orden, id`;
 
+  // Modelo NUEVO (mig 0023): la lección tiene `tipo` + `config`; su contenido de
+  // teoría vive en `lxp.bloques`. Se congelan también, junto al modelo viejo
+  // (contenidos/actividades), para que el snapshot conserve ambos hasta fase 3.
   const lecciones = await sql<
     {
       id: string;
@@ -89,13 +92,32 @@ export async function construirSnapshot(
       nombre: string;
       descripcion: string | null;
       orden: number;
+      tipo: string;
+      config: unknown;
     }[]
   >`
-    select l.id, l.modulo_id, l.nombre, l.descripcion, l.orden
+    select l.id, l.modulo_id, l.nombre, l.descripcion, l.orden,
+           l.tipo::text as tipo, l.config
     from lxp.lecciones l
     join lxp.modulos m on m.id = l.modulo_id
     where m.programa_id = ${programaId}
     order by l.orden, l.id`;
+
+  const bloques = await sql<
+    {
+      id: string;
+      leccion_id: string;
+      orden: number;
+      tipo_bloque: string;
+      config: unknown;
+    }[]
+  >`
+    select b.id, b.leccion_id, b.orden, b.tipo_bloque, b.config
+    from lxp.bloques b
+    join lxp.lecciones l on l.id = b.leccion_id
+    join lxp.modulos m on m.id = l.modulo_id
+    where m.programa_id = ${programaId}
+    order by b.orden, b.id`;
 
   const contenidos = await sql<
     {
@@ -166,11 +188,24 @@ export async function construirSnapshot(
     actividadesPorLeccion.set(a.leccion_id, arr);
   }
 
+  // Modelo NUEVO: bloques de teoría por lección.
+  const bloquesPorLeccion = new Map<string, unknown[]>();
+  for (const b of bloques) {
+    const arr = bloquesPorLeccion.get(b.leccion_id) ?? [];
+    arr.push({ id: b.id, orden: b.orden, tipo_bloque: b.tipo_bloque, config: b.config });
+    bloquesPorLeccion.set(b.leccion_id, arr);
+  }
+
   const leccionesPorModulo = new Map<string, unknown[]>();
   for (const l of lecciones) {
     const arr = leccionesPorModulo.get(l.modulo_id) ?? [];
     arr.push({
       ...l,
+      // Modelo nuevo (mig 0023): tipo/config/bloques congelados en el snapshot.
+      tipo: l.tipo,
+      config: l.config,
+      bloques: bloquesPorLeccion.get(l.id) ?? [],
+      // Modelo viejo (aún vivo): contenidos/actividades siguen congelándose.
       contenidos: contenidosPorLeccion.get(l.id) ?? [],
       actividades: actividadesPorLeccion.get(l.id) ?? [],
     });

@@ -42,6 +42,7 @@ export class PlayersService {
     await upsertProgreso(this.db.sql, {
       alumnoId: p.alumnoId,
       contenidoId: p.contenidoId,
+      leccionId: p.leccionId,
       posicionSeg: p.posicionSeg,
       duracionSeg: p.duracionSeg,
       porcentaje,
@@ -72,6 +73,7 @@ export class PlayersService {
     await upsertProgreso(this.db.sql, {
       alumnoId: c.alumnoId,
       contenidoId: c.contenidoId,
+      leccionId: c.leccionId,
       posicionSeg: 0,
       porcentaje: v.porcentaje,
       completado: v.completado,

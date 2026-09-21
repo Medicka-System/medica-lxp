@@ -309,8 +309,16 @@ function notaAlumnoDe(contenido: unknown): string | null {
   return typeof val === 'string' && val.trim() ? val.trim() : null;
 }
 
+/** Mapea el enum de 7 tipos de lección (mig 0023) al union de la consola (tarea/autoeval/foro). */
+function tipoLeccionAActividad(tipo: string | null): TipoActividad {
+  return tipo === 'tarea' || tipo === 'autoevaluacion' || tipo === 'foro' ? tipo : 'tarea';
+}
+
 export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
   return comoStaff(userId, async (sql) => {
+    // Anclaje por LECCIÓN (modelo nuevo · mig 0023/0026) con fallback a la actividad
+    // (modelo viejo, aún vivo): la lección da nombre/tipo/módulo cuando existe; si la
+    // entrega no tiene leccion_id (contenido previo) se cae al join por actividad.
     const rows = await sql<
       ({
         id: string;
@@ -321,48 +329,67 @@ export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
         contenido: unknown;
         created_at: Date;
         alumno: string;
-        actividad: string;
-        actividad_id: string;
-        tipo: TipoActividad;
+        leccion_id: string | null;
+        actividad_id: string | null;
+        titulo_leccion: string | null;
+        titulo_actividad: string | null;
+        tipo_leccion: string | null;
+        tipo_actividad: TipoActividad | null;
         leccion: string | null;
         modulo: string | null;
       } & FilaEco)[]
     >`
       select e.id, e.grupo_id, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
-             al.nombre as alumno, ac.titulo as actividad, ac.id as actividad_id, ac.tipo,
-             l.nombre as leccion, m.nombre as modulo,
+             al.nombre as alumno,
+             e.leccion_id, e.actividad_id,
+             ln.nombre as titulo_leccion, ac.titulo as titulo_actividad,
+             ln.tipo::text as tipo_leccion, ac.tipo as tipo_actividad,
+             coalesce(ln.nombre, la.nombre) as leccion,
+             coalesce(mn.nombre, ma.nombre) as modulo,
              -- Bandeja de Eco (§7A): propuesta VIGENTE para esta entrega (RLS es_docente_o_mas).
              ep.id as eco_id, ep.nota_sugerida::float8 as eco_nota, ep.feedback_borrador as eco_feedback,
              ep.confianza_score::float8 as eco_confianza, ep.clasificacion::text as eco_clasificacion,
              ep.detalle as eco_detalle
       from lxp.entregas e
       join lxp.perfiles al on al.user_id = e.id_alumno
-      join lxp.actividades ac on ac.id = e.actividad_id
-      left join lxp.lecciones l on l.id = ac.leccion_id
-      left join lxp.modulos m on m.id = l.modulo_id
+      -- Nuevo: lección anclada directo (mig 0026).
+      left join lxp.lecciones ln on ln.id = e.leccion_id
+      left join lxp.modulos mn on mn.id = ln.modulo_id
+      -- Viejo: actividad → lección (compat).
+      left join lxp.actividades ac on ac.id = e.actividad_id
+      left join lxp.lecciones la on la.id = ac.leccion_id
+      left join lxp.modulos ma on ma.id = la.modulo_id
       left join lxp.eco_propuestas ep
         on ep.objeto_tipo = 'entrega' and ep.objeto_id = e.id and ep.estado = 'propuesta'
       order by
         case e.estado when 'enviada' then 0 when 'pendiente' then 1 else 2 end,
         e.created_at asc`;
 
-    return rows.map((r) => ({
-      id: r.id,
-      grupoId: r.grupo_id,
-      alumno: r.alumno,
-      iniciales: iniciales(r.alumno),
-      actividad: r.actividad,
-      actividadId: r.actividad_id,
-      tipoActividad: r.tipo,
-      leccion: r.leccion,
-      modulo: r.modulo,
-      estado: r.estado,
-      nota: r.nota,
-      ecoSugerida: r.eco_sugerida,
-      notaAlumno: notaAlumnoDe(r.contenido),
-      creadoEn: r.created_at,
-      eco: mapearEco(r),
-    }));
+    return rows.map((r) => {
+      // Preferimos el modelo nuevo (lección) para título/tipo/id; caemos a la actividad.
+      const porLeccion = r.leccion_id !== null;
+      return {
+        id: r.id,
+        grupoId: r.grupo_id,
+        alumno: r.alumno,
+        iniciales: iniciales(r.alumno),
+        actividad: (porLeccion ? r.titulo_leccion : r.titulo_actividad) ?? r.leccion ?? 'Entrega',
+        // Ancla que Eco usa para acotar el lote: la lección (nuevo) o la actividad (viejo).
+        actividadId: r.actividad_id ?? '',
+        leccionId: r.leccion_id,
+        tipoActividad: porLeccion
+          ? tipoLeccionAActividad(r.tipo_leccion)
+          : (r.tipo_actividad ?? 'tarea'),
+        leccion: r.leccion,
+        modulo: r.modulo,
+        estado: r.estado,
+        nota: r.nota,
+        ecoSugerida: r.eco_sugerida,
+        notaAlumno: notaAlumnoDe(r.contenido),
+        creadoEn: r.created_at,
+        eco: mapearEco(r),
+      };
+    });
   });
 }
 

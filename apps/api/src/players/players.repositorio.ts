@@ -7,6 +7,8 @@ import type { Sql } from '@campus/db';
 export interface UpsertProgresoDatos {
   alumnoId: string;
   contenidoId: string;
+  /** Ancla por lección (modelo nuevo · mig 0026); se persiste sin borrar contenidoId. */
+  leccionId?: string;
   posicionSeg: number;
   duracionSeg?: number;
   porcentaje: number;
@@ -28,14 +30,16 @@ export async function upsertProgreso(
 ): Promise<ProgresoFila> {
   const rows = await sql<ProgresoFila[]>`
     insert into lxp.reproduccion_progreso
-      (alumno_id, contenido_id, posicion_seg, duracion_seg, porcentaje, completado,
+      (alumno_id, contenido_id, leccion_id, posicion_seg, duracion_seg, porcentaje, completado,
        estado_scorm, actualizado_en)
     values (
-      ${d.alumnoId}, ${d.contenidoId}, ${d.posicionSeg}, ${d.duracionSeg ?? null},
+      ${d.alumnoId}, ${d.contenidoId}, ${d.leccionId ?? null},
+      ${d.posicionSeg}, ${d.duracionSeg ?? null},
       ${d.porcentaje}, ${d.completado},
       ${d.estadoScorm ? sql.json(d.estadoScorm as Parameters<typeof sql.json>[0]) : null}, now()
     )
     on conflict (alumno_id, contenido_id) do update set
+      leccion_id   = coalesce(excluded.leccion_id, lxp.reproduccion_progreso.leccion_id),
       posicion_seg = excluded.posicion_seg,
       duracion_seg = coalesce(excluded.duracion_seg, lxp.reproduccion_progreso.duracion_seg),
       porcentaje   = greatest(excluded.porcentaje, lxp.reproduccion_progreso.porcentaje),

@@ -80,13 +80,33 @@ export async function cargarPlantilla(
       nombre: string;
       descripcion: string | null;
       orden: number;
+      tipo: string;
+      config: unknown;
     }[]
   >`
-    select l.id, l.modulo_id, l.nombre, l.descripcion, l.orden
+    select l.id, l.modulo_id, l.nombre, l.descripcion, l.orden,
+           l.tipo::text as tipo, l.config
     from lxp.lecciones l
     join lxp.modulos m on m.id = l.modulo_id
     where m.programa_id = ${programaId}
     order by l.orden, l.id`;
+
+  // Modelo NUEVO (mig 0023): bloques de teoría por lección (passthrough en herencia).
+  const bloques = await sql<
+    {
+      id: string;
+      leccion_id: string;
+      orden: number;
+      tipo_bloque: string;
+      config: unknown;
+    }[]
+  >`
+    select b.id, b.leccion_id, b.orden, b.tipo_bloque, b.config
+    from lxp.bloques b
+    join lxp.lecciones l on l.id = b.leccion_id
+    join lxp.modulos m on m.id = l.modulo_id
+    where m.programa_id = ${programaId}
+    order by b.orden, b.id`;
 
   const contenidos = await sql<
     {
@@ -134,6 +154,10 @@ export async function cargarPlantilla(
       nombre: l.nombre,
       descripcion: l.descripcion,
       orden: l.orden,
+      // Modelo NUEVO (mig 0023): tipo/config/bloques heredados (passthrough).
+      tipo: l.tipo,
+      config: l.config,
+      bloques: [],
       contenidos: [],
       actividades: [],
     };
@@ -141,6 +165,14 @@ export async function cargarPlantilla(
     const arr = leccionesPorModulo.get(l.modulo_id) ?? [];
     arr.push(nodo);
     leccionesPorModulo.set(l.modulo_id, arr);
+  }
+  for (const b of bloques) {
+    leccionRef.get(b.leccion_id)?.bloques?.push({
+      id: b.id,
+      orden: b.orden,
+      tipo_bloque: b.tipo_bloque,
+      config: b.config,
+    });
   }
   for (const c of contenidos) {
     leccionRef.get(c.leccion_id)?.contenidos.push({

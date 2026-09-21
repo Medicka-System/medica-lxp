@@ -50,6 +50,8 @@ export type ResumenAnalisisEco = {
 export async function analizarConEco(input: {
   grupoId: string | null;
   modo: 'casos' | 'entregas';
+  /** Ancla por lección (modelo nuevo · mig 0026): preferente sobre actividadId. */
+  leccionId?: string;
   actividadId?: string;
 }): Promise<ResultadoAccion & { resumen?: ResumenAnalisisEco }> {
   await requireDocente();
@@ -66,6 +68,7 @@ export async function analizarConEco(input: {
       body: JSON.stringify({
         grupoId: input.grupoId,
         modo: input.modo,
+        leccionId: input.leccionId,
         actividadId: input.actividadId,
       }),
       cache: 'no-store',

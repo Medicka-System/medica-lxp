@@ -142,7 +142,10 @@ export type EntregaRevision = {
   alumno: string;
   iniciales: string;
   actividad: string;
+  /** Ancla por actividad (modelo viejo, aún vivo); '' si la entrega es puro modelo nuevo. */
   actividadId: string;
+  /** Ancla por lección (modelo nuevo · mig 0026); null en entregas viejas. */
+  leccionId: string | null;
   tipoActividad: TipoActividad;
   leccion: string | null;
   modulo: string | null;

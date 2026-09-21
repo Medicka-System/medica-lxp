@@ -139,6 +139,7 @@ export class AiService {
       job.modo === 'entregas'
         ? await recopilarEntregas(this.db.sql, {
             grupoId: job.grupoId,
+            leccionId: job.leccionId,
             actividadId: job.actividadId,
           })
         : await recopilarCasos(this.db.sql, { grupoId: job.grupoId });
