@@ -1,10 +1,13 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
-import type {
-  BloqueContenido,
-  ContenidoTipo,
-  LeccionCompleta,
-  LeccionVecina,
+import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import {
+  esLeccionInteractiva,
+  type BloqueContenido,
+  type ConfigLeccion,
+  type ContenidoTipo,
+  type LeccionCompleta,
+  type LeccionVecina,
 } from '@/lib/campus/leccion-contrato';
 
 /**
@@ -33,6 +36,8 @@ export async function getLeccionPreview(
         id: string;
         nombre: string;
         descripcion: string | null;
+        tipo: string;
+        config: Record<string, unknown> | null;
         modulo_id: string;
         modulo: string;
         programa_id: string;
@@ -40,7 +45,7 @@ export async function getLeccionPreview(
       }[]
     >`
       select
-        l.id, l.nombre, l.descripcion,
+        l.id, l.nombre, l.descripcion, l.tipo::text as tipo, l.config,
         m.id as modulo_id, m.nombre as modulo,
         pr.id as programa_id, pr.nombre as programa
       from lxp.lecciones l
@@ -82,10 +87,20 @@ export async function getLeccionPreview(
       completado: false,
     }));
 
+    // Modelo NUEVO: tipo + config (los interactivos h5p/xapi reproducen desde config).
+    const tipo = comoTipoLeccion(leccion.tipo);
+    const config = (leccion.config ?? {}) as ConfigLeccion;
+    const compat = esLeccionInteractiva(tipo)
+      ? contenidos.find((c) => c.tipo === tipo) ?? null
+      : null;
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
       descripcion: leccion.descripcion,
+      tipo,
+      config,
+      contenidoId: compat?.id ?? null,
       contexto: {
         programaId: leccion.programa_id,
         programa: leccion.programa,
