@@ -31,6 +31,11 @@ import type { LeccionContexto, LeccionVecina } from './leccion-contrato';
 export type ConfigVideoRender = {
   /** Id de la videoteca (mig 0017) — habilita la URL firmada de reproducción. */
   videotecaId: string | null;
+  /**
+   * URL DIRECTA del video (enlace pegado por el diseñador · §5C). Se reproduce tal cual,
+   * sin firmar (Stream / CDN / origen externo). Alterna con `videotecaId` (subida).
+   */
+  urlDirecta: string | null;
   /** Referencia en object storage (para display/diagnóstico; el seed solo trae esto). */
   recursoRef: string | null;
   /** Duración en segundos (metadata del confirmado; opcional). */
@@ -146,6 +151,8 @@ export function normalizarConfigVideo(
 ): ConfigVideoRender {
   const c = config ?? {};
   const videotecaId = esCadena(c.videotecaId) ? c.videotecaId : null;
+  // Enlace directo (el diseñador puede pegar una URL en vez de subir · §5C).
+  const urlDirecta = esCadena(c.url) ? c.url : esCadena(c.enlace) ? c.enlace : null;
   // El editor guarda `recursoRef`; el seed guarda `ref`.
   const recursoRef = esCadena(c.recursoRef)
     ? c.recursoRef
@@ -156,10 +163,12 @@ export function normalizarConfigVideo(
 
   return {
     videotecaId,
+    urlDirecta,
     recursoRef,
     duracionSeg,
     hitos: normalizarHitos(c),
     transcripcion: normalizarTranscripcion(c, duracionSeg),
-    reproducible: videotecaId !== null,
+    // Reproducible por subida (videoteca, se firma) o por enlace directo.
+    reproducible: videotecaId !== null || urlDirecta !== null,
   };
 }

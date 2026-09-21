@@ -78,7 +78,9 @@ export function LeccionVideo({
     return undefined;
   }, []);
 
-  const [src, setSrc] = useState<string | null>(null);
+  // El enlace directo se conoce en el servidor → arranca ya con esa fuente (SSR muestra
+  // la card, sin parpadeo al fallback). La subida a videoteca se firma en el efecto.
+  const [src, setSrc] = useState<string | null>(leccion.video.urlDirecta ?? null);
   const [avisoMedia, setAvisoMedia] = useState<string | null>(null);
   const [completada, setCompletada] = useState(leccion.completada);
   const [error, setError] = useState<string | null>(null);
@@ -90,10 +92,15 @@ export function LeccionVideo({
   const notasApi = useNotas(leccion.id, null, notasIniciales);
   const apiRef = useRef<VideoApi | null>(null);
 
-  // Firma la URL de reproducción (vida corta) cuando hay una fuente reproducible.
-  const { videotecaId, reproducible } = leccion.video;
+  // Fuente del video: enlace directo (tal cual) o subida a videoteca (URL firmada).
+  const { videotecaId, urlDirecta, reproducible } = leccion.video;
   useEffect(() => {
     let vivo = true;
+    // Enlace directo: se reproduce sin firmar (Stream / CDN / origen externo).
+    if (urlDirecta) {
+      setSrc(urlDirecta);
+      return;
+    }
     if (!reproducible || !videotecaId) {
       setSrc(null);
       return;
@@ -109,7 +116,7 @@ export function LeccionVideo({
     return () => {
       vivo = false;
     };
-  }, [reproducible, videotecaId]);
+  }, [reproducible, videotecaId, urlDirecta]);
 
   // Emite xAPI `experimentó` una sola vez al abrir la lección (best-effort · §7).
   useEffect(() => {
