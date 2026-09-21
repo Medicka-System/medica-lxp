@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
+import { comoAncla } from './notas-contrato';
 import type { AnclaNota, Nota, NotaTipo, NuevaNota } from './notas-contrato';
 import type { ResultadoAccion } from './resultado';
 
@@ -62,7 +63,7 @@ export async function crearNota(input: NuevaNota): Promise<CrearResultado> {
           id: f.id,
           tipo: f.tipo,
           contenido: f.contenido,
-          ancla: (f.ancla ?? {}) as AnclaNota,
+          ancla: comoAncla(f.ancla),
           creadoEn: f.created_at,
         },
       };

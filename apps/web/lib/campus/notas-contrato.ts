@@ -36,6 +36,24 @@ export type Nota = {
   creadoEn: string;
 };
 
+/**
+ * Normaliza el `ancla` crudo que llega de la BD/acción a un OBJETO. El jsonb puede
+ * volver como objeto (parseado) o como string (según el driver / la frontera RSC);
+ * `in`/acceso a props sobre un string revienta. Deja siempre un objeto seguro.
+ */
+export function comoAncla(v: unknown): AnclaNota {
+  if (v && typeof v === 'object') return v as AnclaNota;
+  if (typeof v === 'string') {
+    try {
+      const o: unknown = JSON.parse(v);
+      return o && typeof o === 'object' ? (o as AnclaNota) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 /** Type guards defensivos sobre el jsonb de ancla. */
 export function esAnclaTexto(a: AnclaNota): a is AnclaTexto {
   return (

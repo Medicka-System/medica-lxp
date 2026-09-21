@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { Highlighter, NotebookPen, Pencil, Play, Quote, Trash2, X } from 'lucide-react';
 import { mono, focusRing } from '@/components/tokens';
 import type { Nota } from '@/lib/campus/notas-contrato';
-import { esAnclaVideo } from '@/lib/campus/notas-contrato';
+import { esAnclaTexto, esAnclaVideo } from '@/lib/campus/notas-contrato';
 
 function reloj(s: number): string {
   const m = Math.floor(s / 60);
@@ -161,7 +161,7 @@ export function PanelNotas({
                       </div>
                     ) : (
                       <>
-                        {cita && n.ancla && 'texto' in n.ancla && (
+                        {cita && esAnclaTexto(n.ancla) && (
                           <p className="border-l-2 border-[color:var(--primary)] pl-2 text-[12.5px] italic leading-snug text-foreground-soft">
                             “{n.ancla.texto}”
                           </p>

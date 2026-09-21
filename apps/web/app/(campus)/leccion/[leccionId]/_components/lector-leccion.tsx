@@ -516,7 +516,7 @@ export function LectorLeccion({
     <div
       data-tema-lectura={tema}
       style={{ ['--lectura-fs']: `${fs}px` } as React.CSSProperties}
-      className="min-h-dvh bg-background text-foreground transition-colors duration-300 motion-reduce:transition-none"
+      className="min-h-dvh bg-background text-foreground transition-colors duration-[750ms] motion-reduce:transition-none"
     >
       {cuerpo}
     </div>
