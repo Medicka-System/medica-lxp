@@ -35,6 +35,7 @@ import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import type { TipoPaquete } from '@/components/bloques/contratos';
 import { mono } from '@/components/tokens';
+import { MotorAutoevaluacion } from './motor-autoevaluacion';
 import { marcarLeccionCompletada } from '@/lib/campus/leccion-acciones';
 import {
   TIPO_LABEL,
@@ -94,6 +95,8 @@ export function LectorLeccion({
   useEffect(() => localStorage.setItem(CLAVE_FS, String(fs)), [fs]);
 
   const contexto = `${leccion.contexto.programa} · ${leccion.contexto.modulo}`;
+  // La autoevaluación se completa al ENVIAR el examen (motor), no con el botón genérico.
+  const esAutoeval = leccion.tipo === 'autoevaluacion';
 
   const marcar = () => {
     setError(null);
@@ -204,7 +207,17 @@ export function LectorLeccion({
 
           <div aria-hidden className="mt-8 h-px w-full bg-border" />
 
-          {leccion.bloques.length === 0 ? (
+          {leccion.tipo === 'autoevaluacion' && leccion.autoeval ? (
+            // Autoevaluación (modelo nuevo · §5C): el motor lee lecciones.config y
+            // autocalifica contra el dominio (api). Reemplaza los bloques de contenido.
+            <div className="mt-8">
+              <MotorAutoevaluacion
+                leccionId={leccion.id}
+                autoeval={leccion.autoeval}
+                preview={preview}
+              />
+            </div>
+          ) : leccion.bloques.length === 0 ? (
             <p className="mt-10 rounded-xl border border-dashed border-border px-5 py-10 text-center text-[14px] text-muted-foreground">
               Esta lección aún no tiene contenido publicado.
             </p>
@@ -244,8 +257,11 @@ export function LectorLeccion({
               ) : completada ? (
                 <span className="inline-flex h-11 items-center gap-2 rounded-control bg-accent px-5 text-[13.5px] font-bold text-accent-foreground">
                   <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={2} />
-                  Lección completada
+                  {esAutoeval ? 'Autoevaluación enviada' : 'Lección completada'}
                 </span>
+              ) : esAutoeval ? (
+                // La completa el motor al calificar; no hay botón genérico aquí.
+                <span />
               ) : (
                 <button
                   type="button"
