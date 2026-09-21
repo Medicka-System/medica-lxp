@@ -242,6 +242,9 @@ export function LeccionVideo({
                 transcripcion={leccion.video.transcripcion}
                 hitos={leccion.video.hitos}
                 modo="ver"
+                // Video subido: mientras se firma la URL (src aún null) muestra "cargando",
+                // no el aviso de media pendiente.
+                cargando={!src && !!videotecaId && !urlDirecta && !avisoMedia}
                 onApi={(api) => {
                   apiRef.current = api;
                 }}

@@ -29,6 +29,7 @@ import '@vidstack/react/player/styles/default/layouts/video.css';
 import {
   Bookmark,
   FileText,
+  Loader2,
   Play,
   Plus,
   Trash2,
@@ -42,6 +43,23 @@ const ESTILO_PLAYER = {
   '--media-brand': 'var(--primary)',
   '--media-font-family': 'Inter, ui-sans-serif, system-ui, sans-serif',
 };
+
+/**
+ * Normaliza la fuente para Vidstack. YouTube/Vimeo se pasan con el shorthand que el
+ * player reconoce (`youtube/<id>` · `vimeo/<id>`) — una URL cruda tipo `youtu.be/ID?si=…`
+ * NO la reproduce y deja la pantalla en azul. Los archivos directos (MinIO/CDN) van tal
+ * cual. `esEmbed` decide si aplicar `crossOrigin` (los iframes de YouTube/Vimeo no lo
+ * usan; los archivos SÍ lo necesitan para CORS).
+ */
+export function normalizarFuenteVideo(src: string): { src: string; esEmbed: boolean } {
+  const yt = src.match(
+    /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/|v\/))([\w-]{11})/i,
+  );
+  if (yt) return { src: `youtube/${yt[1]}`, esEmbed: true };
+  const vm = src.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+  if (vm) return { src: `vimeo/${vm[1]}`, esEmbed: true };
+  return { src, esEmbed: false };
+}
 
 /** mm:ss para cifras de tiempo (mono, §5A). */
 function mmss(segundos: number): string {
@@ -79,6 +97,11 @@ export type BloqueVideoProps = {
    * MOMENTO actual del video. Recibe el segundo redondeado. Undefined → no se muestra.
    */
   onGuardarMomento?: (segundos: number) => void;
+  /**
+   * Hay una fuente pero aún se está firmando (video subido · `src` llega tras el
+   * signing). Muestra un estado de CARGA en vez del aviso "media pendiente".
+   */
+  cargando?: boolean;
 };
 
 /** API imperativa que BloqueVideo expone a su contenedor (marcadores de nota). */
@@ -95,6 +118,7 @@ export function BloqueVideo({
   onCambioHitos,
   onApi,
   onGuardarMomento,
+  cargando = false,
 }: BloqueVideoProps) {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const editable = modo === 'editar' && typeof onCambioHitos === 'function';
@@ -122,8 +146,13 @@ export function BloqueVideo({
   }, [onApi]);
 
   if (!src) {
+    // Video subido cuya URL firmada aún está en camino → carga, no "media pendiente".
+    if (cargando) return <VideoCargando titulo={titulo} contexto={contexto} />;
     return <PendienteMedia titulo={titulo} contexto={contexto} />;
   }
+
+  // YouTube/Vimeo → shorthand de Vidstack; archivo directo → tal cual (con crossOrigin).
+  const fuente = normalizarFuenteVideo(src);
 
   return (
     // UNA card unificada (mock leccion-estudio · "sala de estudio"): video + timeline
@@ -132,10 +161,10 @@ export function BloqueVideo({
     <div className={`${card} min-w-0 overflow-hidden`}>
       <MediaPlayer
         ref={playerRef}
-        src={src}
+        src={fuente.src}
         title={titulo}
         playsInline
-        crossOrigin
+        crossOrigin={fuente.esEmbed ? null : true}
         style={ESTILO_PLAYER}
         className="aspect-video w-full overflow-hidden bg-[color:var(--sidebar)] font-sans"
       >
@@ -484,6 +513,26 @@ function PanelHitos({
 }
 
 /* ───────────────────────── Estado: media pendiente ───────────────────────── */
+
+/** Estado de CARGA: hay video subido, se está firmando la URL de reproducción. */
+function VideoCargando({ titulo, contexto }: { titulo?: string; contexto?: string }) {
+  return (
+    <div className={`${card} overflow-hidden`}>
+      <div className="relative grid aspect-video w-full place-items-center bg-[color:var(--sidebar)]">
+        <span className="flex flex-col items-center gap-2.5 text-white">
+          <Loader2 aria-hidden className="h-8 w-8 animate-spin" strokeWidth={1.75} />
+          <span className="text-[12.5px] font-semibold text-white/80">Preparando el video…</span>
+        </span>
+      </div>
+      {(titulo || contexto) && (
+        <div className="border-t border-border px-5 py-4">
+          {titulo && <p className="text-[15px] font-bold leading-snug">{titulo}</p>}
+          {contexto && <p className="mt-1 text-[12px] text-muted-foreground">{contexto}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PendienteMedia({ titulo, contexto }: { titulo?: string; contexto?: string }) {
   return (
