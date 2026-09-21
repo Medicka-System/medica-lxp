@@ -152,6 +152,36 @@ export type LeccionCompleta = {
   completada: boolean;
 };
 
+/**
+ * Menú del curso (rail derecho de la lección · mock leccion-lectura): árbol
+ * módulos → lecciones con la palomita de completado y la lección actual resaltada.
+ */
+export type LeccionMenu = {
+  id: string;
+  nombre: string;
+  tipo: TipoLeccion;
+  /** El alumno ya completó la lección (progreso o entrega). */
+  completada: boolean;
+  /** Es la lección que se está viendo. */
+  actual: boolean;
+};
+
+export type ModuloMenu = {
+  id: string;
+  nombre: string;
+  lecciones: LeccionMenu[];
+  /** El módulo contiene la lección actual (se abre por defecto). */
+  actual: boolean;
+};
+
+/** Árbol del curso para "Contenido del curso" (contador `hechas/total` = el "6/15"). */
+export type ContenidoCurso = {
+  programa: string;
+  modulos: ModuloMenu[];
+  hechas: number;
+  total: number;
+};
+
 /** Las lecciones cuyo contenido se reproduce (H5P / paquete xAPI · §5C · §7). */
 export function esLeccionInteractiva(tipo: TipoLeccion): tipo is 'h5p' | 'xapi' {
   return tipo === 'h5p' || tipo === 'xapi';

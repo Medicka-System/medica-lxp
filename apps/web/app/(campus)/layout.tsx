@@ -2,6 +2,7 @@ import { getSesionAlumno } from '@/lib/session';
 import { getShellData } from '@/lib/datos';
 import { contarNoLeidas } from '@/lib/campus/notificaciones-datos';
 import { CampusShell } from '@/components/campus/shell';
+import { ModoLecturaProvider } from '@/components/campus/modo-lectura';
 
 /** Datos por usuario (RLS) → render dinámico, no estático. */
 export const dynamic = 'force-dynamic';
@@ -19,12 +20,14 @@ export default async function CampusLayout({ children }: { children: React.React
   ]);
 
   return (
-    <CampusShell
-      usuario={{ nombre: alumno.nombre, matricula: alumno.matricula }}
-      casosPendientes={shell.casosPendientes}
-      noLeidas={noLeidas}
-    >
-      {children}
-    </CampusShell>
+    <ModoLecturaProvider>
+      <CampusShell
+        usuario={{ nombre: alumno.nombre, matricula: alumno.matricula }}
+        casosPendientes={shell.casosPendientes}
+        noLeidas={noLeidas}
+      >
+        {children}
+      </CampusShell>
+    </ModoLecturaProvider>
   );
 }

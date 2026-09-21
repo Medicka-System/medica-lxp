@@ -128,8 +128,24 @@ a:hover {
   transition: background-color 300ms ease, color 300ms ease;
 }
 
+/* El modo lectura es GLOBAL: al teñir el shell entero, las superficies internas
+   (main, header, aside, secciones y tarjetas de la lección) acompañan el cambio con
+   la misma transición para que no "salten". */
+[data-tema-lectura] main,
+[data-tema-lectura] header,
+[data-tema-lectura] aside,
+[data-tema-lectura] section,
+[data-tema-lectura] article {
+  transition: background-color 300ms ease, border-color 300ms ease, color 300ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  [data-tema-lectura] {
+  [data-tema-lectura],
+  [data-tema-lectura] main,
+  [data-tema-lectura] header,
+  [data-tema-lectura] aside,
+  [data-tema-lectura] section,
+  [data-tema-lectura] article {
     transition: none;
   }
 }

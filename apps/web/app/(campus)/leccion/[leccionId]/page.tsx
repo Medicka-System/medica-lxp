@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSesionAlumno } from '@/lib/session';
-import { getLeccion } from '@/lib/campus/leccion-datos';
+import { getLeccion, getContenidoCurso } from '@/lib/campus/leccion-datos';
 import { getLeccionVideo } from '@/lib/campus/leccion-video-datos';
 import { getForoDeLeccion } from '@/lib/campus/foro-datos';
 import { LectorLeccion } from './_components/lector-leccion';
@@ -47,5 +47,12 @@ export default async function LeccionPage({
     }
   }
 
-  return <LectorLeccion leccion={leccion} />;
+  // Menú del curso (rail derecho · §5A): árbol módulos → lecciones con progreso.
+  const contenidoCurso = await getContenidoCurso(
+    alumno.userId,
+    leccion.contexto.programaId,
+    leccion.id,
+  );
+
+  return <LectorLeccion leccion={leccion} contenidoCurso={contenidoCurso} />;
 }

@@ -8,9 +8,12 @@ import {
   type BloqueContenido,
   type BloqueTeoriaVista,
   type ConfigLeccion,
+  type ContenidoCurso,
   type ContenidoTipo,
   type LeccionCompleta,
+  type LeccionMenu,
   type LeccionVecina,
+  type ModuloMenu,
   type ReactivoAlumno,
   type TipoLeccionAlumno,
   type TipoReactivoAlumno,
@@ -217,6 +220,78 @@ export async function getLeccion(
         : leccion.tipo === 'autoevaluacion'
           ? autoevalRespondida
           : bloques.length > 0 && bloques.every((b) => b.completado),
+    };
+  });
+}
+
+/**
+ * Árbol del curso (módulos → lecciones) para el menú lateral de la lección (§5A ·
+ * mock leccion-lectura). Lectura bajo RLS (`comoAlumno`): módulos/lecciones del
+ * programa publicado + el progreso PROPIO. Una lección cuenta como completada si el
+ * alumno registró progreso en algún contenido suyo (reproduccion_progreso) o entregó
+ * la actividad anclada (entregas · tarea/autoevaluación) — el mismo modelo con el que
+ * "Mis cursos" mueve el avance. Sin lógica de dominio (§2).
+ */
+export async function getContenidoCurso(
+  userId: string,
+  programaId: string,
+  leccionActualId: string,
+): Promise<ContenidoCurso | null> {
+  return comoAlumno(userId, async (sql) => {
+    const prog = await sql<{ nombre: string }[]>`
+      select nombre from lxp.programas where id = ${programaId} and publicado limit 1`;
+    if (!prog[0]) return null;
+
+    const mods = await sql<{ id: string; nombre: string }[]>`
+      select id, nombre from lxp.modulos
+      where programa_id = ${programaId}
+      order by orden, created_at`;
+
+    const lecs = await sql<
+      { id: string; modulo_id: string; nombre: string; tipo: TipoLeccionAlumno; completada: boolean }[]
+    >`
+      select
+        l.id, l.modulo_id, l.nombre, l.tipo::text as tipo,
+        (
+          exists (
+            select 1
+            from lxp.reproduccion_progreso rp
+            join lxp.contenidos co on co.id = rp.contenido_id
+            where co.leccion_id = l.id and rp.alumno_id = ${userId} and rp.completado
+          )
+          or exists (
+            select 1 from lxp.entregas e
+            where e.leccion_id = l.id and e.id_alumno = ${userId}
+          )
+        ) as completada
+      from lxp.lecciones l
+      join lxp.modulos m on m.id = l.modulo_id
+      where m.programa_id = ${programaId}
+      order by m.orden, l.orden, l.created_at`;
+
+    const modulos: ModuloMenu[] = mods.map((m) => {
+      const lecciones: LeccionMenu[] = lecs
+        .filter((l) => l.modulo_id === m.id)
+        .map((l) => ({
+          id: l.id,
+          nombre: l.nombre,
+          tipo: comoTipoLeccion(l.tipo),
+          completada: l.completada,
+          actual: l.id === leccionActualId,
+        }));
+      return {
+        id: m.id,
+        nombre: m.nombre,
+        lecciones,
+        actual: lecciones.some((l) => l.actual),
+      };
+    });
+
+    return {
+      programa: prog[0].nombre,
+      modulos,
+      total: lecs.length,
+      hechas: lecs.filter((l) => l.completada).length,
     };
   });
 }
