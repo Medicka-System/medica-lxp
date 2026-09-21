@@ -130,9 +130,17 @@ export interface IndexarRagJob {
  */
 export interface EcoEvaluacionJob {
   grupoId: string;
-  /** Acota a una actividad (entregas); si se omite, evalúa los casos del grupo. */
+  /**
+   * Acota las entregas a una LECCIÓN (modelo nuevo · mig 0023/0026). Es el anclaje
+   * preferente: la lección define tipo/rúbrica/reactivos (config).
+   */
+  leccionId?: string;
+  /**
+   * Acota a una actividad (modelo viejo, aún vivo). Compat con entregas previas sin
+   * `leccion_id`. Si ambos se omiten, evalúa todas las entregas del grupo.
+   */
   actividadId?: string;
-  /** Qué pre-analizar: entregas de una actividad o casos de bitácora del grupo. */
+  /** Qué pre-analizar: entregas de una lección/actividad o casos de bitácora del grupo. */
   modo: 'entregas' | 'casos';
 }
 

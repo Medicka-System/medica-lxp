@@ -20,6 +20,9 @@ import { EcoConfigService } from './config/eco-config.service';
 
 interface DispararBandejaBody {
   modo: 'entregas' | 'casos';
+  /** Anclaje preferente por lección (modelo nuevo · mig 0023/0026). */
+  leccionId?: string;
+  /** Anclaje por actividad (modelo viejo, aún vivo). */
   actividadId?: string;
 }
 interface ConfirmarBody {
@@ -59,6 +62,7 @@ export class AiController {
     const job: EcoEvaluacionJob = {
       grupoId,
       modo: body.modo,
+      leccionId: body.leccionId,
       actividadId: body.actividadId,
     };
     const jobId = await this.ai.encolarEvaluacionLote(job);
