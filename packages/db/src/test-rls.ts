@@ -180,6 +180,45 @@ async function main(): Promise<void> {
       `${num(policiesCora)} policies`,
     );
 
+    // ── 6) Notas del alumno (mig 0027): grant presente + aislamiento ──────
+    const leccionId =
+      (await sql<{ id: string }[]>`select id from lxp.lecciones limit 1`)[0]?.id ?? null;
+
+    // El grant base debe existir (fallo de 0020/0021): un SELECT no debe dar 500.
+    check(
+      'a1 SÍ puede SELECT notas (grant base presente)',
+      (await fueRechazada(() =>
+        como(sql, claimsA1, (tx) => tx`select 1 from lxp.notas`),
+      )) === false,
+    );
+
+    let a1CreaNota = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`insert into lxp.notas (alumno_id, leccion_id, tipo, contenido)
+                 values (${a1}, ${leccionId}, 'nota_libre', 'nota de prueba (rollback)')`;
+      });
+      a1CreaNota = true;
+    } catch {
+      a1CreaNota = false;
+    }
+    check('a1 SÍ puede INSERT su propia nota', a1CreaNota);
+
+    check(
+      'a1 NO puede INSERT una nota a nombre de a2',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.notas (alumno_id, leccion_id, tipo, contenido)
+             values (${a2}, ${leccionId}, 'nota_libre', 'ajena')`,
+        ),
+      ),
+    );
+
+    check(
+      'anon NO puede SELECT notas',
+      await fueRechazada(() => como(sql, claimsAnon, (tx) => tx`select 1 from lxp.notas`)),
+    );
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

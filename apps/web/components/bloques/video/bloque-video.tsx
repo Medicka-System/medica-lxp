@@ -15,7 +15,7 @@
  * proyecto (`--media-brand` = teal `--primary`, tipografía Inter); nada de skin genérico.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MediaPlayer,
   MediaProvider,
@@ -68,7 +68,16 @@ export type BloqueVideoProps = {
   modo?: 'ver' | 'editar';
   /** Cambia la lista de hitos (marcar / renombrar / borrar). Requerido para editar. */
   onCambioHitos?: (hitos: HitoVideo[]) => void;
+  /**
+   * Expone una API imperativa del reproductor al contenedor (saltar a un segundo,
+   * leer el tiempo actual) — la usa la lección de video para los MARCADORES de nota
+   * (§5A · mig 0027). Se llama una vez cuando el player está listo.
+   */
+  onApi?: (api: VideoApi) => void;
 };
+
+/** API imperativa que BloqueVideo expone a su contenedor (marcadores de nota). */
+export type VideoApi = { irA: (segundos: number) => void; tiempoActual: () => number };
 
 export function BloqueVideo({
   src,
@@ -79,6 +88,7 @@ export function BloqueVideo({
   hitos = [],
   modo = 'ver',
   onCambioHitos,
+  onApi,
 }: BloqueVideoProps) {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const editable = modo === 'editar' && typeof onCambioHitos === 'function';
@@ -97,6 +107,12 @@ export function BloqueVideo({
     p.currentTime = tiempo;
     void p.play?.();
   }
+
+  // Expone la API imperativa al contenedor (marcadores de nota · §5A). El ref del
+  // player es estable, así que basta con entregarla cuando cambia el callback.
+  useEffect(() => {
+    onApi?.({ irA, tiempoActual: () => playerRef.current?.currentTime ?? 0 });
+  }, [onApi]);
 
   if (!src) {
     return <PendienteMedia titulo={titulo} contexto={contexto} />;

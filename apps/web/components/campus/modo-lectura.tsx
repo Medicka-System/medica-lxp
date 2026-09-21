@@ -104,7 +104,7 @@ export function ModoLecturaProvider({ children }: { children: React.ReactNode })
         // shell queda en su navy por defecto). Los tokens viven en globals.css.
         data-tema-lectura={pintar ? tema : undefined}
         style={pintar ? ({ ['--lectura-fs']: `${fs}px` } as React.CSSProperties) : undefined}
-        className="min-h-dvh transition-colors duration-300 motion-reduce:transition-none"
+        className="min-h-dvh transition-colors duration-[750ms] motion-reduce:transition-none"
       >
         {children}
       </div>

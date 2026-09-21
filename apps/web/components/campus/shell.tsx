@@ -144,11 +144,11 @@ export function CampusShell({
   useEffect(() => setMasAbierto(false), [pathname]);
 
   return (
-    <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors duration-300 motion-reduce:transition-none">
+    <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors duration-[750ms] motion-reduce:transition-none">
       <div className="flex pt-[68px]">
         {/* ══ LATERAL ══ */}
         <aside
-          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] duration-300 ease-out motion-reduce:transition-none lg:flex ${
+          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] duration-[750ms] ease-out motion-reduce:transition-none lg:flex ${
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
@@ -200,7 +200,7 @@ export function CampusShell({
 
         {/* ══ COLUMNA PRINCIPAL ══ */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="fixed inset-x-0 top-0 z-30 flex h-[68px] items-center gap-3 border-b border-border bg-card px-4 sm:px-6 transition-colors duration-300 motion-reduce:transition-none">
+          <header className="fixed inset-x-0 top-0 z-30 flex h-[68px] items-center gap-3 border-b border-border bg-card px-4 sm:px-6 transition-colors duration-[750ms] motion-reduce:transition-none">
             <Link href="/inicio" className="flex shrink-0 items-center gap-3 lg:w-[240px]">
               <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-sidebar text-sidebar-foreground">
                 <LogoSimbolo className="h-[70%] w-[70%]" />

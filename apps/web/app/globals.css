@@ -125,18 +125,18 @@ a:hover {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 [data-tema-lectura] {
-  transition: background-color 300ms ease, color 300ms ease;
+  transition: background-color 750ms ease, color 750ms ease;
 }
 
 /* El modo lectura es GLOBAL: al teñir el shell entero, las superficies internas
    (main, header, aside, secciones y tarjetas de la lección) acompañan el cambio con
-   la misma transición para que no "salten". */
+   la misma transición para que no "salten". Suave/gradual (≈750ms). */
 [data-tema-lectura] main,
 [data-tema-lectura] header,
 [data-tema-lectura] aside,
 [data-tema-lectura] section,
 [data-tema-lectura] article {
-  transition: background-color 300ms ease, border-color 300ms ease, color 300ms ease;
+  transition: background-color 750ms ease, border-color 750ms ease, color 750ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -212,6 +212,17 @@ a:hover {
   line-height: 1.75;
   max-width: 66ch;
   text-wrap: pretty;
+}
+
+/* Subrayado de NOTAS (§5A · mig 0027): se pinta con la CSS Custom Highlight API
+   (sin mutar el DOM de ProseMirror). Ámbar translúcido que funciona en los tres
+   temas de lectura. */
+::highlight(nota-subrayado) {
+  background-color: rgba(240, 190, 70, 0.42);
+  color: inherit;
+}
+[data-tema-lectura='oscuro'] ::highlight(nota-subrayado) {
+  background-color: rgba(240, 200, 90, 0.3);
 }
 
 .trama {

@@ -3,6 +3,7 @@ import { getSesionAlumno } from '@/lib/session';
 import { getLeccion, getContenidoCurso } from '@/lib/campus/leccion-datos';
 import { getLeccionVideo } from '@/lib/campus/leccion-video-datos';
 import { getForoDeLeccion } from '@/lib/campus/foro-datos';
+import { getNotasLeccion } from '@/lib/campus/notas-datos';
 import { LectorLeccion } from './_components/lector-leccion';
 import { LeccionVideo } from './_components/leccion-video';
 import { ForoDiscusion } from '@/app/(campus)/foro/[actividadId]/_components/foro-discusion';
@@ -31,7 +32,10 @@ export default async function LeccionPage({
 
   // Modelo nuevo: lección tipo `video` → render propio (null si no es video).
   const video = await getLeccionVideo(alumno.userId, leccionId);
-  if (video) return <LeccionVideo leccion={video} />;
+  if (video) {
+    const notasVideo = await getNotasLeccion(alumno.userId, leccionId);
+    return <LeccionVideo leccion={video} notasIniciales={notasVideo} />;
+  }
 
   const leccion = await getLeccion(alumno.userId, leccionId);
   if (!leccion) notFound();
@@ -47,12 +51,11 @@ export default async function LeccionPage({
     }
   }
 
-  // Menú del curso (rail derecho · §5A): árbol módulos → lecciones con progreso.
-  const contenidoCurso = await getContenidoCurso(
-    alumno.userId,
-    leccion.contexto.programaId,
-    leccion.id,
-  );
+  // Menú del curso (rail derecho · §5A) + notas del alumno (mig 0027), en paralelo.
+  const [contenidoCurso, notas] = await Promise.all([
+    getContenidoCurso(alumno.userId, leccion.contexto.programaId, leccion.id),
+    getNotasLeccion(alumno.userId, leccion.id),
+  ]);
 
-  return <LectorLeccion leccion={leccion} contenidoCurso={contenidoCurso} />;
+  return <LectorLeccion leccion={leccion} contenidoCurso={contenidoCurso} notasIniciales={notas} />;
 }

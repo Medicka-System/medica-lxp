@@ -26,7 +26,10 @@ import {
   Type,
   X,
 } from 'lucide-react';
-import { BloqueVideo } from '@/components/bloques/video/bloque-video';
+import { BloqueVideo, type VideoApi } from '@/components/bloques/video/bloque-video';
+import { PanelNotas } from './panel-notas';
+import { useNotas } from './usar-notas';
+import type { Nota } from '@/lib/campus/notas-contrato';
 import type { LeccionVideo as LeccionVideoData } from '@/lib/campus/leccion-video-contrato';
 import {
   firmarReproduccionAlumno,
@@ -50,9 +53,12 @@ function esTema(v: string | null): v is Tema {
 
 export function LeccionVideo({
   leccion,
+  notasIniciales = [],
   preview = false,
 }: {
   leccion: LeccionVideoData;
+  /** Notas del alumno para esta lección (§5A · mig 0027). Vacío en preview. */
+  notasIniciales?: Nota[];
   /** Vista previa de staff (§5B): no registra progreso ni emite xAPI; navega por preview. */
   preview?: boolean;
 }) {
@@ -64,6 +70,15 @@ export function LeccionVideo({
   const [error, setError] = useState<string | null>(null);
   const [guardando, iniciar] = useTransition();
   const experimentado = useRef(false);
+
+  // ── NOTAS del alumno (§5A · mig 0027): marcadores de video + notas libres ──
+  const notasActivas = !preview;
+  const notasApi = useNotas(leccion.id, null, notasIniciales);
+  const apiRef = useRef<VideoApi | null>(null);
+  const guardarMomento = () => {
+    const seg = Math.floor(apiRef.current?.tiempoActual() ?? 0);
+    void notasApi.crear('marcador_video', '', { segundos: seg });
+  };
 
   // Recupera el tema de lectura guardado (comparte clave con la lectura inmersiva).
   useEffect(() => {
@@ -191,11 +206,29 @@ export function LeccionVideo({
               transcripcion={leccion.video.transcripcion}
               hitos={leccion.video.hitos}
               modo="ver"
+              onApi={(api) => {
+                apiRef.current = api;
+              }}
             />
             {avisoMedia && !src && (
               <p className="mt-2 text-[12px] text-muted-foreground">{avisoMedia}</p>
             )}
           </div>
+
+          {/* ── Notas del alumno (marcadores de video + notas libres · §5A) ── */}
+          {notasActivas && (
+            <div className="mt-6">
+              <PanelNotas
+                notas={notasApi.notas}
+                error={notasApi.error}
+                onAgregarLibre={(t) => notasApi.crear('nota_libre', t)}
+                onEditar={notasApi.editar}
+                onBorrar={notasApi.borrar}
+                onGuardarMomento={guardarMomento}
+                onSaltar={(s) => apiRef.current?.irA(s)}
+              />
+            </div>
+          )}
 
           {/* ══ Pie: completar + navegación ══ */}
           <div className="mt-10 border-t border-border pt-6">

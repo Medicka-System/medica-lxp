@@ -38,6 +38,11 @@ import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { MenuCurso } from './menu-curso';
+import { PanelNotas } from './panel-notas';
+import { BarraSeleccion } from './barra-seleccion';
+import { useNotas } from './usar-notas';
+import { anclaDeSeleccion, pintarSubrayados } from '@/lib/campus/notas-anclaje';
+import { esAnclaTexto, type AnclaTexto, type Nota } from '@/lib/campus/notas-contrato';
 import type { TipoPaquete } from '@/components/bloques/contratos';
 import { mono, focusRing } from '@/components/tokens';
 import {
@@ -72,11 +77,14 @@ const TEMAS: { id: TemaLectura; etiqueta: string; icono: typeof Sun }[] = [
 export function LectorLeccion({
   leccion,
   contenidoCurso = null,
+  notasIniciales = [],
   preview = false,
 }: {
   leccion: LeccionCompleta;
   /** Árbol del curso para el menú del rail derecho (null si no se pudo cargar). */
   contenidoCurso?: ContenidoCurso | null;
+  /** Notas del alumno para esta lección (§5A · mig 0027). Vacío en preview. */
+  notasIniciales?: Nota[];
   /**
    * Modo VISTA PREVIA para staff (§5B): mismo render que ve el alumno, pero navega
    * entre lecciones por la ruta de preview (que no exige `publicado`), no registra
@@ -158,6 +166,57 @@ export function LectorLeccion({
   const [error, setError] = useState<string | null>(null);
   const [guardando, iniciar] = useTransition();
 
+  // ── NOTAS del alumno (§5A · mig 0027) — deshabilitadas en preview del Studio ──
+  const notasApi = useNotas(leccion.id, leccion.contexto.moduloId, notasIniciales);
+  const notasActivas = !preview;
+  const contenidoRef = useRef<HTMLElement>(null);
+  const [seleccion, setSeleccion] = useState<{ x: number; y: number; ancla: AnclaTexto } | null>(null);
+
+  // Muestra la barra flotante al seleccionar texto dentro de un bloque anotable.
+  const alSeleccionar = () => {
+    if (!notasActivas) return;
+    const root = contenidoRef.current;
+    if (!root) return;
+    const res = anclaDeSeleccion(root);
+    if (res) setSeleccion({ x: res.rect.left + res.rect.width / 2, y: res.rect.top, ancla: res.ancla });
+    else setSeleccion(null);
+  };
+
+  // Oculta la barra al hacer scroll (posición fija sobre la selección).
+  useEffect(() => {
+    if (!seleccion) return;
+    const cerrar = () => setSeleccion(null);
+    window.addEventListener('scroll', cerrar, { passive: true });
+    return () => window.removeEventListener('scroll', cerrar);
+  }, [seleccion]);
+
+  const guardarComoNota = async () => {
+    if (!seleccion) return;
+    await notasApi.crear('texto_seleccionado', '', seleccion.ancla);
+    setSeleccion(null);
+    window.getSelection()?.removeAllRanges();
+  };
+  const subrayar = async () => {
+    if (!seleccion) return;
+    await notasApi.crear('subrayado', '', seleccion.ancla);
+    setSeleccion(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  // Pinta los subrayados guardados (CSS Highlight API · sin mutar el DOM). Reintenta
+  // unas veces porque ContenidoRico (ProseMirror) monta su contenido de forma diferida.
+  useEffect(() => {
+    if (!notasActivas) return;
+    const root = contenidoRef.current;
+    if (!root) return;
+    const subs = notasApi.notas
+      .filter((n) => n.tipo === 'subrayado' && esAnclaTexto(n.ancla))
+      .map((n) => n.ancla as AnclaTexto);
+    const pintar = () => pintarSubrayados(root, subs);
+    const ids = [120, 500, 1200].map((ms) => window.setTimeout(pintar, ms));
+    return () => ids.forEach((id) => window.clearTimeout(id));
+  }, [notasApi.notas, notasActivas, leccion.id]);
+
   const contexto = `${leccion.contexto.programa} · ${leccion.contexto.modulo}`;
   const interactiva = esLeccionInteractiva(leccion.tipo);
   // La autoevaluación se completa al ENVIAR el examen (motor), no con el botón genérico.
@@ -184,7 +243,7 @@ export function LectorLeccion({
   const cuerpo = (
     <>
       {/* ══ BARRA DE LECCIÓN — debajo del header, adopta el tono del tema ══ */}
-      <div className="sticky top-[68px] z-20 border-b border-border bg-card transition-colors duration-300 motion-reduce:transition-none">
+      <div className="sticky top-[68px] z-20 border-b border-border bg-card transition-colors duration-[750ms] motion-reduce:transition-none">
         <div className="mx-auto flex h-[52px] w-full max-w-[1240px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Link
             href={preview ? `/studio/programas/${leccion.contexto.programaId}` : `/cursos`}
@@ -311,7 +370,7 @@ export function LectorLeccion({
       <div className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12">
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_324px]">
           {/* ── Contenido (medida de lectura) ── */}
-          <article className="min-w-0">
+          <article ref={contenidoRef} onMouseUp={alSeleccionar} className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">
               {leccion.contexto.modulo}
             </p>
@@ -344,7 +403,7 @@ export function LectorLeccion({
               ) : (
                 <div className="mt-8 space-y-10">
                   {leccion.bloquesTeoria.map((b) => (
-                    <section key={b.id}>
+                    <section key={b.id} data-bloque-id={b.id}>
                       <BloqueTeoriaLector bloque={b} />
                     </section>
                   ))}
@@ -426,14 +485,26 @@ export function LectorLeccion({
             </div>
           </article>
 
-          {/* ── Menú del curso (rail derecho) ── */}
-          {contenidoCurso && (
-            <aside className="hidden lg:sticky lg:top-[136px] lg:block">
-              <MenuCurso contenido={contenidoCurso} baseLeccion={baseLeccion} />
+          {/* ── Rail derecho: menú del curso + notas del alumno ── */}
+          {(contenidoCurso || notasActivas) && (
+            <aside className="flex flex-col gap-5 lg:sticky lg:top-[136px]">
+              {contenidoCurso && <MenuCurso contenido={contenidoCurso} baseLeccion={baseLeccion} />}
+              {notasActivas && (
+                <PanelNotas
+                  notas={notasApi.notas}
+                  error={notasApi.error}
+                  onAgregarLibre={(t) => notasApi.crear('nota_libre', t)}
+                  onEditar={notasApi.editar}
+                  onBorrar={notasApi.borrar}
+                />
+              )}
             </aside>
           )}
         </div>
       </div>
+
+      {/* Barra flotante de selección (guardar como nota / subrayar) */}
+      {seleccion && <BarraSeleccion x={seleccion.x} y={seleccion.y} onGuardar={guardarComoNota} onSubrayar={subrayar} />}
     </>
   );
 
