@@ -52,7 +52,7 @@ export async function crearNota(input: NuevaNota): Promise<CrearResultado> {
           ${input.moduloId ?? null},
           ${input.tipo}::lxp.nota_tipo,
           ${contenido},
-          ${JSON.stringify(ancla)}::jsonb
+          ${sql.json(ancla as Parameters<typeof sql.json>[0])}
         )
         returning id, tipo, contenido, ancla, created_at`;
       const f = filas[0]!;

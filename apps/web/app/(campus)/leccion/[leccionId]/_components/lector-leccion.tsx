@@ -203,6 +203,15 @@ export function LectorLeccion({
     window.getSelection()?.removeAllRanges();
   };
 
+  // Lleva al texto resaltado de un subrayado (click en la nota · §5A).
+  const irASubrayado = (n: Nota) => {
+    if (!esAnclaTexto(n.ancla)) return;
+    const bloque = contenidoRef.current?.querySelector<HTMLElement>(
+      `[data-bloque-id="${CSS.escape(n.ancla.bloqueId)}"]`,
+    );
+    bloque?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   // Pinta los subrayados guardados (CSS Highlight API · sin mutar el DOM). Reintenta
   // unas veces porque ContenidoRico (ProseMirror) monta su contenido de forma diferida.
   useEffect(() => {
@@ -496,6 +505,7 @@ export function LectorLeccion({
                   onAgregarLibre={(t) => notasApi.crear('nota_libre', t)}
                   onEditar={notasApi.editar}
                   onBorrar={notasApi.borrar}
+                  onIrASubrayado={irASubrayado}
                 />
               )}
             </aside>
