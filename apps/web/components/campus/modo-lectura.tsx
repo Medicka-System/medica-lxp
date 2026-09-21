@@ -38,10 +38,11 @@ export type ModoLecturaCtx = {
   /** Ajusta el tamaño de letra con un delta (respeta los límites). */
   ajustarFs: (delta: number) => void;
   /**
-   * Enciende el modo lectura. Usa `inicial` (sepia para lecturas) solo si el alumno
-   * aún no ha elegido un tema — su preferencia manda entre lecciones.
+   * Enciende el modo lectura con `inicial` como tema de entrada. Si `forzar`, lo
+   * aplica siempre (teoría/autoevaluación entran SIEMPRE en sepia); si no, solo cuando
+   * el alumno aún no ha elegido un tema. El cambio manual posterior manda igual.
    */
-  activar: (inicial: TemaLectura) => void;
+  activar: (inicial: TemaLectura, forzar?: boolean) => void;
   desactivar: () => void;
 };
 
@@ -83,9 +84,11 @@ export function ModoLecturaProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const activar = useCallback(
-    (inicial: TemaLectura) => {
+    (inicial: TemaLectura, forzar = false) => {
       setActivo(true);
-      if (localStorage.getItem(CLAVE_TEMA) == null) setTema(inicial);
+      // Las lecturas (teoría/autoeval) FUERZAN sepia al entrar; los demás tipos solo
+      // fijan el inicial si el alumno todavía no eligió tema.
+      if (forzar || localStorage.getItem(CLAVE_TEMA) == null) setTema(inicial);
     },
     [setTema],
   );

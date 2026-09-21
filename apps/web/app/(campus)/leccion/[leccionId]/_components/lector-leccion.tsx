@@ -125,7 +125,9 @@ export function LectorLeccion({
   useEffect(() => {
     const c = ctxRef.current;
     if (c) {
-      c.activar(temaInicial);
+      // Teoría/autoeval fuerzan sepia al entrar (esLectura); el resto respeta la
+      // preferencia guardada. El alumno puede cambiarlo a mano después.
+      c.activar(temaInicial, esLectura);
       return () => ctxRef.current?.desactivar();
     }
     // Preview: sin provider, recupera las preferencias locales.
