@@ -25,6 +25,19 @@
  */
 
 import type { TipoLeccion } from '@/lib/studio/leccion-tipos';
+import type { TipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
+
+/**
+ * Un bloque de teoría tal como lo VE el alumno (modelo NUEVO · `lxp.bloques` · mig
+ * 0023): sub-tipo + su `config` crudo (jsonb). El render (`BloqueTeoriaLector`) lee de
+ * `config` lo que cada sub-tipo necesita, de forma defensiva. Fuente de verdad de los
+ * sub-tipos: `teoria/tipos-bloque.ts` (módulo puro).
+ */
+export type BloqueTeoriaVista = {
+  id: string;
+  tipoBloque: TipoBloqueTeoria;
+  config: Record<string, unknown>;
+};
 
 /** Tipo de bloque de contenido (enum lxp.contenido_tipo · 0002). */
 export type ContenidoTipo = 'video' | 'h5p' | 'scorm' | 'xapi' | 'texto' | 'quiz';
@@ -124,7 +137,13 @@ export type LeccionCompleta = {
    */
   contenidoId: string | null;
   contexto: LeccionContexto;
+  /** Bloques del modelo VIEJO (lxp.contenidos) — para tipos aún no migrados al nuevo. */
   bloques: BloqueContenido[];
+  /**
+   * Bloques de TEORÍA del modelo NUEVO (lxp.bloques · mig 0023), ordenados. Presente
+   * solo cuando `tipo === 'teoria'`; es lo que el lector renderiza para esas lecciones.
+   */
+  bloquesTeoria: BloqueTeoriaVista[];
   /** Presente solo cuando `tipo === 'autoevaluacion'` (se lee de lecciones.config). */
   autoeval: AutoevalAlumno | null;
   anterior: LeccionVecina | null;

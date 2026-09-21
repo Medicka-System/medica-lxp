@@ -30,6 +30,7 @@ import {
   X,
 } from 'lucide-react';
 import { ContenidoRico } from '@/components/editor-rico';
+import { BloqueTeoriaLector } from './bloque-teoria-lector';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
@@ -240,6 +241,22 @@ export function LectorLeccion({
                 preview={preview}
               />
             </div>
+          ) : leccion.tipo === 'teoria' ? (
+            // Teoría (modelo NUEVO · mig 0023): renderiza los bloques ordenables de
+            // `lxp.bloques` (los que armó el diseñador), NO los de `lxp.contenidos`.
+            leccion.bloquesTeoria.length === 0 ? (
+              <p className="mt-10 rounded-xl border border-dashed border-border px-5 py-10 text-center text-[14px] text-muted-foreground">
+                Esta lección aún no tiene contenido publicado.
+              </p>
+            ) : (
+              <div className="mt-8 space-y-10">
+                {leccion.bloquesTeoria.map((b) => (
+                  <section key={b.id}>
+                    <BloqueTeoriaLector bloque={b} />
+                  </section>
+                ))}
+              </div>
+            )
           ) : leccion.bloques.length === 0 ? (
             <p className="mt-10 rounded-xl border border-dashed border-border px-5 py-10 text-center text-[14px] text-muted-foreground">
               Esta lección aún no tiene contenido publicado.

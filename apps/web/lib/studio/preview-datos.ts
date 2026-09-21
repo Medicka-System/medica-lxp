@@ -1,11 +1,13 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import { comoTipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
 import { autoevalDeConfig } from '@/lib/campus/leccion-datos';
 import {
   esLeccionInteractiva,
   type AutoevalAlumno,
   type BloqueContenido,
+  type BloqueTeoriaVista,
   type ConfigLeccion,
   type ContenidoTipo,
   type LeccionCompleta,
@@ -103,6 +105,22 @@ export async function getLeccionPreview(
         ? autoevalDeConfig(leccion.config, false)
         : null;
 
+    // Teoría (modelo NUEVO · mig 0023): bloques ordenables de `lxp.bloques`.
+    let bloquesTeoria: BloqueTeoriaVista[] = [];
+    if (tipo === 'teoria') {
+      const filas = await sql<
+        { id: string; tipo_bloque: string; config: Record<string, unknown> | null }[]
+      >`
+        select id, tipo_bloque, config
+        from lxp.bloques
+        where leccion_id = ${leccionId}
+        order by orden, created_at`;
+      bloquesTeoria = filas.flatMap((f) => {
+        const tb = comoTipoBloqueTeoria(f.tipo_bloque);
+        return tb ? [{ id: f.id, tipoBloque: tb, config: f.config ?? {} }] : [];
+      });
+    }
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
@@ -117,6 +135,7 @@ export async function getLeccionPreview(
         modulo: leccion.modulo,
       },
       bloques,
+      bloquesTeoria,
       autoeval,
       anterior,
       siguiente,

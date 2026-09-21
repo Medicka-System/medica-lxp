@@ -1,10 +1,12 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import { comoTipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
 import {
   esLeccionInteractiva,
   type AutoevalAlumno,
   type BloqueContenido,
+  type BloqueTeoriaVista,
   type ConfigLeccion,
   type ContenidoTipo,
   type LeccionCompleta,
@@ -173,6 +175,23 @@ export async function getLeccion(
       autoeval = autoevalDeConfig(leccion.config, autoevalRespondida);
     }
 
+    // Teoría (modelo NUEVO · mig 0023): sus bloques ordenables viven en `lxp.bloques`
+    // (NO en `lxp.contenidos`). El lector los renderiza con BloqueTeoriaLector.
+    let bloquesTeoria: BloqueTeoriaVista[] = [];
+    if (tipo === 'teoria') {
+      const filas = await sql<
+        { id: string; tipo_bloque: string; config: Record<string, unknown> | null }[]
+      >`
+        select id, tipo_bloque, config
+        from lxp.bloques
+        where leccion_id = ${leccionId}
+        order by orden, created_at`;
+      bloquesTeoria = filas.flatMap((f) => {
+        const tb = comoTipoBloqueTeoria(f.tipo_bloque);
+        return tb ? [{ id: f.id, tipoBloque: tb, config: f.config ?? {} }] : [];
+      });
+    }
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
@@ -187,6 +206,7 @@ export async function getLeccion(
         modulo: leccion.modulo,
       },
       bloques,
+      bloquesTeoria,
       autoeval,
       anterior,
       siguiente,

@@ -2,8 +2,10 @@ import { notFound, redirect } from 'next/navigation';
 import { getSesionAlumno } from '@/lib/session';
 import { getLeccion } from '@/lib/campus/leccion-datos';
 import { getLeccionVideo } from '@/lib/campus/leccion-video-datos';
+import { getForoDeLeccion } from '@/lib/campus/foro-datos';
 import { LectorLeccion } from './_components/lector-leccion';
 import { LeccionVideo } from './_components/leccion-video';
+import { ForoDiscusion } from '@/app/(campus)/foro/[actividadId]/_components/foro-discusion';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +15,11 @@ export const dynamic = 'force-dynamic';
  *   · `video` → render propio (reproductor + transcripción + hitos), AISLADO aquí.
  *   · `tarea` → pantalla propia de render + entrega: se redirige a `/tarea/[id]` (así el
  *     recorrido anterior/siguiente llega a la tarea sin ver un lector vacío).
+ *   · `foro` → la discusión del grupo se muestra DENTRO de la lección (misma que la ruta
+ *     `/foro/[actividadId]`), honrando la config del diseñador (consigna/ventana/reglas).
  *   · el resto → lector inmersivo (claro/sepia/oscuro), que a su vez enruta por `tipo`:
- *     los interactivos (h5p/xapi) se reproducen desde `lecciones.config` y el resto
- *     muestra sus bloques.
+ *     `teoria` renderiza sus bloques de `lxp.bloques` (modelo nuevo); los interactivos
+ *     (h5p/xapi) se reproducen desde `lecciones.config`.
  */
 export default async function LeccionPage({
   params,
@@ -32,5 +36,16 @@ export default async function LeccionPage({
   const leccion = await getLeccion(alumno.userId, leccionId);
   if (!leccion) notFound();
   if (leccion.tipo === 'tarea') redirect(`/tarea/${leccion.id}`);
+
+  // Foro: la discusión (actividad de respaldo · foro_mensajes) se muestra dentro de la
+  // lección, honrando la config del diseñador (misma lógica que /foro/[actividadId]).
+  if (leccion.tipo === 'foro') {
+    const foro = await getForoDeLeccion(alumno.userId, alumno.nombre, leccion.id);
+    if (foro) {
+      const puedePublicar = alumno.accesoActivo && foro.grupoId !== null && foro.ventana.abierto;
+      return <ForoDiscusion data={foro} puedePublicar={puedePublicar} />;
+    }
+  }
+
   return <LectorLeccion leccion={leccion} />;
 }

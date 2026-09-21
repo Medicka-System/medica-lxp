@@ -59,6 +59,28 @@ export type ForoData = {
   mensajes: MensajeForo[];
 };
 
+/**
+ * Foro DENTRO de la lección (§5C · foro-en-lección): resuelve la actividad de respaldo
+ * (tipo foro) de una lección tipo `foro` y delega en `getForo`. Así el alumno ve la
+ * MISMA discusión desde la lección, sin saltar a la ruta `/foro/[actividadId]`.
+ */
+export async function getForoDeLeccion(
+  userId: string,
+  nombre: string,
+  leccionId: string,
+): Promise<ForoData | null> {
+  const actividadId = await comoAlumno(userId, async (sql) => {
+    const r = await sql<{ id: string }[]>`
+      select id from lxp.actividades
+      where leccion_id = ${leccionId} and tipo = 'foro'
+      order by orden, created_at
+      limit 1`;
+    return r[0]?.id ?? null;
+  });
+  if (!actividadId) return null;
+  return getForo(userId, nombre, actividadId);
+}
+
 export async function getForo(
   userId: string,
   nombre: string,

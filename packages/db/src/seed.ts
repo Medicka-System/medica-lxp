@@ -210,19 +210,20 @@ async function seed(sql: Sql): Promise<void> {
   });
   await sql`
     insert into lxp.bloques (leccion_id, orden, tipo_bloque, config) values
-      (${lTeoria}, 1, 'parrafo', ${sql.json({
+      (${lTeoria}, 1, 'texto', ${sql.json({
         html: '<h2>Formación de la imagen</h2><p>El ultrasonido se genera por el <strong>efecto piezoeléctrico</strong>: el transductor emite pulsos y recibe los ecos reflejados en las interfaces de distinta impedancia acústica.</p>',
       })}),
       (${lTeoria}, 2, 'imagen', ${sql.json({
-        url: 'https://placehold.co/800x450?text=Transductor+lineal',
+        src: 'https://placehold.co/800x450?text=Transductor+lineal',
         alt: 'Esquema de un transductor lineal',
         pie: 'Figura 1. Emisión y recepción del pulso.',
       })}),
       (${lTeoria}, 3, 'html', ${sql.json({
         html: '<blockquote>La <em>impedancia acústica</em> (Z) es el producto de la densidad del medio por la velocidad del sonido.</blockquote>',
       })}),
-      (${lTeoria}, 4, 'enlace', ${sql.json({
+      (${lTeoria}, 4, 'link', ${sql.json({
         url: 'https://www.pocus101.com/', titulo: 'POCUS 101 — recurso externo',
+        descripcion: 'Guía externa de POCUS para ampliar.',
       })})`;
 
   // ── (2) VIDEO → config (ref + transcripción + highlights) ───────────────
