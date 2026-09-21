@@ -2,17 +2,21 @@ import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 
 /**
- * Datos de la Videoteca del alumno (Sprint 6).
+ * Datos de la Videoteca del alumno (Sprint 6 · re-cableado Fase 0).
  *
- * REAL (web → Supabase con RLS): los **videos instruccionales** son
- * `lxp.contenidos` con `tipo = 'video'`, con su contexto de programa/módulo/lección.
- * La lectura corre como el alumno (`comoAlumno`), respetando RLS (`contenidos_read`).
+ * REAL (web → Supabase con RLS): los **videos instruccionales** salen de DOS fuentes,
+ * unificadas:
+ *   · Modelo NUEVO (mig 0023): lecciones con `tipo = 'video'`; su referencia en object
+ *     storage vive en `lecciones.config->>'ref'`. Es la fuente preferente.
+ *   · Modelo VIEJO (aún vivo): `lxp.contenidos` con `tipo = 'video'` (contenido previo).
+ * La lectura corre como el alumno (`comoAlumno`), respetando RLS (`lecciones` y
+ * `contenidos` son de lectura authenticated).
  *
  * PENDIENTE DE API (contratos en `../_components/reproductor.tsx`):
  *  - La **reproducción** necesita una URL firmada del servicio de media (`apps/api`);
  *    aquí solo viaja `recursoRef` (referencia en object storage).
- *  - Las **grabaciones de clases** (Zoom → `ingesta-grabacion-zoom`) aún no tienen
- *    tabla propia; se muestran como sección pendiente en la página.
+ *  - Las **grabaciones de clases** (Zoom → `ingesta-grabacion-zoom`) viven en su propia
+ *    tabla `lxp.videoteca` (mig 0017); su galería se integra por separado (PENDIENTE).
  *  - El **scoping por inscripción** (qué programas ve cada alumno) vive en CORA y se
  *    endurece en el Sprint 11; hoy RLS permite leer el catálogo publicado.
  */
@@ -55,15 +59,28 @@ export async function getVideoteca(userId: string): Promise<VideotecaData> {
         programa: string;
       }[]
     >`
-      select c.id, c.titulo, c.tipo, c.recurso_ref, c.created_at,
+      -- Modelo NUEVO: lecciones tipo 'video' (ref en config->>'ref').
+      select l.id, l.nombre as titulo, 'video'::text as tipo,
+             nullif(l.config->>'ref', '') as recurso_ref, l.created_at,
              l.nombre as leccion, m.nombre as modulo,
-             p.id as programa_id, p.nombre as programa
+             p.id as programa_id, p.nombre as programa,
+             m.orden as m_orden, l.orden as l_orden, 0 as c_orden
+      from lxp.lecciones l
+      join lxp.modulos   m on m.id = l.modulo_id
+      join lxp.programas p on p.id = m.programa_id
+      where l.tipo = 'video'
+      union all
+      -- Modelo VIEJO: contenidos tipo 'video' (aún vivo).
+      select c.id, c.titulo, c.tipo::text as tipo, c.recurso_ref, c.created_at,
+             l.nombre as leccion, m.nombre as modulo,
+             p.id as programa_id, p.nombre as programa,
+             m.orden as m_orden, l.orden as l_orden, c.orden as c_orden
       from lxp.contenidos c
       join lxp.lecciones l on l.id = c.leccion_id
       join lxp.modulos   m on m.id = l.modulo_id
       join lxp.programas p on p.id = m.programa_id
       where c.tipo = 'video'
-      order by p.nombre asc, m.orden asc, l.orden asc, c.orden asc`;
+      order by programa asc, m_orden asc, l_orden asc, c_orden asc`;
 
     const videos: VideoInstruccional[] = rows.map((r) => ({
       id: r.id,
