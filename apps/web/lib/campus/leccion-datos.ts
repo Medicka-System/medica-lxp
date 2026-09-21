@@ -1,10 +1,13 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
-import type {
-  BloqueContenido,
-  ContenidoTipo,
-  LeccionCompleta,
-  LeccionVecina,
+import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import {
+  esLeccionInteractiva,
+  type BloqueContenido,
+  type ConfigLeccion,
+  type ContenidoTipo,
+  type LeccionCompleta,
+  type LeccionVecina,
 } from './leccion-contrato';
 
 /**
@@ -12,6 +15,11 @@ import type {
  * lee lxp.contenidos/lecciones/modulos/programas (read = true) y solo el progreso
  * propio (reproduccion_progreso). Sin lógica de dominio (§2). Ver leccion-contrato
  * para el reparto REAL vs PENDIENTE (media/H5P/paquetes/xAPI).
+ *
+ * Modelo NUEVO (mig 0023): la lección tiene un `tipo`; los tipos interactivos
+ * (h5p/xapi) guardan su contenido en `lecciones.config` (contentId / paquete). El
+ * render del alumno enruta por `tipo`: los interactivos reproducen desde `config`; el
+ * resto sigue mostrando los bloques de `lxp.contenidos` (modelo viejo, aún vivo).
  */
 export async function getLeccion(
   userId: string,
@@ -23,6 +31,8 @@ export async function getLeccion(
         id: string;
         nombre: string;
         descripcion: string | null;
+        tipo: string;
+        config: Record<string, unknown> | null;
         modulo_id: string;
         modulo: string;
         programa_id: string;
@@ -30,7 +40,7 @@ export async function getLeccion(
       }[]
     >`
       select
-        l.id, l.nombre, l.descripcion,
+        l.id, l.nombre, l.descripcion, l.tipo::text as tipo, l.config,
         m.id as modulo_id, m.nombre as modulo,
         pr.id as programa_id, pr.nombre as programa
       from lxp.lecciones l
@@ -83,10 +93,21 @@ export async function getLeccion(
       completado: c.completado,
     }));
 
+    // Modelo NUEVO: tipo + config. Para h5p/xapi el contenido se reproduce desde la
+    // config; la fila `lxp.contenidos` compat (que la ingesta crea) es solo el ancla
+    // de progreso (su uuid lo exige POST /players/progreso → LRS).
+    const tipo = comoTipoLeccion(leccion.tipo);
+    const config = (leccion.config ?? {}) as ConfigLeccion;
+    const interactivo = esLeccionInteractiva(tipo);
+    const compat = interactivo ? contenidos.find((c) => c.tipo === tipo) ?? null : null;
+
     return {
       id: leccion.id,
       nombre: leccion.nombre,
       descripcion: leccion.descripcion,
+      tipo,
+      config,
+      contenidoId: compat?.id ?? null,
       contexto: {
         programaId: leccion.programa_id,
         programa: leccion.programa,
@@ -96,7 +117,9 @@ export async function getLeccion(
       bloques,
       anterior,
       siguiente,
-      completada: bloques.length > 0 && bloques.every((b) => b.completado),
+      completada: interactivo
+        ? (compat?.completado ?? false)
+        : bloques.length > 0 && bloques.every((b) => b.completado),
     };
   });
 }

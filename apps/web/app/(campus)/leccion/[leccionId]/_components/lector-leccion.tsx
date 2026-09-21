@@ -36,7 +36,10 @@ import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import type { TipoPaquete } from '@/components/bloques/contratos';
 import { mono } from '@/components/tokens';
 import { marcarLeccionCompletada } from '@/lib/campus/leccion-acciones';
+import { reportarProgresoInteractivo } from '@/lib/campus/players-acciones';
+import { LeccionInteractiva } from './leccion-interactiva';
 import {
+  esLeccionInteractiva,
   TIPO_LABEL,
   type BloqueContenido,
   type LeccionCompleta,
@@ -94,11 +97,21 @@ export function LectorLeccion({
   useEffect(() => localStorage.setItem(CLAVE_FS, String(fs)), [fs]);
 
   const contexto = `${leccion.contexto.programa} · ${leccion.contexto.modulo}`;
+  const interactiva = esLeccionInteractiva(leccion.tipo);
 
   const marcar = () => {
     setError(null);
     iniciar(async () => {
-      const r = await marcarLeccionCompletada(leccion.id);
+      // Las lecciones interactivas (h5p/xapi) anclan el progreso al LRS por el dominio
+      // (POST /players/progreso); el resto persiste el avance por CRUD directo (§2/§7).
+      const r = interactiva
+        ? await reportarProgresoInteractivo({
+            leccionId: leccion.id,
+            contenidoId: leccion.contenidoId,
+            completado: true,
+            titulo: leccion.nombre,
+          })
+        : await marcarLeccionCompletada(leccion.id);
       if (r.ok) setCompletada(true);
       else setError(r.error);
     });
@@ -204,7 +217,17 @@ export function LectorLeccion({
 
           <div aria-hidden className="mt-8 h-px w-full bg-border" />
 
-          {leccion.bloques.length === 0 ? (
+          {interactiva ? (
+            // Modelo NUEVO: la lección ES un interactivo H5P / paquete xAPI; se reproduce
+            // desde `lecciones.config` y reporta al LRS (§5C · §7).
+            <div className="mt-8">
+              <LeccionInteractiva
+                leccion={leccion}
+                preview={preview}
+                onCompletado={() => setCompletada(true)}
+              />
+            </div>
+          ) : leccion.bloques.length === 0 ? (
             <p className="mt-10 rounded-xl border border-dashed border-border px-5 py-10 text-center text-[14px] text-muted-foreground">
               Esta lección aún no tiene contenido publicado.
             </p>

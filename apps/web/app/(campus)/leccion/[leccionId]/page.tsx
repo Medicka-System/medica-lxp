@@ -9,10 +9,10 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Lección / Lectura (§ Sprint 8, §5A). Enruta por el TIPO de lección del modelo nuevo
- * (mig 0023): una lección tipo `video` se sirve con su render propio (reproductor +
- * transcripción + hitos); el resto de tipos cae al lector inmersivo genérico que monta
- * lxp.contenidos con RLS (comoAlumno). El dispatch mantiene el video AISLADO: no toca
- * `getLeccion` ni el render de los demás tipos.
+ * (mig 0023). Una lección tipo `video` se sirve con su render propio (reproductor +
+ * transcripción + hitos) AISLADO aquí en el page; el resto cae al lector inmersivo
+ * (modo lectura claro/sepia/oscuro), que a su vez enruta por `tipo`: los interactivos
+ * (h5p/xapi) se reproducen desde `lecciones.config` y el resto muestra sus bloques.
  */
 export default async function LeccionPage({
   params,

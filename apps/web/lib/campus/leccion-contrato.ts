@@ -24,6 +24,8 @@
  *     la emisión xAPI la hace el dominio (contrato: encolar statement por contenido).
  */
 
+import type { TipoLeccion } from '@/lib/studio/leccion-tipos';
+
 /** Tipo de bloque de contenido (enum lxp.contenido_tipo · 0002). */
 export type ContenidoTipo = 'video' | 'h5p' | 'scorm' | 'xapi' | 'texto' | 'quiz';
 
@@ -51,11 +53,38 @@ export type LeccionContexto = {
   modulo: string;
 };
 
+/**
+ * Config de una lección de tipo interactivo (modelo NUEVO · mig 0023, §5C). La FORMA
+ * la define el editor de cada tipo; aquí se leen los punteros que el render del alumno
+ * necesita:
+ *   · h5p  → { contentId }                         (H5P server self-host · §7)
+ *   · xapi → { contenidoId, tipo, titulo, entryPoint? } | { paqueteRef, tipo, titulo }
+ */
+export type ConfigLeccion = {
+  contentId?: string;
+  contenidoId?: string;
+  paqueteRef?: string;
+  tipo?: string;
+  titulo?: string;
+  entryPoint?: string | null;
+};
+
 /** Todo lo que la pantalla de lección necesita. */
 export type LeccionCompleta = {
   id: string;
   nombre: string;
   descripcion: string | null;
+  /** Tipo de la lección (modelo NUEVO · mig 0023). Enruta el render del alumno. */
+  tipo: TipoLeccion;
+  /** Config del tipo interactivo (h5p/xapi · mig 0023). `{}` para tipos de bloques. */
+  config: ConfigLeccion;
+  /**
+   * Ancla de progreso para las lecciones interactivas (h5p/xapi): id de la fila
+   * `lxp.contenidos` compat que la ingesta crea (uuid · FK de reproduccion_progreso).
+   * El player nuevo reporta al LRS contra este id (POST /players/progreso). `null` si
+   * la lección aún no tiene contenido ingerido.
+   */
+  contenidoId: string | null;
   contexto: LeccionContexto;
   bloques: BloqueContenido[];
   anterior: LeccionVecina | null;
@@ -63,6 +92,11 @@ export type LeccionCompleta = {
   /** Todos los bloques con progreso están completos (o no hay bloques). */
   completada: boolean;
 };
+
+/** Las lecciones cuyo contenido se reproduce (H5P / paquete xAPI · §5C · §7). */
+export function esLeccionInteractiva(tipo: TipoLeccion): tipo is 'h5p' | 'xapi' {
+  return tipo === 'h5p' || tipo === 'xapi';
+}
 
 /** Rótulos legibles de cada tipo de bloque. */
 export const TIPO_LABEL: Record<ContenidoTipo, string> = {
