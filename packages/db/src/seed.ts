@@ -230,8 +230,13 @@ async function seed(sql: Sql): Promise<void> {
   await crearLeccion({
     moduloId: m1.id, nombre: 'Artefactos en modo B', orden: 2, horas: 2, tipo: 'video',
     config: {
+      // Enlace directo (demo reproducible sin subir a MinIO · soportado por el editor
+      // de video y el render del alumno). En producción el diseñador sube el archivo
+      // (videotecaId, URL firmada) o pega su propio enlace (Stream / CDN).
+      url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
       ref: 'demo/videos/artefactos-modo-b.mp4',
       titulo: 'Artefactos en modo B',
+      estado: 'listo',
       transcripcion:
         'En esta clase revisamos los artefactos más comunes: sombra acústica, refuerzo posterior y reverberación (colas de cometa)...',
       highlights: [
