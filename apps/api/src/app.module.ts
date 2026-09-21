@@ -23,6 +23,7 @@ import { RubricasModule } from './rubricas/rubricas.module';
 import { ReactivosModule } from './reactivos/reactivos.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { AutoevaluacionModule } from './autoevaluacion/autoevaluacion.module';
+import { EntregasModule } from './entregas/entregas.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { AutoevaluacionModule } from './autoevaluacion/autoevaluacion.module';
     ReactivosModule,
     NotificacionesModule,
     AutoevaluacionModule,
+    EntregasModule,
   ],
 })
 export class AppModule {}

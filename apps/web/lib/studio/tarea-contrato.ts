@@ -18,6 +18,14 @@ export type TareaConfig = {
   valor?: number;
   /** Formato de entrega esperado. */
   entrega?: 'archivo' | 'texto' | 'ambos';
+  /**
+   * Actividad de respaldo (modelo viejo, aún vivo) que ancla las `entregas`
+   * (`entregas.actividad_id` es NOT NULL hasta fase 3). Lo escribe `guardarTarea`
+   * server-side de forma idempotente (mismo patrón que el foro · §5C); el cliente no
+   * lo edita. Puede faltar en tareas legacy: el motor del alumno lo resuelve leyendo
+   * la actividad `tarea` de respaldo de la lección.
+   */
+  actividadId?: string | null;
 };
 
 export const ENTREGA_ROTULO: Record<NonNullable<TareaConfig['entrega']>, string> = {
@@ -45,5 +53,6 @@ export function comoTareaConfig(raw: Record<string, unknown> | null | undefined)
     lineamientos: typeof c.lineamientos === 'string' ? c.lineamientos : '',
     valor: typeof c.valor === 'number' && c.valor >= 0 ? c.valor : undefined,
     entrega: entrega === 'archivo' || entrega === 'texto' || entrega === 'ambos' ? entrega : 'archivo',
+    actividadId: typeof c.actividadId === 'string' && c.actividadId ? c.actividadId : null,
   };
 }
