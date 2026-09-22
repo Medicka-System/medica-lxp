@@ -17,8 +17,9 @@
  * del contenedor: solo tokens (§5A).
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   CalendarDays,
@@ -29,7 +30,6 @@ import {
   Flag,
   ListOrdered,
   Loader2,
-  Play,
   RotateCcw,
   Send,
   Shield,
@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import type { ResultadoReactivo } from '@campus/shared';
 import { card, focusRing, kicker, mono } from '@/components/tokens';
+import { iniciarAutoevaluacion } from '@/lib/campus/autoeval-sesion-acciones';
 import {
   calificarAutoevaluacion,
   type ResultadoAutoevalAlumno,
@@ -57,6 +58,12 @@ function fmtFecha(iso: string | null): string {
   if (!iso) return '';
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${Number(m[3])} ${MESES[Number(m[2]) - 1] ?? ''}` : iso;
+}
+
+/** Segundos → "MM:SS" (reloj del examen). */
+function fmtReloj(segundos: number): string {
+  const s = Math.max(0, segundos);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function contestada(v: string | string[] | undefined): boolean {
@@ -145,12 +152,16 @@ export function MotorAutoevaluacion({
   alumnoNombre?: string;
   preview?: boolean;
 }) {
-  const [estado, setEstado] = useState<Estado>('portada');
+  // Si ya hay un intento abierto (timer corriendo · mig 0029), se retoma el examen.
+  const [estado, setEstado] = useState<Estado>(autoeval.sesion ? 'activa' : 'portada');
   const [respuestas, setRespuestas] = useState<Respuestas>({});
   const [resultado, setResultado] = useState<ResultadoAutoevalAlumno | null>(null);
   const [honor, setHonor] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enviando, iniciar] = useTransition();
+  const [comenzando, startComenzar] = useTransition();
+  const [iniciadoEn, setIniciadoEn] = useState<string | null>(autoeval.sesion?.iniciadoEn ?? null);
+  const [restante, setRestante] = useState<number | null>(null); // segundos; null hasta montar (evita Date.now en SSR)
 
   const reactivos = autoeval.reactivos;
   const total = reactivos.length;
@@ -163,6 +174,12 @@ export function MotorAutoevaluacion({
     for (const r of resultado?.resultados ?? []) m.set(r.reactivoId, r);
     return m;
   }, [resultado]);
+
+  // Instante límite (ms) del intento en curso: inicio + minutos. null si no hay reloj.
+  const deadlineMs = useMemo(() => {
+    if (!iniciadoEn || !autoeval.minutos) return null;
+    return new Date(iniciadoEn).getTime() + autoeval.minutos * 60_000;
+  }, [iniciadoEn, autoeval.minutos]);
 
   const elegirUnica = (id: string, clave: string) => setRespuestas((r) => ({ ...r, [id]: clave }));
   const alternarMulti = (id: string, clave: string) =>
@@ -179,6 +196,7 @@ export function MotorAutoevaluacion({
       const res = await calificarAutoevaluacion(leccionId, respuestas);
       if (res.ok) {
         setResultado(res.resultado);
+        setIniciadoEn(null); // la sesión ya se cerró en el servidor (finalizarSesionAutoeval).
         setEstado('resultado');
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
@@ -186,13 +204,49 @@ export function MotorAutoevaluacion({
       }
     });
   };
+
+  // Arranca (o retoma) el examen: fija el `iniciado_en` persistido → estado activa.
+  const comenzar = () => {
+    setError(null);
+    if (preview) {
+      setEstado('activa'); // vista previa del staff: sin persistir sesión (no es alumno).
+      return;
+    }
+    startComenzar(async () => {
+      const r = await iniciarAutoevaluacion(leccionId);
+      if (r.ok) {
+        setIniciadoEn(r.iniciadoEn);
+        setEstado('activa');
+      } else {
+        setError(r.error);
+      }
+    });
+  };
+
   const reintentar = () => {
     setResultado(null);
     setRespuestas({});
     setHonor(false);
     setError(null);
-    setEstado('activa');
+    setIniciadoEn(null); // fuerza abrir una sesión nueva (reloj fresco).
+    comenzar();
   };
+
+  // Reloj del examen: recalcula el restante cada segundo contra el instante límite.
+  useEffect(() => {
+    if (estado !== 'activa' || deadlineMs === null) return;
+    const tick = () => setRestante(Math.max(0, Math.round((deadlineMs - Date.now()) / 1000)));
+    tick();
+    const h = setInterval(tick, 1000);
+    return () => clearInterval(h);
+  }, [estado, deadlineMs]);
+
+  // Se agotó el tiempo → se envía lo contestado (aunque no haya aceptado el honor).
+  useEffect(() => {
+    if (estado === 'activa' && deadlineMs !== null && restante === 0 && !preview && !enviando) {
+      enviar();
+    }
+  }, [estado, restante, deadlineMs]); // enviar/preview/enviando estables para este disparo
 
   if (total === 0) {
     return (
@@ -277,11 +331,15 @@ export function MotorAutoevaluacion({
               <div className="mt-6 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setEstado('activa')}
-                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
+                  onClick={comenzar}
+                  disabled={comenzando}
+                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary disabled:opacity-70 ${focusRing}`}
                 >
+                  {comenzando ? (
+                    <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />
+                  ) : null}
                   {acreditada ? 'Volver a intentar' : 'Comenzar'}
-                  <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+                  {!comenzando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
                 </button>
                 <a
                   href={repasarHref}
@@ -498,16 +556,65 @@ export function MotorAutoevaluacion({
     );
   }
 
-  /* ═══════════════ CUESTIONARIO (activa) ═══════════════ */
+  /* ═══════════════ CUESTIONARIO (activa) — examen AISLADO del shell ═══════════════ */
+  const fCierre = fmtFecha(autoeval.fechaCierre);
+  const relojTexto =
+    restante !== null ? fmtReloj(restante) : autoeval.minutos ? fmtReloj(autoeval.minutos * 60) : null;
+  const relojBajo = restante !== null && restante <= 60;
+  const subtituloExamen = `Autoevaluación · ${
+    autoeval.cuentaParaCalificacion ? 'cuenta para tu calificación' : 'no cuenta para tu calificación'
+  } · ${total} ${total === 1 ? 'pregunta' : 'preguntas'}${autoeval.minutos ? ` · ${autoeval.minutos} min` : ''}`;
   return (
-    <div className="mx-auto w-full max-w-[880px] px-5 py-8 sm:px-6 lg:px-8">
-    <div className={`${card} overflow-hidden`}>
-      {/* Progreso "N de M contestadas" (sticky bajo la barra de lección) */}
-      <div className="sticky top-[120px] z-[3] flex items-center gap-3.5 border-b border-border bg-card px-5 py-3.5 sm:px-7">
-        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-secondary">
-          <ClipboardList aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-          Cuestionario
+    // Toma toda la pantalla (cubre sidebar + barra de lección): el alumno se enfoca.
+    <div className="fixed inset-0 z-[60] flex flex-col overflow-y-auto bg-background">
+      {/* Barra propia del examen: única salida + reloj siempre a la vista */}
+      <header className="sticky top-0 z-[5] flex h-16 shrink-0 items-center gap-4 border-b border-border bg-card px-4 sm:gap-5 sm:px-6">
+        <button
+          type="button"
+          onClick={() => setEstado('portada')}
+          className={`inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[9px] pl-2 pr-3 text-[13.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+        >
+          <ArrowLeft aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+          Volver
+        </button>
+        <span aria-hidden className="hidden h-[26px] w-px shrink-0 bg-border sm:block" />
+        <span className="flex min-w-0 flex-col leading-[1.25]">
+          <span className="truncate text-[14.5px] font-bold">{contexto?.leccion ?? 'Autoevaluación'}</span>
+          <span className="truncate text-[11.5px] text-muted-foreground">{subtituloExamen}</span>
         </span>
+        <span className="ml-auto flex shrink-0 items-center gap-3 sm:gap-[18px]">
+          {relojTexto && (
+            <span
+              role="timer"
+              aria-live="off"
+              className={`${mono} inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[14px] font-bold ${
+                relojBajo
+                  ? 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                  : 'bg-accent text-accent-foreground'
+              }`}
+            >
+              <Clock aria-hidden className="h-4 w-4" strokeWidth={2} />
+              {relojTexto}
+            </span>
+          )}
+          {fCierre && (
+            <span className="hidden items-center gap-2 whitespace-nowrap sm:flex">
+              <CalendarDays aria-hidden className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <span className="text-[12.5px] font-semibold">Fecha límite</span>
+              <span className={`${mono} text-[12.5px] text-muted-foreground`}>{fCierre}</span>
+            </span>
+          )}
+        </span>
+      </header>
+
+      <div className="mx-auto w-full max-w-[880px] px-5 py-6 sm:px-6">
+        <div className={`${card} overflow-hidden`}>
+          {/* Fila de utilidades: instrucciones + progreso (sticky bajo el header del examen) */}
+          <div className="sticky top-16 z-[3] flex items-center gap-3.5 border-b border-border bg-card px-5 py-3.5 sm:px-7">
+            <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-secondary">
+              <ClipboardList aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+              Cuestionario
+            </span>
         <span className="min-w-0 flex-1" />
         <span className="flex shrink-0 items-center gap-2.5">
           <span
@@ -683,19 +790,12 @@ export function MotorAutoevaluacion({
         </div>
 
         <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
-          Puedes enviar con preguntas en blanco —cuentan como incorrectas— y tienes intentos ilimitados.
-          Al enviar verás qué acertaste y qué conviene repasar.
+          El reloj corre mientras tienes la evaluación abierta. Si se agota, se envía lo contestado.
+          Puedes enviar con preguntas en blanco —cuentan como incorrectas—
+          {autoeval.intentos === 0 ? ' y tienes intentos ilimitados.' : '.'}
         </p>
 
         <div className="mt-4 flex items-center gap-[18px] border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={() => setEstado('portada')}
-            className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
-          >
-            <Play aria-hidden className="h-[13px] w-[13px] rotate-180" strokeWidth={1.75} />
-            Volver a la portada
-          </button>
           <button
             type="button"
             className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
@@ -704,8 +804,9 @@ export function MotorAutoevaluacion({
             Informar de un problema
           </button>
         </div>
+        </div>
       </div>
-    </div>
+      </div>
     </div>
   );
 }

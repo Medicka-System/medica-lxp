@@ -114,6 +114,12 @@ export type AutoevalAlumno = {
    * objetivas).
    */
   ultimoIntento: { aprobado: boolean; porcentaje: number | null } | null;
+  /**
+   * Sesión de intento EN CURSO (timer persistido · mig 0029). `iniciadoEn` (ISO) es el
+   * momento en que arrancó el reloj; el cliente calcula el restante contra `minutos`.
+   * `null` si no hay intento abierto (aún no pulsó "Comenzar").
+   */
+  sesion: { iniciadoEn: string } | null;
 };
 
 /** Enlace a una lección vecina (anterior/siguiente) dentro del programa. */

@@ -219,6 +219,36 @@ async function main(): Promise<void> {
       await fueRechazada(() => como(sql, claimsAnon, (tx) => tx`select 1 from lxp.notas`)),
     );
 
+    // ── Sesión de intento de autoevaluación (timer persistido · mig 0029) ──
+    check(
+      'a1 SÍ puede SELECT autoeval_sesiones (grant base presente)',
+      (await fueRechazada(() =>
+        como(sql, claimsA1, (tx) => tx`select 1 from lxp.autoeval_sesiones`),
+      )) === false,
+    );
+
+    let a1AbreSesion = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`insert into lxp.autoeval_sesiones (leccion_id, alumno_id)
+                 values (${leccionId}, ${a1})`;
+      });
+      a1AbreSesion = true;
+    } catch {
+      a1AbreSesion = false;
+    }
+    check('a1 SÍ puede abrir su propia sesión de autoevaluación', a1AbreSesion);
+
+    check(
+      'a1 NO puede abrir una sesión a nombre de a2',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.autoeval_sesiones (leccion_id, alumno_id)
+             values (${leccionId}, ${a2})`,
+        ),
+      ),
+    );
+
     // ── 7) Progreso ANCLADO A LA LECCIÓN (mig 0028): completar cualquier tipo ──
     let a1Progreso = false;
     try {

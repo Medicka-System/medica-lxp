@@ -88,6 +88,7 @@ export function autoevalDeConfig(
     fechaCierre: strOrNull(c.fechaCierre),
     cuentaParaCalificacion: c.cuentaParaCalificacion === true,
     ultimoIntento: null, // lo rellena getLeccion con la última entrega (si la hay).
+    sesion: null, // lo rellena getLeccion con la sesión de intento en curso (mig 0029).
   };
 }
 
@@ -213,6 +214,11 @@ export async function getLeccion(
           porcentaje: escalado !== null ? Math.round(escalado * 100) : null,
         };
       }
+      // Sesión de intento en curso (timer persistido · mig 0029).
+      const ses = await sql<{ iniciado_en: string }[]>`
+        select iniciado_en from lxp.autoeval_sesiones
+        where leccion_id = ${leccionId} and alumno_id = ${userId}`;
+      autoeval.sesion = ses[0] ? { iniciadoEn: ses[0].iniciado_en } : null;
     }
 
     // Teoría (modelo NUEVO · mig 0023): sus bloques ordenables viven en `lxp.bloques`

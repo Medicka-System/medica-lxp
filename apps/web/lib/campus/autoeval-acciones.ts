@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { RespuestasAutoeval, ResultadoAutoeval } from '@campus/shared';
 import { getSesionAlumno } from '@/lib/session';
+import { finalizarSesionAutoeval } from './autoeval-sesion-acciones';
 
 /**
  * Server action del MOTOR de autoevaluación (§2/§7A). La autocalificación + el
@@ -55,6 +56,9 @@ export async function calificarAutoevaluacion(
   }
 
   const resultado = (await res.json()) as ResultadoAutoevalAlumno;
+  // Cierra la sesión de intento (timer · mig 0029): el siguiente intento arranca su
+  // propio reloj. No es fatal si falla (la sesión caduca sola).
+  await finalizarSesionAutoeval(leccionId);
   revalidatePath(`/leccion/${leccionId}`);
   return { ok: true, resultado };
 }
