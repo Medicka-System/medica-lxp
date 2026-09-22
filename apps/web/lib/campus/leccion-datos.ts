@@ -85,6 +85,7 @@ export function autoevalDeConfig(
     fechaApertura: strOrNull(c.fechaApertura),
     fechaCierre: strOrNull(c.fechaCierre),
     cuentaParaCalificacion: c.cuentaParaCalificacion === true,
+    ultimoIntento: null, // lo rellena getLeccion con la última entrega (si la hay).
   };
 }
 
@@ -193,13 +194,23 @@ export async function getLeccion(
     let autoeval: AutoevalAlumno | null = null;
     let autoevalRespondida = false;
     if (leccion.tipo === 'autoevaluacion') {
-      const previa = await sql<{ existe: boolean }[]>`
-        select exists (
-          select 1 from lxp.entregas
-          where leccion_id = ${leccionId} and id_alumno = ${userId}
-        ) as existe`;
-      autoevalRespondida = previa[0]?.existe ?? false;
+      // Última entrega: da `yaRespondida` y el resumen del último intento (para la
+      // variante "acreditada" de la portada · escalado + aprobado).
+      const previa = await sql<{ contenido: Record<string, unknown> | null }[]>`
+        select contenido from lxp.entregas
+        where leccion_id = ${leccionId} and id_alumno = ${userId}
+        order by created_at desc limit 1`;
+      autoevalRespondida = previa.length > 0;
       autoeval = autoevalDeConfig(leccion.config, autoevalRespondida);
+      const resumen =
+        (previa[0]?.contenido as { resumen?: Record<string, unknown> } | null)?.resumen ?? null;
+      if (resumen) {
+        const escalado = typeof resumen.escalado === 'number' ? resumen.escalado : null;
+        autoeval.ultimoIntento = {
+          aprobado: resumen.aprobado === true,
+          porcentaje: escalado !== null ? Math.round(escalado * 100) : null,
+        };
+      }
     }
 
     // Teoría (modelo NUEVO · mig 0023): sus bloques ordenables viven en `lxp.bloques`

@@ -106,6 +106,12 @@ export type AutoevalAlumno = {
   fechaCierre: string | null;
   /** Si el puntaje cuenta para la calificación del diplomado. */
   cuentaParaCalificacion: boolean;
+  /**
+   * Último intento del alumno (para la variante "acreditada" de la portada). `null` si
+   * aún no ha respondido. `porcentaje` es el escalado objetivo × 100 (null si no hubo
+   * objetivas).
+   */
+  ultimoIntento: { aprobado: boolean; porcentaje: number | null } | null;
 };
 
 /** Enlace a una lección vecina (anterior/siguiente) dentro del programa. */

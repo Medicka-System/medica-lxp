@@ -379,7 +379,18 @@ export function LectorLeccion({
         </div>
       )}
 
-      {/* ══ 3 columnas: (lateral = shell) · contenido · menú del curso ══ */}
+      {/* La AUTOEVALUACIÓN es una pantalla propia a todo el ancho (portada/cuestionario/
+          resultado · mock leccion-autoevaluacion): sin cabecera de lectura, sin pie ni
+          rail. Provee su propio contenedor. El resto de tipos usa las 3 columnas. */}
+      {esAutoeval && leccion.autoeval ? (
+        <MotorAutoevaluacion
+          leccionId={leccion.id}
+          autoeval={leccion.autoeval}
+          contexto={{ modulo: leccion.contexto.modulo, leccion: leccion.nombre }}
+          repasarHref={leccion.anterior ? `${baseLeccion}/${leccion.anterior.id}` : '/cursos'}
+          preview={preview}
+        />
+      ) : (
       <div className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12">
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_324px]">
           {/* ── Contenido (medida de lectura) ── */}
@@ -399,17 +410,6 @@ export function LectorLeccion({
               // desde `lecciones.config` y reporta al LRS (§5C · §7).
               <div className="mt-8">
                 <LeccionInteractiva leccion={leccion} preview={preview} onCompletado={() => setCompletada(true)} />
-              </div>
-            ) : esAutoeval && leccion.autoeval ? (
-              // Autoevaluación (modelo nuevo · §5C): el motor lee lecciones.config y
-              // autocalifica contra el dominio (api). Reemplaza los bloques de contenido.
-              <div className="mt-8">
-                <MotorAutoevaluacion
-                  leccionId={leccion.id}
-                  autoeval={leccion.autoeval}
-                  contexto={{ modulo: leccion.contexto.modulo, leccion: leccion.nombre }}
-                  preview={preview}
-                />
               </div>
             ) : leccion.tipo === 'teoria' ? (
               // Teoría (modelo NUEVO · mig 0023): renderiza los bloques ordenables de
@@ -521,6 +521,7 @@ export function LectorLeccion({
           )}
         </div>
       </div>
+      )}
 
       {/* Barra flotante de selección (guardar como nota / subrayar) */}
       {seleccion && <BarraSeleccion x={seleccion.x} y={seleccion.y} onGuardar={guardarComoNota} onSubrayar={subrayar} />}

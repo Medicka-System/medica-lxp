@@ -26,9 +26,6 @@ import {
   ChevronDown,
   ClipboardList,
   Clock,
-  Flag,
-  Infinity as InfinityIcon,
-  Library,
   ListOrdered,
   Loader2,
   Play,
@@ -52,11 +49,8 @@ type Respuestas = Record<string, string | string[]>;
 type Estado = 'portada' | 'activa' | 'resultado';
 
 const trama = 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)';
-/* Degradado del hero: sheen claro + oscurecido, SOBRE var(--sidebar) → adapta a sepia. */
-const heroDegradado =
-  'linear-gradient(135deg, rgba(255,255,255,0.07), transparent 45%), linear-gradient(315deg, rgba(0,0,0,0.34), transparent 55%)';
 
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MESES =['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 /** Formatea `YYYY-MM-DD` a "28 sep" sin depender de locale (SSR estable). */
 function fmtFecha(iso: string | null): string {
   if (!iso) return '';
@@ -133,12 +127,15 @@ export function MotorAutoevaluacion({
   leccionId,
   autoeval,
   contexto,
+  repasarHref = '/cursos',
   preview = false,
 }: {
   leccionId: string;
   autoeval: AutoevalAlumno;
-  /** Nombres para el breadcrumb del hero ("Módulo · Lección · punto de control"). */
+  /** Nombres para el hero ("Módulo · punto de control") + H1 con el título. */
   contexto?: { modulo: string; leccion: string };
+  /** Destino de "Repasar la lección" (lección anterior o el curso). */
+  repasarHref?: string;
   preview?: boolean;
 }) {
   const [estado, setEstado] = useState<Estado>('portada');
@@ -201,100 +198,94 @@ export function MotorAutoevaluacion({
 
   /* ═══════════════ PORTADA (inicio) ═══════════════ */
   if (estado === 'portada') {
-    const fA = fmtFecha(autoeval.fechaApertura);
+    // Variante "acreditada": el alumno ya aprobó un intento previo (hero teal + chip).
+    const acreditada = autoeval.ultimoIntento?.aprobado === true;
+    const pctPrevio = autoeval.ultimoIntento?.porcentaje ?? null;
     const fC = fmtFecha(autoeval.fechaCierre);
-    const fechaTexto = fA && fC ? `Del ${fA} al ${fC}` : fC ? `Abierta hasta el ${fC}` : fA ? `Abre el ${fA}` : null;
+    const fA = fmtFecha(autoeval.fechaApertura);
+    const fechaTexto = fC ? `Abierta hasta el ${fC}` : fA ? `Abre el ${fA}` : null;
+    // Orden del panel (spec): preguntas · minutos · umbral · intentos · barajado · fecha.
     const items: { icono: typeof ListOrdered; texto: string }[] = [
       {
         icono: ListOrdered,
         texto: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}`,
       },
       ...(autoeval.minutos ? [{ icono: Clock, texto: `${autoeval.minutos} minutos` }] : []),
+      ...(autoeval.umbral ? [{ icono: Target, texto: `${autoeval.umbral}% para aprobar` }] : []),
       {
-        icono: autoeval.intentos === 0 ? InfinityIcon : RotateCcw,
+        icono: Shuffle,
         texto: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}`,
       },
-      ...(autoeval.umbral ? [{ icono: Target, texto: `${autoeval.umbral}% para aprobar` }] : []),
       ...(autoeval.barajar ? [{ icono: Shuffle, texto: 'Las opciones cambian de orden en cada intento' }] : []),
       ...(fechaTexto ? [{ icono: CalendarDays, texto: fechaTexto }] : []),
     ];
 
     return (
-      <div className="space-y-4">
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_248px]">
-          {/* HERO: navy con degradado + ilustración de libros */}
-          <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
-            <div aria-hidden className="absolute inset-0" style={{ background: heroDegradado }} />
+      <div className="mx-auto w-full max-w-[1240px] px-5 py-8 sm:px-6 lg:px-8">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_286px]">
+          {/* HERO — navy plano + trama diagonal (teal si ya está acreditada) */}
+          <section
+            className="relative overflow-hidden rounded-2xl p-6 sm:p-7"
+            style={{ background: acreditada ? 'var(--secondary)' : 'var(--sidebar)' }}
+          >
             <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
-            <div aria-hidden className="pointer-events-none absolute -right-3 -top-4 hidden opacity-[0.13] sm:block" style={{ color: 'var(--hero-ink)' }}>
-              <Library className="h-36 w-36" strokeWidth={0.9} />
-            </div>
-            <div aria-hidden className="pointer-events-none absolute -bottom-2 right-28 hidden opacity-[0.10] sm:block" style={{ color: 'var(--hero-ink)' }}>
-              <BookOpen className="h-20 w-20" strokeWidth={0.9} />
-            </div>
 
             <div className="relative">
-              <span className={kicker} style={{ color: 'var(--primary)' }}>
-                Autoevaluación · {autoeval.cuentaParaCalificacion ? 'cuenta para tu calificación' : 'no cuenta para tu calificación'}
-              </span>
-              <h2
-                className="mt-3 text-[24px] font-extrabold leading-tight tracking-[-0.025em] sm:text-[26px]"
+              {acreditada ? (
+                <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
+                  <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
+                  Acreditada{pctPrevio !== null ? ` · ${pctPrevio}%` : ''}
+                </span>
+              ) : (
+                <span className={kicker} style={{ color: 'var(--primary)' }}>
+                  Autoevaluación · {autoeval.cuentaParaCalificacion ? 'cuenta para su calificación' : 'no cuenta para su calificación'}
+                </span>
+              )}
+
+              <h1
+                className="mt-3.5 text-[26px] font-extrabold leading-tight tracking-[-0.025em]"
                 style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}
               >
                 {contexto?.leccion ?? 'Autoevaluación'}
-              </h2>
+              </h1>
               {contexto && (
-                <p className="mt-1.5 text-[12.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
+                <p className="mt-2 text-[12.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
                   {contexto.modulo} · punto de control
                 </p>
               )}
 
-              <div className="mt-4 grid gap-3.5 sm:grid-cols-[1fr_auto] sm:items-start">
-                <p className="max-w-[58ch] text-[14px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}>
-                  {autoeval.descripcion?.trim() ||
-                    'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
-                </p>
-                <div className="flex items-start gap-2.5 rounded-[12px] border border-white/15 bg-white/[0.08] p-3.5 sm:max-w-[230px]">
-                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-[color:var(--sidebar)]">
-                    <Check className="h-4 w-4" strokeWidth={2.6} />
-                  </span>
-                  <p className="text-[12.5px] font-semibold leading-snug" style={{ color: 'var(--hero-ink)' }}>
-                    Al terminar verás qué acertaste, qué falló y por qué.
-                  </p>
-                </div>
-              </div>
+              <p
+                className="mt-4 max-w-[62ch] text-[14px] leading-relaxed"
+                style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}
+              >
+                {autoeval.descripcion?.trim() ||
+                  'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
+              </p>
+              <p className="mt-3 max-w-[62ch] text-[13.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
+                Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.
+              </p>
 
               <div className="mt-6 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setEstado('activa')}
-                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-card ${focusRing}`}
+                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
                 >
-                  {autoeval.yaRespondida ? 'Volver a intentar' : 'Comenzar'}
+                  {acreditada ? 'Volver a intentar' : 'Comenzar'}
                   <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
                 </button>
                 <a
-                  href="#leccion-arriba"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]"
+                  href={repasarHref}
+                  className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12] ${focusRing}`}
                 >
                   <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
                   Repasar la lección
                 </a>
-                {autoeval.yaRespondida && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.14] px-2.5 py-1 text-[11.5px] font-bold text-white">
-                    <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
-                    Ya registraste un intento
-                  </span>
-                )}
               </div>
             </div>
           </section>
 
-          {/* QUÉ ESPERAR — datos REALES de la config */}
+          {/* QUÉ ESPERAR — datos REALES de la config (números en prosa, sin mono) */}
           <aside className={`${card} p-[18px]`}>
             <p className="text-[12.5px] font-bold">Qué esperar</p>
             <ul className="mt-3 flex flex-col gap-2.5">
@@ -308,19 +299,10 @@ export function MotorAutoevaluacion({
             <p className="mt-3.5 border-t border-border pt-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
               {autoeval.cuentaParaCalificacion
                 ? 'Cuenta para la calificación del diplomado.'
-                : 'No cuenta para la calificación del diplomado: sirve para medir tu propio nivel.'}
+                : 'No cuenta para la calificación del diplomado.'}{' '}
+              El reloj corre mientras la tenga abierta.
             </p>
           </aside>
-        </div>
-
-        <div className="flex">
-          <button
-            type="button"
-            className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
-          >
-            <Flag aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            Informar de un problema
-          </button>
         </div>
       </div>
     );
@@ -331,7 +313,7 @@ export function MotorAutoevaluacion({
     const pct = resultado.escalado !== null ? Math.round(resultado.escalado * 100) : null;
     const hayObjetivas = resultado.objetivas > 0;
     return (
-      <div className="space-y-5">
+      <div className="mx-auto w-full max-w-[1240px] space-y-5 px-5 py-8 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
           <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
           <div className="relative flex flex-wrap items-center gap-6">
@@ -490,6 +472,7 @@ export function MotorAutoevaluacion({
 
   /* ═══════════════ CUESTIONARIO (activa) ═══════════════ */
   return (
+    <div className="mx-auto w-full max-w-[880px] px-5 py-8 sm:px-6 lg:px-8">
     <div className={`${card} overflow-hidden`}>
       {/* Progreso "N de M contestadas" (sticky bajo la barra de lección) */}
       <div className="sticky top-[120px] z-[3] flex items-center gap-3.5 border-b border-border bg-card px-5 py-3.5 sm:px-7">
@@ -671,6 +654,7 @@ export function MotorAutoevaluacion({
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

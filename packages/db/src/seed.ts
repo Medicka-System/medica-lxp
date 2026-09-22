@@ -251,7 +251,7 @@ async function seed(sql: Sql): Promise<void> {
   //    Los 7 tipos son teoria/video/autoevaluacion/tarea/foro/h5p/xapi (mig 0023).
 
   // ── (3) AUTOEVALUACIÓN → config con reactivos (shape autoeval-contrato) ──
-  await crearLeccion({
+  const lAutoeval = await crearLeccion({
     moduloId: m2.id, nombre: 'Autoevaluación: fundamentos', orden: 1, horas: 1, tipo: 'autoevaluacion',
     config: {
       descripcion:
@@ -404,6 +404,34 @@ async function seed(sql: Sql): Promise<void> {
     insert into lxp.entregas (actividad_id, leccion_id, grupo_id, id_alumno, contenido, estado)
     values (${actTarea.id}, ${lTarea}, ${grupoSync.id}, ${alumnos.a1},
             ${sql.json({ nota_alumno: 'Adjunto 3 planos.' })}, ${'enviada'}::lxp.entrega_estado)`;
+
+  // ── Intento APROBADO de a1 a la AUTOEVALUACIÓN: dispara la variante "acreditada"
+  //    de la portada (hero teal + chip "Acreditada · 83%"). La entrega guarda el
+  //    resumen del intento (aprobado + escalado) — lo que lee `ultimoIntento`. Como
+  //    entregas.actividad_id es NOT NULL, se ancla a una actividad de respaldo, igual
+  //    que tarea/foro (la calificación real la escribe /autoevaluacion/calificar).
+  const actAutoeval = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
+      values (${lAutoeval}, 'autoevaluacion'::lxp.actividad_tipo, 'Autoevaluación: fundamentos',
+              'Punto de control de fundamentos.', 1)
+      returning id`,
+  );
+  await sql`
+    insert into lxp.entregas (actividad_id, leccion_id, grupo_id, id_alumno, contenido, nota, estado)
+    values (${actAutoeval.id}, ${lAutoeval}, ${grupoSync.id}, ${alumnos.a1},
+            ${sql.json({
+              resumen: {
+                aprobado: true,
+                escalado: 0.83,
+                correctas: 3,
+                objetivas: 3,
+                abiertas: 1,
+                puntajeMax: 4,
+                puntajeObtenido: 4,
+              },
+              respuestas: {},
+            })}, 5.0, ${'enviada'}::lxp.entrega_estado)`;
 
   // ── Inscripción de a1: señal de progreso que dispara la heurística
   //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.
