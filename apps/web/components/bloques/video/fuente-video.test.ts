@@ -30,8 +30,23 @@ describe('normalizarFuenteVideo', () => {
     });
   });
 
-  it('archivo directo (MinIO/CDN) → tal cual, no embed', () => {
+  it('archivo directo SIN extensión (MinIO firmado) → objeto con type video/mp4', () => {
+    // Sin `type` Vidstack sondea cabeceras con un HEAD que la URL firmada solo-GET
+    // rechaza (403) → pantalla azul. El type explícito lo evita.
     const url = 'http://127.0.0.1:9000/campus-lxp-media/media/videos/abc/original?X-Amz-Signature=xyz';
-    expect(normalizarFuenteVideo(url)).toEqual({ src: url, esEmbed: false });
+    expect(normalizarFuenteVideo(url)).toEqual({
+      src: [{ src: url, type: 'video/mp4' }],
+      esEmbed: false,
+    });
+  });
+
+  it('archivo directo con extensión conocida → type por extensión', () => {
+    expect(normalizarFuenteVideo('https://cdn.example.com/clip.webm')).toEqual({
+      src: [{ src: 'https://cdn.example.com/clip.webm', type: 'video/webm' }],
+      esEmbed: false,
+    });
+    expect(normalizarFuenteVideo('https://cdn.example.com/stream.m3u8?token=x').src).toEqual([
+      { src: 'https://cdn.example.com/stream.m3u8?token=x', type: 'application/vnd.apple.mpegurl' },
+    ]);
   });
 });

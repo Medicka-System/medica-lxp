@@ -15,7 +15,7 @@
  * proyecto (`--media-brand` = teal `--primary`, tipografía Inter); nada de skin genérico.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   MediaPlayer,
   MediaProvider,
@@ -45,20 +45,46 @@ const ESTILO_PLAYER = {
 };
 
 /**
+ * Fuente lista para Vidstack: shorthand de embed (string) o LISTA de archivos con tipo
+ * explícito (`MediaSrc[]`, la forma que el prop `src` del player acepta sin ambigüedad).
+ */
+export type FuenteVidstack = string | { src: string; type: string }[];
+
+/**
+ * Adivina el MIME de un archivo directo por su extensión (ignorando el query de la URL
+ * firmada). Los videos SUBIDOS se guardan en `.../original` SIN extensión, así que el
+ * fallback es `video/mp4` (el content-type por defecto de la subida · media-acciones).
+ */
+function mimeDeUrl(url: string): string {
+  const ruta = url.split('?')[0]!.toLowerCase();
+  if (ruta.endsWith('.webm')) return 'video/webm';
+  if (ruta.endsWith('.ogv') || ruta.endsWith('.ogg')) return 'video/ogg';
+  if (ruta.endsWith('.mov')) return 'video/quicktime';
+  if (ruta.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl'; // HLS (Stream)
+  if (ruta.endsWith('.mpd')) return 'application/dash+xml';
+  return 'video/mp4';
+}
+
+/**
  * Normaliza la fuente para Vidstack. YouTube/Vimeo se pasan con el shorthand que el
  * player reconoce (`youtube/<id>` · `vimeo/<id>`) — una URL cruda tipo `youtu.be/ID?si=…`
- * NO la reproduce y deja la pantalla en azul. Los archivos directos (MinIO/CDN) van tal
- * cual. `esEmbed` decide si aplicar `crossOrigin` (los iframes de YouTube/Vimeo no lo
- * usan; los archivos SÍ lo necesitan para CORS).
+ * NO la reproduce y deja la pantalla en azul.
+ *
+ * Los archivos directos (MinIO/CDN) se devuelven como OBJETO `{ src, type }` con el MIME
+ * explícito: la URL firmada termina en `/original?X-Amz-…` (SIN extensión), así que sin
+ * `type` Vidstack no encuentra loader y cae a un HEAD de sondeo de cabeceras. Ese HEAD
+ * FALLA con 403 contra la URL firmada SOLO-GET (SigV4 firma el método) → el `<video>`
+ * nunca se crea y queda la pantalla azul. Con `type` usa el elemento nativo (GET con
+ * Range) y reproduce. `esEmbed` decide si aplicar `crossOrigin` (los iframes no lo usan).
  */
-export function normalizarFuenteVideo(src: string): { src: string; esEmbed: boolean } {
+export function normalizarFuenteVideo(src: string): { src: FuenteVidstack; esEmbed: boolean } {
   const yt = src.match(
     /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/|v\/))([\w-]{11})/i,
   );
   if (yt) return { src: `youtube/${yt[1]}`, esEmbed: true };
   const vm = src.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
   if (vm) return { src: `vimeo/${vm[1]}`, esEmbed: true };
-  return { src, esEmbed: false };
+  return { src: [{ src, type: mimeDeUrl(src) }], esEmbed: false };
 }
 
 /** mm:ss para cifras de tiempo (mono, §5A). */
@@ -161,7 +187,9 @@ export function BloqueVideo({
     <div className={`${card} min-w-0 overflow-hidden`}>
       <MediaPlayer
         ref={playerRef}
-        src={fuente.src}
+        // Los MIME que emitimos (video/mp4, webm, HLS…) son válidos en runtime pero más
+        // amplios que la unión de literales de Vidstack; casteamos al tipo del propio prop.
+        src={fuente.src as ComponentProps<typeof MediaPlayer>['src']}
         title={titulo}
         playsInline
         crossOrigin={fuente.esEmbed ? null : true}
