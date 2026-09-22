@@ -1,29 +1,39 @@
 'use client';
 
 /**
- * MotorAutoevaluacion — RENDER + MOTOR de respuesta del alumno (§5C/§7A). Lee el
- * examen del MODELO NUEVO (lecciones.config, proyectado sin la clave correcta) y deja
- * que el alumno responda los 4 tipos: opción múltiple, selección múltiple, V/F y
- * abierta. Al enviar, el DOMINIO (api /autoevaluacion/calificar) autocalifica lo
- * objetivo, registra la entrega + xAPI, y devuelve el veredicto por reactivo — que aquí
- * se REVELA (correcto/incorrecto + retroalimentación), igual que el "Punto de control"
- * del mock. Lo ABIERTO queda enviado a revisión del docente (§7A · el humano decide).
+ * MotorAutoevaluacion — RENDER + MOTOR de la autoevaluación del alumno (§5C/§7A · mock
+ * campus-lxp-mocks/alumno/leccion-autoevaluacion). Tres estados en una pantalla:
+ *   · portada    → qué esperar antes de empezar (calma antes del cuestionario).
+ *   · activa     → el cuestionario: una TARJETA por reactivo (enunciado + imagen +
+ *                  opciones de 52px, la elegida en teal), ANCLA numérica "02/05" y barra
+ *                  "N de M contestadas". Código de honor antes de enviar.
+ *   · resultado  → puntaje honesto + revisión reactivo por reactivo con FEEDBACK de
+ *                  ícono + texto (nunca solo color): Correcta / A repasar, su respuesta,
+ *                  la correcta y el "por qué".
  *
- * Hereda el modo lectura (claro/sepia/oscuro) del contenedor: solo usa tokens (§5A).
+ * REUSA el motor: la acción `calificarAutoevaluacion` (api /autoevaluacion/calificar)
+ * autocalifica lo objetivo, manda lo ABIERTO al docente y registra entrega + xAPI. Aquí
+ * solo se REVELA el veredicto que devuelve. Hereda el modo lectura (claro/sepia/oscuro)
+ * del contenedor: solo tokens (§5A).
  */
 
 import { useMemo, useState, useTransition } from 'react';
 import {
+  ArrowRight,
+  BookOpen,
   Check,
-  CheckCircle2,
-  CheckSquare,
-  Circle,
+  ChevronDown,
   ClipboardList,
+  Infinity as InfinityIcon,
+  ListOrdered,
   Loader2,
+  Play,
   RotateCcw,
   Send,
-  Square,
-  X,
+  Shield,
+  Sparkles,
+  Target,
+  TriangleAlert,
 } from 'lucide-react';
 import type { ResultadoReactivo } from '@campus/shared';
 import { card, focusRing, kicker, mono } from '@/components/tokens';
@@ -31,28 +41,77 @@ import {
   calificarAutoevaluacion,
   type ResultadoAutoevalAlumno,
 } from '@/lib/campus/autoeval-acciones';
-import type {
-  AutoevalAlumno,
-  ReactivoAlumno,
-  TipoReactivoAlumno,
-} from '@/lib/campus/leccion-contrato';
+import type { AutoevalAlumno, ReactivoAlumno } from '@/lib/campus/leccion-contrato';
 
-const ROTULO_TIPO: Record<TipoReactivoAlumno, string> = {
-  opcion_multiple: 'Opción múltiple',
-  multi: 'Selección múltiple',
-  verdadero_falso: 'Verdadero / Falso',
-  abierta: 'Respuesta abierta',
-};
-
-/** Respuesta local por reactivo: clave (single/vf), claves (multi) o texto (abierta). */
+const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
 type Respuestas = Record<string, string | string[]>;
+type Estado = 'portada' | 'activa' | 'resultado';
 
-function incluyeClave(valor: string | string[] | null | undefined, clave: string): boolean {
+const trama = 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)';
+
+function contestada(v: string | string[] | undefined): boolean {
+  return Array.isArray(v) ? v.length > 0 : String(v ?? '').trim().length > 0;
+}
+function incluye(valor: string | string[] | null | undefined, clave: string): boolean {
   if (valor == null) return false;
   const c = clave.trim().toLowerCase();
   return Array.isArray(valor)
     ? valor.some((v) => String(v).trim().toLowerCase() === c)
     : String(valor).trim().toLowerCase() === c;
+}
+/** La letra viene de la POSICIÓN de la opción (estable · no de la clave). */
+function letraDe(reactivo: ReactivoAlumno, clave: string): string {
+  const i = reactivo.opciones.findIndex((o) => o.clave === clave);
+  return i >= 0 ? LETRAS[i] : '';
+}
+/** Cita una respuesta (o la correcta) por letra + texto. */
+function citar(reactivo: ReactivoAlumno, claves: string | string[] | null | undefined): string {
+  const lista = (Array.isArray(claves) ? claves : claves ? [claves] : []).filter(Boolean) as string[];
+  const ops = lista
+    .map((c) => reactivo.opciones.find((o) => o.clave === c))
+    .filter((o): o is { clave: string; texto: string } => !!o);
+  if (ops.length === 0) return 'Sin contestar';
+  if (ops.length === 1) return `${letraDe(reactivo, ops[0].clave)} · ${ops[0].texto}`;
+  return ops.map((o) => `${letraDe(reactivo, o.clave)} · ${o.texto}`).join('  ·  ');
+}
+
+/* ── Ancla numérica "02/05" — el dispositivo de orientación ── */
+function Ancla({ n, total, pendiente = false, tam = 34 }: { n: number; total: number; pendiente?: boolean; tam?: number }) {
+  return (
+    <span className={`${mono} flex shrink-0 items-baseline gap-px leading-none`}>
+      <span
+        className="font-extrabold tracking-[-0.03em]"
+        style={{ fontSize: tam, color: pendiente ? 'var(--warning-foreground)' : 'var(--sidebar-foreground)' }}
+      >
+        {String(n).padStart(2, '0')}
+      </span>
+      <span
+        aria-hidden
+        className="font-bold"
+        style={{ fontSize: Math.round(tam * 0.44), color: 'var(--muted-foreground)' }}
+      >
+        /{String(total).padStart(2, '0')}
+      </span>
+      <span className="sr-only">
+        Pregunta {n} de {total}
+      </span>
+    </span>
+  );
+}
+
+/* ── Feedback: ícono + palabra (nunca solo color) ── */
+function Veredicto({ correcta }: { correcta: boolean }) {
+  return correcta ? (
+    <span className="inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-2.5 text-[10.5px] font-bold text-accent-foreground">
+      <Check aria-hidden className="h-3 w-3" strokeWidth={2.8} />
+      Correcta
+    </span>
+  ) : (
+    <span className="inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[10.5px] font-bold text-[color:var(--warning-foreground)]">
+      <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.2} />
+      A repasar
+    </span>
+  );
 }
 
 export function MotorAutoevaluacion({
@@ -64,36 +123,30 @@ export function MotorAutoevaluacion({
   autoeval: AutoevalAlumno;
   preview?: boolean;
 }) {
+  const [estado, setEstado] = useState<Estado>('portada');
   const [respuestas, setRespuestas] = useState<Respuestas>({});
   const [resultado, setResultado] = useState<ResultadoAutoevalAlumno | null>(null);
+  const [honor, setHonor] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enviando, iniciar] = useTransition();
 
-  // Índice veredicto por reactivo (tras calificar), para revelar en cada tarjeta.
+  const reactivos = autoeval.reactivos;
+  const total = reactivos.length;
+  const contestadas = reactivos.filter((r) => contestada(respuestas[r.id])).length;
+
   const veredictos = useMemo(() => {
     const m = new Map<string, ResultadoReactivo>();
     for (const r of resultado?.resultados ?? []) m.set(r.reactivoId, r);
     return m;
   }, [resultado]);
 
-  const calificado = resultado !== null;
-  const respondidos = Object.keys(respuestas).filter((k) => {
-    const v = respuestas[k];
-    return Array.isArray(v) ? v.length > 0 : String(v ?? '').trim().length > 0;
-  }).length;
-
-  const elegirUnica = (id: string, clave: string) =>
-    setRespuestas((r) => ({ ...r, [id]: clave }));
-
+  const elegirUnica = (id: string, clave: string) => setRespuestas((r) => ({ ...r, [id]: clave }));
   const alternarMulti = (id: string, clave: string) =>
     setRespuestas((r) => {
       const prev = Array.isArray(r[id]) ? (r[id] as string[]) : [];
-      const next = prev.includes(clave) ? prev.filter((c) => c !== clave) : [...prev, clave];
-      return { ...r, [id]: next };
+      return { ...r, [id]: prev.includes(clave) ? prev.filter((c) => c !== clave) : [...prev, clave] };
     });
-
-  const escribir = (id: string, texto: string) =>
-    setRespuestas((r) => ({ ...r, [id]: texto }));
+  const escribir = (id: string, texto: string) => setRespuestas((r) => ({ ...r, [id]: texto }));
 
   const enviar = () => {
     if (preview) return;
@@ -102,21 +155,22 @@ export function MotorAutoevaluacion({
       const res = await calificarAutoevaluacion(leccionId, respuestas);
       if (res.ok) {
         setResultado(res.resultado);
-        // Sube al inicio del examen para ver el resultado.
+        setEstado('resultado');
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setError(res.error);
       }
     });
   };
-
   const reintentar = () => {
     setResultado(null);
     setRespuestas({});
+    setHonor(false);
     setError(null);
+    setEstado('activa');
   };
 
-  if (autoeval.reactivos.length === 0) {
+  if (total === 0) {
     return (
       <div className="flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-4">
         <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
@@ -127,358 +181,415 @@ export function MotorAutoevaluacion({
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* ── Intro / instrucciones ── */}
-      <div className="flex items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
-          <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0">
-          <p className={`${kicker} text-secondary`}>
-            Autoevaluación · {autoeval.reactivos.length}{' '}
-            {autoeval.reactivos.length === 1 ? 'pregunta' : 'preguntas'}
-          </p>
-          {autoeval.descripcion && (
-            <p className="mt-1 text-[14px] leading-relaxed text-foreground-soft">
-              {autoeval.descripcion}
-            </p>
-          )}
-          {autoeval.yaRespondida && !calificado && (
-            <p className="mt-1 text-[12.5px] font-semibold text-muted-foreground">
-              Ya registraste un intento. Puedes practicar de nuevo cuando quieras.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Resumen del resultado (tras calificar) ── */}
-      {calificado && <ResumenResultado resultado={resultado} />}
-
-      {/* ── Reactivos ── */}
-      <ol className="space-y-5">
-        {autoeval.reactivos.map((reactivo, i) => (
-          <li key={reactivo.id}>
-            <Reactivo
-              reactivo={reactivo}
-              numero={i + 1}
-              respuesta={respuestas[reactivo.id]}
-              veredicto={veredictos.get(reactivo.id) ?? null}
-              calificado={calificado}
-              onUnica={elegirUnica}
-              onMulti={alternarMulti}
-              onTexto={escribir}
-            />
-          </li>
-        ))}
-      </ol>
-
-      {/* ── Acciones ── */}
-      {error && (
-        <p className="rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-semibold text-[color:var(--destructive-foreground)]">
-          {error}
-        </p>
-      )}
-
-      {preview ? (
-        <p className="inline-flex items-center gap-2 rounded-control border border-dashed border-border px-4 py-2.5 text-[12.5px] font-semibold text-muted-foreground">
-          Vista previa · las respuestas no se califican ni registran.
-        </p>
-      ) : calificado ? (
-        <button
-          type="button"
-          onClick={reintentar}
-          className={`inline-flex h-11 items-center gap-2 rounded-control border border-border bg-card px-5 text-[13.5px] font-bold text-foreground transition-colors hover:bg-accent ${focusRing}`}
-        >
-          <RotateCcw className="h-[17px] w-[17px]" strokeWidth={2} />
-          Volver a intentar
-        </button>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={enviar}
-            disabled={enviando}
-            className={`inline-flex h-11 items-center gap-2 rounded-control bg-primary px-5 text-[13.5px] font-bold text-primary-foreground transition-colors hover:bg-secondary disabled:opacity-60 ${focusRing}`}
-          >
-            {enviando ? (
-              <Loader2 className="h-[18px] w-[18px] animate-spin" strokeWidth={2} />
-            ) : (
-              <Send className="h-[17px] w-[17px]" strokeWidth={2} />
-            )}
-            Calificar mis respuestas
-          </button>
-          <span className="text-[12.5px] font-semibold text-muted-foreground">
-            {respondidos} de {autoeval.reactivos.length} respondidas
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ───────────────────────── Resumen ───────────────────────── */
-
-function ResumenResultado({ resultado }: { resultado: ResultadoAutoevalAlumno }) {
-  const { objetivas, correctas, abiertas, puntajeObtenido, puntajeMax, aprobado, escalado } =
-    resultado;
-  const pct = escalado !== null ? Math.round(escalado * 100) : null;
-
-  return (
-    <section aria-live="polite" className={`${card} p-5 sm:p-6`}>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className={`${kicker} text-secondary`}>Tu resultado</p>
-          {objetivas > 0 ? (
-            <p className="mt-1.5 text-[15px] font-semibold text-foreground">
-              Acertaste{' '}
-              <span className={`${mono} font-extrabold`}>
-                {correctas}/{objetivas}
-              </span>{' '}
-              {objetivas === 1 ? 'pregunta objetiva' : 'preguntas objetivas'}
-              {pct !== null && (
-                <span className="text-foreground-soft"> · {pct}%</span>
-              )}
-            </p>
-          ) : (
-            <p className="mt-1.5 text-[15px] font-semibold text-foreground">
-              Respuestas enviadas a revisión de tu docente.
-            </p>
-          )}
-          {abiertas > 0 && (
-            <p className="mt-1 text-[12.5px] text-muted-foreground">
-              {abiertas}{' '}
-              {abiertas === 1 ? 'respuesta abierta enviada' : 'respuestas abiertas enviadas'} a tu
-              docente para retroalimentación.
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3">
-          {objetivas > 0 && (
-            <div className="text-right">
-              <p className={`${mono} text-[26px] font-extrabold leading-none text-foreground`}>
-                {puntajeObtenido}
-                <span className="text-[15px] text-muted-foreground">/{puntajeMax}</span>
-              </p>
-              <p className="mt-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                puntos
-              </p>
-            </div>
-          )}
-          {objetivas > 0 && (
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-bold ${
-                aprobado
-                  ? 'bg-accent text-accent-foreground'
-                  : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
-              }`}
-            >
-              {aprobado ? (
-                <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-              ) : (
-                <RotateCcw className="h-4 w-4" strokeWidth={2} />
-              )}
-              {aprobado ? 'Aprobada' : 'Sigue practicando'}
-            </span>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ───────────────────────── Reactivo ───────────────────────── */
-
-function Reactivo({
-  reactivo,
-  numero,
-  respuesta,
-  veredicto,
-  calificado,
-  onUnica,
-  onMulti,
-  onTexto,
-}: {
-  reactivo: ReactivoAlumno;
-  numero: number;
-  respuesta: string | string[] | undefined;
-  veredicto: ResultadoReactivo | null;
-  calificado: boolean;
-  onUnica: (id: string, clave: string) => void;
-  onMulti: (id: string, clave: string) => void;
-  onTexto: (id: string, texto: string) => void;
-}) {
-  const esMulti = reactivo.tipo === 'multi';
-  const esAbierta = reactivo.tipo === 'abierta';
-
-  return (
-    <section className={`${card} p-5 sm:p-6`}>
-      <div className="flex items-center gap-2">
-        <span className={`${mono} text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground`}>
-          Pregunta {numero} · {ROTULO_TIPO[reactivo.tipo]}
-        </span>
-      </div>
-      <p className="mt-2 max-w-[60ch] text-[16.5px] font-bold leading-snug text-foreground">
-        {reactivo.enunciado}
-      </p>
-
-      {reactivo.imagen && (
-        // Imagen de apoyo del reactivo (URL en config). <img> directo: no pasa por el
-        // optimizador de Next (puede ser URL firmada externa).
-        <img
-          src={reactivo.imagen}
-          alt={`Apoyo visual de la pregunta ${numero}`}
-          className="mt-4 max-h-[320px] w-auto rounded-[11px] border border-border"
-        />
-      )}
-
-      {esAbierta ? (
-        <AbiertaCampo
-          id={reactivo.id}
-          valor={typeof respuesta === 'string' ? respuesta : ''}
-          calificado={calificado}
-          onTexto={onTexto}
-        />
-      ) : (
-        <ul className="mt-5 flex max-w-[60ch] flex-col gap-2.5">
-          {reactivo.opciones.map((op) => (
-            <li key={op.clave}>
-              <OpcionBoton
-                op={op}
-                esMulti={esMulti}
-                elegida={incluyeClave(respuesta, op.clave)}
-                calificado={calificado}
-                esCorrecta={incluyeClave(veredicto?.correcta ?? null, op.clave)}
-                onClick={() =>
-                  esMulti ? onMulti(reactivo.id, op.clave) : onUnica(reactivo.id, op.clave)
-                }
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Retroalimentación revelada tras calificar. */}
-      {calificado && veredicto && (
-        <RetroLinea veredicto={veredicto} />
-      )}
-    </section>
-  );
-}
-
-function OpcionBoton({
-  op,
-  esMulti,
-  elegida,
-  calificado,
-  esCorrecta,
-  onClick,
-}: {
-  op: { clave: string; texto: string };
-  esMulti: boolean;
-  elegida: boolean;
-  calificado: boolean;
-  esCorrecta: boolean;
-  onClick: () => void;
-}) {
-  // Estilo por estado (§5A · lenguaje del "Punto de control" del mock).
-  let estilo: string;
-  let Icono = esMulti ? Square : Circle;
-  if (calificado) {
-    if (esCorrecta) {
-      estilo = 'border-transparent bg-accent font-bold text-accent-foreground';
-      Icono = Check;
-    } else if (elegida) {
-      estilo =
-        'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] font-semibold text-[color:var(--warning-foreground)]';
-      Icono = X;
-    } else {
-      estilo = 'border-border bg-card font-medium text-foreground-soft';
-    }
-  } else if (elegida) {
-    estilo = 'border-[color:var(--primary)] bg-accent font-semibold text-accent-foreground';
-    Icono = esMulti ? CheckSquare : CheckCircle2;
-  } else {
-    estilo = 'border-border bg-card font-medium hover:bg-muted';
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={calificado}
-      aria-pressed={elegida}
-      className={`flex w-full items-center gap-3 rounded-[11px] border px-4 py-3.5 text-left text-[14.5px] transition-colors ${focusRing} ${estilo} ${calificado ? 'cursor-default' : ''}`}
-    >
-      <Icono
-        aria-hidden
-        className={`h-[18px] w-[18px] shrink-0 ${!calificado && !elegida ? 'opacity-60' : ''}`}
-        strokeWidth={calificado || elegida ? 2.2 : 1.75}
-      />
-      {op.texto}
-    </button>
-  );
-}
-
-function AbiertaCampo({
-  id,
-  valor,
-  calificado,
-  onTexto,
-}: {
-  id: string;
-  valor: string;
-  calificado: boolean;
-  onTexto: (id: string, texto: string) => void;
-}) {
-  return (
-    <div className="mt-4">
-      <textarea
-        value={valor}
-        onChange={(e) => onTexto(id, e.target.value)}
-        disabled={calificado}
-        rows={4}
-        placeholder="Escribe tu respuesta…"
-        className={`w-full max-w-[60ch] resize-y rounded-[11px] border border-border bg-card p-3.5 text-[14.5px] leading-relaxed text-foreground placeholder:text-muted-foreground disabled:opacity-70 ${focusRing}`}
-      />
-      {calificado && (
-        <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 py-1.5 text-[12px] font-semibold text-[color:var(--info-foreground)]">
-          <Send className="h-3.5 w-3.5" strokeWidth={2} />
-          Enviada a revisión de tu docente
-        </p>
-      )}
-    </div>
-  );
-}
-
-function RetroLinea({ veredicto }: { veredicto: ResultadoReactivo }) {
-  const { veredicto: v, retro } = veredicto;
-  if (v === 'pendiente') return null;
-  const prefijo =
-    v === 'correcto'
-      ? 'Correcto. '
-      : v === 'sin_responder'
-        ? 'Sin responder. '
-        : 'Revisa de nuevo. ';
-  if (!retro && v === 'correcto') {
+  /* ═══════════════ PORTADA ═══════════════ */
+  if (estado === 'portada') {
     return (
-      <p aria-live="polite" className="mt-4 max-w-[60ch] text-[13.5px] font-bold text-secondary">
-        Correcto.
-      </p>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
+          <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
+          <div className="relative">
+            <span className={`${kicker} text-primary`}>Autoevaluación · no cuenta para tu calificación</span>
+            <p
+              className="mt-3 max-w-[60ch] text-[15px] leading-relaxed"
+              style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}
+            >
+              {autoeval.descripcion?.trim() ||
+                'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
+            </p>
+            <p className="mt-3 flex items-center gap-2 text-[13.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
+              <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
+              Al terminar verás qué acertaste, qué falló y por qué.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setEstado('activa')}
+                className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
+              >
+                {autoeval.yaRespondida ? 'Volver a intentar' : 'Comenzar'}
+                <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+              </button>
+              {autoeval.yaRespondida && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 text-[11.5px] font-bold text-[color:var(--sidebar)]">
+                  <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
+                  Ya registraste un intento
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <aside className={`${card} p-[18px]`}>
+          <p className="text-[12.5px] font-bold">Qué esperar</p>
+          <ul className="mt-3 flex flex-col gap-2.5">
+            {(
+              [
+                [ListOrdered, `${total} ${total === 1 ? 'pregunta' : 'preguntas'}`],
+                [Target, 'Se autocalifica al enviar'],
+                [BookOpen, 'La revisión te dice qué falló y por qué'],
+                [InfinityIcon, 'Intentos ilimitados'],
+              ] as const
+            ).map(([Icono, texto]) => (
+              <li key={texto} className="flex items-start gap-2.5">
+                <Icono aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-foreground-soft">{texto}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3.5 border-t border-border pt-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
+            No cuenta para la calificación del diplomado: sirve para medir tu propio nivel.
+          </p>
+        </aside>
+      </div>
     );
   }
+
+  /* ═══════════════ RESULTADO + REVISIÓN ═══════════════ */
+  if (estado === 'resultado' && resultado) {
+    const pct = resultado.escalado !== null ? Math.round(resultado.escalado * 100) : null;
+    const hayObjetivas = resultado.objetivas > 0;
+    return (
+      <div className="space-y-5">
+        <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
+          <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
+          <div className="relative flex flex-wrap items-center gap-6">
+            {hayObjetivas && (
+              <span className="flex shrink-0 flex-col items-center">
+                <span className={`${mono} text-[54px] font-extrabold leading-none tracking-[-0.03em]`} style={{ color: 'var(--hero-ink)' }}>
+                  {pct}%
+                </span>
+                <span className={`${mono} mt-1.5 text-[12px]`} style={{ color: 'var(--hero-ink-muted)' }}>
+                  {resultado.correctas} de {resultado.objetivas}
+                </span>
+              </span>
+            )}
+            <div className="min-w-[220px] flex-1">
+              <span
+                className={`inline-flex h-[26px] items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-bold ${
+                  resultado.aprobado
+                    ? 'bg-primary text-[color:var(--sidebar)]'
+                    : 'border border-white/30 text-white'
+                }`}
+              >
+                {resultado.aprobado ? <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} /> : <RotateCcw aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />}
+                {hayObjetivas ? (resultado.aprobado ? 'Aprobada' : 'Conviene repasar') : 'Enviada a revisión'}
+              </span>
+              <h2 className="mt-3.5 text-[22px] font-extrabold leading-tight tracking-[-0.02em]" style={{ color: 'var(--hero-ink)' }}>
+                {hayObjetivas
+                  ? resultado.aprobado
+                    ? 'Bien: puedes seguir con la lección'
+                    : 'Casi: repasa lo que falló abajo'
+                  : 'Tus respuestas fueron a revisión de tu docente'}
+              </h2>
+              <p className="mt-2 max-w-[56ch] text-[13.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
+                {hayObjetivas
+                  ? `Acertaste ${resultado.correctas} de ${resultado.objetivas} ${resultado.objetivas === 1 ? 'pregunta objetiva' : 'preguntas objetivas'}${resultado.abiertas > 0 ? `. ${resultado.abiertas} abierta(s) fueron a tu docente.` : '.'}`
+                  : 'Las preguntas abiertas las revisa tu docente y te dará retroalimentación.'}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={reintentar}
+                  className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
+                >
+                  <RotateCcw aria-hidden className="h-4 w-4" strokeWidth={2} />
+                  Volver a intentar
+                </button>
+                <a
+                  href="#revision-autoeval"
+                  className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]"
+                >
+                  <ChevronDown aria-hidden className="h-[15px] w-[15px]" strokeWidth={2} />
+                  Revisar respuesta por respuesta
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Revisión: aquí ocurre el aprendizaje */}
+        <section id="revision-autoeval" className={`${card} overflow-hidden`} style={{ scrollMarginTop: 88 }}>
+          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted px-5 py-3.5 sm:px-7">
+            <p className={`${kicker} text-muted-foreground`}>Respuesta por respuesta</p>
+            {hayObjetivas && (
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-accent px-2.5 text-[11px] font-bold text-accent-foreground">
+                  <Check aria-hidden className="h-3 w-3" strokeWidth={2.8} />
+                  {resultado.correctas} correctas
+                </span>
+                {resultado.objetivas - resultado.correctas > 0 && (
+                  <span className="inline-flex h-6 items-center gap-1.5 rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[11px] font-bold text-[color:var(--warning-foreground)]">
+                    <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.2} />
+                    {resultado.objetivas - resultado.correctas} a repasar
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+
+          <ul>
+            {reactivos.map((reactivo, i) => {
+              const v = veredictos.get(reactivo.id) ?? null;
+              const pendiente = v?.veredicto === 'pendiente';
+              const correcta = v?.veredicto === 'correcto';
+              const suRespuesta =
+                reactivo.tipo === 'abierta'
+                  ? (typeof respuestas[reactivo.id] === 'string' ? (respuestas[reactivo.id] as string) : '') || 'Sin contestar'
+                  : citar(reactivo, respuestas[reactivo.id] as string | string[]);
+              return (
+                <li key={reactivo.id} className={i ? 'border-t border-border' : ''}>
+                  <article className="flex gap-4 p-5 sm:gap-5 sm:p-7">
+                    <Ancla n={i + 1} total={total} pendiente={!pendiente && !correcta} tam={28} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {pendiente ? (
+                          <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[10.5px] font-bold text-[color:var(--info-foreground)]">
+                            <Send aria-hidden className="h-3 w-3" strokeWidth={2} />
+                            En revisión del docente
+                          </span>
+                        ) : (
+                          <Veredicto correcta={correcta} />
+                        )}
+                      </div>
+
+                      <p className="mt-3 text-[15px] font-bold leading-snug" style={{ textWrap: 'pretty' }}>
+                        {reactivo.enunciado}
+                      </p>
+
+                      <div className="mt-3.5 grid gap-3 sm:grid-cols-2">
+                        <div
+                          className={`rounded-[11px] border p-3.5 ${
+                            correcta
+                              ? 'border-transparent bg-accent'
+                              : pendiente
+                                ? 'border-border bg-muted'
+                                : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]'
+                          }`}
+                        >
+                          <p
+                            className={`${kicker} ${
+                              correcta
+                                ? 'text-accent-foreground'
+                                : pendiente
+                                  ? 'text-muted-foreground'
+                                  : 'text-[color:var(--warning-foreground)]'
+                            }`}
+                          >
+                            Tu respuesta
+                          </p>
+                          <p className="mt-1.5 text-[13px] font-semibold leading-relaxed">{suRespuesta}</p>
+                        </div>
+                        {!correcta && !pendiente && v?.correcta != null && (
+                          <div className="rounded-[11px] border border-transparent bg-accent p-3.5">
+                            <p className={`${kicker} text-accent-foreground`}>La correcta</p>
+                            <p className="mt-1.5 text-[13px] font-semibold leading-relaxed">{citar(reactivo, v.correcta)}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {v?.retro && (
+                        <div className="mt-3.5">
+                          <p className={`${kicker} text-muted-foreground`}>Por qué</p>
+                          <p className="mt-1.5 text-[13px] leading-[1.65] text-foreground-soft" style={{ textWrap: 'pretty' }}>
+                            {v.retro}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      </div>
+    );
+  }
+
+  /* ═══════════════ CUESTIONARIO (activa) ═══════════════ */
   return (
-    <p
-      aria-live="polite"
-      className="mt-4 max-w-[60ch] text-[13.5px] leading-relaxed text-foreground-soft"
-    >
-      <span
-        className={`font-bold ${v === 'correcto' ? 'text-secondary' : 'text-foreground'}`}
-      >
-        {prefijo}
-      </span>
-      {retro}
-    </p>
+    <div className={`${card} overflow-hidden`}>
+      {/* Progreso "N de M contestadas" (sticky bajo la barra de lección) */}
+      <div className="sticky top-[120px] z-[3] flex items-center gap-3.5 border-b border-border bg-card px-5 py-3.5 sm:px-7">
+        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-secondary">
+          <ClipboardList aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          Cuestionario
+        </span>
+        <span className="min-w-0 flex-1" />
+        <span className="flex shrink-0 items-center gap-2.5">
+          <span
+            className="hidden h-1.5 w-[132px] overflow-hidden rounded-full bg-[color:var(--track)] sm:block"
+            role="progressbar"
+            aria-valuenow={contestadas}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-label="Preguntas contestadas"
+          >
+            <span aria-hidden className="block h-full rounded-full bg-primary transition-[width]" style={{ width: `${(contestadas / total) * 100}%` }} />
+          </span>
+          <span className={`${mono} whitespace-nowrap text-[11.5px] font-bold text-muted-foreground`}>
+            {contestadas} de {total} contestadas
+          </span>
+        </span>
+      </div>
+
+      {/* Tarjeta por reactivo */}
+      {reactivos.map((reactivo, i) => {
+        const esMulti = reactivo.tipo === 'multi';
+        const esAbierta = reactivo.tipo === 'abierta';
+        const resp = respuestas[reactivo.id];
+        const hecha = contestada(resp);
+        return (
+          <article key={reactivo.id} className="border-t border-border px-5 py-6 sm:px-7">
+            <div className="flex items-start gap-3.5">
+              <Ancla n={i + 1} total={total} pendiente={!hecha} />
+              <div className="min-w-0 flex-1">
+                <p id={`${reactivo.id}-enunciado`} className="text-[16px] font-bold leading-[1.45]" style={{ textWrap: 'pretty' }}>
+                  {reactivo.enunciado}
+                </p>
+                {esMulti && <p className="mt-1.5 text-[12px] text-muted-foreground">Puedes marcar más de una.</p>}
+              </div>
+              <span
+                className={`inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold ${
+                  hecha
+                    ? 'border-border bg-muted text-foreground-soft'
+                    : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                }`}
+              >
+                {hecha ? 'Contestada' : 'Sin contestar'}
+              </span>
+            </div>
+
+            {reactivo.imagen && (
+              // <img> directo: la URL puede ser firmada/externa (no pasa por next/image).
+              <figure className="mt-4">
+                <img
+                  src={reactivo.imagen}
+                  alt=""
+                  className="max-h-[360px] w-full rounded-xl border border-border object-contain"
+                />
+              </figure>
+            )}
+
+            {esAbierta ? (
+              <label className="mt-4 block">
+                <span className="sr-only">{reactivo.enunciado}</span>
+                <textarea
+                  rows={3}
+                  value={typeof resp === 'string' ? resp : ''}
+                  onChange={(e) => escribir(reactivo.id, e.target.value)}
+                  className={`w-full resize-none rounded-xl border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors focus:border-secondary ${focusRing}`}
+                />
+              </label>
+            ) : (
+              <div role={esMulti ? 'group' : 'radiogroup'} aria-labelledby={`${reactivo.id}-enunciado`} className="mt-4 flex flex-col gap-2">
+                {reactivo.opciones.map((op) => {
+                  const on = incluye(resp, op.clave);
+                  return (
+                    <label
+                      key={op.clave}
+                      className={`flex min-h-[52px] cursor-pointer items-start gap-3 rounded-xl border-[1.5px] px-3.5 py-3.5 transition-colors ${
+                        on ? 'border-primary bg-accent' : 'border-border bg-card hover:bg-muted'
+                      }`}
+                    >
+                      <input
+                        type={esMulti ? 'checkbox' : 'radio'}
+                        name={reactivo.id}
+                        checked={on}
+                        onChange={() => (esMulti ? alternarMulti(reactivo.id, op.clave) : elegirUnica(reactivo.id, op.clave))}
+                        className={`mt-0.5 h-[22px] w-[22px] shrink-0 accent-[color:var(--secondary)] ${focusRing}`}
+                      />
+                      <span className={`min-w-0 flex-1 text-[14px] leading-relaxed ${on ? 'font-semibold' : 'font-normal'}`}>
+                        <span className={`mr-2 font-bold ${on ? 'text-accent-foreground' : 'text-muted-foreground'}`}>
+                          {letraDe(reactivo, op.clave)}
+                        </span>
+                        {op.texto}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </article>
+        );
+      })}
+
+      {/* Código de honor + envío */}
+      <div className="border-t border-border bg-muted px-5 pb-6 pt-6 sm:px-7">
+        <section aria-labelledby="honor-autoeval" className={`${card} px-5 py-[18px]`}>
+          <div className="flex items-center gap-2.5">
+            <span aria-hidden className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-accent text-accent-foreground">
+              <Shield className="h-4 w-4" strokeWidth={1.75} />
+            </span>
+            <p id="honor-autoeval" className="min-w-0 flex-1 text-[14px] font-bold">
+              Código de honor del Campus
+            </p>
+          </div>
+          <p className="mt-3 max-w-[74ch] text-[13px] leading-[1.65] text-foreground-soft" style={{ textWrap: 'pretty' }}>
+            Al enviar confirmas que la resolviste por tu cuenta, con lo que estudiaste. La competencia que
+            se acredita aquí se traduce en decisiones sobre pacientes: resolverla con ayuda externa —o con
+            un asistente de IA— desvirtúa el diagnóstico de tu propio nivel.
+          </p>
+          <label className="mt-4 flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={honor}
+              onChange={(e) => setHonor(e.target.checked)}
+              className={`mt-0.5 h-5 w-5 shrink-0 accent-[color:var(--secondary)] ${focusRing}`}
+            />
+            <span className="min-w-0 flex-1 text-[13.5px] leading-relaxed">Lo entiendo y lo acepto.</span>
+          </label>
+        </section>
+
+        {error && (
+          <p className="mt-4 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-semibold text-[color:var(--destructive-foreground)]">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-[18px] flex flex-wrap items-center gap-3">
+          {preview ? (
+            <span className="inline-flex h-12 items-center gap-2 rounded-[11px] border border-dashed border-border px-5 text-[13px] font-semibold text-muted-foreground">
+              Vista previa · no se califica ni registra
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={enviar}
+              disabled={!honor || enviando}
+              className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:bg-muted disabled:text-muted-foreground ${focusRing}`}
+            >
+              {enviando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Send aria-hidden className="h-4 w-4" strokeWidth={2} />}
+              Enviar y ver resultado
+              {!enviando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
+            </button>
+          )}
+          <span className="ml-auto flex flex-wrap items-center gap-2.5">
+            {contestadas < total && (
+              <span className="inline-flex h-[26px] items-center whitespace-nowrap rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[11px] font-bold text-[color:var(--warning-foreground)]">
+                Faltan {total - contestadas}
+              </span>
+            )}
+          </span>
+        </div>
+
+        <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
+          Puedes enviar con preguntas en blanco —cuentan como incorrectas— y tienes intentos ilimitados.
+          Al enviar verás qué acertaste y qué conviene repasar.
+        </p>
+
+        <div className="mt-4 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={() => setEstado('portada')}
+            className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
+          >
+            <Play aria-hidden className="h-[13px] w-[13px] rotate-180" strokeWidth={1.75} />
+            Volver a la portada
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
