@@ -28,10 +28,12 @@ import '@vidstack/react/player/styles/default/theme.css';
 import '@vidstack/react/player/styles/default/layouts/video.css';
 import {
   Bookmark,
+  Download,
   FileText,
   Loader2,
   Play,
   Plus,
+  Search,
   Trash2,
   Video as VideoIcon,
 } from 'lucide-react';
@@ -157,6 +159,29 @@ export function BloqueVideo({
     () => [...hitos].sort((a, b) => a.tiempo - b.tiempo),
     [hitos],
   );
+  const transcripcionOrdenada = useMemo(
+    () => [...transcripcion].sort((a, b) => a.inicio - b.inicio),
+    [transcripcion],
+  );
+
+  // Controles de la pestaña Transcripción (mock leccion-estudio): filtro en cliente y
+  // "seguir el video" (auto-desplaza a la línea en curso), encendido por defecto.
+  const [busca, setBusca] = useState('');
+  const [seguir, setSeguir] = useState(true);
+
+  /** Baja la transcripción como texto plano con tiempos (mm:ss⇥texto). */
+  function descargarTranscripcion() {
+    const texto = transcripcionOrdenada.map((c) => `${mmss(c.inicio)}\t${c.texto}`).join('\n');
+    const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(titulo ?? 'transcripcion').trim().replace(/[^\w.-]+/g, '_') || 'transcripcion'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   function irA(tiempo: number) {
     const p = playerRef.current;
@@ -235,30 +260,92 @@ export function BloqueVideo({
         </div>
       )}
 
-      {/* Tabs: HITOS primero, TRANSCRIPCIÓN después (mock) */}
-      <div role="tablist" aria-label="Consulta del video" className="flex border-t border-border">
-        <TabBoton
-          activo={tab === 'hitos'}
-          onClick={() => setTab('hitos')}
-          icono={Bookmark}
-          etiqueta="Hitos"
-          cuenta={hitosOrdenados.length}
-        />
-        <TabBoton
-          activo={tab === 'transcripcion'}
-          onClick={() => setTab('transcripcion')}
-          icono={FileText}
-          etiqueta="Transcripción"
-          cuenta={transcripcion.length}
-        />
+      {/* Apoyos del video: pestañas PÍLDORA a la izquierda + controles a la derecha
+          (mock leccion-estudio · "sala de estudio"). */}
+      <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 pt-4">
+        <div
+          role="tablist"
+          aria-label="Apoyos del video"
+          className="flex gap-1.5 rounded-full bg-muted p-1"
+        >
+          {(
+            [
+              ['hitos', `Hallazgos · ${hitosOrdenados.length}`, 'panel-hallazgos'],
+              ['transcripcion', 'Transcripción', 'panel-transcripcion'],
+            ] as const
+          ).map(([id, etiqueta, panelId]) => {
+            const on = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                aria-controls={panelId}
+                onClick={() => setTab(id)}
+                className={`h-10 whitespace-nowrap rounded-full px-4 text-[13px] font-semibold transition-colors ${focusRing} ${
+                  on ? 'bg-sidebar text-sidebar-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {etiqueta}
+              </button>
+            );
+          })}
+        </div>
+
+        {tab === 'transcripcion' ? (
+          <>
+            <label className="ml-auto flex h-11 w-full min-w-[200px] items-center gap-2 rounded-full border border-border bg-muted px-3.5 transition-colors focus-within:border-secondary sm:w-[240px]">
+              <Search aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <span className="sr-only">Buscar en la transcripción</span>
+              <input
+                type="search"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar en la transcripción…"
+                className="w-full bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setSeguir((v) => !v)}
+              aria-pressed={seguir}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13px] font-semibold transition-colors ${focusRing} ${
+                seguir ? 'bg-accent text-accent-foreground' : 'border border-border bg-card text-muted-foreground'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`h-2 w-2 rounded-full ${seguir ? 'bg-primary' : 'bg-[color:var(--track)]'}`}
+              />
+              Seguir el video
+            </button>
+            <button
+              type="button"
+              onClick={descargarTranscripcion}
+              disabled={transcripcionOrdenada.length === 0}
+              aria-label="Descargar la transcripción"
+              className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-accent disabled:opacity-40 ${focusRing}`}
+            >
+              <Download aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
+            </button>
+          </>
+        ) : (
+          <p className="ml-auto text-[12.5px] text-muted-foreground">
+            {editable
+              ? 'Marca y nombra los puntos clave; el alumno saltará a cada uno.'
+              : 'Salte al minuto del hallazgo que quiera repasar.'}
+          </p>
+        )}
       </div>
 
-      <div className="max-h-[520px] min-h-[260px] overflow-y-auto">
-        {tab === 'hitos' ? (
+      {/* Panel: HALLAZGOS — grid de 2 columnas (mock) en `ver`; editable en el Studio. */}
+      <div id="panel-hallazgos" role="tabpanel" hidden={tab !== 'hitos'}>
+        {editable ? (
           <PanelHitos
             playerRef={playerRef}
             hitos={hitosOrdenados}
-            editable={editable}
+            editable
             onIr={irA}
             onMarcar={(tiempo) => {
               const nuevo: HitoVideo = { id: crypto.randomUUID(), tiempo, titulo: `Hito ${hitos.length + 1}` };
@@ -270,43 +357,201 @@ export function BloqueVideo({
             onBorrar={(id) => onCambioHitos?.(hitos.filter((h) => h.id !== id))}
           />
         ) : (
-          <PanelTranscripcion playerRef={playerRef} cues={transcripcion} onIr={irA} editable={editable} />
+          <GridHallazgos playerRef={playerRef} hitos={hitosOrdenados} onIr={irA} />
+        )}
+      </div>
+
+      {/* Panel: TRANSCRIPCIÓN — lista con scroll propio; en `ver` filtra y sigue el video. */}
+      <div id="panel-transcripcion" role="tabpanel" hidden={tab !== 'transcripcion'}>
+        {editable ? (
+          <PanelTranscripcion playerRef={playerRef} cues={transcripcionOrdenada} onIr={irA} editable />
+        ) : (
+          <ListaTranscripcion
+            playerRef={playerRef}
+            cues={transcripcionOrdenada}
+            onIr={irA}
+            busca={busca}
+            seguir={seguir}
+          />
         )}
       </div>
     </div>
   );
 }
 
-/* ───────────────────────── Tab ───────────────────────── */
+/* ─────────────────── Panel HALLAZGOS (alumno · grid 2 columnas) ─────────────────── */
 
-function TabBoton({
-  activo,
-  onClick,
-  icono: Icono,
-  etiqueta,
-  cuenta,
+/**
+ * Hallazgos del video para el ALUMNO (mock leccion-estudio): grid de 2 columnas, cada
+ * uno con su timestamp en chip mono y descripción; el hallazgo en curso (±60 s del
+ * minuto actual) resaltado en `bg-accent`. Salta al minuto al pulsarlo.
+ */
+function GridHallazgos({
+  playerRef,
+  hitos,
+  onIr,
 }: {
-  activo: boolean;
-  onClick: () => void;
-  icono: typeof FileText;
-  etiqueta: string;
-  cuenta: number;
+  playerRef: React.RefObject<MediaPlayerInstance | null>;
+  hitos: HitoVideo[];
+  onIr: (t: number) => void;
 }) {
+  const tiempo = useMediaState('currentTime', playerRef);
+
+  if (hitos.length === 0) {
+    return (
+      <div className="flex items-start gap-3 px-5 pb-5 pt-4">
+        <Bookmark aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+        <p className={`text-[12.5px] leading-relaxed ${softText}`}>Este video no tiene hallazgos marcados.</p>
+      </div>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={activo}
-      onClick={onClick}
-      className={`relative flex flex-1 items-center justify-center gap-2 px-3 py-3 text-[12.5px] font-bold transition-colors ${focusRing} ${
-        activo ? 'text-secondary' : 'text-muted-foreground hover:text-foreground'
-      }`}
-    >
-      <Icono aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-      {etiqueta}
-      <span className={`${mono} text-[11px] ${activo ? 'text-secondary' : 'text-muted-foreground'}`}>{cuenta}</span>
-      {activo && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[2px] bg-primary" />}
-    </button>
+    <ul className="grid gap-2 px-5 pb-5 pt-4 sm:grid-cols-2">
+      {hitos.map((h) => {
+        const activo = Math.abs(h.tiempo - tiempo) < 60;
+        return (
+          <li key={h.id}>
+            <button
+              type="button"
+              onClick={() => onIr(h.tiempo)}
+              aria-label={`Ir a ${h.titulo} en ${mmss(h.tiempo)}`}
+              className={`flex min-h-[44px] w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left transition-colors ${focusRing} ${
+                activo ? 'bg-accent' : 'hover:bg-muted'
+              }`}
+            >
+              <span
+                className={`${mono} shrink-0 rounded-[6px] px-1.5 py-0.5 text-[11.5px] font-bold ${
+                  activo ? 'bg-primary text-[color:var(--sidebar)]' : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {mmss(h.tiempo)}
+              </span>
+              <span
+                className={`min-w-0 text-[13.5px] leading-snug ${
+                  activo ? 'font-bold text-accent-foreground' : 'font-medium text-foreground'
+                }`}
+              >
+                {h.titulo}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* ─────────────── Lista TRANSCRIPCIÓN (alumno · scroll + buscar + seguir) ─────────────── */
+
+/**
+ * Transcripción del video para el ALUMNO (mock leccion-estudio): lista con scroll propio
+ * (`max-h`), cada línea salta al segundo; la línea en curso resaltada. El buscador filtra
+ * en cliente; "seguir el video" auto-desplaza la línea activa vía `scrollTop` (no
+ * `scrollIntoView`, para no arrastrar la página) respetando `prefers-reduced-motion`.
+ */
+function ListaTranscripcion({
+  playerRef,
+  cues,
+  onIr,
+  busca,
+  seguir,
+}: {
+  playerRef: React.RefObject<MediaPlayerInstance | null>;
+  cues: CueTranscripcion[];
+  onIr: (t: number) => void;
+  busca: string;
+  seguir: boolean;
+}) {
+  const tiempo = useMediaState('currentTime', playerRef);
+  const listaRef = useRef<HTMLUListElement>(null);
+  const activoRef = useRef<HTMLLIElement>(null);
+
+  const q = busca.trim().toLowerCase();
+  const visibles = useMemo(
+    () => (q ? cues.filter((c) => c.texto.toLowerCase().includes(q)) : cues),
+    [cues, q],
+  );
+
+  // Índice de la línea en curso dentro de la lista COMPLETA (para el resaltado).
+  const idxActivo = useMemo(() => {
+    for (let i = 0; i < cues.length; i++) {
+      const sig = cues[i + 1];
+      if (tiempo >= cues[i]!.inicio && (!sig || tiempo < sig.inicio)) return i;
+    }
+    return -1;
+  }, [cues, tiempo]);
+
+  // Seguir el video: centra la línea activa moviendo scrollTop del contenedor.
+  useEffect(() => {
+    if (!seguir) return;
+    const cont = listaRef.current;
+    const fila = activoRef.current;
+    if (!cont || !fila) return;
+    const objetivo = fila.offsetTop - cont.clientHeight / 2 + fila.clientHeight / 2;
+    const reduce =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    cont.scrollTo({ top: Math.max(0, objetivo), behavior: reduce ? 'auto' : 'smooth' });
+  }, [idxActivo, seguir]);
+
+  if (cues.length === 0) {
+    return (
+      <div className="flex items-start gap-3 px-5 py-4">
+        <FileText aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+        <p className="text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
+          Este video aún no tiene transcripción disponible.
+        </p>
+      </div>
+    );
+  }
+
+  if (visibles.length === 0) {
+    return (
+      <div className="flex items-start gap-3 px-5 py-4">
+        <Search aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+        <p className={`text-[12.5px] leading-relaxed ${softText}`}>
+          Sin coincidencias para “{busca.trim()}”.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ul ref={listaRef} className="max-h-[320px] overflow-y-auto p-1.5">
+      {visibles.map((c) => {
+        const on = cues[idxActivo] === c;
+        return (
+          <li key={`${c.inicio}-${c.texto.slice(0, 8)}`} ref={on ? activoRef : undefined}>
+            <button
+              type="button"
+              onClick={() => onIr(c.inicio)}
+              aria-current={on ? 'true' : undefined}
+              className={`flex w-full items-start gap-3.5 rounded-[10px] px-3.5 py-3 text-left transition-colors ${focusRing} ${
+                on ? 'bg-accent' : 'hover:bg-muted'
+              }`}
+            >
+              <span
+                className={`${mono} mt-0.5 shrink-0 rounded-[6px] px-1.5 py-0.5 text-[11.5px] font-bold ${
+                  on ? 'bg-primary text-[color:var(--sidebar)]' : 'bg-muted text-secondary'
+                }`}
+              >
+                {mmss(c.inicio)}
+              </span>
+              <span className="min-w-0">
+                {c.locutor && <span className="mr-1.5 text-[12px] font-bold text-secondary">{c.locutor}:</span>}
+                <span
+                  className={`text-[14px] leading-[1.65] ${
+                    on ? 'font-semibold text-foreground' : 'text-[color:var(--foreground-soft)]'
+                  }`}
+                >
+                  {c.texto}
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
