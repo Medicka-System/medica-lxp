@@ -276,6 +276,17 @@ export function MotorAutoevaluacion({
     comenzar();
   };
 
+  // Muestra la revisión del último intento (portada acreditada · sin recalificar).
+  const verIntentoAnterior = () => {
+    const prev = autoeval.intentoPrevio;
+    if (!prev) return;
+    setError(null);
+    setRespuestas(prev.respuestas);
+    setResultado({ ...prev.resultado, estado: prev.resultado.abiertas > 0 ? 'enviada' : 'calificada' });
+    setEstado('resultado');
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Reloj del examen: recalcula el restante cada segundo contra el instante límite.
   useEffect(() => {
     if (estado !== 'activa' || deadlineMs === null) return;
@@ -393,6 +404,15 @@ export function MotorAutoevaluacion({
                   <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
                   Repasar la lección
                 </a>
+                {acreditada && autoeval.intentoPrevio && (
+                  <button
+                    type="button"
+                    onClick={verIntentoAnterior}
+                    className={`inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-[11px] px-3.5 text-[13.5px] font-semibold text-white/80 transition-colors hover:text-white ${focusRing}`}
+                  >
+                    Ver el intento anterior
+                  </button>
+                )}
               </div>
             </div>
           </section>

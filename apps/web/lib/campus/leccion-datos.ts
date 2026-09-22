@@ -1,4 +1,5 @@
 import 'server-only';
+import type { ResultadoAutoeval } from '@campus/shared';
 import { comoAlumno } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
 import { normalizarImagen } from '@/lib/studio/autoeval-contrato';
@@ -91,6 +92,7 @@ export function autoevalDeConfig(
     cuentaParaCalificacion: c.cuentaParaCalificacion === true,
     ultimoIntento: null, // lo rellena getLeccion con la última entrega (si la hay).
     sesion: null, // lo rellena getLeccion con la sesión de intento en curso (mig 0029).
+    intentoPrevio: null, // lo rellena getLeccion con el resultado detallado de la última entrega.
   };
 }
 
@@ -207,14 +209,37 @@ export async function getLeccion(
         order by created_at desc limit 1`;
       autoevalRespondida = previa.length > 0;
       autoeval = autoevalDeConfig(leccion.config, autoevalRespondida);
-      const resumen =
-        (previa[0]?.contenido as { resumen?: Record<string, unknown> } | null)?.resumen ?? null;
+      const contenido = (previa[0]?.contenido ?? null) as {
+        respuestas?: Record<string, string | string[]>;
+        resultados?: unknown[];
+        resumen?: Record<string, unknown>;
+      } | null;
+      const resumen = contenido?.resumen ?? null;
       if (resumen) {
         const escalado = typeof resumen.escalado === 'number' ? resumen.escalado : null;
         autoeval.ultimoIntento = {
           aprobado: resumen.aprobado === true,
           porcentaje: escalado !== null ? Math.round(escalado * 100) : null,
         };
+        // Resultado detallado (para "Ver el intento anterior" · portada acreditada).
+        if (Array.isArray(contenido?.resultados) && contenido.resultados.length > 0) {
+          const resultados = contenido.resultados as ResultadoAutoeval['resultados'];
+          const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+          autoeval.intentoPrevio = {
+            resultado: {
+              resultados,
+              totalReactivos: resultados.length,
+              objetivas: n(resumen.objetivas),
+              correctas: n(resumen.correctas),
+              abiertas: n(resumen.abiertas),
+              puntajeMax: n(resumen.puntajeMax),
+              puntajeObtenido: n(resumen.puntajeObtenido),
+              escalado: typeof resumen.escalado === 'number' ? resumen.escalado : null,
+              aprobado: resumen.aprobado === true,
+            },
+            respuestas: (contenido?.respuestas ?? {}) as Record<string, string | string[]>,
+          };
+        }
       }
       // Sesión de intento en curso (timer persistido · mig 0029).
       const ses = await sql<{ iniciado_en: string }[]>`

@@ -24,6 +24,7 @@
  *     la emisión xAPI la hace el dominio (contrato: encolar statement por contenido).
  */
 
+import type { ResultadoAutoeval } from '@campus/shared';
 import type { TipoLeccion } from '@/lib/studio/leccion-tipos';
 import type { ImagenReactivo } from '@/lib/studio/autoeval-contrato';
 import type { TipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
@@ -128,6 +129,15 @@ export type AutoevalAlumno = {
    * `null` si no hay intento abierto (aún no pulsó "Comenzar").
    */
   sesion: { iniciadoEn: string } | null;
+  /**
+   * Último intento COMPLETO (para "Ver el intento anterior" de la portada acreditada):
+   * el resultado por reactivo + las respuestas que dio, para rehidratar la revisión.
+   * `null` si aún no hay entrega con resultado detallado.
+   */
+  intentoPrevio: {
+    resultado: ResultadoAutoeval;
+    respuestas: Record<string, string | string[]>;
+  } | null;
 };
 
 /** Enlace a una lección vecina (anterior/siguiente) dentro del programa. */

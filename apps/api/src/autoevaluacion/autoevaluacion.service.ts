@@ -92,6 +92,9 @@ export class AutoevaluacionService {
       alumnoId,
       contenido: {
         respuestas,
+        // Resultado por reactivo (veredicto/correcta/retro): permite rehidratar la
+        // revisión del intento ("Ver el intento anterior" · portada acreditada).
+        resultados: resultado.resultados,
         resumen: {
           objetivas: resultado.objetivas,
           correctas: resultado.correctas,

@@ -415,10 +415,11 @@ async function seed(sql: Sql): Promise<void> {
             ${sql.json({ nota_alumno: 'Adjunto 3 planos.' })}, ${'enviada'}::lxp.entrega_estado)`;
 
   // ── Intento APROBADO de a1 a la AUTOEVALUACIÓN: dispara la variante "acreditada"
-  //    de la portada (hero teal + chip "Acreditada · 83%"). La entrega guarda el
-  //    resumen del intento (aprobado + escalado) — lo que lee `ultimoIntento`. Como
-  //    entregas.actividad_id es NOT NULL, se ancla a una actividad de respaldo, igual
-  //    que tarea/foro (la calificación real la escribe /autoevaluacion/calificar).
+  //    de la portada (hero teal + chip "Acreditada · 100%"). La entrega guarda el
+  //    resumen (→ `ultimoIntento`), las respuestas Y el resultado por reactivo (→
+  //    `intentoPrevio`, para "Ver el intento anterior"). Como entregas.actividad_id es
+  //    NOT NULL, se ancla a una actividad de respaldo, igual que tarea/foro (la
+  //    calificación real la escribe /autoevaluacion/calificar).
   const actAutoeval = first(
     await sql<{ id: string }[]>`
       insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
@@ -432,15 +433,27 @@ async function seed(sql: Sql): Promise<void> {
             ${sql.json({
               resumen: {
                 aprobado: true,
-                escalado: 0.83,
+                escalado: 1,
                 correctas: 3,
                 objetivas: 3,
                 abiertas: 1,
                 puntajeMax: 4,
                 puntajeObtenido: 4,
               },
-              respuestas: {},
-            })}, 5.0, ${'enviada'}::lxp.entrega_estado)`;
+              respuestas: {
+                'r-demo-1': 'b',
+                'r-demo-2': 'v',
+                'r-demo-3': ['a', 'b'],
+                'r-demo-4':
+                  'Es el producto de la densidad del medio por la velocidad del sonido; el salto de impedancia entre dos medios genera la reflexión.',
+              },
+              resultados: [
+                { reactivoId: 'r-demo-1', tipo: 'opcion_multiple', veredicto: 'correcto', puntaje: 1, obtenido: 1, correcta: 'b', retro: 'La reflexión depende del salto de impedancia (Z).' },
+                { reactivoId: 'r-demo-2', tipo: 'verdadero_falso', veredicto: 'correcto', puntaje: 1, obtenido: 1, correcta: 'v' },
+                { reactivoId: 'r-demo-3', tipo: 'multi', veredicto: 'correcto', puntaje: 2, obtenido: 2, correcta: ['a', 'b'] },
+                { reactivoId: 'r-demo-4', tipo: 'abierta', veredicto: 'pendiente', puntaje: 0, obtenido: 0, correcta: null },
+              ],
+            })}, 10.0, ${'enviada'}::lxp.entrega_estado)`;
 
   // ── Inscripción de a1: señal de progreso que dispara la heurística
   //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.
