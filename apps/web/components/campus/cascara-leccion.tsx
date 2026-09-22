@@ -17,6 +17,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Moon, Sun, Type, X } from 'lucide-react';
 import { focusRing } from '@/components/tokens';
+import { MigasLeccion } from '@/components/campus/migas-leccion';
 import {
   ModoLecturaContext,
   esTemaLectura,
@@ -33,7 +34,8 @@ const TEMAS: { id: TemaLectura; etiqueta: string; icono: typeof Sun }[] = [
 export type VecinaLeccion = { href: string; etiqueta?: string } | null;
 
 export function CascaraLeccion({
-  overline,
+  programa,
+  modulo,
   titulo,
   descripcion,
   salirHref = '/cursos',
@@ -42,7 +44,10 @@ export function CascaraLeccion({
   temaInicial = 'claro',
   children,
 }: {
-  overline: string;
+  /** Diplomado/programa — primer nivel del breadcrumb y del overline. */
+  programa: string;
+  /** Módulo — segundo nivel. */
+  modulo: string;
   titulo: string;
   descripcion?: string | null;
   salirHref?: string;
@@ -92,9 +97,7 @@ export function CascaraLeccion({
             <span className="hidden sm:inline">Salir</span>
           </Link>
 
-          <span className="min-w-0 flex-1 truncate text-center text-[12.5px] font-bold sm:text-left">
-            {titulo}
-          </span>
+          <MigasLeccion segmentos={[programa, modulo, titulo]} />
 
           <div
             role="radiogroup"
@@ -158,7 +161,9 @@ export function CascaraLeccion({
       {/* ══ Encabezado consistente + contenido (medida de lectura centrada) ══ */}
       <div className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12">
         <div className="mx-auto w-full max-w-[880px]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">{overline}</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">
+            {programa} · {modulo}
+          </p>
           <h1 className="mt-2 text-[28px] font-extrabold leading-tight sm:text-[32px]">{titulo}</h1>
           {descripcion && (
             <p className="mt-3 text-[15px] leading-relaxed text-foreground-soft">{descripcion}</p>

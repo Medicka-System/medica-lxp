@@ -48,7 +48,8 @@ export function VistaTarea({ data, puedeEntregar }: { data: TareaData; puedeEntr
 
   return (
     <CascaraLeccion
-      overline={`${contexto.programa} · ${contexto.modulo}`}
+      programa={contexto.programa}
+      modulo={contexto.modulo}
       titulo={data.titulo}
       anterior={data.anterior ? { href: `/leccion/${data.anterior.id}` } : null}
       siguiente={data.siguiente ? { href: `/leccion/${data.siguiente.id}` } : null}

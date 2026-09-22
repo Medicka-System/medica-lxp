@@ -39,6 +39,7 @@ import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { MenuCurso } from './menu-curso';
 import { PanelNotas } from './panel-notas';
+import { MigasLeccion } from '@/components/campus/migas-leccion';
 import { BarraSeleccion } from './barra-seleccion';
 import { useNotas } from './usar-notas';
 import { anclaDeSeleccion, pintarSubrayados } from '@/lib/campus/notas-anclaje';
@@ -263,8 +264,11 @@ export function LectorLeccion({
             <span className="hidden sm:inline">{preview ? 'Salir' : 'Salir'}</span>
           </Link>
 
+          {/* Ruta de la lección (breadcrumb) */}
+          <MigasLeccion segmentos={[leccion.contexto.programa, leccion.contexto.modulo, leccion.nombre]} />
+
           {/* Progreso de lectura */}
-          <span className="ml-1 flex min-w-0 shrink items-center gap-2.5">
+          <span className="flex shrink-0 items-center gap-2.5">
             <span className="hidden h-[5px] w-[120px] overflow-hidden rounded-full bg-[color:var(--track)] sm:block">
               <span
                 aria-hidden
@@ -277,7 +281,7 @@ export function LectorLeccion({
             </span>
           </span>
 
-          <span aria-hidden className="ml-auto h-[22px] w-px shrink-0 bg-border" />
+          <span aria-hidden className="h-[22px] w-px shrink-0 bg-border" />
 
           {/* Tamaño de letra */}
           <div className="hidden items-center gap-0.5 rounded-full border border-border bg-muted p-0.5 sm:flex">

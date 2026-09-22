@@ -17,6 +17,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, Eye, Loader2, Moon, Sun, Ty
 import { BloqueVideo, type VideoApi } from '@/components/bloques/video/bloque-video';
 import { MenuCurso } from './menu-curso';
 import { PanelNotas } from './panel-notas';
+import { MigasLeccion } from '@/components/campus/migas-leccion';
 import { useNotas } from './usar-notas';
 import { ModoLecturaContext, esTemaLectura, CLAVE_TEMA, type TemaLectura } from '@/components/campus/modo-lectura';
 import { focusRing } from '@/components/tokens';
@@ -150,9 +151,9 @@ export function LeccionVideo({
             <span className="hidden sm:inline">Salir</span>
           </Link>
 
-          <span className="min-w-0 flex-1 truncate text-center text-[12.5px] font-bold sm:text-left">
-            {leccion.nombre}
-          </span>
+          <MigasLeccion
+            segmentos={[leccion.contexto.programa, leccion.contexto.modulo, leccion.nombre]}
+          />
 
           {/* Selector de temas */}
           <div

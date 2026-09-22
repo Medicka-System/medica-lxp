@@ -37,7 +37,7 @@ export function ForoDiscusion({
   const { actividad, config, ventana, grupoId, mensajes } = data;
 
   return (
-    <CascaraLeccion overline={`${actividad.programa} · ${actividad.modulo}`} titulo={actividad.titulo}>
+    <CascaraLeccion programa={actividad.programa} modulo={actividad.modulo} titulo={actividad.titulo}>
       {/* Metadatos APARTE, en card (modalidad · ventana · participación). */}
       <FichaMeta
         filas={[
