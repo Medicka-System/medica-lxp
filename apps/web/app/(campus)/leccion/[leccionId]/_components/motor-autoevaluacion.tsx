@@ -30,6 +30,7 @@ import {
   Flag,
   ListOrdered,
   Loader2,
+  Repeat,
   RotateCcw,
   Send,
   Shield,
@@ -314,128 +315,186 @@ export function MotorAutoevaluacion({
     );
   }
 
-  /* ═══════════════ PORTADA (inicio) ═══════════════ */
+  /* ═══════════════ PORTADA (inicio) — UNA card, dos divisiones (spec Claude Design) ═══════════════ */
   if (estado === 'portada') {
-    // Variante "acreditada": el alumno ya aprobó un intento previo (hero teal + chip).
+    // Variante "acreditada": el alumno ya aprobó un intento previo (header teal + chip).
     const acreditada = autoeval.ultimoIntento?.aprobado === true;
     const pctPrevio = autoeval.ultimoIntento?.porcentaje ?? null;
-    const fC = fmtFecha(autoeval.fechaCierre);
-    const fA = fmtFecha(autoeval.fechaApertura);
-    const fechaTexto = fC ? `Abierta hasta el ${fC}` : fA ? `Abre el ${fA}` : null;
-    // Orden del panel (mock): preguntas · minutos · umbral · barajado · fecha · intentos.
-    const items: { icono: typeof ListOrdered; texto: string }[] = [
-      {
-        icono: ListOrdered,
-        texto: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}`,
-      },
-      ...(autoeval.minutos ? [{ icono: Clock, texto: `${autoeval.minutos} minutos` }] : []),
-      ...(autoeval.umbral ? [{ icono: Target, texto: `${autoeval.umbral}% para aprobar` }] : []),
-      ...(autoeval.barajar ? [{ icono: Shuffle, texto: 'Las opciones cambian de orden en cada intento' }] : []),
-      ...(fechaTexto ? [{ icono: CalendarDays, texto: fechaTexto }] : []),
-      {
-        icono: Shuffle,
-        texto: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}`,
-      },
+    const fCierre = fmtFecha(autoeval.fechaCierre);
+    const fApertura = fmtFecha(autoeval.fechaApertura);
+
+    // Panel "Qué esperar" (orden spec): preguntas · minutos · intentos · fecha · barajado · umbral.
+    // `dato` va en 600/foreground; la fecha en mono; el barajado es solo texto (promesa).
+    type ItemQ = { icono: typeof ListOrdered; prefijo?: string; dato?: string; sufijo?: string; mono?: boolean; soloTexto?: string };
+    const items: ItemQ[] = [
+      { icono: ListOrdered, dato: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}` },
+      ...(autoeval.minutos ? [{ icono: Clock, dato: `${autoeval.minutos} minutos`, sufijo: ' de reloj' }] : []),
+      { icono: Repeat, dato: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}` },
+      ...(fCierre || fApertura
+        ? [{ icono: CalendarDays, prefijo: fCierre ? 'Abierta hasta el ' : 'Abre el ', dato: fCierre || fApertura, mono: true }]
+        : []),
+      ...(autoeval.barajar ? [{ icono: Shuffle, soloTexto: 'Las opciones cambian de orden en cada intento' }] : []),
+      ...(autoeval.umbral ? [{ icono: Target, prefijo: 'Se aprueba con ', dato: `${autoeval.umbral}%` }] : []),
     ];
 
+    // Párrafo de contexto (config): resalta "No cuenta para la nota del diplomado" si aparece.
+    const FRASE = 'No cuenta para la nota del diplomado';
+    const desc =
+      autoeval.descripcion?.trim() ||
+      'Un punto de control para saber si puedes seguir o conviene repasar la lección.';
+    const partesDesc = desc.split(FRASE);
+
+    // Degradado radial teal desde la esquina superior derecha (NO trama); tokenizado.
+    const degradadoRadial =
+      'radial-gradient(120% 150% at 88% 0%, color-mix(in srgb, var(--secondary) 60%, transparent) 0%, transparent 62%)';
+
     return (
-      <div className="mx-auto w-full max-w-[1240px] px-5 py-8 sm:px-6 lg:px-8">
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_286px]">
-          {/* HERO — navy plano + trama diagonal (teal si ya está acreditada) */}
-          <section
-            className="relative overflow-hidden rounded-2xl p-6 sm:p-7"
+      <div className="mx-auto w-full max-w-[880px] px-4 pb-9 pt-7 sm:px-6">
+        <section
+          aria-label="Autoevaluación del módulo"
+          className="w-full overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)]"
+        >
+          {/* ── División A · header navy con degradado radial + ilustración de libros ── */}
+          <div
+            className="relative overflow-hidden px-8 py-[30px]"
             style={{ background: acreditada ? 'var(--secondary)' : 'var(--sidebar)' }}
           >
-            <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
+            <div aria-hidden className="absolute inset-0" style={{ background: degradadoRadial }} />
+            <div className="relative flex items-center gap-8">
+              {/* 3a · columna de texto */}
+              <div className="min-w-0 flex-1">
+                {acreditada ? (
+                  <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
+                    <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
+                    Acreditada{pctPrevio !== null ? ` · ${pctPrevio}%` : ''}
+                  </span>
+                ) : (
+                  <span
+                    className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                    style={{ color: 'var(--primary)' }}
+                  >
+                    Autoevaluación · {autoeval.cuentaParaCalificacion ? 'cuenta para su calificación' : 'no cuenta para su calificación'}
+                  </span>
+                )}
 
-            <div className="relative">
-              {acreditada ? (
-                <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
-                  <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
-                  Acreditada{pctPrevio !== null ? ` · ${pctPrevio}%` : ''}
-                </span>
-              ) : (
-                <span className={kicker} style={{ color: 'var(--primary)' }}>
-                  Autoevaluación · {autoeval.cuentaParaCalificacion ? 'cuenta para su calificación' : 'no cuenta para su calificación'}
-                </span>
-              )}
-
-              <h1
-                className="mt-3.5 text-[26px] font-extrabold leading-tight tracking-[-0.025em]"
-                style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}
-              >
-                {contexto?.leccion ?? 'Autoevaluación'}
-              </h1>
-              {contexto && (
-                <p className="mt-2 text-[12.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
-                  {contexto.modulo} · {contexto.leccion.split(':')[0]} · punto de control
-                </p>
-              )}
-
-              <p
-                className="mt-4 max-w-[62ch] text-[14px] leading-relaxed"
-                style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}
-              >
-                {autoeval.descripcion?.trim() ||
-                  'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
-              </p>
-              <p className="mt-3 max-w-[62ch] text-[13.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
-                {autoeval.promesa?.trim() ||
-                  'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.'}
-              </p>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={comenzar}
-                  disabled={comenzando}
-                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary disabled:opacity-70 ${focusRing}`}
+                <h1
+                  className="mt-2.5 text-[28px] font-extrabold leading-[1.2] tracking-[-0.02em]"
+                  style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}
                 >
-                  {comenzando ? (
-                    <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />
-                  ) : null}
-                  {acreditada ? 'Volver a intentar' : 'Comenzar'}
-                  {!comenzando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
-                </button>
-                <a
-                  href={repasarHref}
-                  className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12] ${focusRing}`}
-                >
-                  <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                  Repasar la lección
-                </a>
-                {acreditada && autoeval.intentoPrevio && (
+                  {contexto?.leccion ?? 'Autoevaluación'}
+                </h1>
+                {contexto && (
+                  <p className="mt-[9px] max-w-[56ch] text-[13.5px] leading-[1.6]" style={{ color: 'var(--hero-ink-muted)' }}>
+                    {contexto.modulo} · {contexto.leccion.split(':')[0]} · punto de control
+                  </p>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center gap-3.5">
+                  {/* Primario · Comenzar (teal → blanco en hover) */}
                   <button
                     type="button"
-                    onClick={verIntentoAnterior}
-                    className={`inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-[11px] px-3.5 text-[13.5px] font-semibold text-white/80 transition-colors hover:text-white ${focusRing}`}
+                    onClick={comenzar}
+                    disabled={comenzando}
+                    className={`inline-flex h-12 items-center gap-[9px] whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-card disabled:opacity-70 ${focusRing}`}
                   >
-                    Ver el intento anterior
+                    {comenzando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : null}
+                    {acreditada ? 'Volver a intentar' : 'Comenzar'}
+                    {!comenzando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
                   </button>
-                )}
+                  {/* Secundario · Repasar la lección */}
+                  <a
+                    href={repasarHref}
+                    className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-[15px] text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12] ${focusRing}`}
+                  >
+                    <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                    Repasar la lección
+                  </a>
+                  {acreditada && autoeval.intentoPrevio && (
+                    <button
+                      type="button"
+                      onClick={verIntentoAnterior}
+                      className={`inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-[11px] px-3.5 text-[13.5px] font-semibold text-white/80 transition-colors hover:text-white ${focusRing}`}
+                    >
+                      Ver el intento anterior
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          </section>
 
-          {/* QUÉ ESPERAR — datos REALES de la config (números en prosa, sin mono) */}
-          <aside className={`${card} p-[18px]`}>
-            <p className="text-[12.5px] font-bold">Qué esperar</p>
-            <ul className="mt-3 flex flex-col gap-2.5">
-              {items.map(({ icono: Icono, texto }) => (
-                <li key={texto} className="flex items-start gap-2.5">
-                  <Icono aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                  <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-foreground-soft">{texto}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3.5 border-t border-border pt-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
-              {autoeval.cuentaParaCalificacion
-                ? 'Cuenta para la calificación del diplomado.'
-                : 'No cuenta para la calificación del diplomado.'}{' '}
-              El reloj corre mientras la tenga abierta.
-            </p>
-          </aside>
-        </div>
+              {/* 3b · ilustración de libros (decorativa · se oculta bajo ~720px). <img>
+                  directo: es un asset estático de public, no pasa por next/image. */}
+              <img
+                src="/libros-stack-v2.png"
+                alt=""
+                aria-hidden
+                className="hidden w-[232px] shrink-0 min-[720px]:block"
+                style={{ filter: 'drop-shadow(0 12px 26px rgba(0,0,0,0.34))' }}
+              />
+            </div>
+          </div>
+
+          {/* ── División B · cuerpo blanco en dos columnas ── */}
+          <div className="flex flex-wrap items-start gap-7 px-8 pb-[26px] pt-6">
+            {/* 4a · columna izquierda */}
+            <div className="min-w-[300px] flex-1">
+              <p className="max-w-[62ch] text-[14px] leading-[1.7] text-foreground-soft" style={{ textWrap: 'pretty' }}>
+                {partesDesc.length > 1 ? (
+                  <>
+                    {partesDesc[0]}
+                    <span className="font-bold text-foreground">{FRASE}</span>
+                    {partesDesc.slice(1).join(FRASE)}
+                  </>
+                ) : (
+                  desc
+                )}
+              </p>
+
+              {/* Highlight con la palomita — la promesa de retroalimentación */}
+              <div className="mt-[18px] flex items-center gap-[11px] rounded-[11px] border border-border bg-muted px-[15px] py-[13px]">
+                <span aria-hidden className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-accent text-accent-foreground">
+                  <Check className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+                <p className="flex-1 text-[12.5px] leading-[1.55] text-foreground-soft">
+                  {autoeval.promesa?.trim() ||
+                    'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.'}
+                </p>
+              </div>
+
+              {/* Informar de un problema — enlace de acción, no botón */}
+              <button
+                type="button"
+                className={`mt-[18px] inline-flex h-9 items-center gap-[7px] text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
+              >
+                <Flag aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                Informar de un problema
+              </button>
+            </div>
+
+            {/* 4b · panel "Qué esperar" (card dentro de la card) */}
+            <aside className="w-[286px] max-w-full shrink-0 rounded-xl border border-border bg-card px-[18px] py-4">
+              <p className="text-[12.5px] font-bold">Qué esperar</p>
+              <ul className="mt-3 flex flex-col gap-2.5">
+                {items.map((it, idx) => {
+                  const Icono = it.icono;
+                  return (
+                    <li key={idx} className="flex items-start gap-[9px]">
+                      <Icono aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                      <span className="min-w-0 flex-1 text-[12.5px] leading-[1.5] text-foreground-soft">
+                        {it.soloTexto ?? (
+                          <>
+                            {it.prefijo}
+                            <span className={`font-semibold text-foreground ${it.mono ? mono : ''}`}>{it.dato}</span>
+                            {it.sufijo}
+                          </>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </aside>
+          </div>
+        </section>
       </div>
     );
   }
