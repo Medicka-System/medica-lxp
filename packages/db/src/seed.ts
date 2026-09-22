@@ -251,7 +251,7 @@ async function seed(sql: Sql): Promise<void> {
   //    Los 7 tipos son teoria/video/autoevaluacion/tarea/foro/h5p/xapi (mig 0023).
 
   // ── (3) AUTOEVALUACIÓN → config con reactivos (shape autoeval-contrato) ──
-  await crearLeccion({
+  const lAutoeval = await crearLeccion({
     moduloId: m2.id, nombre: 'Autoevaluación: fundamentos', orden: 1, horas: 1, tipo: 'autoevaluacion',
     config: {
       descripcion:
@@ -308,6 +308,18 @@ async function seed(sql: Sql): Promise<void> {
           enunciado: 'Explica con tus palabras qué es la impedancia acústica.',
           ayuda: 'En una o dos frases, con tus propias palabras.',
           opciones: [], correcta: null, puntaje: 2, origen: 'manual',
+        },
+        {
+          id: 'r-demo-5', tipo: 'opcion_multiple',
+          enunciado: 'Ve una imagen anecoica en el seno renal que no comunica con los cálices. ¿Qué hace primero?',
+          opciones: [
+            { clave: 'a', texto: 'La reporta como quiste parapiélico' },
+            { clave: 'b', texto: 'Pone Doppler color para descartar un vaso hiliar' },
+            { clave: 'c', texto: 'La ignora por ser un hallazgo normal' },
+          ],
+          correcta: 'b', puntaje: 1, dominio: 'interpretacion',
+          retro: 'Ante un anecoico en el seno, primero Doppler color: si se llena de señal, son vasos hiliares. El quiste parapiélico se descarta después, por no comunicar y por su pared.',
+          origen: 'manual',
         },
       ],
     },
@@ -414,10 +426,53 @@ async function seed(sql: Sql): Promise<void> {
     values (${actTarea.id}, ${lTarea}, ${grupoSync.id}, ${alumnos.a1},
             ${sql.json({ nota_alumno: 'Adjunto 3 planos.' })}, ${'enviada'}::lxp.entrega_estado)`;
 
-  // ── La autoevaluación demo queda SIN intento: a1 ve la PORTADA inicial (no la
-  //    variante "acreditada"). Para demostrar la variante acreditada + "Ver el intento
-  //    anterior", basta completar el examen en vivo (o restaurar el intento seed desde
-  //    el historial de git · commit 675d7a1).
+  // ── Dos intentos de a1 a la AUTOEVALUACIÓN → la portada muestra la variante
+  //    "acreditada" con datos reales: 1er intento FALLIDO (60%) y 2º APROBADO con un
+  //    fallo (80%, falló la del anecoico r-demo-5). El resumen alimenta `ultimoIntento`
+  //    (aprobado, %, correctas, duración, intentos), y `resultados[]` alimenta
+  //    `intentoPrevio` (revisión + "qué falló"). Ancladas a una actividad de respaldo
+  //    (entregas.actividad_id NOT NULL), como tarea/foro.
+  const actAutoeval = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
+      values (${lAutoeval}, 'autoevaluacion'::lxp.actividad_tipo, 'Autoevaluación: fundamentos',
+              'Punto de control de fundamentos.', 1)
+      returning id`,
+  );
+  // UNA entrega por (actividad, alumno) — el api hace upsert (constraint único), así
+  // que el nº de intento vive en el resumen (`intentos`), no en filas separadas. Este
+  // es el 2º intento, APROBADO con un fallo (r-demo-5) → portada acreditada.
+  await sql`
+    insert into lxp.entregas (actividad_id, leccion_id, grupo_id, id_alumno, contenido, nota, estado, created_at)
+    values (${actAutoeval.id}, ${lAutoeval}, ${grupoSync.id}, ${alumnos.a1},
+            ${sql.json({
+              resumen: {
+                aprobado: true,
+                escalado: 0.8,
+                correctas: 3,
+                objetivas: 4,
+                abiertas: 1,
+                puntajeMax: 5,
+                puntajeObtenido: 4,
+                duracionSeg: 440, // 7:20 de reloj
+                intentos: 2, // fue su segundo intento
+              },
+              respuestas: {
+                'r-demo-1': 'b',
+                'r-demo-2': 'v',
+                'r-demo-3': ['a', 'b'],
+                'r-demo-4':
+                  'Es el producto de la densidad del medio por la velocidad del sonido; el salto de impedancia entre dos medios genera la reflexión.',
+                'r-demo-5': 'a',
+              },
+              resultados: [
+                { reactivoId: 'r-demo-1', tipo: 'opcion_multiple', veredicto: 'correcto', puntaje: 1, obtenido: 1, correcta: 'b', retro: 'La reflexión depende del salto de impedancia (Z).' },
+                { reactivoId: 'r-demo-2', tipo: 'verdadero_falso', veredicto: 'correcto', puntaje: 1, obtenido: 1, correcta: 'v' },
+                { reactivoId: 'r-demo-3', tipo: 'multi', veredicto: 'correcto', puntaje: 2, obtenido: 2, correcta: ['a', 'b'] },
+                { reactivoId: 'r-demo-4', tipo: 'abierta', veredicto: 'pendiente', puntaje: 0, obtenido: 0, correcta: null },
+                { reactivoId: 'r-demo-5', tipo: 'opcion_multiple', veredicto: 'incorrecto', puntaje: 1, obtenido: 0, correcta: 'b', retro: 'Ante un anecoico en el seno, primero Doppler color: si se llena de señal, son vasos hiliares. El quiste parapiélico se descarta después.' },
+              ],
+            })}, 8.0, ${'enviada'}::lxp.entrega_estado, now())`;
 
   // ── Inscripción de a1: señal de progreso que dispara la heurística
   //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.

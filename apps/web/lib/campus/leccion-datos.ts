@@ -201,10 +201,11 @@ export async function getLeccion(
     let autoeval: AutoevalAlumno | null = null;
     let autoevalRespondida = false;
     if (leccion.tipo === 'autoevaluacion') {
-      // Última entrega: da `yaRespondida` y el resumen del último intento (para la
-      // variante "acreditada" de la portada · escalado + aprobado).
-      const previa = await sql<{ contenido: Record<string, unknown> | null }[]>`
-        select contenido from lxp.entregas
+      // Última entrega: alimenta `ultimoIntento` (portada acreditada · %, correctas,
+      // envío, duración, intentos hechos). El nº de intento vive en el resumen (el api
+      // hace upsert: 1 fila por alumno/actividad).
+      const previa = await sql<{ contenido: Record<string, unknown> | null; created_at: string }[]>`
+        select contenido, created_at from lxp.entregas
         where leccion_id = ${leccionId} and id_alumno = ${userId}
         order by created_at desc limit 1`;
       autoevalRespondida = previa.length > 0;
@@ -217,9 +218,15 @@ export async function getLeccion(
       const resumen = contenido?.resumen ?? null;
       if (resumen) {
         const escalado = typeof resumen.escalado === 'number' ? resumen.escalado : null;
+        const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
         autoeval.ultimoIntento = {
           aprobado: resumen.aprobado === true,
           porcentaje: escalado !== null ? Math.round(escalado * 100) : null,
+          correctas: n(resumen.correctas),
+          objetivas: n(resumen.objetivas),
+          enviadoEn: previa[0]?.created_at ? new Date(previa[0].created_at).toISOString() : null,
+          duracionSeg: typeof resumen.duracionSeg === 'number' ? resumen.duracionSeg : null,
+          intentosHechos: typeof resumen.intentos === 'number' ? resumen.intentos : 1,
         };
         // Resultado detallado (para "Ver el intento anterior" · portada acreditada).
         if (Array.isArray(contenido?.resultados) && contenido.resultados.length > 0) {

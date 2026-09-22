@@ -120,9 +120,19 @@ export type AutoevalAlumno = {
   /**
    * Último intento del alumno (para la variante "acreditada" de la portada). `null` si
    * aún no ha respondido. `porcentaje` es el escalado objetivo × 100 (null si no hubo
-   * objetivas).
+   * objetivas). `correctas/objetivas` = aciertos objetivos; `enviadoEn` = ISO del envío;
+   * `duracionSeg` = cuánto tomó (null si no se registró); `intentosHechos` = cuántas
+   * entregas lleva (para "N intentos hechos").
    */
-  ultimoIntento: { aprobado: boolean; porcentaje: number | null } | null;
+  ultimoIntento: {
+    aprobado: boolean;
+    porcentaje: number | null;
+    correctas: number;
+    objetivas: number;
+    enviadoEn: string | null;
+    duracionSeg: number | null;
+    intentosHechos: number;
+  } | null;
   /**
    * Sesión de intento EN CURSO (timer persistido · mig 0029). `iniciadoEn` (ISO) es el
    * momento en que arrancó el reloj; el cliente calcula el restante contra `minutos`.

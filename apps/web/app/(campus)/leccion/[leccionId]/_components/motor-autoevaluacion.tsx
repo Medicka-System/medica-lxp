@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  Award,
   BookOpen,
   CalendarDays,
   Check,
@@ -30,8 +31,10 @@ import {
   Flag,
   ListOrdered,
   Loader2,
+  PlayCircle,
   Repeat,
   RotateCcw,
+  Search,
   Send,
   Shield,
   Shuffle,
@@ -65,6 +68,24 @@ function fmtFecha(iso: string | null): string {
 function fmtReloj(segundos: number): string {
   const s = Math.max(0, segundos);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+const MESES_LARGO = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+/** ISO → "22 de septiembre, 11:17" sin depender de locale (SSR estable · componentes UTC). */
+function fmtFechaHora(iso: string | null): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return '';
+  return `${Number(m[3])} de ${MESES_LARGO[Number(m[2]) - 1] ?? ''}, ${m[4]}:${m[5]}`;
+}
+
+const ORDINALES = ['', 'primer', 'segundo', 'tercer', 'cuarto', 'quinto', 'sexto'];
+/** 1→"primer", 2→"segundo"… (cae al número si se pasa del rango). */
+function ordinal(n: number): string {
+  return ORDINALES[n] ?? `${n}º`;
 }
 
 function contestada(v: string | string[] | undefined): boolean {
@@ -315,27 +336,54 @@ export function MotorAutoevaluacion({
     );
   }
 
-  /* ═══════════════ PORTADA (inicio) — UNA card, dos divisiones (spec Claude Design) ═══════════════ */
+  /* ═══════════════ PORTADA — UNA card, dos divisiones (spec Claude Design) ═══════════════ */
   if (estado === 'portada') {
-    // Variante "acreditada": el alumno ya aprobó un intento previo (header teal + chip).
-    const acreditada = autoeval.ultimoIntento?.aprobado === true;
-    const pctPrevio = autoeval.ultimoIntento?.porcentaje ?? null;
+    // "acreditada" = ya aprobó un intento. El HEADER SIGUE NAVY (el logro se comunica en
+    // el cuerpo, no tiñendo la card). Si no hay intento, cae a la portada inicial.
+    const ui = autoeval.ultimoIntento;
+    const acreditada = ui?.aprobado === true;
     const fCierre = fmtFecha(autoeval.fechaCierre);
     const fApertura = fmtFecha(autoeval.fechaApertura);
 
-    // Panel "Qué esperar" (orden spec): preguntas · minutos · intentos · fecha · barajado · umbral.
-    // `dato` va en 600/foreground; la fecha en mono; el barajado es solo texto (promesa).
+    // "Qué falló": primer reactivo objetivo incorrecto/sin responder del último intento.
+    const rsPrev = autoeval.intentoPrevio?.resultado.resultados ?? [];
+    const idxFallo = reactivos.findIndex((r) => {
+      const v = rsPrev.find((x) => x.reactivoId === r.id);
+      return !!v && (v.veredicto === 'incorrecto' || v.veredicto === 'sin_responder');
+    });
+    const fallado =
+      idxFallo >= 0
+        ? {
+            numero: idxFallo + 1,
+            enunciado: reactivos[idxFallo].enunciado,
+            retro: rsPrev.find((x) => x.reactivoId === reactivos[idxFallo].id)?.retro ?? '',
+          }
+        : null;
+
+    // Panel "Qué esperar": 6 renglones antes de empezar; 4 tras acreditar.
     type ItemQ = { icono: typeof ListOrdered; prefijo?: string; dato?: string; sufijo?: string; mono?: boolean; soloTexto?: string };
-    const items: ItemQ[] = [
-      { icono: ListOrdered, dato: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}` },
-      ...(autoeval.minutos ? [{ icono: Clock, dato: `${autoeval.minutos} minutos`, sufijo: ' de reloj' }] : []),
-      { icono: Repeat, dato: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}` },
-      ...(fCierre || fApertura
-        ? [{ icono: CalendarDays, prefijo: fCierre ? 'Abierta hasta el ' : 'Abre el ', dato: fCierre || fApertura, mono: true }]
-        : []),
-      ...(autoeval.barajar ? [{ icono: Shuffle, soloTexto: 'Las opciones cambian de orden en cada intento' }] : []),
-      ...(autoeval.umbral ? [{ icono: Target, prefijo: 'Se aprueba con ', dato: `${autoeval.umbral}%` }] : []),
-    ];
+    const intentosHechos = ui?.intentosHechos ?? 0;
+    const items: ItemQ[] = acreditada
+      ? [
+          { icono: ListOrdered, dato: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}` },
+          {
+            icono: Repeat,
+            dato: `${intentosHechos} ${intentosHechos === 1 ? 'intento hecho' : 'intentos hechos'}`,
+            sufijo: autoeval.intentos === 0 ? ' · ilimitados' : '',
+          },
+          ...(autoeval.umbral ? [{ icono: Target, prefijo: 'Se aprueba con ', dato: `${autoeval.umbral}%` }] : []),
+          ...(fallado ? [{ icono: PlayCircle, prefijo: 'Repaso sugerido: ', dato: `pregunta ${fallado.numero}` }] : []),
+        ]
+      : [
+          { icono: ListOrdered, dato: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}` },
+          ...(autoeval.minutos ? [{ icono: Clock, dato: `${autoeval.minutos} minutos`, sufijo: ' de reloj' }] : []),
+          { icono: Repeat, dato: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}` },
+          ...(fCierre || fApertura
+            ? [{ icono: CalendarDays, prefijo: fCierre ? 'Abierta hasta el ' : 'Abre el ', dato: fCierre || fApertura, mono: true }]
+            : []),
+          ...(autoeval.barajar ? [{ icono: Shuffle, soloTexto: 'Las opciones cambian de orden en cada intento' }] : []),
+          ...(autoeval.umbral ? [{ icono: Target, prefijo: 'Se aprueba con ', dato: `${autoeval.umbral}%` }] : []),
+        ];
 
     // Párrafo de contexto (config): resalta "No cuenta para la nota del diplomado" si aparece.
     const FRASE = 'No cuenta para la nota del diplomado';
@@ -347,26 +395,27 @@ export function MotorAutoevaluacion({
     // Degradado radial teal desde la esquina superior derecha (NO trama); tokenizado.
     const degradadoRadial =
       'radial-gradient(120% 150% at 88% 0%, color-mix(in srgb, var(--secondary) 60%, transparent) 0%, transparent 62%)';
+    const bordeTealTraslucido = 'color-mix(in srgb, var(--secondary) 20%, transparent)';
 
     return (
       <div className="mx-auto w-full max-w-[880px] px-4 pb-9 pt-7 sm:px-6">
         <section
-          aria-label="Autoevaluación del módulo"
+          aria-label={acreditada ? 'Autoevaluación completada' : 'Autoevaluación del módulo'}
           className="w-full overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)]"
         >
-          {/* ── División A · header navy con degradado radial + ilustración de libros ── */}
-          <div
-            className="relative overflow-hidden px-8 py-[30px]"
-            style={{ background: acreditada ? 'var(--secondary)' : 'var(--sidebar)' }}
-          >
+          {/* ── División A · header navy (idéntico en ambos estados) + radial + libros ── */}
+          <div className="relative overflow-hidden px-8 py-[30px]" style={{ background: 'var(--sidebar)' }}>
             <div aria-hidden className="absolute inset-0" style={{ background: degradadoRadial }} />
             <div className="relative flex items-center gap-8">
               {/* 3a · columna de texto */}
               <div className="min-w-0 flex-1">
                 {acreditada ? (
-                  <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
-                    <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
-                    Acreditada{pctPrevio !== null ? ` · ${pctPrevio}%` : ''}
+                  <span
+                    className="inline-flex items-center gap-[7px] text-[11px] font-semibold uppercase tracking-[0.16em]"
+                    style={{ color: 'var(--primary)' }}
+                  >
+                    <Check aria-hidden className="h-[13px] w-[13px]" strokeWidth={2.6} />
+                    Autoevaluación acreditada
                   </span>
                 ) : (
                   <span
@@ -385,44 +434,72 @@ export function MotorAutoevaluacion({
                 </h1>
                 {contexto && (
                   <p className="mt-[9px] max-w-[56ch] text-[13.5px] leading-[1.6]" style={{ color: 'var(--hero-ink-muted)' }}>
-                    {contexto.modulo} · {contexto.leccion.split(':')[0]} · punto de control
+                    {contexto.modulo} · {contexto.leccion.split(':')[0]} ·{' '}
+                    {acreditada ? (
+                      <span className="font-bold" style={{ color: 'var(--hero-ink)' }}>
+                        {ui?.correctas ?? 0} de {ui?.objetivas ?? 0} correctas
+                        {intentosHechos > 1 ? ` en su ${ordinal(intentosHechos)} intento` : ''}
+                      </span>
+                    ) : (
+                      'punto de control'
+                    )}
                   </p>
                 )}
 
                 <div className="mt-5 flex flex-wrap items-center gap-3.5">
-                  {/* Primario · Comenzar (teal → blanco en hover) */}
-                  <button
-                    type="button"
-                    onClick={comenzar}
-                    disabled={comenzando}
-                    className={`inline-flex h-12 items-center gap-[9px] whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-card disabled:opacity-70 ${focusRing}`}
-                  >
-                    {comenzando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : null}
-                    {acreditada ? 'Volver a intentar' : 'Comenzar'}
-                    {!comenzando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
-                  </button>
-                  {/* Secundario · Repasar la lección */}
-                  <a
-                    href={repasarHref}
-                    className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-[15px] text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12] ${focusRing}`}
-                  >
-                    <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                    Repasar la lección
-                  </a>
-                  {acreditada && autoeval.intentoPrevio && (
-                    <button
-                      type="button"
-                      onClick={verIntentoAnterior}
-                      className={`inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-[11px] px-3.5 text-[13.5px] font-semibold text-white/80 transition-colors hover:text-white ${focusRing}`}
-                    >
-                      Ver el intento anterior
-                    </button>
+                  {acreditada ? (
+                    <>
+                      {/* Primario · Siguiente actividad */}
+                      <a
+                        href={siguienteHref ?? '/cursos'}
+                        className={`inline-flex h-12 items-center gap-[9px] whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] no-underline transition-colors hover:bg-card ${focusRing}`}
+                      >
+                        Siguiente actividad
+                        <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+                      </a>
+                      {/* Secundario · Volver a intentar */}
+                      <button
+                        type="button"
+                        onClick={reintentar}
+                        disabled={comenzando}
+                        className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-[15px] text-[13.5px] font-semibold text-white transition-colors hover:bg-white/[0.12] disabled:opacity-70 ${focusRing}`}
+                      >
+                        {comenzando ? (
+                          <Loader2 aria-hidden className="h-[15px] w-[15px] animate-spin" strokeWidth={2} />
+                        ) : (
+                          <Repeat aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                        )}
+                        Volver a intentar
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Primario · Comenzar (teal → blanco en hover) */}
+                      <button
+                        type="button"
+                        onClick={comenzar}
+                        disabled={comenzando}
+                        className={`inline-flex h-12 items-center gap-[9px] whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-card disabled:opacity-70 ${focusRing}`}
+                      >
+                        {comenzando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : null}
+                        Comenzar
+                        {!comenzando && <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />}
+                      </button>
+                      {/* Secundario · Repasar la lección */}
+                      <a
+                        href={repasarHref}
+                        className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-[15px] text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12] ${focusRing}`}
+                      >
+                        <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                        Repasar la lección
+                      </a>
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* 3b · ilustración de libros (decorativa · se oculta bajo ~720px). <img>
-                  directo: es un asset estático de public, no pasa por next/image. */}
+              {/* 3b · ilustración de libros (misma en ambos estados · se oculta bajo ~720px).
+                  <img> directo: asset estático de public, no pasa por next/image. */}
               <img
                 src="/libros-stack-v2.png"
                 alt=""
@@ -437,33 +514,90 @@ export function MotorAutoevaluacion({
           <div className="flex flex-wrap items-start gap-7 px-8 pb-[26px] pt-6">
             {/* 4a · columna izquierda */}
             <div className="min-w-[300px] flex-1">
-              <p className="max-w-[62ch] text-[14px] leading-[1.7] text-foreground-soft" style={{ textWrap: 'pretty' }}>
-                {partesDesc.length > 1 ? (
-                  <>
-                    {partesDesc[0]}
-                    <span className="font-bold text-foreground">{FRASE}</span>
-                    {partesDesc.slice(1).join(FRASE)}
-                  </>
-                ) : (
-                  desc
-                )}
-              </p>
+              {acreditada ? (
+                <>
+                  {/* ① Tarjeta de resultado — la única caja con borde de color */}
+                  <div className="rounded-xl border border-primary bg-accent px-5 py-[18px]">
+                    <div className="flex items-center gap-2.5">
+                      <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-card text-secondary">
+                        <Award className="h-[17px] w-[17px]" strokeWidth={1.75} />
+                      </span>
+                      <p className="text-[15px] font-bold text-foreground">Aprobó el punto de control</p>
+                    </div>
 
-              {/* Highlight con la palomita — la promesa de retroalimentación */}
-              <div className="mt-[18px] flex items-center gap-[11px] rounded-[11px] border border-border bg-muted px-[15px] py-[13px]">
-                <span aria-hidden className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-accent text-accent-foreground">
-                  <Check className="h-4 w-4" strokeWidth={2.2} />
-                </span>
-                <p className="flex-1 text-[12.5px] leading-[1.55] text-foreground-soft">
-                  {autoeval.promesa?.trim() ||
-                    'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.'}
-                </p>
-              </div>
+                    <div className="mt-4 flex flex-wrap items-end gap-4">
+                      <div>
+                        <span className={`${mono} block text-[40px] font-extrabold leading-none tracking-[-0.03em] text-secondary`}>
+                          {ui?.porcentaje ?? 0}%
+                        </span>
+                        <span className="mt-1.5 block text-[11.5px] text-foreground-soft">
+                          <span className={mono}>
+                            {ui?.correctas ?? 0} de {ui?.objetivas ?? 0}
+                          </span>
+                          {autoeval.umbral ? ` · se aprueba con ${autoeval.umbral}%` : ''}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={verIntentoAnterior}
+                        className={`ml-auto inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] border border-card bg-card px-4 text-[13.5px] font-bold text-secondary transition-colors hover:bg-primary hover:text-[color:var(--sidebar)] ${focusRing}`}
+                      >
+                        <Search aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                        Ver los comentarios
+                      </button>
+                    </div>
 
-              {/* Informar de un problema — enlace de acción, no botón */}
+                    <div className="mt-3.5 border-t pt-3" style={{ borderColor: bordeTealTraslucido }}>
+                      <span className={`${mono} text-[12px] text-secondary`}>
+                        Enviada el {fmtFechaHora(ui?.enviadoEn ?? null)}
+                        {ui?.duracionSeg != null && autoeval.minutos
+                          ? ` · ${fmtReloj(ui.duracionSeg)} de ${String(autoeval.minutos).padStart(2, '0')}:00`
+                          : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* ② Aviso de lo que falló — único ámbar de la pantalla */}
+                  {fallado && (
+                    <div className="mt-4 flex items-start gap-[11px] rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-[15px] py-[13px]">
+                      <TriangleAlert aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={2} />
+                      <p className="text-[12.5px] leading-[1.55] text-[color:var(--warning-foreground)]">
+                        Falló la pregunta {fallado.numero}. {fallado.retro} Conviene repasarla antes de continuar.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="max-w-[62ch] text-[14px] leading-[1.7] text-foreground-soft" style={{ textWrap: 'pretty' }}>
+                    {partesDesc.length > 1 ? (
+                      <>
+                        {partesDesc[0]}
+                        <span className="font-bold text-foreground">{FRASE}</span>
+                        {partesDesc.slice(1).join(FRASE)}
+                      </>
+                    ) : (
+                      desc
+                    )}
+                  </p>
+
+                  {/* Highlight con la palomita — la promesa de retroalimentación */}
+                  <div className="mt-[18px] flex items-center gap-[11px] rounded-[11px] border border-border bg-muted px-[15px] py-[13px]">
+                    <span aria-hidden className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-accent text-accent-foreground">
+                      <Check className="h-4 w-4" strokeWidth={2.2} />
+                    </span>
+                    <p className="flex-1 text-[12.5px] leading-[1.55] text-foreground-soft">
+                      {autoeval.promesa?.trim() ||
+                        'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.'}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Informar de un problema — enlace de acción, en ambos estados */}
               <button
                 type="button"
-                className={`mt-[18px] inline-flex h-9 items-center gap-[7px] text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
+                className={`mt-4 inline-flex h-9 items-center gap-[7px] text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
               >
                 <Flag aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
                 Informar de un problema
