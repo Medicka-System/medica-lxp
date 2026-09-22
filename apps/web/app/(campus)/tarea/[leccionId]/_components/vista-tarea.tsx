@@ -20,17 +20,17 @@ import {
   ClipboardCheck,
   Clock,
   Download,
-  FileCheck2,
   ListChecks,
   Loader2,
   Paperclip,
   RotateCcw,
-  Scale,
   Send,
   Upload,
   X,
 } from 'lucide-react';
 import { EditorRico, ContenidoRico } from '@/components/editor-rico';
+import { CascaraLeccion } from '@/components/campus/cascara-leccion';
+import { FichaMeta } from '@/components/campus/ficha-meta';
 import { card, kicker, softText, focusRing, mono } from '@/components/tokens';
 import { haceCuanto } from '@/lib/format';
 import type { EstadoEntregaTarea, TareaData } from '@/lib/campus/tarea-datos';
@@ -47,31 +47,21 @@ export function VistaTarea({ data, puedeEntregar }: { data: TareaData; puedeEntr
   const yaEntrego = !!entrega && (entrega.texto !== null || entrega.archivo !== null);
 
   return (
-    <div className="mx-auto w-full max-w-[860px] px-5 py-8 sm:px-6">
-      <Link
-        href="/cursos"
-        className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-secondary hover:text-sidebar ${focusRing}`}
-      >
-        <ChevronLeft aria-hidden className="h-4 w-4" strokeWidth={2} />
-        Volver a mis cursos
-      </Link>
-
-      <p className={`${kicker} mt-4 text-secondary`}>
-        {contexto.programa} · {contexto.modulo}
-      </p>
-      <h1 className="mt-1.5 flex items-center gap-2.5 text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
-        <FileCheck2 aria-hidden className="h-6 w-6 shrink-0 text-secondary" strokeWidth={1.75} />
-        {data.titulo}
-      </h1>
-
-      {/* Meta: valor · formato · estado de la entrega (config del diseñador). */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {data.valor !== null && (
-          <ChipMeta icono={Scale} texto={`Valor · ${data.valor} pts`} />
-        )}
-        <ChipMeta icono={Paperclip} texto={ROTULO_FORMATO[formato]} />
-        {entrega && <ChipEstado estado={entrega.estado} />}
-      </div>
+    <CascaraLeccion
+      overline={`${contexto.programa} · ${contexto.modulo}`}
+      titulo={data.titulo}
+      anterior={data.anterior ? { href: `/leccion/${data.anterior.id}` } : null}
+      siguiente={data.siguiente ? { href: `/leccion/${data.siguiente.id}` } : null}
+    >
+      {/* Metadatos APARTE, en card (valor · formato · estado · fecha de entrega). */}
+      <FichaMeta
+        filas={[
+          { etiqueta: 'Valor', valor: data.valor !== null ? `${data.valor} pts` : null },
+          { etiqueta: 'Formato', valor: ROTULO_FORMATO[formato] },
+          { etiqueta: 'Estado', valor: entrega ? <ChipEstado estado={entrega.estado} /> : null },
+          { etiqueta: 'Entregada', valor: yaEntrego && entrega ? haceCuanto(entrega.creadaEn) : null },
+        ]}
+      />
 
       {/* Lineamientos (HTML del diseñador). */}
       {data.lineamientos.trim() ? (
@@ -213,7 +203,7 @@ export function VistaTarea({ data, puedeEntregar }: { data: TareaData; puedeEntr
           <span />
         )}
       </nav>
-    </div>
+    </CascaraLeccion>
   );
 }
 
@@ -468,15 +458,6 @@ const ROTULO_FORMATO: Record<TareaData['formato'], string> = {
   texto: 'Texto en línea',
   ambos: 'Archivo y/o texto',
 };
-
-function ChipMeta({ icono: Icono, texto }: { icono: typeof Scale; texto: string }) {
-  return (
-    <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-2.5 text-[11.5px] font-bold text-accent-foreground">
-      <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-      {texto}
-    </span>
-  );
-}
 
 function ChipEstado({ estado }: { estado: EstadoEntregaTarea }) {
   const mapa: Record<EstadoEntregaTarea, { texto: string; clase: string; icono: typeof Clock }> = {

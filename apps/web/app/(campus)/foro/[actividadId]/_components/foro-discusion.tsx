@@ -9,16 +9,16 @@
  * Vive dentro del shell del Campus (app/(campus)/layout.tsx).
  */
 import { useState, useTransition } from 'react';
-import Link from 'next/link';
 import {
   CalendarClock,
-  ChevronLeft,
   CornerDownRight,
   ListChecks,
   MessageSquare,
   Send,
 } from 'lucide-react';
 import { EditorRico, ContenidoRico } from '@/components/editor-rico';
+import { CascaraLeccion } from '@/components/campus/cascara-leccion';
+import { FichaMeta } from '@/components/campus/ficha-meta';
 import { Avatar, iniciales } from '@/components/avatar';
 import { card, kicker, softText, focusRing, mono } from '@/components/tokens';
 import { haceCuanto } from '@/lib/format';
@@ -37,40 +37,25 @@ export function ForoDiscusion({
   const { actividad, config, ventana, grupoId, mensajes } = data;
 
   return (
-    <div className="mx-auto w-full max-w-[860px] px-5 py-8 sm:px-6">
-      <Link
-        href="/cursos"
-        className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-secondary hover:text-sidebar ${focusRing}`}
-      >
-        <ChevronLeft aria-hidden className="h-4 w-4" strokeWidth={2} />
-        Volver a mis cursos
-      </Link>
-
-      <p className={`${kicker} mt-4 text-secondary`}>
-        {actividad.programa} · {actividad.modulo} · {actividad.leccion}
-      </p>
-      <h1 className="mt-1.5 flex items-center gap-2.5 text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
-        <MessageSquare aria-hidden className="h-6 w-6 shrink-0 text-secondary" strokeWidth={1.75} />
-        {actividad.titulo}
-      </h1>
-
-      {/* Modalidad · ventana · valor de la participación (config del diseñador). */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <ChipMeta texto={config.modalidad === 'sincrono' ? 'Discusión síncrona' : 'Discusión asíncrona'} />
-        <ChipVentanaAlumno estado={ventana.estado} />
-        {config.participacion.califica && (
-          <ChipMeta
-            texto={
-              config.participacion.puntos !== null
-                ? `Participación · ${config.participacion.puntos} pts`
-                : 'Participación calificada'
-            }
-          />
-        )}
-      </div>
+    <CascaraLeccion overline={`${actividad.programa} · ${actividad.modulo}`} titulo={actividad.titulo}>
+      {/* Metadatos APARTE, en card (modalidad · ventana · participación). */}
+      <FichaMeta
+        filas={[
+          { etiqueta: 'Modalidad', valor: config.modalidad === 'sincrono' ? 'Síncrona' : 'Asíncrona' },
+          { etiqueta: 'Ventana', valor: <ChipVentanaAlumno estado={ventana.estado} /> },
+          {
+            etiqueta: 'Participación',
+            valor: config.participacion.califica
+              ? config.participacion.puntos !== null
+                ? `${config.participacion.puntos} pts`
+                : 'Calificada'
+              : null,
+          },
+        ]}
+      />
 
       {actividad.instrucciones && (
-        <div className="mt-3 max-w-[66ch]">
+        <div className="mt-6 max-w-[66ch]">
           <ContenidoRico html={actividad.instrucciones} />
         </div>
       )}
@@ -143,7 +128,7 @@ export function ForoDiscusion({
           ))}
         </ol>
       )}
-    </div>
+    </CascaraLeccion>
   );
 }
 
@@ -317,15 +302,7 @@ function AvisoSinPublicar({
   );
 }
 
-/* ── Chips de meta (modalidad, valor) y de ventana ── */
-function ChipMeta({ texto }: { texto: string }) {
-  return (
-    <span className="inline-flex h-7 items-center whitespace-nowrap rounded-full bg-accent px-2.5 text-[11.5px] font-bold text-accent-foreground">
-      {texto}
-    </span>
-  );
-}
-
+/* ── Chip de estado de la ventana del foro ── */
 function ChipVentanaAlumno({ estado }: { estado: EstadoVentanaForo }) {
   const mapa = {
     siempre: { texto: 'Abierto', clase: 'bg-accent text-accent-foreground' },
