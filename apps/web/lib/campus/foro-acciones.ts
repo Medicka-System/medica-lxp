@@ -29,26 +29,30 @@ async function publicar(
   if (!texto) return { ok: false, error: 'Escribe tu mensaje antes de publicar.' };
   if (!grupoId) return { ok: false, error: 'Este foro aún no tiene un grupo asignado.' };
 
+  let leccionId: string | null = null;
   try {
     const error = await comoAlumno(alumno.userId, async (sql) => {
       // Refuerza la ventana del diseñador (config de la lección del foro).
       const fila = (
-        await sql<{ config: Record<string, unknown> | null }[]>`
-          select l.config
+        await sql<{ id: string; config: Record<string, unknown> | null }[]>`
+          select l.id, l.config
           from lxp.actividades a
           join lxp.lecciones l on l.id = a.leccion_id
           where a.id = ${actividadId} and a.tipo = 'foro'
           limit 1`
       )[0];
+      leccionId = fila?.id ?? null;
       const ventana = estadoVentanaForo(comoConfigForo(fila?.config), new Date());
       if (!ventana.abierto) {
         return ventana.estado === 'programado'
           ? 'Este foro aún no abre.'
           : 'Este foro ya cerró.';
       }
+      // Ancla el mensaje a la lección (mig 0026): participar CUENTA como completar el
+      // foro (la palomita del menú del curso lee foro_mensajes.leccion_id · §6).
       await sql`
-        insert into lxp.foro_mensajes (actividad_id, grupo_id, autor_id, parent_id, cuerpo)
-        values (${actividadId}, ${grupoId}, ${alumno.userId}, ${parentId}, ${texto})`;
+        insert into lxp.foro_mensajes (actividad_id, grupo_id, autor_id, parent_id, cuerpo, leccion_id)
+        values (${actividadId}, ${grupoId}, ${alumno.userId}, ${parentId}, ${texto}, ${leccionId})`;
       return null;
     });
     if (error) return { ok: false, error };
@@ -56,6 +60,8 @@ async function publicar(
     return { ok: false, error: 'No se pudo publicar. Inténtalo de nuevo.' };
   }
   revalidatePath(`/foro/${actividadId}`);
+  if (leccionId) revalidatePath(`/leccion/${leccionId}`);
+  revalidatePath('/cursos');
   return { ok: true };
 }
 

@@ -219,6 +219,32 @@ async function main(): Promise<void> {
       await fueRechazada(() => como(sql, claimsAnon, (tx) => tx`select 1 from lxp.notas`)),
     );
 
+    // ── 7) Progreso ANCLADO A LA LECCIÓN (mig 0028): completar cualquier tipo ──
+    let a1Progreso = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`
+          insert into lxp.reproduccion_progreso (alumno_id, leccion_id, porcentaje, completado)
+          values (${a1}, ${leccionId}, 100, true)
+          on conflict (alumno_id, leccion_id) where contenido_id is null and leccion_id is not null
+          do update set completado = true`;
+      });
+      a1Progreso = true;
+    } catch {
+      a1Progreso = false;
+    }
+    check('a1 SÍ puede marcar progreso leccion-keyed (contenido_id NULL)', a1Progreso);
+
+    check(
+      'a4 suspendido NO puede marcar progreso de lección',
+      await fueRechazada(() =>
+        como(sql, claimsA4, (tx) =>
+          tx`insert into lxp.reproduccion_progreso (alumno_id, leccion_id, porcentaje, completado)
+             values (${a4}, ${leccionId}, 100, true)`,
+        ),
+      ),
+    );
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

@@ -164,6 +164,15 @@ export async function getLeccion(
     const interactivo = esLeccionInteractiva(tipo);
     const compat = interactivo ? contenidos.find((c) => c.tipo === tipo) ?? null : null;
 
+    // Progreso ANCLADO A LA LECCIÓN (modelo nuevo · mig 0028): el candado de completado
+    // para los tipos sin fila en contenidos (teoría/video/…). Persiste al recargar.
+    const progLeccion = await sql<{ ok: boolean }[]>`
+      select exists (
+        select 1 from lxp.reproduccion_progreso
+        where leccion_id = ${leccionId} and alumno_id = ${userId} and completado
+      ) as ok`;
+    const leccionCompletada = progLeccion[0]?.ok ?? false;
+
     // Autoevaluación (modelo nuevo): el examen vive en lecciones.config. ¿Ya hay un
     // intento? Se resuelve por la entrega anclada a la lección (leccion_id · mig 0026).
     let autoeval: AutoevalAlumno | null = null;
@@ -213,13 +222,16 @@ export async function getLeccion(
       autoeval,
       anterior,
       siguiente,
-      // Interactivos (h5p/xapi): completada = progreso del ancla compat. Autoeval:
-      // completada si ya hay un intento registrado. El resto: todos sus bloques listos.
-      completada: interactivo
-        ? (compat?.completado ?? false)
-        : leccion.tipo === 'autoevaluacion'
-          ? autoevalRespondida
-          : bloques.length > 0 && bloques.every((b) => b.completado),
+      // Completada si hay progreso ANCLADO A LA LECCIÓN (mig 0028 · cualquier tipo) o,
+      // por compatibilidad: el ancla compat (h5p/xapi), la entrega (autoeval) o todos
+      // los bloques del modelo viejo vistos.
+      completada:
+        leccionCompletada ||
+        (interactivo
+          ? (compat?.completado ?? false)
+          : leccion.tipo === 'autoevaluacion'
+            ? autoevalRespondida
+            : bloques.length > 0 && bloques.every((b) => b.completado)),
     };
   });
 }
@@ -253,15 +265,28 @@ export async function getContenidoCurso(
       select
         l.id, l.modulo_id, l.nombre, l.tipo::text as tipo,
         (
+          -- Progreso ANCLADO A LA LECCIÓN (modelo nuevo · mig 0028): cubre todos los
+          -- tipos sin fila en contenidos (teoría/video/foro/…).
           exists (
+            select 1 from lxp.reproduccion_progreso rp
+            where rp.leccion_id = l.id and rp.alumno_id = ${userId} and rp.completado
+          )
+          -- Progreso por CONTENIDO (modelo viejo + ancla compat de h5p/xapi).
+          or exists (
             select 1
             from lxp.reproduccion_progreso rp
             join lxp.contenidos co on co.id = rp.contenido_id
             where co.leccion_id = l.id and rp.alumno_id = ${userId} and rp.completado
           )
+          -- Entrega (tarea / autoevaluación).
           or exists (
             select 1 from lxp.entregas e
             where e.leccion_id = l.id and e.id_alumno = ${userId}
+          )
+          -- Participación en el foro (posteó al menos un mensaje).
+          or exists (
+            select 1 from lxp.foro_mensajes fm
+            where fm.leccion_id = l.id and fm.autor_id = ${userId}
           )
         ) as completada
       from lxp.lecciones l

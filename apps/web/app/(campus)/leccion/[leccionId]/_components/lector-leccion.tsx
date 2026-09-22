@@ -244,7 +244,7 @@ export function LectorLeccion({
             completado: true,
             titulo: leccion.nombre,
           })
-        : await marcarLeccionCompletada(leccion.id);
+        : await marcarLeccionCompletada(leccion.id, leccion.nombre);
       if (r.ok) setCompletada(true);
       else setError(r.error);
     });

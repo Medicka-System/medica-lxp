@@ -55,16 +55,22 @@ export async function getLeccionVideo(
     const siguiente: LeccionVecina | null =
       idx >= 0 && idx < secuencia.length - 1 ? secuencia[idx + 1]! : null;
 
-    // Progreso: la lección video (modelo nuevo) no tiene `contenidos` propios; el
-    // avance se refleja si existe algún contenido "puente" en la lección ya marcado
-    // (compat con material legado). Sin puente → false hasta que el modelo tenga
-    // progreso por lección (Sprint 11).
+    // Progreso: completada si hay una fila ANCLADA A LA LECCIÓN (modelo nuevo · mig
+    // 0028, la que escribe "Marcar como vista") o, por compat, algún contenido puente
+    // marcado. Siempre devuelve 1 fila.
     const prog = await sql<{ completada: boolean }[]>`
-      select coalesce(bool_or(rp.completado), false) as completada
-      from lxp.contenidos co
-      left join lxp.reproduccion_progreso rp
-        on rp.contenido_id = co.id and rp.alumno_id = ${userId}
-      where co.leccion_id = ${leccionId}`;
+      select (
+        exists (
+          select 1 from lxp.reproduccion_progreso
+          where leccion_id = ${leccionId} and alumno_id = ${userId} and completado
+        )
+        or exists (
+          select 1
+          from lxp.reproduccion_progreso rp
+          join lxp.contenidos co on co.id = rp.contenido_id
+          where co.leccion_id = ${leccionId} and rp.alumno_id = ${userId} and rp.completado
+        )
+      ) as completada`;
 
     return {
       id: leccion.id,

@@ -1,13 +1,8 @@
 'use server';
 
-import {
-  actividad,
-  actorDeUsuario,
-  emitirStatement,
-  verbo,
-} from '@campus/shared';
 import { getSesionAlumno } from '@/lib/session';
 import { marcarLeccionCompletada } from './leccion-acciones';
+import { emitirEventoLeccion } from './xapi-leccion';
 import type { ResultadoAccion } from './resultado';
 
 /**
@@ -59,39 +54,6 @@ export async function firmarReproduccionAlumno(
 }
 
 /**
- * Encola un statement xAPI de la lección hacia el LRS (best-effort). La telemetría de
- * aprendizaje no debe bloquear la experiencia: si el `api`/LRS no responde, se registra
- * y se sigue. La idempotencia la da el `id` del statement (dedup en el LRS · §7).
- */
-async function emitirEventoLeccion(
-  userId: string,
-  nombre: string,
-  leccionId: string,
-  tituloLeccion: string,
-  clave: 'experimento' | 'completo',
-): Promise<void> {
-  try {
-    const statement = emitirStatement(
-      actorDeUsuario(userId, nombre),
-      verbo(clave),
-      actividad('leccion', leccionId, tituloLeccion),
-      clave === 'completo' ? { completion: true } : undefined,
-    );
-    const res = await fetch(`${apiBase()}/xapi/statements`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(statement),
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      console.error(`[xapi ${clave}] el api respondió HTTP ${res.status}`);
-    }
-  } catch (e) {
-    console.error(`[xapi ${clave}] no se pudo encolar:`, e);
-  }
-}
-
-/**
  * Registra que el alumno EXPERIMENTÓ (abrió/reprodujo) la lección de video. xAPI de
  * progreso — best-effort, no bloquea. Se llama una vez al montar la lección.
  */
@@ -113,9 +75,6 @@ export async function marcarVideoVisto(
   leccionId: string,
   tituloLeccion: string,
 ): Promise<ResultadoAccion> {
-  const r = await marcarLeccionCompletada(leccionId);
-  if (!r.ok) return r;
-  const alumno = await getSesionAlumno();
-  await emitirEventoLeccion(alumno.userId, alumno.nombre, leccionId, tituloLeccion, 'completo');
-  return r;
+  // El progreso leccion-keyed y el xAPI `completó` los hace marcarLeccionCompletada.
+  return marcarLeccionCompletada(leccionId, tituloLeccion);
 }
