@@ -229,12 +229,14 @@ export function LeccionVideo({
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_324px]">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">{leccion.contexto.modulo}</p>
-            <h1 className="mt-2 text-[26px] font-extrabold leading-tight sm:text-[30px]">{leccion.nombre}</h1>
+            <h1 className="mt-2 text-[28px] font-extrabold leading-tight sm:text-[32px]">{leccion.nombre}</h1>
             {leccion.descripcion && (
-              <p className="mt-3 max-w-[70ch] text-[15px] leading-relaxed text-foreground-soft">{leccion.descripcion}</p>
+              <p className="mt-3 text-[15px] leading-relaxed text-foreground-soft">{leccion.descripcion}</p>
             )}
 
-            <div className="mt-6">
+            <div aria-hidden className="mt-7 h-px w-full bg-border" />
+
+            <div className="mt-8">
               <BloqueVideo
                 src={src}
                 titulo={leccion.nombre}
