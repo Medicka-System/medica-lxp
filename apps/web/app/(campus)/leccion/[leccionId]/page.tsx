@@ -63,5 +63,12 @@ export default async function LeccionPage({
     getNotasLeccion(alumno.userId, leccion.id),
   ]);
 
-  return <LectorLeccion leccion={leccion} contenidoCurso={contenidoCurso} notasIniciales={notas} />;
+  return (
+    <LectorLeccion
+      leccion={leccion}
+      contenidoCurso={contenidoCurso}
+      notasIniciales={notas}
+      alumnoNombre={alumno.nombre}
+    />
+  );
 }

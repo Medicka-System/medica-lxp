@@ -58,12 +58,14 @@ export function autoevalDeConfig(
           })
           .filter((op) => op.clave || op.texto)
       : [];
-    const puntaje = Number(o.puntaje);
-    puntosTotales += Number.isFinite(puntaje) && puntaje > 0 ? puntaje : 1;
+    const puntajeRaw = Number(o.puntaje);
+    const puntaje = Number.isFinite(puntajeRaw) && puntajeRaw > 0 ? puntajeRaw : 1;
+    puntosTotales += puntaje;
     reactivos.push({
       id,
       tipo,
       enunciado,
+      puntaje,
       imagen:
         typeof o.imagen === 'string' && o.imagen.trim() ? o.imagen.trim() : undefined,
       opciones,

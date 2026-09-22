@@ -79,6 +79,7 @@ export function LectorLeccion({
   leccion,
   contenidoCurso = null,
   notasIniciales = [],
+  alumnoNombre,
   preview = false,
 }: {
   leccion: LeccionCompleta;
@@ -86,6 +87,8 @@ export function LectorLeccion({
   contenidoCurso?: ContenidoCurso | null;
   /** Notas del alumno para esta lección (§5A · mig 0027). Vacío en preview. */
   notasIniciales?: Nota[];
+  /** Nombre del alumno (código de honor de la autoevaluación · §7A). */
+  alumnoNombre?: string;
   /**
    * Modo VISTA PREVIA para staff (§5B): mismo render que ve el alumno, pero navega
    * entre lecciones por la ruta de preview (que no exige `publicado`), no registra
@@ -388,6 +391,8 @@ export function LectorLeccion({
           autoeval={leccion.autoeval}
           contexto={{ modulo: leccion.contexto.modulo, leccion: leccion.nombre }}
           repasarHref={leccion.anterior ? `${baseLeccion}/${leccion.anterior.id}` : '/cursos'}
+          siguienteHref={leccion.siguiente ? `${baseLeccion}/${leccion.siguiente.id}` : null}
+          alumnoNombre={alumnoNombre}
           preview={preview}
         />
       ) : (

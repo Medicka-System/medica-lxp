@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ClipboardList,
   Clock,
+  Flag,
   ListOrdered,
   Loader2,
   Play,
@@ -128,6 +129,8 @@ export function MotorAutoevaluacion({
   autoeval,
   contexto,
   repasarHref = '/cursos',
+  siguienteHref = null,
+  alumnoNombre,
   preview = false,
 }: {
   leccionId: string;
@@ -136,6 +139,10 @@ export function MotorAutoevaluacion({
   contexto?: { modulo: string; leccion: string };
   /** Destino de "Repasar la lección" (lección anterior o el curso). */
   repasarHref?: string;
+  /** Destino de "Siguiente actividad" en el resultado (null si es la última). */
+  siguienteHref?: string | null;
+  /** Nombre del alumno para el código de honor. */
+  alumnoNombre?: string;
   preview?: boolean;
 }) {
   const [estado, setEstado] = useState<Estado>('portada');
@@ -148,6 +155,8 @@ export function MotorAutoevaluacion({
   const reactivos = autoeval.reactivos;
   const total = reactivos.length;
   const contestadas = reactivos.filter((r) => contestada(respuestas[r.id])).length;
+  // Posición (1..N) del primer reactivo sin contestar — "Falta la 3" (−1 si no falta ninguno).
+  const primeraFalta = reactivos.findIndex((r) => !contestada(respuestas[r.id]));
 
   const veredictos = useMemo(() => {
     const m = new Map<string, ResultadoReactivo>();
@@ -204,7 +213,7 @@ export function MotorAutoevaluacion({
     const fC = fmtFecha(autoeval.fechaCierre);
     const fA = fmtFecha(autoeval.fechaApertura);
     const fechaTexto = fC ? `Abierta hasta el ${fC}` : fA ? `Abre el ${fA}` : null;
-    // Orden del panel (spec): preguntas · minutos · umbral · intentos · barajado · fecha.
+    // Orden del panel (mock): preguntas · minutos · umbral · barajado · fecha · intentos.
     const items: { icono: typeof ListOrdered; texto: string }[] = [
       {
         icono: ListOrdered,
@@ -212,12 +221,12 @@ export function MotorAutoevaluacion({
       },
       ...(autoeval.minutos ? [{ icono: Clock, texto: `${autoeval.minutos} minutos` }] : []),
       ...(autoeval.umbral ? [{ icono: Target, texto: `${autoeval.umbral}% para aprobar` }] : []),
+      ...(autoeval.barajar ? [{ icono: Shuffle, texto: 'Las opciones cambian de orden en cada intento' }] : []),
+      ...(fechaTexto ? [{ icono: CalendarDays, texto: fechaTexto }] : []),
       {
         icono: Shuffle,
         texto: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}`,
       },
-      ...(autoeval.barajar ? [{ icono: Shuffle, texto: 'Las opciones cambian de orden en cada intento' }] : []),
-      ...(fechaTexto ? [{ icono: CalendarDays, texto: fechaTexto }] : []),
     ];
 
     return (
@@ -250,7 +259,7 @@ export function MotorAutoevaluacion({
               </h1>
               {contexto && (
                 <p className="mt-2 text-[12.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
-                  {contexto.modulo} · punto de control
+                  {contexto.modulo} · {contexto.leccion.split(':')[0]} · punto de control
                 </p>
               )}
 
@@ -336,7 +345,7 @@ export function MotorAutoevaluacion({
                 }`}
               >
                 {resultado.aprobado ? <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} /> : <RotateCcw aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />}
-                {hayObjetivas ? (resultado.aprobado ? 'Aprobada' : 'Conviene repasar') : 'Enviada a revisión'}
+                {hayObjetivas ? (resultado.aprobado ? 'Aprobado' : 'Conviene repasar') : 'Enviada a revisión'}
               </span>
               <h2 className="mt-3.5 text-[22px] font-extrabold leading-tight tracking-[-0.02em]" style={{ color: 'var(--hero-ink)' }}>
                 {hayObjetivas
@@ -351,17 +360,31 @@ export function MotorAutoevaluacion({
                   : 'Las preguntas abiertas las revisa tu docente y te dará retroalimentación.'}
               </p>
               <div className="mt-5 flex flex-wrap items-center gap-3">
+                {siguienteHref && (
+                  <a
+                    href={siguienteHref}
+                    className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] no-underline transition-colors hover:bg-primary ${focusRing}`}
+                  >
+                    Siguiente actividad
+                    <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={reintentar}
-                  className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
+                  className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] px-4 text-[13.5px] font-semibold transition-colors ${
+                    siguienteHref
+                      ? 'border border-white/30 text-white hover:bg-white/[0.12]'
+                      : 'bg-card font-bold text-[color:var(--sidebar)] hover:bg-primary'
+                  } ${focusRing}`}
                 >
                   <RotateCcw aria-hidden className="h-4 w-4" strokeWidth={2} />
                   Volver a intentar
                 </button>
                 <a
                   href="#revision-autoeval"
-                  className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]"
+                  className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] px-3.5 text-[13.5px] font-semibold no-underline transition-colors hover:text-white"
+                  style={{ color: 'var(--hero-ink-muted)' }}
                 >
                   <ChevronDown aria-hidden className="h-[15px] w-[15px]" strokeWidth={2} />
                   Revisar respuesta por respuesta
@@ -413,6 +436,11 @@ export function MotorAutoevaluacion({
                           </span>
                         ) : (
                           <Veredicto correcta={correcta} />
+                        )}
+                        {!pendiente && v && (
+                          <span className={`${mono} ml-auto text-[11px] font-bold text-muted-foreground`}>
+                            {v.obtenido} / {v.puntaje}
+                          </span>
                         )}
                       </div>
 
@@ -521,7 +549,7 @@ export function MotorAutoevaluacion({
                     : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
                 }`}
               >
-                {hecha ? 'Contestada' : 'Sin contestar'}
+                {hecha ? `${reactivo.puntaje} ${reactivo.puntaje === 1 ? 'punto' : 'puntos'}` : 'Sin contestar'}
               </span>
             </div>
 
@@ -591,9 +619,14 @@ export function MotorAutoevaluacion({
             </p>
           </div>
           <p className="mt-3 max-w-[74ch] text-[13px] leading-[1.65] text-foreground-soft" style={{ textWrap: 'pretty' }}>
-            Al enviar confirmas que la resolviste por tu cuenta, con lo que estudiaste. La competencia que
-            se acredita aquí se traduce en decisiones sobre pacientes: resolverla con ayuda externa —o con
-            un asistente de IA— desvirtúa el diagnóstico de tu propio nivel.
+            Al enviar confirmas que la resolviste por tu cuenta, con lo que estudiaste en el módulo. En un
+            programa clínico esto no es un trámite: la competencia que se acredita aquí se traduce en
+            decisiones sobre pacientes. Resolverla con ayuda externa —o con un asistente de IA— desvirtúa el
+            diagnóstico de tu propio nivel y puede derivar en la baja del programa, según la{' '}
+            <a href="#" className="font-semibold text-secondary">
+              política de integridad académica
+            </a>
+            .
           </p>
           <label className="mt-4 flex cursor-pointer items-start gap-3">
             <input
@@ -602,8 +635,19 @@ export function MotorAutoevaluacion({
               onChange={(e) => setHonor(e.target.checked)}
               className={`mt-0.5 h-5 w-5 shrink-0 accent-[color:var(--secondary)] ${focusRing}`}
             />
-            <span className="min-w-0 flex-1 text-[13.5px] leading-relaxed">Lo entiendo y lo acepto.</span>
+            <span className="min-w-0 flex-1 text-[13.5px] leading-relaxed">
+              {alumnoNombre ? (
+                <>
+                  Yo, <span className="font-bold">{alumnoNombre}</span>, lo entiendo y lo acepto.
+                </>
+              ) : (
+                'Lo entiendo y lo acepto.'
+              )}
+            </span>
           </label>
+          <p className="ml-8 mt-2 text-[11.5px] text-muted-foreground">
+            Debes aceptarlo para poder enviar la autoevaluación.
+          </p>
         </section>
 
         {error && (
@@ -630,9 +674,9 @@ export function MotorAutoevaluacion({
             </button>
           )}
           <span className="ml-auto flex flex-wrap items-center gap-2.5">
-            {contestadas < total && (
+            {primeraFalta >= 0 && (
               <span className="inline-flex h-[26px] items-center whitespace-nowrap rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[11px] font-bold text-[color:var(--warning-foreground)]">
-                Faltan {total - contestadas}
+                Falta la {primeraFalta + 1}
               </span>
             )}
           </span>
@@ -643,7 +687,7 @@ export function MotorAutoevaluacion({
           Al enviar verás qué acertaste y qué conviene repasar.
         </p>
 
-        <div className="mt-4 border-t border-border pt-4">
+        <div className="mt-4 flex items-center gap-[18px] border-t border-border pt-4">
           <button
             type="button"
             onClick={() => setEstado('portada')}
@@ -651,6 +695,13 @@ export function MotorAutoevaluacion({
           >
             <Play aria-hidden className="h-[13px] w-[13px] rotate-180" strokeWidth={1.75} />
             Volver a la portada
+          </button>
+          <button
+            type="button"
+            className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
+          >
+            <Flag aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            Informar de un problema
           </button>
         </div>
       </div>

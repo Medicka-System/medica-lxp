@@ -81,6 +81,8 @@ export type ReactivoAlumno = {
   id: string;
   tipo: TipoReactivoAlumno;
   enunciado: string;
+  /** Puntos del reactivo (default 1). Se muestra al alumno (badge "N punto(s)"). */
+  puntaje: number;
   imagen?: string;
   opciones: { clave: string; texto: string }[];
 };
