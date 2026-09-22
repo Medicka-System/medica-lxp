@@ -325,7 +325,8 @@ export function MotorAutoevaluacion({
                   'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
               </p>
               <p className="mt-3 max-w-[62ch] text-[13.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
-                Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.
+                {autoeval.promesa?.trim() ||
+                  'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.'}
               </p>
 
               <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -647,7 +648,11 @@ export function MotorAutoevaluacion({
                 <p id={`${reactivo.id}-enunciado`} className="text-[16px] font-bold leading-[1.45]" style={{ textWrap: 'pretty' }}>
                   {reactivo.enunciado}
                 </p>
-                {esMulti && <p className="mt-1.5 text-[12px] text-muted-foreground">Puedes marcar más de una.</p>}
+                {(reactivo.ayuda || esMulti) && (
+                  <p className="mt-1.5 text-[12px] text-muted-foreground">
+                    {reactivo.ayuda ?? 'Puedes marcar más de una.'}
+                  </p>
+                )}
               </div>
               <span
                 className={`inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold ${

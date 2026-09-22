@@ -45,6 +45,8 @@ export type ReactivoConfig = {
   id: string;
   tipo: ReactivoTipo;
   enunciado: string;
+  /** Texto de ayuda bajo el enunciado (ej.: "Puede marcar más de una."). */
+  ayuda?: string;
   imagen?: string;
   opciones: OpcionReactivo[];
   correcta: string | string[] | null;
@@ -61,6 +63,8 @@ export type AutoevalConfig = {
   reactivos: ReactivoConfig[];
   /** Instrucciones/introducción para el alumno. */
   descripcion?: string;
+  /** Promesa (2º párrafo del hero): qué verá al terminar (revisión, retro). */
+  promesa?: string;
   /** Intentos permitidos (0 = ilimitados). */
   intentos?: number;
   /** Barajar el orden de los reactivos al presentarlos. */
@@ -95,6 +99,7 @@ export function comoAutoevalConfig(raw: Record<string, unknown> | null | undefin
   return {
     reactivos,
     descripcion: typeof c.descripcion === 'string' ? c.descripcion : undefined,
+    promesa: typeof c.promesa === 'string' ? c.promesa : undefined,
     intentos: numOpt(c.intentos),
     barajar: c.barajar === true,
     mostrarRetro: c.mostrarRetro !== false, // por defecto se muestra
@@ -140,6 +145,7 @@ export function normalizarReactivo(raw: unknown): ReactivoConfig | null {
     id: typeof r.id === 'string' && r.id ? r.id : nuevoId(),
     tipo,
     enunciado,
+    ayuda: typeof r.ayuda === 'string' && r.ayuda.trim() ? r.ayuda.trim() : undefined,
     imagen: typeof r.imagen === 'string' && r.imagen.trim() ? r.imagen.trim() : undefined,
     opciones,
     correcta,

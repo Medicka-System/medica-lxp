@@ -66,6 +66,7 @@ export async function guardarAutoeval(
   const limpio: AutoevalConfig = {
     reactivos,
     descripcion: config.descripcion?.trim() || undefined,
+    promesa: config.promesa?.trim() || undefined,
     intentos: entero(config.intentos),
     barajar: config.barajar === true,
     mostrarRetro: config.mostrarRetro !== false,

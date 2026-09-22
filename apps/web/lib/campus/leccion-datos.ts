@@ -65,6 +65,7 @@ export function autoevalDeConfig(
       id,
       tipo,
       enunciado,
+      ayuda: typeof o.ayuda === 'string' && o.ayuda.trim() ? o.ayuda.trim() : undefined,
       puntaje,
       imagen:
         typeof o.imagen === 'string' && o.imagen.trim() ? o.imagen.trim() : undefined,
@@ -77,6 +78,7 @@ export function autoevalDeConfig(
     typeof v === 'string' && v.trim() ? v.trim() : null;
   return {
     descripcion: typeof c.descripcion === 'string' ? c.descripcion : undefined,
+    promesa: typeof c.promesa === 'string' ? c.promesa : undefined,
     reactivos,
     yaRespondida,
     puntosTotales,

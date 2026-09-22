@@ -256,6 +256,8 @@ async function seed(sql: Sql): Promise<void> {
     config: {
       descripcion:
         'Cinco preguntas sobre los fundamentos: cómo se refleja el ultrasonido, artefactos de modo B y cómo describir la impedancia. No cuenta para la nota del diplomado: sirve para saber si puedes seguir o conviene repasar.',
+      promesa:
+        'Al terminar verás qué acertaste, qué falló y por qué — con la retroalimentación de cada pregunta.',
       intentos: 0,
       barajar: true,
       mostrarRetro: true,
@@ -288,6 +290,7 @@ async function seed(sql: Sql): Promise<void> {
         {
           id: 'r-demo-3', tipo: 'multi',
           enunciado: 'Selecciona los artefactos de modo B:',
+          ayuda: 'Puedes marcar más de una.',
           opciones: [
             { clave: 'a', texto: 'Sombra acústica' },
             { clave: 'b', texto: 'Reverberación' },
@@ -298,6 +301,7 @@ async function seed(sql: Sql): Promise<void> {
         {
           id: 'r-demo-4', tipo: 'abierta',
           enunciado: 'Explica con tus palabras qué es la impedancia acústica.',
+          ayuda: 'En una o dos frases, con tus propias palabras.',
           opciones: [], correcta: null, puntaje: 2, origen: 'manual',
         },
       ],

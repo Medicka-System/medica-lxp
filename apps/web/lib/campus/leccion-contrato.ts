@@ -81,6 +81,8 @@ export type ReactivoAlumno = {
   id: string;
   tipo: TipoReactivoAlumno;
   enunciado: string;
+  /** Texto de ayuda bajo el enunciado (ej.: "Puede marcar más de una."). */
+  ayuda?: string;
   /** Puntos del reactivo (default 1). Se muestra al alumno (badge "N punto(s)"). */
   puntaje: number;
   imagen?: string;
@@ -90,6 +92,8 @@ export type ReactivoAlumno = {
 /** Autoevaluación lista para el alumno (modelo nuevo · lxp.lecciones.config · mig 0023). */
 export type AutoevalAlumno = {
   descripcion?: string;
+  /** Promesa (2º párrafo del hero): qué verá al terminar (config del diseñador). */
+  promesa?: string;
   reactivos: ReactivoAlumno[];
   /** El alumno ya envió un intento (existe entrega anclada a la lección · mig 0026). */
   yaRespondida: boolean;

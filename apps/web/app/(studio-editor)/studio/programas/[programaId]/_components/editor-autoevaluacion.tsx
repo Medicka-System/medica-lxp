@@ -196,6 +196,18 @@ export function EditorAutoevaluacion({ programaId, leccionId, config, correr }: 
               className={`resize-y rounded-[9px] border border-border bg-muted px-3 py-2 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
             />
           </label>
+          <label className="flex flex-col gap-1.5 md:col-span-2">
+            <span className={`text-[12px] font-semibold ${softText}`}>
+              Promesa (2º párrafo del inicio · qué verá al terminar)
+            </span>
+            <textarea
+              value={estado.promesa ?? ''}
+              onChange={(e) => aplicar((prev) => ({ ...prev, promesa: e.target.value }))}
+              rows={2}
+              placeholder="Ej.: Al terminar verá qué acertó, qué falló y por qué, con la retroalimentación de cada pregunta."
+              className={`resize-y rounded-[9px] border border-border bg-muted px-3 py-2 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+            />
+          </label>
           <label className="flex flex-col gap-1.5">
             <span className={`text-[12px] font-semibold ${softText}`}>Intentos permitidos (0 = ilimitados)</span>
             <input
@@ -484,6 +496,16 @@ function TarjetaReactivo({
         placeholder="Escribe la pregunta…"
         aria-label={`Enunciado del reactivo ${indice + 1}`}
         className={`mt-3 w-full resize-y rounded-[9px] border border-border bg-muted px-3 py-2 text-[13.5px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+      />
+
+      {/* Ayuda opcional bajo el enunciado */}
+      <input
+        type="text"
+        value={r.ayuda ?? ''}
+        onChange={(e) => onCambiar((prev) => ({ ...prev, ayuda: e.target.value.trim() || undefined }))}
+        placeholder="Ayuda opcional (ej.: Puede marcar más de una · Grado, lado, causa…)"
+        aria-label={`Ayuda del reactivo ${indice + 1}`}
+        className={`mt-2 h-8 w-full rounded-[8px] border border-border bg-muted px-2.5 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
       />
 
       {/* Imagen opcional de la pregunta */}
