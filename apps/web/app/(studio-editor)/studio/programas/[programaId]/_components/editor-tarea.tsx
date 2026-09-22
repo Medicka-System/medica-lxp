@@ -114,7 +114,6 @@ export function EditorTarea({ programaId, leccionId, config, correr }: EditorLec
           contenidoInicial={tarea.lineamientos ?? ''}
           onChange={(html) => actualizar({ lineamientos: html })}
           minAlto={220}
-          placeholder="Describe qué debe entregar el alumno, el alcance, los criterios de forma y la fecha límite. Puedes importar un .docx desde la barra."
           ariaLabel="Lineamientos de la tarea"
         />
       </section>

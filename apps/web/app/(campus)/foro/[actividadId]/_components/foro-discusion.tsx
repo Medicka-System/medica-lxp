@@ -81,13 +81,10 @@ export function ForoDiscusion({
       {/* ── Composer del tema ── */}
       <section className={`${card} mt-6 p-4`}>
         <p className="text-[13.5px] font-bold">Abre un tema</p>
-        <p className={`mt-0.5 text-[12px] ${softText}`}>
-          Comparte tu duda o hallazgo. Puedes dar formato, insertar tablas, imágenes y fórmulas.
-        </p>
         <div className="mt-3">
           {puedePublicar ? (
             <Composer
-              placeholder="Escribe tu tema para el grupo…"
+              ariaLabel="Editor del nuevo tema del foro"
               cta="Publicar tema"
               minAlto={150}
               onEnviar={(html) => crearPostForo(actividad.id, grupoId!, html)}
@@ -183,7 +180,7 @@ function Mensaje({
       {respondiendo && grupoId && (
         <div className="mt-2">
           <Composer
-            placeholder={`Responder a ${mensaje.autor}…`}
+            ariaLabel={`Responder a ${mensaje.autor}`}
             cta="Responder"
             minAlto={110}
             onEnviar={(html) => responderForo(actividadId, grupoId, mensaje.id, html)}
@@ -213,13 +210,13 @@ function Mensaje({
 
 /* ── Composer reutilizable (tema o respuesta) ── */
 function Composer({
-  placeholder,
+  ariaLabel,
   cta,
   minAlto,
   onEnviar,
   onListo,
 }: {
-  placeholder: string;
+  ariaLabel: string;
   cta: string;
   minAlto: number;
   onEnviar: (html: string) => Promise<ResultadoAccion>;
@@ -255,8 +252,7 @@ function Composer({
         contenidoInicial=""
         onChange={setHtml}
         minAlto={minAlto}
-        placeholder={placeholder}
-        ariaLabel={placeholder}
+        ariaLabel={ariaLabel}
       />
       {error && (
         <p role="alert" className="mt-2 text-[12px] font-semibold text-[color:var(--destructive-foreground)]">

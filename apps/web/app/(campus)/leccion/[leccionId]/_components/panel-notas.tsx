@@ -144,7 +144,7 @@ export function PanelNotas({
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           rows={2}
-          placeholder="Escribe lo que quieras recordar…"
+          placeholder=""
           className={`w-full resize-none rounded-[10px] border border-border bg-card p-3 text-[13.5px] leading-relaxed text-foreground placeholder:text-muted-foreground ${focusRing}`}
         />
         <button

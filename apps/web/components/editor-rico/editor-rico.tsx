@@ -59,7 +59,7 @@ function htmlLimpio(editor: { isEmpty: boolean; getHTML: () => string }): string
 export function EditorRico({
   contenidoInicial = '',
   editable = true,
-  placeholder = 'Escribe aquí…',
+  placeholder = '',
   minAlto = 260,
   limiteCaracteres,
   ariaLabel = 'Editor de contenido',
@@ -154,7 +154,7 @@ export function EditorRico({
       />
 
       <div className="editor-rico-lienzo relative px-4 py-3" style={{ ['--er-min-alto' as string]: `${minAlto}px` }}>
-        {estado.vacio && (
+        {estado.vacio && placeholder && (
           <span className="editor-rico-placeholder left-4 top-3 text-[15px]">{placeholder}</span>
         )}
         <EditorContent editor={editor} />

@@ -150,7 +150,6 @@ export function EditorTeoria({ contenido }: { contenido: ContenidoTeoria }) {
                 contenidoInicial={contenido.cuerpo}
                 onChange={alCambiar}
                 minAlto={420}
-                placeholder="Escribe la teoría de esta lección: usa títulos, listas, imágenes, tablas y fórmulas. Puedes importar un .docx desde la barra."
                 ariaLabel="Cuerpo de la teoría"
               />
             </div>

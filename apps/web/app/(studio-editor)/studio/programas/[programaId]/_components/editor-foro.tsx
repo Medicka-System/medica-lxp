@@ -115,7 +115,6 @@ export function EditorForo({ programaId, leccionId, config, correr }: EditorLecc
             instruccionesRef.current = html;
           }}
           minAlto={160}
-          placeholder="Plantea el caso, la pregunta o el objetivo de la discusión…"
           ariaLabel="Consigna del foro"
         />
         <div className="mt-2.5 flex justify-end">

@@ -143,15 +143,6 @@ export function VistaTarea({ data, puedeEntregar }: { data: TareaData; puedeEntr
         <p className="text-[13.5px] font-bold">
           {calificada ? 'Tu entrega' : yaEntrego ? 'Actualiza tu entrega' : 'Entrega tu tarea'}
         </p>
-        {!calificada && (
-          <p className={`mt-0.5 text-[12px] ${softText}`}>
-            {formato === 'archivo'
-              ? 'Adjunta el archivo que pide la tarea.'
-              : formato === 'texto'
-                ? 'Escribe tu respuesta. Puedes dar formato, insertar tablas, imágenes y fórmulas.'
-                : 'Escribe tu respuesta y/o adjunta un archivo.'}
-          </p>
-        )}
         <div className="mt-3">
           {calificada ? (
             <div className="flex items-start gap-2.5 rounded-[11px] border border-border bg-muted px-3.5 py-3">
@@ -369,7 +360,6 @@ function Composer({
           contenidoInicial={textoInicial}
           onChange={setHtml}
           minAlto={180}
-          placeholder="Escribe tu respuesta aquí…"
           ariaLabel="Tu respuesta de la tarea"
         />
       )}
