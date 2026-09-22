@@ -25,7 +25,10 @@
  */
 
 import type { TipoLeccion } from '@/lib/studio/leccion-tipos';
+import type { ImagenReactivo } from '@/lib/studio/autoeval-contrato';
 import type { TipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
+
+export type { ImagenReactivo };
 
 /**
  * Un bloque de teoría tal como lo VE el alumno (modelo NUEVO · `lxp.bloques` · mig
@@ -85,7 +88,8 @@ export type ReactivoAlumno = {
   ayuda?: string;
   /** Puntos del reactivo (default 1). Se muestra al alumno (badge "N punto(s)"). */
   puntaje: number;
-  imagen?: string;
+  /** Imagen de apoyo con anotaciones (contenido médico · §5C). */
+  imagen?: ImagenReactivo;
   opciones: { clave: string; texto: string }[];
 };
 

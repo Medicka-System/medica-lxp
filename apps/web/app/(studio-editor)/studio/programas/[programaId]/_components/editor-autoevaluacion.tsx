@@ -30,10 +30,12 @@ import type { EditorLeccionProps } from '@/lib/studio/leccion-tipos';
 import {
   CLAVES_OPCION,
   comoAutoevalConfig,
+  normalizarImagen,
   nuevoId,
   REACTIVO_TIPOS,
   ROTULO_REACTIVO,
   type AutoevalConfig,
+  type ImagenReactivo,
   type ReactivoConfig,
   type ReactivoTipo,
 } from '@/lib/studio/autoeval-contrato';
@@ -42,6 +44,9 @@ import {
   importarReactivosAutoeval,
   proponerExamenAutoeval,
 } from '@/lib/studio/autoeval-acciones';
+
+/** Trama diagonal del marco de imagen sin URL (previa · igual al render del alumno). */
+const TRAMA_PREVIA = 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)';
 
 /** Dominios I-AIM para el selector opcional (== enum `lxp.dominio_iaim`). */
 const DOMINIOS: { valor: string; rotulo: string }[] = [
@@ -508,29 +513,90 @@ function TarjetaReactivo({
         className={`mt-2 h-8 w-full rounded-[8px] border border-border bg-muted px-2.5 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
       />
 
-      {/* Imagen opcional de la pregunta */}
-      <div className="mt-2 flex items-center gap-2">
-        <ImageIcon aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-        <input
-          type="url"
-          value={r.imagen ?? ''}
-          onChange={(e) =>
-            onCambiar((prev) => ({ ...prev, imagen: e.target.value.trim() || undefined }))
-          }
-          placeholder="URL de imagen de apoyo (opcional)"
-          aria-label={`Imagen del reactivo ${indice + 1}`}
-          className={`h-8 w-full rounded-[8px] border border-border bg-muted px-2.5 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
-        />
-      </div>
-      {r.imagen && (
-        // Previa de una URL externa arbitraria (imagen de apoyo del reactivo): se usa
-        // <img> a propósito, no next/image (dominios remotos no configurables aquí).
-        <img
-          src={r.imagen}
-          alt=""
-          className="mt-2 max-h-40 rounded-[9px] border border-border object-contain"
-        />
-      )}
+      {/* Imagen de apoyo con anotaciones (opcional · contenido médico) */}
+      {(() => {
+        const img = r.imagen;
+        const parchar = (parche: Partial<ImagenReactivo>) =>
+          onCambiar((prev) => ({ ...prev, imagen: normalizarImagen({ ...(prev.imagen ?? {}), ...parche }) }));
+        const campo =
+          'h-8 w-full rounded-[8px] border border-border bg-card px-2.5 text-[12px] text-foreground outline-none focus:border-secondary';
+        const hayAlgo = !!(img?.url || img?.etiqueta || img?.anotacion || img?.pie);
+        return (
+          <div className="mt-2 rounded-[9px] border border-border bg-muted/40 p-2.5">
+            <div className="flex items-center gap-2">
+              <ImageIcon aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <input
+                type="url"
+                value={img?.url ?? ''}
+                onChange={(e) => parchar({ url: e.target.value })}
+                placeholder="URL de imagen de apoyo (opcional)"
+                aria-label={`URL de imagen del reactivo ${indice + 1}`}
+                className={`${campo} ${focusRing}`}
+              />
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <input
+                type="text"
+                value={img?.etiqueta ?? ''}
+                onChange={(e) => parchar({ etiqueta: e.target.value })}
+                placeholder="Etiqueta (Serie 1 · modo B)"
+                aria-label={`Etiqueta de la imagen del reactivo ${indice + 1}`}
+                className={`${campo} ${focusRing}`}
+              />
+              <input
+                type="text"
+                value={img?.anotacion ?? ''}
+                onChange={(e) => parchar({ anotacion: e.target.value })}
+                placeholder="Anotación (Eje corto 7.4 mm)"
+                aria-label={`Anotación de la imagen del reactivo ${indice + 1}`}
+                className={`${campo} ${focusRing}`}
+              />
+              <input
+                type="text"
+                value={img?.pie ?? ''}
+                onChange={(e) => parchar({ pie: e.target.value })}
+                placeholder="Pie de imagen"
+                aria-label={`Pie de la imagen del reactivo ${indice + 1}`}
+                className={`${campo} ${focusRing}`}
+              />
+            </div>
+            {hayAlgo && (
+              <figure className="mt-2">
+                <div
+                  className="relative grid w-full max-w-sm place-items-center overflow-hidden rounded-[9px] border border-border"
+                  style={{ aspectRatio: '16 / 9', background: 'var(--sidebar)' }}
+                >
+                  {img?.url ? (
+                    // <img> a propósito (dominios remotos no configurables en next/image aquí).
+                    <img src={img.url} alt="" className="h-full w-full object-contain" />
+                  ) : (
+                    <span aria-hidden className="absolute inset-0" style={{ background: TRAMA_PREVIA }} />
+                  )}
+                  {img?.anotacion && (
+                    <span
+                      className="whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold text-white"
+                      style={{ background: 'rgba(15,45,82,.9)', borderColor: 'var(--info)' }}
+                    >
+                      {img.anotacion}
+                    </span>
+                  )}
+                  {img?.etiqueta && (
+                    <span
+                      className="absolute bottom-2 left-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                      style={{ background: 'rgba(15,45,82,.85)' }}
+                    >
+                      {img.etiqueta}
+                    </span>
+                  )}
+                </div>
+                {img?.pie && (
+                  <figcaption className={`mt-1.5 text-[11.5px] leading-relaxed ${softText}`}>{img.pie}</figcaption>
+                )}
+              </figure>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Opciones (no aplica a abierta) */}
       {conOpciones ? (

@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
+import { normalizarImagen } from '@/lib/studio/autoeval-contrato';
 import { comoTipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
 import {
   esLeccionInteractiva,
@@ -67,8 +68,7 @@ export function autoevalDeConfig(
       enunciado,
       ayuda: typeof o.ayuda === 'string' && o.ayuda.trim() ? o.ayuda.trim() : undefined,
       puntaje,
-      imagen:
-        typeof o.imagen === 'string' && o.imagen.trim() ? o.imagen.trim() : undefined,
+      imagen: normalizarImagen(o.imagen),
       opciones,
     });
   }

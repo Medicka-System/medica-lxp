@@ -270,6 +270,11 @@ async function seed(sql: Sql): Promise<void> {
         {
           id: 'r-demo-1', tipo: 'opcion_multiple',
           enunciado: '¿Qué propiedad determina la reflexión del ultrasonido en una interfaz?',
+          imagen: {
+            etiqueta: 'Serie 1 · modo B',
+            anotacion: 'Interfaz de impedancia',
+            pie: 'Referencia técnica en modo B: la reflexión ocurre en el salto de impedancia acústica entre dos medios.',
+          },
           opciones: [
             { clave: 'a', texto: 'La frecuencia del operador' },
             { clave: 'b', texto: 'La diferencia de impedancia acústica' },

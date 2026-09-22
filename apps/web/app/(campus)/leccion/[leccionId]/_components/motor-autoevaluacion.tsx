@@ -44,7 +44,7 @@ import {
   calificarAutoevaluacion,
   type ResultadoAutoevalAlumno,
 } from '@/lib/campus/autoeval-acciones';
-import type { AutoevalAlumno, ReactivoAlumno } from '@/lib/campus/leccion-contrato';
+import type { AutoevalAlumno, ImagenReactivo, ReactivoAlumno } from '@/lib/campus/leccion-contrato';
 
 const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
 type Respuestas = Record<string, string | string[]>;
@@ -113,6 +113,50 @@ function Ancla({ n, total, pendiente = false, tam = 34 }: { n: number; total: nu
         Pregunta {n} de {total}
       </span>
     </span>
+  );
+}
+
+/* ── Imagen de apoyo del reactivo (con anotaciones · contenido médico · §5C) ── */
+function FiguraReactivo({ imagen }: { imagen: ImagenReactivo }) {
+  return (
+    <figure className="mt-4">
+      <div
+        className="relative grid w-full place-items-center overflow-hidden rounded-xl"
+        style={{ aspectRatio: '16 / 9', background: 'var(--sidebar)' }}
+      >
+        {imagen.url ? (
+          // <img> a propósito: la URL puede ser firmada/externa (no pasa por next/image).
+          <img src={imagen.url} alt="" className="h-full w-full object-contain" />
+        ) : (
+          <span aria-hidden className="absolute inset-0" style={{ background: trama }} />
+        )}
+        {imagen.anotacion && (
+          <span className="absolute left-1/3 top-1/2 inline-flex items-center gap-1.5" aria-hidden>
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ background: 'var(--info)', boxShadow: '0 0 0 3px rgba(15,45,82,.55)' }}
+            />
+            <span
+              className="whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold text-white"
+              style={{ background: 'rgba(15,45,82,.9)', borderColor: 'var(--info)' }}
+            >
+              {imagen.anotacion}
+            </span>
+          </span>
+        )}
+        {imagen.etiqueta && (
+          <span
+            className={`${mono} absolute bottom-3 left-3 rounded-full px-2 py-0.5 text-[10px] font-bold text-white`}
+            style={{ background: 'rgba(15,45,82,.85)' }}
+          >
+            {imagen.etiqueta}
+          </span>
+        )}
+      </div>
+      {imagen.pie && (
+        <figcaption className="mt-2.5 text-[12px] leading-relaxed text-foreground-soft">{imagen.pie}</figcaption>
+      )}
+    </figure>
   );
 }
 
@@ -665,16 +709,7 @@ export function MotorAutoevaluacion({
               </span>
             </div>
 
-            {reactivo.imagen && (
-              // <img> directo: la URL puede ser firmada/externa (no pasa por next/image).
-              <figure className="mt-4">
-                <img
-                  src={reactivo.imagen}
-                  alt=""
-                  className="max-h-[360px] w-full rounded-xl border border-border object-contain"
-                />
-              </figure>
-            )}
+            {reactivo.imagen && <FiguraReactivo imagen={reactivo.imagen} />}
 
             {esAbierta ? (
               <label className="mt-4 block">

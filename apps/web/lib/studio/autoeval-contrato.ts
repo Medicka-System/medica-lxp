@@ -37,6 +37,20 @@ export const ROTULO_REACTIVO: Record<ReactivoTipo, string> = {
 export type OpcionReactivo = { clave: string; texto: string };
 
 /**
+ * Imagen de apoyo de un reactivo, con las anotaciones del mock (contenido médico):
+ *   · `url`       → la imagen (opcional: sin URL se muestra el marco con trama).
+ *   · `etiqueta`  → chip inferior izquierdo (ej.: "Serie 1 · modo B").
+ *   · `anotacion` → rótulo superpuesto con punto (ej.: "Eje corto 7.4 mm").
+ *   · `pie`       → leyenda bajo la imagen (figcaption).
+ */
+export type ImagenReactivo = {
+  url?: string;
+  etiqueta?: string;
+  anotacion?: string;
+  pie?: string;
+};
+
+/**
  * Un reactivo tal como vive en `lecciones.config.reactivos`. `id` es un id estable
  * del cliente (para keys/reorden); `correcta` es la(s) clave(s) correcta(s) (null
  * en abiertas). `imagen` es opcional (URL) para reactivos con apoyo visual.
@@ -47,7 +61,8 @@ export type ReactivoConfig = {
   enunciado: string;
   /** Texto de ayuda bajo el enunciado (ej.: "Puede marcar más de una."). */
   ayuda?: string;
-  imagen?: string;
+  /** Imagen de apoyo con anotaciones (contenido médico). */
+  imagen?: ImagenReactivo;
   opciones: OpcionReactivo[];
   correcta: string | string[] | null;
   puntaje: number;
@@ -114,6 +129,27 @@ export function comoAutoevalConfig(raw: Record<string, unknown> | null | undefin
 
 const TIPOS = new Set<ReactivoTipo>(REACTIVO_TIPOS);
 
+/** Normaliza la imagen del reactivo: acepta string legacy (→ url) u objeto rico. */
+export function normalizarImagen(raw: unknown): ImagenReactivo | undefined {
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim() ? v.trim() : undefined;
+  // Legacy: `imagen` era una URL suelta.
+  if (typeof raw === 'string') {
+    const url = str(raw);
+    return url ? { url } : undefined;
+  }
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const img: ImagenReactivo = {
+    url: str(o.url),
+    etiqueta: str(o.etiqueta),
+    anotacion: str(o.anotacion),
+    pie: str(o.pie),
+  };
+  // Solo devuelve algo si al menos un campo tiene contenido.
+  return img.url || img.etiqueta || img.anotacion || img.pie ? img : undefined;
+}
+
 /** Normaliza un reactivo crudo (de config, Eco o import) al tipo del contrato. */
 export function normalizarReactivo(raw: unknown): ReactivoConfig | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -146,7 +182,7 @@ export function normalizarReactivo(raw: unknown): ReactivoConfig | null {
     tipo,
     enunciado,
     ayuda: typeof r.ayuda === 'string' && r.ayuda.trim() ? r.ayuda.trim() : undefined,
-    imagen: typeof r.imagen === 'string' && r.imagen.trim() ? r.imagen.trim() : undefined,
+    imagen: normalizarImagen(r.imagen),
     opciones,
     correcta,
     puntaje: Number.isFinite(puntajeRaw) && puntajeRaw > 0 ? puntajeRaw : 1,
