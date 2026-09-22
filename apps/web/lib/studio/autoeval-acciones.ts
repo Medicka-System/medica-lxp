@@ -61,13 +61,22 @@ export async function guardarAutoeval(
     .map(normalizarReactivo)
     .filter((r): r is ReactivoConfig => r !== null);
   const actual = await leerConfig(userId, leccionId);
+  const entero = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined;
   const limpio: AutoevalConfig = {
     reactivos,
     descripcion: config.descripcion?.trim() || undefined,
-    intentos:
-      typeof config.intentos === 'number' && config.intentos >= 0 ? Math.floor(config.intentos) : undefined,
+    intentos: entero(config.intentos),
     barajar: config.barajar === true,
     mostrarRetro: config.mostrarRetro !== false,
+    minutos: entero(config.minutos),
+    umbral:
+      typeof config.umbral === 'number' && config.umbral >= 0
+        ? Math.min(100, Math.floor(config.umbral))
+        : undefined,
+    fechaApertura: config.fechaApertura?.trim() || undefined,
+    fechaCierre: config.fechaCierre?.trim() || undefined,
+    cuentaParaCalificacion: config.cuentaParaCalificacion === true,
     actividadId: actual.actividadId, // preserva el puente de scratch (lo fija el import)
   };
   await comoStaff(userId, async (sql) => {

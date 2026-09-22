@@ -91,6 +91,21 @@ export type AutoevalAlumno = {
   reactivos: ReactivoAlumno[];
   /** El alumno ya envió un intento (existe entrega anclada a la lección · mig 0026). */
   yaRespondida: boolean;
+  /** Metadatos de la evaluación (config del diseñador · panel "Qué esperar"). */
+  puntosTotales: number;
+  /** Límite de tiempo en minutos (null = sin límite). */
+  minutos: number | null;
+  /** Umbral de aprobación en % (null = sin umbral fijado). */
+  umbral: number | null;
+  /** Las opciones cambian de orden en cada intento. */
+  barajar: boolean;
+  /** Intentos permitidos (0 = ilimitados). */
+  intentos: number;
+  /** Fechas de apertura/cierre (ISO `YYYY-MM-DD` o null). */
+  fechaApertura: string | null;
+  fechaCierre: string | null;
+  /** Si el puntaje cuenta para la calificación del diplomado. */
+  cuentaParaCalificacion: boolean;
 };
 
 /** Enlace a una lección vecina (anterior/siguiente) dentro del programa. */

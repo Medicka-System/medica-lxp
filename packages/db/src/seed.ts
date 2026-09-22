@@ -254,10 +254,16 @@ async function seed(sql: Sql): Promise<void> {
   await crearLeccion({
     moduloId: m2.id, nombre: 'Autoevaluación: fundamentos', orden: 1, horas: 1, tipo: 'autoevaluacion',
     config: {
-      descripcion: 'Responde para verificar tu comprensión de los fundamentos.',
+      descripcion:
+        'Cinco preguntas sobre los fundamentos: cómo se refleja el ultrasonido, artefactos de modo B y cómo describir la impedancia. No cuenta para la nota del diplomado: sirve para saber si puedes seguir o conviene repasar.',
       intentos: 0,
-      barajar: false,
+      barajar: true,
       mostrarRetro: true,
+      minutos: 20,
+      umbral: 80,
+      fechaApertura: '2026-09-15',
+      fechaCierre: '2026-09-28',
+      cuentaParaCalificacion: false,
       reactivos: [
         {
           id: 'r-demo-1', tipo: 'opcion_multiple',

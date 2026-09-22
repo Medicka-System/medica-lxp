@@ -38,6 +38,7 @@ export function autoevalDeConfig(
   const c = (config ?? {}) as Record<string, unknown>;
   const crudos = Array.isArray(c.reactivos) ? (c.reactivos as unknown[]) : [];
   const reactivos: ReactivoAlumno[] = [];
+  let puntosTotales = 0;
   for (const r of crudos) {
     if (!r || typeof r !== 'object') continue;
     const o = r as Record<string, unknown>;
@@ -57,6 +58,8 @@ export function autoevalDeConfig(
           })
           .filter((op) => op.clave || op.texto)
       : [];
+    const puntaje = Number(o.puntaje);
+    puntosTotales += Number.isFinite(puntaje) && puntaje > 0 ? puntaje : 1;
     reactivos.push({
       id,
       tipo,
@@ -66,10 +69,22 @@ export function autoevalDeConfig(
       opciones,
     });
   }
+  const numOrNull = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+  const strOrNull = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v.trim() : null;
   return {
     descripcion: typeof c.descripcion === 'string' ? c.descripcion : undefined,
     reactivos,
     yaRespondida,
+    puntosTotales,
+    minutos: numOrNull(c.minutos) && (c.minutos as number) > 0 ? (c.minutos as number) : null,
+    umbral: numOrNull(c.umbral) && (c.umbral as number) > 0 ? (c.umbral as number) : null,
+    barajar: c.barajar === true,
+    intentos: numOrNull(c.intentos) ?? 0,
+    fechaApertura: strOrNull(c.fechaApertura),
+    fechaCierre: strOrNull(c.fechaCierre),
+    cuentaParaCalificacion: c.cuentaParaCalificacion === true,
   };
 }
 

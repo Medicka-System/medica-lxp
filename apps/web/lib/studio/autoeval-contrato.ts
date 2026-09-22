@@ -67,6 +67,16 @@ export type AutoevalConfig = {
   barajar?: boolean;
   /** Mostrar la retroalimentación tras responder. */
   mostrarRetro?: boolean;
+  /** Límite de tiempo en minutos (0 / undefined = sin límite). */
+  minutos?: number;
+  /** Umbral de aprobación en % (0–100 · undefined = sin umbral fijado). */
+  umbral?: number;
+  /** Fecha de apertura (ISO `YYYY-MM-DD` o vacío). */
+  fechaApertura?: string;
+  /** Fecha de cierre / límite (ISO `YYYY-MM-DD` o vacío). */
+  fechaCierre?: string;
+  /** Si el puntaje CUENTA para la calificación del diplomado (default: no). */
+  cuentaParaCalificacion?: boolean;
   /**
    * Actividad-puente de scratch (`lxp.actividades`) que usa `/reactivos/importar`
    * para su parseo. La crea la server action al primer import y la reutiliza.
@@ -80,12 +90,19 @@ export function comoAutoevalConfig(raw: Record<string, unknown> | null | undefin
   const reactivos = Array.isArray(c.reactivos)
     ? (c.reactivos as unknown[]).map(normalizarReactivo).filter((r): r is ReactivoConfig => r !== null)
     : [];
+  const numOpt = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
   return {
     reactivos,
     descripcion: typeof c.descripcion === 'string' ? c.descripcion : undefined,
-    intentos: typeof c.intentos === 'number' && c.intentos >= 0 ? c.intentos : undefined,
+    intentos: numOpt(c.intentos),
     barajar: c.barajar === true,
     mostrarRetro: c.mostrarRetro !== false, // por defecto se muestra
+    minutos: numOpt(c.minutos),
+    umbral: numOpt(c.umbral),
+    fechaApertura: typeof c.fechaApertura === 'string' ? c.fechaApertura : undefined,
+    fechaCierre: typeof c.fechaCierre === 'string' ? c.fechaCierre : undefined,
+    cuentaParaCalificacion: c.cuentaParaCalificacion === true,
     actividadId: typeof c.actividadId === 'string' ? c.actividadId : undefined,
   };
 }

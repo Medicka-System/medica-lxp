@@ -21,17 +21,21 @@ import { useMemo, useState, useTransition } from 'react';
 import {
   ArrowRight,
   BookOpen,
+  CalendarDays,
   Check,
   ChevronDown,
   ClipboardList,
+  Clock,
+  Flag,
   Infinity as InfinityIcon,
+  Library,
   ListOrdered,
   Loader2,
   Play,
   RotateCcw,
   Send,
   Shield,
-  Sparkles,
+  Shuffle,
   Target,
   TriangleAlert,
 } from 'lucide-react';
@@ -48,6 +52,17 @@ type Respuestas = Record<string, string | string[]>;
 type Estado = 'portada' | 'activa' | 'resultado';
 
 const trama = 'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)';
+/* Degradado del hero: sheen claro + oscurecido, SOBRE var(--sidebar) → adapta a sepia. */
+const heroDegradado =
+  'linear-gradient(135deg, rgba(255,255,255,0.07), transparent 45%), linear-gradient(315deg, rgba(0,0,0,0.34), transparent 55%)';
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+/** Formatea `YYYY-MM-DD` a "28 sep" sin depender de locale (SSR estable). */
+function fmtFecha(iso: string | null): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${Number(m[3])} ${MESES[Number(m[2]) - 1] ?? ''}` : iso;
+}
 
 function contestada(v: string | string[] | undefined): boolean {
   return Array.isArray(v) ? v.length > 0 : String(v ?? '').trim().length > 0;
@@ -117,10 +132,13 @@ function Veredicto({ correcta }: { correcta: boolean }) {
 export function MotorAutoevaluacion({
   leccionId,
   autoeval,
+  contexto,
   preview = false,
 }: {
   leccionId: string;
   autoeval: AutoevalAlumno;
+  /** Nombres para el breadcrumb del hero ("Módulo · Lección · punto de control"). */
+  contexto?: { modulo: string; leccion: string };
   preview?: boolean;
 }) {
   const [estado, setEstado] = useState<Estado>('portada');
@@ -181,66 +199,129 @@ export function MotorAutoevaluacion({
     );
   }
 
-  /* ═══════════════ PORTADA ═══════════════ */
+  /* ═══════════════ PORTADA (inicio) ═══════════════ */
   if (estado === 'portada') {
+    const fA = fmtFecha(autoeval.fechaApertura);
+    const fC = fmtFecha(autoeval.fechaCierre);
+    const fechaTexto = fA && fC ? `Del ${fA} al ${fC}` : fC ? `Abierta hasta el ${fC}` : fA ? `Abre el ${fA}` : null;
+    const items: { icono: typeof ListOrdered; texto: string }[] = [
+      {
+        icono: ListOrdered,
+        texto: `${total} ${total === 1 ? 'pregunta' : 'preguntas'} · ${autoeval.puntosTotales} ${autoeval.puntosTotales === 1 ? 'punto' : 'puntos'}`,
+      },
+      ...(autoeval.minutos ? [{ icono: Clock, texto: `${autoeval.minutos} minutos` }] : []),
+      {
+        icono: autoeval.intentos === 0 ? InfinityIcon : RotateCcw,
+        texto: autoeval.intentos === 0 ? 'Intentos ilimitados' : `${autoeval.intentos} ${autoeval.intentos === 1 ? 'intento' : 'intentos'}`,
+      },
+      ...(autoeval.umbral ? [{ icono: Target, texto: `${autoeval.umbral}% para aprobar` }] : []),
+      ...(autoeval.barajar ? [{ icono: Shuffle, texto: 'Las opciones cambian de orden en cada intento' }] : []),
+      ...(fechaTexto ? [{ icono: CalendarDays, texto: fechaTexto }] : []),
+    ];
+
     return (
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
-        <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
-          <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
-          <div className="relative">
-            <span className={`${kicker} text-primary`}>Autoevaluación · no cuenta para tu calificación</span>
-            <p
-              className="mt-3 max-w-[60ch] text-[15px] leading-relaxed"
-              style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}
-            >
-              {autoeval.descripcion?.trim() ||
-                'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
-            </p>
-            <p className="mt-3 flex items-center gap-2 text-[13.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
-              <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
-              Al terminar verás qué acertaste, qué falló y por qué.
-            </p>
-
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setEstado('activa')}
-                className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}
-              >
-                {autoeval.yaRespondida ? 'Volver a intentar' : 'Comenzar'}
-                <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
-              </button>
-              {autoeval.yaRespondida && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 text-[11.5px] font-bold text-[color:var(--sidebar)]">
-                  <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
-                  Ya registraste un intento
-                </span>
-              )}
+      <div className="space-y-4">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_248px]">
+          {/* HERO: navy con degradado + ilustración de libros */}
+          <section className="relative overflow-hidden rounded-2xl p-6 sm:p-7" style={{ background: 'var(--sidebar)' }}>
+            <div aria-hidden className="absolute inset-0" style={{ background: heroDegradado }} />
+            <div aria-hidden className="absolute inset-0" style={{ background: trama }} />
+            <div aria-hidden className="pointer-events-none absolute -right-3 -top-4 hidden opacity-[0.13] sm:block" style={{ color: 'var(--hero-ink)' }}>
+              <Library className="h-36 w-36" strokeWidth={0.9} />
             </div>
-          </div>
-        </section>
+            <div aria-hidden className="pointer-events-none absolute -bottom-2 right-28 hidden opacity-[0.10] sm:block" style={{ color: 'var(--hero-ink)' }}>
+              <BookOpen className="h-20 w-20" strokeWidth={0.9} />
+            </div>
 
-        <aside className={`${card} p-[18px]`}>
-          <p className="text-[12.5px] font-bold">Qué esperar</p>
-          <ul className="mt-3 flex flex-col gap-2.5">
-            {(
-              [
-                [ListOrdered, `${total} ${total === 1 ? 'pregunta' : 'preguntas'}`],
-                [Target, 'Se autocalifica al enviar'],
-                [BookOpen, 'La revisión te dice qué falló y por qué'],
-                [InfinityIcon, 'Intentos ilimitados'],
-              ] as const
-            ).map(([Icono, texto]) => (
-              <li key={texto} className="flex items-start gap-2.5">
-                <Icono aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-foreground-soft">{texto}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3.5 border-t border-border pt-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            No cuenta para la calificación del diplomado: sirve para medir tu propio nivel.
-          </p>
-        </aside>
+            <div className="relative">
+              <span className={kicker} style={{ color: 'var(--primary)' }}>
+                Autoevaluación · {autoeval.cuentaParaCalificacion ? 'cuenta para tu calificación' : 'no cuenta para tu calificación'}
+              </span>
+              <h2
+                className="mt-3 text-[24px] font-extrabold leading-tight tracking-[-0.025em] sm:text-[26px]"
+                style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}
+              >
+                {contexto?.leccion ?? 'Autoevaluación'}
+              </h2>
+              {contexto && (
+                <p className="mt-1.5 text-[12.5px]" style={{ color: 'var(--hero-ink-muted)' }}>
+                  {contexto.modulo} · punto de control
+                </p>
+              )}
+
+              <div className="mt-4 grid gap-3.5 sm:grid-cols-[1fr_auto] sm:items-start">
+                <p className="max-w-[58ch] text-[14px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}>
+                  {autoeval.descripcion?.trim() ||
+                    'Un punto de control para saber si puedes seguir o conviene repasar la lección.'}
+                </p>
+                <div className="flex items-start gap-2.5 rounded-[12px] border border-white/15 bg-white/[0.08] p-3.5 sm:max-w-[230px]">
+                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-[color:var(--sidebar)]">
+                    <Check className="h-4 w-4" strokeWidth={2.6} />
+                  </span>
+                  <p className="text-[12.5px] font-semibold leading-snug" style={{ color: 'var(--hero-ink)' }}>
+                    Al terminar verás qué acertaste, qué falló y por qué.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEstado('activa')}
+                  className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-card ${focusRing}`}
+                >
+                  {autoeval.yaRespondida ? 'Volver a intentar' : 'Comenzar'}
+                  <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+                </button>
+                <a
+                  href="#leccion-arriba"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[11px] border border-white/30 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]"
+                >
+                  <BookOpen aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  Repasar la lección
+                </a>
+                {autoeval.yaRespondida && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.14] px-2.5 py-1 text-[11.5px] font-bold text-white">
+                    <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.8} />
+                    Ya registraste un intento
+                  </span>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* QUÉ ESPERAR — datos REALES de la config */}
+          <aside className={`${card} p-[18px]`}>
+            <p className="text-[12.5px] font-bold">Qué esperar</p>
+            <ul className="mt-3 flex flex-col gap-2.5">
+              {items.map(({ icono: Icono, texto }) => (
+                <li key={texto} className="flex items-start gap-2.5">
+                  <Icono aria-hidden className="mt-px h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-foreground-soft">{texto}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3.5 border-t border-border pt-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
+              {autoeval.cuentaParaCalificacion
+                ? 'Cuenta para la calificación del diplomado.'
+                : 'No cuenta para la calificación del diplomado: sirve para medir tu propio nivel.'}
+            </p>
+          </aside>
+        </div>
+
+        <div className="flex">
+          <button
+            type="button"
+            className={`inline-flex h-[34px] items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground ${focusRing}`}
+          >
+            <Flag aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            Informar de un problema
+          </button>
+        </div>
       </div>
     );
   }

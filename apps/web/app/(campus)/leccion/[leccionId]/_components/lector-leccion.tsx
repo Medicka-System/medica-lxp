@@ -404,7 +404,12 @@ export function LectorLeccion({
               // Autoevaluación (modelo nuevo · §5C): el motor lee lecciones.config y
               // autocalifica contra el dominio (api). Reemplaza los bloques de contenido.
               <div className="mt-8">
-                <MotorAutoevaluacion leccionId={leccion.id} autoeval={leccion.autoeval} preview={preview} />
+                <MotorAutoevaluacion
+                  leccionId={leccion.id}
+                  autoeval={leccion.autoeval}
+                  contexto={{ modulo: leccion.contexto.modulo, leccion: leccion.nombre }}
+                  preview={preview}
+                />
               </div>
             ) : leccion.tipo === 'teoria' ? (
               // Teoría (modelo NUEVO · mig 0023): renderiza los bloques ordenables de

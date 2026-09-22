@@ -210,16 +210,68 @@ export function EditorAutoevaluacion({ programaId, leccionId, config, correr }: 
               className={`h-9 w-28 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
             />
           </label>
-          <div className="flex flex-col justify-center gap-2">
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[12px] font-semibold ${softText}`}>Límite de tiempo (minutos · 0 = sin límite)</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={estado.minutos ?? 0}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                aplicar((prev) => ({ ...prev, minutos: Number.isFinite(v) && v >= 0 ? v : 0 }));
+              }}
+              className={`h-9 w-28 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[12px] font-semibold ${softText}`}>Umbral para aprobar (% · 0 = sin umbral)</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={estado.umbral ?? 0}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                aplicar((prev) => ({ ...prev, umbral: Number.isFinite(v) && v >= 0 ? Math.min(100, v) : 0 }));
+              }}
+              className={`h-9 w-28 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[12px] font-semibold ${softText}`}>Abre el</span>
+            <input
+              type="date"
+              value={estado.fechaApertura ?? ''}
+              onChange={(e) => aplicar((prev) => ({ ...prev, fechaApertura: e.target.value }))}
+              className={`h-9 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[12px] font-semibold ${softText}`}>Cierra el</span>
+            <input
+              type="date"
+              value={estado.fechaCierre ?? ''}
+              onChange={(e) => aplicar((prev) => ({ ...prev, fechaCierre: e.target.value }))}
+              className={`h-9 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
+            />
+          </label>
+          <div className="flex flex-col justify-center gap-2 md:col-span-2">
             <Toggle
               activo={estado.barajar === true}
               onCambiar={(v) => aplicar((prev) => ({ ...prev, barajar: v }))}
-              etiqueta="Barajar el orden de los reactivos"
+              etiqueta="Barajar el orden de las opciones en cada intento"
             />
             <Toggle
               activo={estado.mostrarRetro !== false}
               onCambiar={(v) => aplicar((prev) => ({ ...prev, mostrarRetro: v }))}
               etiqueta="Mostrar retroalimentación al responder"
+            />
+            <Toggle
+              activo={estado.cuentaParaCalificacion === true}
+              onCambiar={(v) => aplicar((prev) => ({ ...prev, cuentaParaCalificacion: v }))}
+              etiqueta="Cuenta para la calificación del diplomado"
             />
           </div>
         </div>
