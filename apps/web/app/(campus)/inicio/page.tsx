@@ -15,7 +15,7 @@ import {
 import { getSesionAlumno } from '@/lib/session';
 import { getHomeData } from '@/lib/datos';
 import { fechaCorta, haceCuanto, nombreCorto } from '@/lib/format';
-import { mono, kicker, softText, cardLg, focusRing, tramaEstilo } from '@/components/tokens';
+import { mono, kicker, softText, cardLg, focusRing } from '@/components/tokens';
 import { Avatar, iniciales } from '@/components/avatar';
 import { LoopFrame } from '@/components/campus/loop-frame';
 import { Card } from '@/components/ui/card';
@@ -48,17 +48,18 @@ function diasSemana(): { dd: string; nombre: string; mes: string; hoy: boolean }
 }
 
 export default async function InicioPage() {
+  // Home del alumno: hero contenido + "siga donde se quedó" con progreso real (datos.ts).
   const alumno = await getSesionAlumno();
   const data = await getHomeData(alumno.userId);
   const { anuncio, casoSemana, continuar, pulso, posts, loops } = data;
 
   return (
     <div className="pb-10">
-      {/* ══ 1 · HERO INTELIGENTE (full-bleed) ══ */}
-      <section aria-label="Hero" className="relative overflow-hidden" style={{ background: 'var(--sidebar)' }}>
-        <div aria-hidden className="absolute inset-0" style={{ background: tramaEstilo }} />
+      {/* ══ 1 · HERO INTELIGENTE (contenido al ancho del campus, no full-bleed) ══ */}
+      <section aria-label="Hero" className="mx-auto w-full max-w-[1240px] px-5 pt-7 sm:px-6 lg:px-8">
+        <div className="relative overflow-hidden rounded-2xl shadow-rest" style={{ background: 'var(--sidebar)' }}>
         <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(120% 150% at 88% 0%, rgba(26,136,128,.62) 0%, rgba(15,45,82,0) 62%)' }} />
-        <div className="relative mx-auto grid w-full max-w-[1240px] items-center gap-10 px-5 py-9 sm:px-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:px-8">
+        <div className="relative grid items-center gap-10 px-6 py-9 sm:px-8 lg:grid-cols-[minmax(0,1fr)_440px]">
           <div className="min-w-0">
             <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
               {anuncio ? <Megaphone aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} /> : <Compass aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />}
@@ -87,6 +88,7 @@ export default async function InicioPage() {
             <LoopFrame etiqueta={casoSemana?.organo ?? 'ultrasonido'} duracion="cine-loop" tamano={62} />
           </div>
         </div>
+        </div>
       </section>
 
       {/* saludo */}
@@ -102,10 +104,15 @@ export default async function InicioPage() {
         <section aria-label="Dónde se quedó" className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_316px]">
           <article className="relative overflow-hidden rounded-2xl shadow-rest" style={{ background: 'var(--secondary)' }}>
             <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(120% 150% at 92% 0%, rgba(83,195,190,.5) 0%, rgba(26,136,128,0) 60%)' }} />
-            <div aria-hidden className="absolute inset-0" style={{ background: tramaEstilo }} />
             <div className="relative flex flex-wrap items-center gap-6 p-6">
-              <div className="relative grid aspect-[16/10] w-[196px] shrink-0 place-items-center overflow-hidden rounded-xl border border-white/20" style={{ background: '#0a2140' }}>
-                <LoopFrame tamano={46} claro />
+              {/* Portada del curso (imagen del programa · mig 0031), no un video */}
+              <div className="relative aspect-[16/10] w-[196px] shrink-0 overflow-hidden rounded-xl border border-white/20" style={{ background: '#0a2140' }}>
+                {continuar?.imagen ? (
+                  // <img> directo: la portada del curso es un asset estático/URL del programa.
+                  <img src={continuar.imagen} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="grid h-full w-full place-items-center"><LoopFrame tamano={46} claro /></span>
+                )}
               </div>
               <div className="min-w-[260px] flex-1">
                 <span className={kicker} style={{ color: '#a8e0dc' }}>Siga donde se quedó</span>
@@ -115,7 +122,7 @@ export default async function InicioPage() {
                 <p className="mt-1.5 text-[12.5px]" style={{ color: '#d3f1ef' }}>
                   {continuar ? `${continuar.programa} · ${continuar.modulo}` : 'Ultrasonografía Médica'}
                 </p>
-                <Link href={continuar ? '/cursos' : '/explorar'} className={`mt-5 inline-flex h-12 items-center gap-2 rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}>
+                <Link href={continuar ? `/leccion/${continuar.id}` : '/explorar'} className={`mt-5 inline-flex h-12 items-center gap-2 rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}>
                   {continuar ? 'Continuar' : 'Explorar'}
                   <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
                 </Link>

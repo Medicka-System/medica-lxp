@@ -37,13 +37,67 @@ export async function getHomeData(userId: string) {
       select titulo, diagnostico_correcto, organo from lxp.casos_biblioteca
       where publicado order by created_at desc limit 1`;
 
-    const leccion = await sql<{ programa: string; modulo: string; leccion: string }[]>`
-      select pr.nombre as programa, m.nombre as modulo, l.nombre as leccion
-      from lxp.programas pr
-      join lxp.modulos m on m.programa_id = pr.id
-      join lxp.lecciones l on l.modulo_id = m.id
-      where pr.publicado
-      order by m.orden, l.orden limit 1`;
+    // ── "Siga donde se quedó": la ÚLTIMA lección con progreso real del alumno ──
+    // Señal real = lxp.reproduccion_progreso (mig 0028, re-llaveado por leccion_id).
+    // NOTA (gap conocido): el progreso solo se registra al MARCAR completada (o al
+    // reproducir media); no hay un "visto sin completar" fino. Derivamos la mejor
+    // señal: la última fila tocada (por actualizado_en). Si esa lección ya está
+    // completa, apuntamos a la SIGUIENTE pendiente del programa; si no hay progreso,
+    // a la primera lección del programa publicado.
+    type LecCont = {
+      id: string;
+      leccion: string;
+      tipo: string;
+      modulo: string;
+      programa: string;
+      imagen: string | null;
+    };
+
+    const ultima = await sql<(LecCont & { mo: number; lo: number; completado: boolean; programa_id: string })[]>`
+      select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
+             pr.nombre as programa, pr.imagen_url as imagen,
+             m.orden as mo, l.orden as lo, rp.completado, pr.id as programa_id
+      from lxp.reproduccion_progreso rp
+      join lxp.lecciones l on l.id = rp.leccion_id
+      join lxp.modulos m on m.id = l.modulo_id
+      join lxp.programas pr on pr.id = m.programa_id
+      where rp.alumno_id = ${userId} and rp.leccion_id is not null
+      order by rp.actualizado_en desc
+      limit 1`;
+
+    let continuar: LecCont | null = null;
+    if (ultima[0]) {
+      const u = ultima[0];
+      if (!u.completado) {
+        continuar = { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, imagen: u.imagen };
+      } else {
+        const sig = await sql<LecCont[]>`
+          select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
+                 pr.nombre as programa, pr.imagen_url as imagen
+          from lxp.lecciones l
+          join lxp.modulos m on m.id = l.modulo_id
+          join lxp.programas pr on pr.id = m.programa_id
+          where pr.id = ${u.programa_id}
+            and (m.orden > ${u.mo} or (m.orden = ${u.mo} and l.orden > ${u.lo}))
+            and not exists (
+              select 1 from lxp.reproduccion_progreso rp2
+              where rp2.leccion_id = l.id and rp2.alumno_id = ${userId} and rp2.completado)
+          order by m.orden, l.orden
+          limit 1`;
+        continuar = sig[0] ?? { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, imagen: u.imagen };
+      }
+    } else {
+      const primera = await sql<LecCont[]>`
+        select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
+               pr.nombre as programa, pr.imagen_url as imagen
+        from lxp.programas pr
+        join lxp.modulos m on m.programa_id = pr.id
+        join lxp.lecciones l on l.modulo_id = m.id
+        where pr.publicado
+        order by m.orden, l.orden
+        limit 1`;
+      continuar = primera[0] ?? null;
+    }
 
     const competencia = await sql<
       { dominio_iaim: string; nivel: number; decaimiento: number; horas: number }[]
@@ -79,7 +133,7 @@ export async function getHomeData(userId: string) {
     return {
       anuncio: anuncios[0] ?? null,
       casoSemana: biblioteca[0] ?? null,
-      continuar: leccion[0] ?? null,
+      continuar,
       pulso: {
         horasTotales: Math.round(horasTotales),
         nivelGeneral,

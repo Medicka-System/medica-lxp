@@ -166,10 +166,10 @@ async function seed(sql: Sql): Promise<void> {
   // ═════════════════════════════════════════════════════════════════════════
   const programa = first(
     await sql<{ id: string }[]>`
-      insert into lxp.programas (nombre, descripcion, publicado, estado, version)
+      insert into lxp.programas (nombre, descripcion, publicado, estado, version, imagen_url)
       values ('Ultrasonografía Básica — Demo',
               'Curso demo del constructor nuevo: una lección de cada tipo.',
-              true, 'publicado'::lxp.estado_publicacion, 1)
+              true, 'publicado'::lxp.estado_publicacion, 1, '/libros-stack-v2.png')
       returning id`,
   );
 
