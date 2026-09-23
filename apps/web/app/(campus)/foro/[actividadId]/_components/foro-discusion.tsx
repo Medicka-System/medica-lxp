@@ -87,7 +87,7 @@ export function ForoDiscusion({
               ariaLabel="Editor del nuevo tema del foro"
               cta="Publicar tema"
               minAlto={150}
-              onEnviar={(html) => crearPostForo(actividad.id, grupoId!, html)}
+              onEnviar={(html) => crearPostForo(actividad.id, grupoId!, '', html)}
             />
           ) : (
             <AvisoSinPublicar grupoId={grupoId} ventana={ventana.estado} />

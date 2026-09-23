@@ -366,19 +366,36 @@ async function seed(sql: Sql): Promise<void> {
   const actForo = first(
     await sql<{ id: string }[]>`
       insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
-      values (${lForo}, 'foro'::lxp.actividad_tipo, 'Foro: tu primer caso', 'Comparte un caso de práctica.', 1)
+      values (${lForo}, 'foro'::lxp.actividad_tipo, '¿Qué los hace dudar entre grado II y III?',
+              'Trae un caso propio donde hayas dudado entre grado II y III.', 1)
+      returning id`,
+  );
+  // Rúbrica de participación del CATÁLOGO (como en la tarea · tipo 'tareas').
+  const rubricaForo = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.rubricas (nombre, tipo, descripcion, publicado, creado_por, criterios)
+      values ('Rúbrica de participación — Foro clínico', 'tareas'::lxp.rubrica_tipo,
+              'Evalúa la calidad del caso traído y de las respuestas a los compañeros.', true, ${disenador},
+              ${sql.json([
+                { criterio: 'Su caso está contado con datos', descripcion: 'Edad, motivo, qué midió y con qué grado se quedó. Sin datos del paciente.', puntos: 4 },
+                { criterio: 'Argumenta la duda, no solo la reporta', descripcion: 'Dice qué lo hizo dudar y qué lo habría hecho cambiar de opinión.', puntos: 3 },
+                { criterio: 'Responde a dos compañeros', descripcion: 'Con algo aprovechable: una medida, una ventana, una pregunta.', puntos: 3 },
+              ])})
       returning id`,
   );
   // Ahora que existe la actividad de respaldo, se fija en la config del foro.
   await sql`
     update lxp.lecciones
     set config = ${sql.json({
-      instrucciones: '<p>Comparte un caso real de tu práctica y comenta al menos el de un compañero.</p>',
-      reglas: ['Respeta la privacidad del paciente', 'Fundamenta tus hallazgos'],
+      tema: '¿Qué los hace dudar entre grado II y III?',
+      instrucciones:
+        '<p>La gradación de la hidronefrosis es el punto donde más se separan dos médicos mirando el mismo estudio. No es falta de conocimiento: es que cada quien fija el umbral en un lugar distinto cuando la imagen queda entre dos grados.</p><p>Trae a este foro un caso propio donde hayas dudado entre grado II y III. Cuenta qué viste, con qué te quedaste y qué te habría hecho cambiar de opinión. Si puedes, sube la imagen o el loop —aunque sea el que te salió mal, que es el que más enseña.</p><p>Después lee a dos compañeros y respóndeles con algo que puedan usar: una medida que no consideraron, una ventana alterna, una pregunta que los haga volver a la imagen.</p>',
+      reglas: ['Sin datos que identifiquen al paciente', 'Fundamenta tus hallazgos con lo que mediste'],
       modalidad: 'asincrono',
       aperturaEn: null,
-      cierreEn: null,
-      participacion: { califica: false, puntos: null, minPosts: 1, minComentarios: 1 },
+      cierreEn: '2026-09-30T23:59',
+      participacion: { califica: true, puntos: 10, minPosts: 1, minComentarios: 2 },
+      rubricaId: rubricaForo.id,
       actividadId: actForo.id,
     })}
     where id = ${lForo}`;
@@ -406,18 +423,60 @@ async function seed(sql: Sql): Promise<void> {
     insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
     values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente})`;
 
-  // ── Foro: 1-2 mensajes de ejemplo (anclados a leccion_id · mig 0026) ────
-  const foroRaiz = first(
-    await sql<{ id: string }[]>`
-      insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, cuerpo)
-      values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${alumnos.a1},
-              'Comparto un FAST positivo que realicé la semana pasada.')
-      returning id`,
+  // ── Foro: a2/a3/docente ya publicaron; a1 NO (para ver el muro velado → publicar
+  //    lo desbloquea · gate por RLS 0030). Posts raíz con título + cuerpo rico, hilo
+  //    de 2 niveles y reacciones. Todo anclado a (actForo, lForo, grupoSync).
+  const postRaiz = async (autor: string, titulo: string, cuerpo: string) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, titulo, cuerpo, created_at)
+        values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${autor}, ${titulo}, ${cuerpo}, now() - interval '1 day')
+        returning id`,
+    ).id;
+  const comentar = async (autor: string, parent: string, cuerpo: string) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, parent_id, cuerpo, created_at)
+        values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${autor}, ${parent}, ${cuerpo}, now() - interval '6 hours')
+        returning id`,
+    ).id;
+  const reaccion = (mensaje: string, autor: string) =>
+    sql`insert into lxp.foro_reacciones (mensaje_id, autor_id) values (${mensaje}, ${autor}) on conflict do nothing`;
+
+  const pDoc = await postRaiz(
+    docente,
+    'Antes de discutir grados: midan la cortical en dos polos',
+    '<p>Leí los primeros casos y en varios la cortical viene de una sola medida. Ese es el origen de casi todas las dudas entre II y III que están describiendo.</p><p>Cuando el polo inferior no se deja, uso una ventana intercostal posterior con el paciente en decúbito lateral. Midan los dos polos y verán que la diferencia no se sostiene.</p>',
   );
-  await sql`
-    insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, parent_id, cuerpo)
-    values (${actForo.id}, ${lForo}, ${grupoSync.id}, ${docente}, ${foroRaiz.id},
-            'Buen hallazgo. Describe el receso donde viste el líquido libre.')`;
+  const pA2 = await postRaiz(
+    alumnos.a2,
+    'Dudé por el jet ureteral, no por la cortical',
+    '<p>Mi caso es distinto al de la mayoría: la cortical estaba clara en 8.4 mm, pero el jet del lado derecho no apareció en 20 minutos de observación.</p><p>¿Eso mueve el grado, o solo la sospecha de obstrucción? Me quedé en II pero con una nota de alerta.</p>',
+  );
+  const pA3 = await postRaiz(
+    alumnos.a3,
+    'Reporté III y el ultrasonido de control salió normal',
+    '<p>Hombre de 52, cólico derecho de seis horas, llega de madrugada. Cálices redondeados, cortical de 8.2 mm en el polo medio. Reporté grado III y lo mandé con urología.</p><p><img src="/libros-stack-v2.png" alt="estudio del caso"></p><p>Control a los cuatro días: riñón normal. El paciente había expulsado un lito de 3 mm esa noche. ¿La gradación describe el momento o debería anticipar la evolución?</p>',
+  );
+
+  // Hilo de pA3 (2 niveles): docente (raíz) → a2 y docente (hijos); a3 (raíz).
+  const cDoc = await comentar(
+    docente,
+    pA3,
+    '<p>Su reporte estuvo bien puesto: el grado describe lo que hay en la pantalla en ese momento, no un pronóstico. Lo que sí cambiaría es la medida: 8.2 mm en agudo suele ser edema, no adelgazamiento real.</p>',
+  );
+  await comentar(alumnos.a2, cDoc, '<p>¿Entonces en agudo la cortical no sirve para cerrar el grado? Me pasó algo parecido con una paciente de 46.</p>');
+  await comentar(docente, cDoc, '<p>Sirve, pero con reserva en las primeras horas. Apóyese en los cálices y el jet; la cortical la valora bien en el control.</p>');
+  await comentar(alumnos.a3, pA3, '<p>Lo del lito de 3 mm explica la descompresión. Gracias, subo el loop del control con Doppler.</p>');
+  // Hilo de pDoc (1 comentario). pA2 queda SIN respuestas (tarjeta ámbar).
+  await comentar(alumnos.a2, pDoc, '<p>Probé la ventana intercostal posterior y por fin vi el polo inferior. Cambió mi lectura de III a II.</p>');
+
+  // Reacciones "me es útil".
+  await reaccion(pA3, alumnos.a2);
+  await reaccion(pA3, docente);
+  await reaccion(pDoc, alumnos.a3);
+  await reaccion(cDoc, alumnos.a2);
+  await reaccion(cDoc, alumnos.a3);
 
   // ── Entrega de a1 a la TAREA: anclada por leccion_id (modelo nuevo · 0026) Y
   //    por actividad_id (respaldo, NOT NULL hasta fase 3). ─────────────────

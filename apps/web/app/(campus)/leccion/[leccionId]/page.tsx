@@ -2,11 +2,11 @@ import { notFound, redirect } from 'next/navigation';
 import { getSesionAlumno } from '@/lib/session';
 import { getLeccion, getContenidoCurso } from '@/lib/campus/leccion-datos';
 import { getLeccionVideo } from '@/lib/campus/leccion-video-datos';
-import { getForoDeLeccion } from '@/lib/campus/foro-datos';
+import { getForoLeccion } from '@/lib/campus/foro-leccion';
 import { getNotasLeccion } from '@/lib/campus/notas-datos';
 import { LectorLeccion } from './_components/lector-leccion';
 import { LeccionVideo } from './_components/leccion-video';
-import { ForoDiscusion } from '@/app/(campus)/foro/[actividadId]/_components/foro-discusion';
+import { ForoLeccionAlumno } from './_components/foro-leccion-alumno';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,10 +50,10 @@ export default async function LeccionPage({
   // Foro: la discusión (actividad de respaldo · foro_mensajes) se muestra dentro de la
   // lección, honrando la config del diseñador (misma lógica que /foro/[actividadId]).
   if (leccion.tipo === 'foro') {
-    const foro = await getForoDeLeccion(alumno.userId, alumno.nombre, leccion.id);
+    const foro = await getForoLeccion(alumno.userId, alumno.nombre, leccion.id);
     if (foro) {
-      const puedePublicar = alumno.accesoActivo && foro.grupoId !== null && foro.ventana.abierto;
-      return <ForoDiscusion data={foro} puedePublicar={puedePublicar} />;
+      foro.puedePublicar = foro.puedePublicar && alumno.accesoActivo;
+      return <ForoLeccionAlumno data={foro} />;
     }
   }
 

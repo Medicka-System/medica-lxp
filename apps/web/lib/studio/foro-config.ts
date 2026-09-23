@@ -36,6 +36,8 @@ export type ParticipacionForo = {
  * server action al guardar (no el diseñador). null hasta que se guarda por 1ª vez.
  */
 export type ConfigForo = {
+  /** Pregunta/tema del foro (el H1 que ve el alumno). Vacío = usa el nombre de la lección. */
+  tema: string;
   /** Consigna del foro en HTML (EditorRico). Lo que el alumno lee arriba del hilo. */
   instrucciones: string;
   /** Reglas de participación (una por línea/ítem). Texto plano. */
@@ -46,18 +48,25 @@ export type ConfigForo = {
   /** Cierre. null = sin fecha de cierre (siempre abierto una vez iniciado). */
   cierreEn: string | null;
   participacion: ParticipacionForo;
+  /**
+   * Rúbrica de participación del CATÁLOGO (`lxp.rubricas`, tipo `tareas`) — como en la
+   * tarea: la actividad SELECCIONA la rúbrica, no la redacta. null = sin rúbrica.
+   */
+  rubricaId: string | null;
   /** Ancla al motor: la actividad foro de respaldo que agrupa los mensajes. */
   actividadId: string | null;
 };
 
 /** Config por defecto de un foro recién creado (antes de que el diseñador lo toque). */
 export const CONFIG_FORO_DEFAULT: ConfigForo = {
+  tema: '',
   instrucciones: '',
   reglas: [],
   modalidad: 'asincrono',
   aperturaEn: null,
   cierreEn: null,
   participacion: { califica: false, puntos: null, minPosts: 1, minComentarios: 0 },
+  rubricaId: null,
   actividadId: null,
 };
 
@@ -107,12 +116,14 @@ function comoParticipacion(v: unknown): ParticipacionForo {
 export function comoConfigForo(v: unknown): ConfigForo {
   const o = (v ?? {}) as Record<string, unknown>;
   return {
+    tema: comoTexto(o.tema),
     instrucciones: comoTexto(o.instrucciones),
     reglas: comoLista(o.reglas),
     modalidad: comoModalidad(o.modalidad),
     aperturaEn: comoFechaOpc(o.aperturaEn),
     cierreEn: comoFechaOpc(o.cierreEn),
     participacion: comoParticipacion(o.participacion),
+    rubricaId: typeof o.rubricaId === 'string' && o.rubricaId ? o.rubricaId : null,
     actividadId: typeof o.actividadId === 'string' && o.actividadId ? o.actividadId : null,
   };
 }

@@ -249,6 +249,50 @@ async function main(): Promise<void> {
       ),
     );
 
+    // ── FORO: gate de desbloqueo (0030) — solo se ven posts ajenos tras publicar ──
+    const foro = (
+      await sql<{ act: string; grp: string; lec: string }[]>`
+        select a.id as act, fm.grupo_id as grp, a.leccion_id as lec
+        from lxp.actividades a
+        join lxp.foro_mensajes fm on fm.actividad_id = a.id
+        where a.tipo = 'foro'
+        limit 1`
+    )[0];
+    // a1 (sin post) NO ve los posts de sus compañeros (RLS los oculta).
+    const a1VeForo = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.foro_mensajes where actividad_id = ${foro.act}`,
+    );
+    check('a1 (sin publicar) NO ve posts del foro (gate)', num(a1VeForo) === 0, `vio ${num(a1VeForo)}`);
+
+    // a2 (que ya publicó en el seed) SÍ ve los posts del grupo.
+    const a2VeForo = await como(sql, claimsA2, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.foro_mensajes where actividad_id = ${foro.act}`,
+    );
+    check('a2 (ya publicó) SÍ ve el foro del grupo', num(a2VeForo) > 0, `vio ${num(a2VeForo)}`);
+
+    // Tras publicar su post raíz, a1 SÍ ve los de los compañeros (desbloqueo · rollback).
+    let a1DesbloqueaForo = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`
+          insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, titulo, cuerpo)
+          values (${foro.act}, ${foro.lec}, ${foro.grp}, ${a1}, 'Mi caso', '<p>hola</p>')`;
+        const n = await tx<{ n: string }[]>`
+          select count(*)::int as n from lxp.foro_mensajes where actividad_id = ${foro.act}`;
+        a1DesbloqueaForo = num(n) > 1; // ve el suyo + los ajenos
+      });
+    } catch {
+      a1DesbloqueaForo = false;
+    }
+    check('a1 SÍ ve el foro DESPUÉS de publicar su post (desbloqueo)', a1DesbloqueaForo);
+
+    check(
+      'a1 SÍ puede SELECT foro_reacciones (grant base presente)',
+      (await fueRechazada(() =>
+        como(sql, claimsA1, (tx) => tx`select 1 from lxp.foro_reacciones limit 1`),
+      )) === false,
+    );
+
     // ── 7) Progreso ANCLADO A LA LECCIÓN (mig 0028): completar cualquier tipo ──
     let a1Progreso = false;
     try {

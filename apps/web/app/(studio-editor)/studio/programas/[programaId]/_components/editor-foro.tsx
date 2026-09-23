@@ -29,6 +29,8 @@ import {
   type ModalidadForo,
 } from '@/lib/studio/foro-config';
 import { guardarConfigForo } from '@/lib/studio/acciones';
+import { leerCatalogoRubricas } from '@/lib/studio/tarea-acciones';
+import type { RubricaCatalogo } from '@/lib/studio/tarea-contrato';
 
 /* ─────────────────────────── Átomos locales ─────────────────────────── */
 
@@ -61,6 +63,18 @@ export function EditorForo({ programaId, leccionId, config, correr }: EditorLecc
   // CUALQUIER guardado (así un cambio de otro control no pierde el texto en curso).
   const instruccionesRef = useRef(cfg.instrucciones);
   const [reglaNueva, setReglaNueva] = useState('');
+
+  // Catálogo de rúbricas tipo 'tareas' (la participación del foro se evalúa como tarea).
+  const [catalogo, setCatalogo] = useState<RubricaCatalogo[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    leerCatalogoRubricas()
+      .then((rs) => vivo && setCatalogo(rs.filter((r) => r.tipo === 'tareas')))
+      .catch(() => vivo && setCatalogo([]));
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   // La ventana depende de la hora actual → se calcula tras montar para no romper la
   // hidratación (el server no conoce "ahora" del cliente).
@@ -104,6 +118,23 @@ export function EditorForo({ programaId, leccionId, config, correr }: EditorLecc
         </div>
       </div>
 
+      {/* Tema / pregunta del foro (el H1 que ve el alumno) */}
+      <Seccion
+        titulo="Tema del foro"
+        descripcion="La pregunta que encabeza la discusión. Si lo dejas vacío, se usa el nombre de la lección."
+      >
+        <input
+          type="text"
+          defaultValue={cfg.tema}
+          onBlur={(e) => {
+            if (e.target.value !== cfg.tema) aplicar({ tema: e.target.value });
+          }}
+          placeholder="Ej.: ¿Qué los hace dudar entre grado II y III?"
+          aria-label="Tema del foro"
+          className={`${inputBase} w-full`}
+        />
+      </Seccion>
+
       {/* Consigna */}
       <Seccion
         titulo="Consigna del foro"
@@ -127,6 +158,32 @@ export function EditorForo({ programaId, leccionId, config, correr }: EditorLecc
             Guardar consigna
           </button>
         </div>
+      </Seccion>
+
+      {/* Rúbrica de participación (del catálogo · como en la tarea) */}
+      <Seccion
+        titulo="Rúbrica de participación"
+        descripcion="Cómo se evalúa la participación. Se toma del catálogo (no se redacta aquí); el alumno la ve antes de escribir."
+      >
+        <select
+          value={cfg.rubricaId ?? ''}
+          onChange={(e) => aplicar({ rubricaId: e.target.value || null })}
+          aria-label="Rúbrica de participación del foro"
+          className={`${inputBase} w-full`}
+        >
+          <option value="">Sin rúbrica</option>
+          {(catalogo ?? []).map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.nombre} · {r.criterios.length} criterio(s){r.publicado ? '' : ' · borrador'}
+            </option>
+          ))}
+        </select>
+        {catalogo === null && <p className={`mt-2 text-[12px] ${softText}`}>Cargando catálogo…</p>}
+        {catalogo !== null && catalogo.length === 0 && (
+          <p className={`mt-2 text-[12px] ${softText}`}>
+            No hay rúbricas tipo «tareas» en el catálogo. Créalas en la sección de rúbricas.
+          </p>
+        )}
       </Seccion>
 
       {/* Modalidad */}
