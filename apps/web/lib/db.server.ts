@@ -11,7 +11,7 @@ import postgres from 'postgres';
  * la superficie (`comoAlumno` / funciones de `datos.ts`) no cambia.
  */
 
-type Sql = ReturnType<typeof postgres>;
+export type Sql = ReturnType<typeof postgres>;
 
 declare global {
   // Reusa la conexión entre recargas de HMR en dev.

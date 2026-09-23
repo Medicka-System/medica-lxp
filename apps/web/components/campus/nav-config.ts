@@ -44,6 +44,7 @@ export const GRUPOS: GrupoNav[] = [
     items: [
       { id: 'bitacora', etiqueta: 'Mi bitácora', icono: NotebookPen, href: '/bitacora' },
       { id: 'ateneo', etiqueta: 'Ateneo', icono: MessagesSquare, href: '/ateneo' },
+      { id: 'consultas', etiqueta: 'Consultas', icono: MessageCircle, href: '/consultas' },
       { id: 'biblioteca', etiqueta: 'Biblioteca de casos', icono: Library, href: '/biblioteca' },
     ],
   },
@@ -51,7 +52,6 @@ export const GRUPOS: GrupoNav[] = [
     titulo: 'Mis herramientas',
     items: [
       { id: 'reportes', etiqueta: 'Mis reportes', icono: FileText, href: '/herramientas/reportes' },
-      { id: 'consultas', etiqueta: 'Consultas', icono: MessageCircle, href: '/herramientas/consultas' },
       { id: 'calculadoras', etiqueta: 'Calculadoras', icono: Calculator, href: '/herramientas/calculadoras' },
       { id: 'simuladores', etiqueta: 'Simuladores', icono: MonitorPlay, href: '/simuladores' },
     ],

@@ -38,8 +38,9 @@ function esActivo(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
 }
 
-function badgeDe(item: ItemNav, casosPendientes: number): string | undefined {
+function badgeDe(item: ItemNav, casosPendientes: number, consultasNoLeidas: number): string | undefined {
   if (item.id === 'bitacora' && casosPendientes > 0) return String(casosPendientes);
+  if (item.id === 'consultas' && consultasNoLeidas > 0) return String(consultasNoLeidas);
   if (item.id === 'ateneo') return 'En vivo';
   return undefined;
 }
@@ -107,11 +108,13 @@ export function CampusShell({
   usuario,
   casosPendientes,
   noLeidas = 0,
+  consultasNoLeidas = 0,
   children,
 }: {
   usuario: ShellUsuario;
   casosPendientes: number;
   noLeidas?: number;
+  consultasNoLeidas?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -165,7 +168,7 @@ export function CampusShell({
                       item={item}
                       activo={esActivo(pathname, item.href)}
                       colapsado={colapsado}
-                      badge={badgeDe(item, casosPendientes)}
+                      badge={badgeDe(item, casosPendientes, consultasNoLeidas)}
                     />
                   ))}
                 </div>
@@ -290,7 +293,7 @@ export function CampusShell({
             if (!item) return null;
             const Icono = item.icono;
             const on = esActivo(pathname, item.href);
-            const badge = badgeDe(item, casosPendientes);
+            const badge = badgeDe(item, casosPendientes, consultasNoLeidas);
             return (
               <Link key={id} href={item.href} aria-current={on ? 'page' : undefined} className={`flex h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-[10px] transition-colors ${on ? 'bg-accent' : ''}`}>
                 <span className="relative">

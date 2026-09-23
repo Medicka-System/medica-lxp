@@ -662,6 +662,48 @@ async function seed(sql: Sql): Promise<void> {
   // COLEGAS: a1 ↔ a2 y a1 ↔ a3 (aceptadas); docente/a4 quedan como sugerencias.
   await sql`insert into lxp.conexiones_ateneo (solicitante_id, receptor_id, estado) values (${alumnos.a2}, ${alumnos.a1}, 'colegas'), (${alumnos.a1}, ${alumnos.a3}, 'colegas')`;
 
+  // ── Consultas (chat 1:1 · §Sprint 5.5 · mig 0034): staff con especialidad + una
+  //    conversación de cada tipo (docente con origen-lección, staff, colega). ────────
+  await sql`update lxp.perfiles set nombre = 'Control escolar', especialidad = 'Constancias y horas' where user_id = ${admin}`;
+  await sql`update lxp.perfiles set nombre = 'Soporte técnico', especialidad = 'Plataforma y visor' where user_id = ${superAdmin}`;
+
+  const crearConsulta = async (
+    contacto: string,
+    tipo: 'docente' | 'staff' | 'colega',
+    asunto: string,
+    origenLeccion: string | null,
+    leidoHace: string, // intervalo p.ej. '5 minutes' — alumno_leido_en = now() - X
+  ) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.consultas
+          (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado, origen_leccion_id, alumno_leido_en)
+        values (${alumnos.a1}, ${contacto}, ${tipo}::lxp.consulta_tipo_contacto,
+                ${tipo === 'docente' ? contacto : null}, ${asunto}, 'abierta', ${origenLeccion},
+                now() - ${leidoHace}::interval)
+        returning id`,
+    ).id;
+  const msgConsulta = (consulta: string, autor: string, cuerpo: string, hace: string) =>
+    sql`insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo, created_at)
+        values (${consulta}, ${autor}, ${cuerpo}, now() - ${hace}::interval)`;
+
+  // DOCENTE (con origen-lección) — la docente respondió después de que a1 leyó → 2 no leídos.
+  const conDoc = await crearConsulta(docente, 'docente', 'Dónde medir la cortical', lTeoria, '20 hours');
+  await msgConsulta(conDoc, alumnos.a1, 'Doctor, buenas tardes. En el caso del riñón derecho no me queda claro dónde medir la cortical. ¿Basta con el polo medio?', '20 hours');
+  await msgConsulta(conDoc, docente, 'Buen día, doctora. Mídala en los dos polos y en el mismo plano; con una sola medida el ángulo puede engañarla. Si el polo inferior no se deja, cambie a un corte coronal por flanco.', '2 hours');
+  await msgConsulta(conDoc, docente, 'Le dejo la lectura del módulo donde está explicado con imágenes.', '90 minutes');
+
+  // STAFF (control escolar) — a1 ya lo leyó → 0 no leídos.
+  const conStaff = await crearConsulta(admin, 'staff', 'Constancia de horas', null, '1 minute');
+  await msgConsulta(conStaff, alumnos.a1, 'Buenas, ¿cómo va mi constancia de 500 horas?', '1 day');
+  await msgConsulta(conStaff, admin, 'Su constancia de 500 h ya está en trámite; le llega por correo esta semana.', '9 hours');
+
+  // COLEGA (a2) — sin ciclo de consulta (estado null derivado).
+  const conCol = await crearConsulta(alumnos.a2, 'colega', 'Loop del jet', null, '30 minutes');
+  await msgConsulta(conCol, alumnos.a2, 'Oye, vi tu caso en el Ateneo. ¿Cómo sacaste la ventana del polo inferior?', '18 hours');
+  await msgConsulta(conCol, alumnos.a1, 'Coronal por flanco, bajando ganancia. Me lo sugirió Sandoval en una consulta.', '17 hours');
+  await msgConsulta(conCol, alumnos.a2, 'Genial, gracias. ¿Me pasas el loop cuando puedas?', '20 minutes');
+
   // ── Biblioteca: caso con VERDAD ESTRUCTURADA (habilita a Eco · §7A) ─────
   await sql`
     insert into lxp.casos_biblioteca
