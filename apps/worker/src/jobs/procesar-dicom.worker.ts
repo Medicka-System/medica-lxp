@@ -34,6 +34,12 @@ type TrazaEstudio = {
   removidos_n: number;
   series_procesadas: number;
   verificado: boolean;
+  /** Método de redacción de PII quemada en píxeles (§10): región US o banda fallback. */
+  redaccion_pixel: 'region' | 'banda_superior' | 'ninguna' | 'mixto';
+  /** Alguna serie cayó al fallback → el estudio EXIGE revisión humana (PII no confiable). */
+  revision_manual: boolean;
+  /** Píxeles ennegrecidos en todo el estudio. */
+  pixeles_redactados: number;
 };
 
 /** Índice de una serie a partir de su ref `.../{idx}.dcm` (para anexar sin pisar). */
@@ -216,11 +222,19 @@ export class ProcesarDicomWorker extends TrabajadorBase {
   ): TrazaEstudio {
     const campos = new Set<string>();
     let removidos_n = 0;
+    let pixeles_redactados = 0;
+    let revision_manual = false;
+    const metodos = new Set<string>();
     for (const a of anonimizados) {
       for (const c of a.traza.campos_removidos) campos.add(c);
       removidos_n += a.traza.removidos_n;
+      pixeles_redactados += a.redaccion.pixeles_redactados;
+      if (a.redaccion.revision_manual) revision_manual = true;
+      metodos.add(a.redaccion.metodo);
     }
     const primera = anonimizados[0]!.traza;
+    const redaccion_pixel: TrazaEstudio['redaccion_pixel'] =
+      metodos.size > 1 ? 'mixto' : ((anonimizados[0]?.redaccion.metodo ?? 'ninguna') as TrazaEstudio['redaccion_pixel']);
     return {
       motor: primera.motor,
       version: primera.version,
@@ -228,6 +242,9 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       removidos_n,
       series_procesadas: destinos.length,
       verificado: true,
+      redaccion_pixel,
+      revision_manual,
+      pixeles_redactados,
     };
   }
 
