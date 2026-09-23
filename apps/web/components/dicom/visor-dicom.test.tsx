@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { crearMotorFake, serieMock } from './mock';
 import type { EstudioDicom } from './types';
 import { VisorDicom } from './visor-dicom';
@@ -74,6 +74,30 @@ describe('<VisorDicom />', () => {
       <VisorDicom estudio={estudioFijo()} soloLectura crearMotor={() => crearMotorFake()} />,
     );
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+  });
+
+  it('series con id DUPLICADO no rompen React (key única en el selector)', () => {
+    // Regresión: un ZIP con varias instancias de la MISMA serie llega con el mismo
+    // SeriesInstanceUID; si ese id fuera la key, React lanzaría "two children with the
+    // same key". La key `${id}-${i}` lo evita. Aquí forzamos ids repetidos.
+    const espia = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const estudio: EstudioDicom = {
+      id: 'estudio-dup',
+      series: [
+        serieMock('Serie 1', 1, { id: 'uid-repetido' }),
+        serieMock('Serie 2', 1, { id: 'uid-repetido' }),
+        serieMock('Serie 3', 1, { id: 'uid-repetido' }),
+      ],
+    };
+    render(<VisorDicom estudio={estudio} crearMotor={() => crearMotorFake()} />);
+    // Las tres series se renderizan como tres tabs (nada se colapsa por la key).
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    // React no emitió el aviso de keys duplicadas.
+    const avisoKeys = espia.mock.calls.some((args) =>
+      args.some((a) => typeof a === 'string' && /same key|two children with the same key/i.test(a)),
+    );
+    expect(avisoKeys).toBe(false);
+    espia.mockRestore();
   });
 
   it('cambiar de serie por el selector actualiza la selección', async () => {

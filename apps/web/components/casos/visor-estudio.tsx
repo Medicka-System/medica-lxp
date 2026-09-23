@@ -17,16 +17,31 @@ import type { TablaEstudioDicom } from '@campus/shared';
 import { VisorDicom, type EstudioDicom } from '@/components/dicom';
 import { lecturaEstudioDicom, type SerieLectura } from '@/lib/dicom/acciones';
 
-/** Construye el EstudioDicom multi-serie a partir de las URLs firmadas por serie. */
+/**
+ * Construye el EstudioDicom multi-serie a partir de las URLs firmadas por serie.
+ *
+ * El `id` de cada serie es un id de UI (lo usan la key de React y la selección de serie
+ * en `useVisorDicom`), NO el SeriesInstanceUID de DICOM. Debe ser ÚNICO por posición: el
+ * pipeline registra una serie por `.dcm`, así que un ZIP con varias instancias de la
+ * MISMA serie llega con `series_uid` repetido (mismo SeriesInstanceUID). Si usáramos ese
+ * UID como id, React chocaría por keys duplicadas y la selección activaría todas las
+ * series homónimas a la vez. Por eso el id se deriva del índice (`caso-sN`), siempre
+ * único; el UID real se conserva en `metadatos` para overlays/diagnóstico.
+ *
+ * (Agrupar las instancias de un mismo SeriesInstanceUID en UNA serie multi-frame sería lo
+ * ideal a nivel DICOM, pero exige un modelo de serie con múltiples refs — hoy `SerieLectura`
+ * trae una sola `urlLectura` por serie. Queda como mejora del pipeline, no de este visor.)
+ */
 function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
   return {
     id: casoId,
     series: series.map((s, i) => {
       const frames = Math.max(1, s.frames ?? 1);
       return {
-        id: s.series_uid || `${casoId}-s${i}`,
+        id: `${casoId}-s${i}`,
         descripcion: `Serie ${i + 1}`,
         modalidad: s.modalidad || 'US',
+        ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
         frames:
           frames <= 1
             ? [{ imageId: `wadouri:${s.urlLectura}`, indice: 0 }]

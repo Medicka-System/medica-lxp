@@ -256,11 +256,13 @@ function SelectorSeries({
           : 'w-[104px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-border p-2',
       )}
     >
-      {series.map((s) => {
+      {series.map((s, i) => {
         const activa = s.id === activaId;
         return (
           <button
-            key={s.id}
+            // Key única garantizada: aunque el id se repitiera (SeriesInstanceUID duplicado
+            // entre instancias de una misma serie), el índice la desambigua y React no choca.
+            key={`${s.id}-${i}`}
             role="tab"
             aria-selected={activa}
             type="button"
