@@ -822,7 +822,6 @@ function ComposerPost({
       onChange={setCuerpo}
       minAlto={expandido ? 340 : 150}
       ariaLabel="Cuerpo de su publicación"
-      placeholder="Cuente el caso: qué vio, qué midió, con qué grado se quedó y qué lo hizo dudar. Puede pegar imágenes o el loop."
     />
   );
 
@@ -847,7 +846,6 @@ function ComposerPost({
           type="text"
           value={titulo}
           onChange={(e) => setTitulo(e.target.value)}
-          placeholder="Un título para su caso…"
           aria-label="Título de su caso"
           className="w-full bg-transparent text-[16px] font-bold text-foreground outline-none placeholder:font-bold placeholder:text-muted-foreground"
         />
@@ -940,7 +938,6 @@ function ComposerRespuesta({
           onChange={setCuerpo}
           minAlto={compacto ? 90 : 110}
           ariaLabel="Su respuesta"
-          placeholder="Responda con algo que pueda usar: una medida, una ventana alterna, una pregunta que lo haga volver a la imagen."
         />
       </div>
       {error && <p role="alert" className="px-4 text-[12px] font-semibold text-[color:var(--destructive-foreground)]">{error}</p>}
