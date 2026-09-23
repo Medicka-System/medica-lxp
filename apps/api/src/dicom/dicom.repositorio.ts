@@ -17,6 +17,8 @@ export type SerieEstudio = {
   frames: number;
   /** Clave del `.dcm` anonimizado de esta serie en object storage. */
   ref?: string;
+  /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null`/ausente = píxel cuadrado. */
+  pixel_spacing?: [number, number] | null;
 };
 
 export interface CasoEstudio {

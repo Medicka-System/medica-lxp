@@ -18,6 +18,8 @@ export interface UseVisorDicomOpts {
   herramientaInicial?: HerramientaId;
   /** Reproducir el cine-loop en bucle (default true). */
   loop?: boolean;
+  /** Multiplicador de velocidad del cine sobre los fps base (default 1). */
+  velocidad?: number;
   /** Notifica al padre qué herramienta quedó activa. */
   onHerramientaChange?: (id: HerramientaId) => void;
 }
@@ -52,6 +54,7 @@ export function useVisorDicom({
   serieInicial,
   herramientaInicial = HERRAMIENTA_POR_DEFECTO,
   loop = true,
+  velocidad = 1,
   onHerramientaChange,
 }: UseVisorDicomOpts): VisorDicomEstado {
   const series = estudio.series;
@@ -82,7 +85,9 @@ export function useVisorDicom({
   const onFrame = useCallback((indice: number) => {
     motorRef.current?.mostrarFrame(indice);
   }, []);
-  const cine = useCineLoop({ total, fps: fpsEfectivo(serieActiva ?? {}), loop, onFrame });
+  // fps efectivo = fps base de la serie × multiplicador de velocidad (acotado sano).
+  const fps = fpsEfectivo(serieActiva ?? {}) * (Number.isFinite(velocidad) && velocidad > 0 ? velocidad : 1);
+  const cine = useCineLoop({ total, fps, loop, onFrame });
 
   // --- Montaje del motor cuando el contenedor está disponible. ---
   const montar = useCallback(

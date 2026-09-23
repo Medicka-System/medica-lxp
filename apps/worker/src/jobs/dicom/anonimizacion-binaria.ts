@@ -33,6 +33,12 @@ export interface SerieAnonimizada {
   modalidad: string;
   frames: number;
   instancias: number;
+  /**
+   * Espaciado físico real de píxel `[row, col]` en mm (aspect ratio de USG · § contexto
+   * clínico). `null` si la imagen no aporta calibración ni aspect ratio (píxel cuadrado).
+   * El visor lo usa para no deformar estructuras redondas.
+   */
+  pixelSpacing: [number, number] | null;
 }
 
 /** Resultado de anonimizar el binario: el `.dcm` limpio + traza + series. */
@@ -58,6 +64,53 @@ function esMeta(clave: string): boolean {
 function escalar(v: unknown): string | number | null {
   const x = Array.isArray(v) ? v[0] : v;
   return typeof x === 'string' || typeof x === 'number' ? x : null;
+}
+
+/** Número positivo finito o null (dcmjs naturaliza a number o string numérica). */
+function numPos(v: unknown): number | null {
+  const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Espaciado físico de píxel `[row, col]` en mm (aspect ratio real de USG · § contexto
+ * clínico). Prioriza, en orden: PixelSpacing (0028,0030) → calibración de región de
+ * ultrasonido (0018,6011: Physical Delta X/Y, unidades 3 = cm) → Pixel Aspect Ratio
+ * (0028,0034 = vertical\horizontal, relación pura → col = 1). `null` si nada aplica o el
+ * píxel es cuadrado (1:1, no hay nada que corregir). PURO y testeable.
+ */
+export function espaciadoDeDataset(ds: Record<string, unknown>): [number, number] | null {
+  // 1) PixelSpacing = [rowSpacing, colSpacing] en mm.
+  const ps = ds.PixelSpacing;
+  if (Array.isArray(ps) && ps.length >= 2) {
+    const row = numPos(ps[0]);
+    const col = numPos(ps[1]);
+    if (row && col) return [row, col];
+  }
+
+  // 2) Región de ultrasonido: Physical Delta X (col) / Y (row); unidad 3 = cm → ×10 mm.
+  const regs = ds.SequenceOfUltrasoundRegions;
+  const items = Array.isArray(regs) ? regs : regs ? [regs] : [];
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    const r = it as Record<string, unknown>;
+    const dx = numPos(Math.abs(Number(r.PhysicalDeltaX)));
+    const dy = numPos(Math.abs(Number(r.PhysicalDeltaY)));
+    if (!dx || !dy) continue;
+    const col = dx * (Number(r.PhysicalUnitsXDirection) === 3 ? 10 : 1);
+    const row = dy * (Number(r.PhysicalUnitsYDirection) === 3 ? 10 : 1);
+    if (numPos(col) && numPos(row)) return [row, col];
+  }
+
+  // 3) Pixel Aspect Ratio = [vertical, horizontal] (relación pura → col = 1).
+  const par = ds.PixelAspectRatio;
+  if (Array.isArray(par) && par.length >= 2) {
+    const vert = numPos(par[0]);
+    const horiz = numPos(par[1]);
+    if (vert && horiz && vert !== horiz) return [vert / horiz, 1];
+  }
+
+  return null;
 }
 
 /**
@@ -104,6 +157,7 @@ export function anonimizarDicomBinario(entrada: ArrayBuffer): ResultadoAnonimiza
       modalidad,
       frames,
       instancias: 1,
+      pixelSpacing: espaciadoDeDataset(dataset),
     },
   ];
 

@@ -59,6 +59,7 @@ export function VisorDicom({
   onHerramientaChange,
 }: VisorDicomProps) {
   const [loop, setLoop] = useState(true);
+  const [velocidad, setVelocidad] = useState(1);
   const contenedorExtRef = useRef<HTMLDivElement | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
 
@@ -81,6 +82,7 @@ export function VisorDicom({
     serieInicial,
     herramientaInicial,
     loop,
+    velocidad,
     onHerramientaChange,
   });
 
@@ -211,6 +213,8 @@ export function VisorDicom({
           total={total}
           loop={loop}
           onToggleLoop={() => setLoop((v) => !v)}
+          velocidad={velocidad}
+          onVelocidad={setVelocidad}
         />
       )}
 

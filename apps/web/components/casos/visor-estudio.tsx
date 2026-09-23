@@ -14,42 +14,76 @@
 import { useEffect, useState } from 'react';
 import { Loader2, ImageOff } from 'lucide-react';
 import type { TablaEstudioDicom } from '@campus/shared';
-import { VisorDicom, type EstudioDicom } from '@/components/dicom';
+import { VisorDicom, type EstudioDicom, type FrameDicom } from '@/components/dicom';
+import { registrarEspaciadoImagen } from '@/components/dicom/engine/espaciado-ultrasonido';
 import { lecturaEstudioDicom, type SerieLectura } from '@/lib/dicom/acciones';
 
+/** Imagen (o frames de un multi-frame) de UN `.dcm` anonimizado firmado. */
+function framesDeDcm(urlLectura: string, nFrames: number, desde: number): FrameDicom[] {
+  const n = Math.max(1, nFrames || 1);
+  // Un cine loop guardado como UN `.dcm` multi-frame: el frame va en la query (`&frame=`).
+  // OJO: el loader wadouri usa frames 1-based (`parseImageId` resta 1) → empezamos en 1.
+  if (n > 1) {
+    return Array.from({ length: n }, (_, f) => ({
+      imageId: `wadouri:${urlLectura}&frame=${f + 1}`,
+      indice: desde + f,
+    }));
+  }
+  // Imagen fija: un solo frame, la URL tal cual.
+  return [{ imageId: `wadouri:${urlLectura}`, indice: desde }];
+}
+
 /**
- * Construye el EstudioDicom multi-serie a partir de las URLs firmadas por serie.
+ * Construye el EstudioDicom AGRUPANDO por SeriesInstanceUID (contexto clínico · FASE 1).
  *
- * El `id` de cada serie es un id de UI (lo usan la key de React y la selección de serie
- * en `useVisorDicom`), NO el SeriesInstanceUID de DICOM. Debe ser ÚNICO por posición: el
- * pipeline registra una serie por `.dcm`, así que un ZIP con varias instancias de la
- * MISMA serie llega con `series_uid` repetido (mismo SeriesInstanceUID). Si usáramos ese
- * UID como id, React chocaría por keys duplicadas y la selección activaría todas las
- * series homónimas a la vez. Por eso el id se deriva del índice (`caso-sN`), siempre
- * único; el UID real se conserva en `metadatos` para overlays/diagnóstico.
+ * El pipeline registra un `.dcm` por FUENTE (una imagen o un ZIP expandido), pero varios
+ * `.dcm` con el MISMO SeriesInstanceUID son FRAMES de UNA sola serie (un cine loop), no
+ * series distintas — así llega un estudio de ultrasonido troceado en instancias. Aquí se
+ * reconcilian:
+ *   · Mismo `series_uid` (no vacío)  → UNA serie con N frames (los frames de cada `.dcm`
+ *     miembro, concatenados en orden de subida). Un cine loop.
+ *   · `series_uid` distinto o vacío  → series distintas (longitudinal, transversal,
+ *     Doppler…), items separados en la tira de miniaturas.
+ * Un `.dcm` que ya es multi-frame (NumberOfFrames > 1) aporta sus N frames a su grupo.
  *
- * (Agrupar las instancias de un mismo SeriesInstanceUID en UNA serie multi-frame sería lo
- * ideal a nivel DICOM, pero exige un modelo de serie con múltiples refs — hoy `SerieLectura`
- * trae una sola `urlLectura` por serie. Queda como mejora del pipeline, no de este visor.)
+ * El `id` de cada serie es un id de UI (key de React + selección en `useVisorDicom`),
+ * derivado del índice del GRUPO → siempre único (nunca choca aunque el UID se repita).
+ * El UID real se conserva en `metadatos` para overlays/diagnóstico.
  */
 function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
+  // Agrupa preservando el orden de aparición. UID vacío = grupo propio (no fusionar).
+  const grupos = new Map<string, SerieLectura[]>();
+  const orden: string[] = [];
+  series.forEach((s, i) => {
+    const uid = s.series_uid?.trim();
+    const clave = uid ? `uid:${uid}` : `idx:${i}`;
+    const g = grupos.get(clave);
+    if (g) g.push(s);
+    else {
+      grupos.set(clave, [s]);
+      orden.push(clave);
+    }
+  });
+
   return {
     id: casoId,
-    series: series.map((s, i) => {
-      const frames = Math.max(1, s.frames ?? 1);
+    series: orden.map((clave, gi) => {
+      const miembros = grupos.get(clave)!;
+      const frames: FrameDicom[] = [];
+      for (const m of miembros) {
+        frames.push(...framesDeDcm(m.urlLectura, m.frames ?? 1, frames.length));
+        // Aspect ratio real de USG (§ contexto clínico): el espaciado lo calculó la
+        // ingesta; se registra por imageId (main-thread) para que Cornerstone no asuma 1:1.
+        const esp = m.pixelSpacing;
+        if (esp && esp.length === 2) registrarEspaciadoImagen(`wadouri:${m.urlLectura}`, esp[0], esp[1]);
+      }
+      const uid = miembros[0]!.series_uid;
       return {
-        id: `${casoId}-s${i}`,
-        descripcion: `Serie ${i + 1}`,
-        modalidad: s.modalidad || 'US',
-        ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
-        frames:
-          frames <= 1
-            ? [{ imageId: `wadouri:${s.urlLectura}`, indice: 0 }]
-            : // Multi-frame: la URL ya trae query firmada; el frame va con '&'.
-              Array.from({ length: frames }, (_, f) => ({
-                imageId: `wadouri:${s.urlLectura}&frame=${f}`,
-                indice: f,
-              })),
+        id: `${casoId}-s${gi}`,
+        descripcion: `Serie ${gi + 1}`,
+        modalidad: miembros[0]!.modalidad || 'US',
+        ...(uid ? { metadatos: { series_uid: uid } } : {}),
+        frames,
       };
     }),
   };

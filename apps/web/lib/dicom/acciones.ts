@@ -59,6 +59,8 @@ export interface SerieLectura {
   modalidad: string;
   frames: number;
   urlLectura: string;
+  /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
+  pixelSpacing?: [number, number] | null;
 }
 
 /** Comprueba que el caso existe y es accesible bajo RLS con la sesión de la tabla. */

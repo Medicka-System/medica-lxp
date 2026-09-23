@@ -104,17 +104,37 @@ export function BarraHerramientas({
   );
 }
 
+/** Velocidades de reproducción del cine-loop (multiplicador sobre los fps base). */
+const VELOCIDADES = [0.5, 1, 1.5, 2] as const;
+
 interface ControlesCineProps {
   cine: CineLoop;
   total: number;
   loop: boolean;
   onToggleLoop: () => void;
+  /** Multiplicador de velocidad actual (default 1). */
+  velocidad?: number;
+  /** Cambia el multiplicador de velocidad. */
+  onVelocidad?: (v: number) => void;
 }
 
-/** Controles del cine-loop: reproducir, saltar frames y scrubber. */
-export function ControlesCine({ cine, total, loop, onToggleLoop }: ControlesCineProps) {
+/** Controles del cine-loop: reproducir, saltar frames, scrubber y velocidad. */
+export function ControlesCine({
+  cine,
+  total,
+  loop,
+  onToggleLoop,
+  velocidad = 1,
+  onVelocidad,
+}: ControlesCineProps) {
   const { indice, reproduciendo, alternar, siguiente, anterior, irA } = cine;
   const maximo = Math.max(total - 1, 0);
+
+  const ciclarVelocidad = () => {
+    const idx = VELOCIDADES.indexOf(velocidad as (typeof VELOCIDADES)[number]);
+    const prox = VELOCIDADES[(idx + 1) % VELOCIDADES.length]!;
+    onVelocidad?.(prox);
+  };
 
   return (
     <div className="flex items-center gap-2.5 border-t border-border bg-card px-2.5 py-2">
@@ -161,6 +181,18 @@ export function ControlesCine({ cine, total, loop, onToggleLoop }: ControlesCine
       <span className="min-w-[4.5rem] text-right font-mono text-[11px] tabular-nums text-muted-foreground">
         {indice + 1} / {total}
       </span>
+
+      {onVelocidad && (
+        <button
+          type="button"
+          aria-label={`Velocidad ${velocidad}×`}
+          title="Velocidad de reproducción"
+          onClick={ciclarVelocidad}
+          className="inline-flex h-9 min-w-[2.75rem] items-center justify-center rounded-control px-2 font-mono text-[11px] font-semibold tabular-nums text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {velocidad}×
+        </button>
+      )}
 
       <button
         type="button"

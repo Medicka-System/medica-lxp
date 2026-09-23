@@ -1,5 +1,5 @@
 import * as dcmjs from 'dcmjs';
-import { anonimizarDicomBinario } from './anonimizacion-binaria';
+import { anonimizarDicomBinario, espaciadoDeDataset } from './anonimizacion-binaria';
 
 const { DicomMessage, DicomMetaDictionary, DicomDict } = dcmjs.data;
 
@@ -111,5 +111,38 @@ describe('anonimizarDicomBinario', () => {
   it('lanza si la entrada no es un DICOM P10 válido (§5: no traga excepciones)', () => {
     const basura = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
     expect(() => anonimizarDicomBinario(basura)).toThrow(/DICOM P10/);
+  });
+
+  it('extrae el aspect ratio real de USG (Pixel Aspect Ratio 2:1) en la serie', () => {
+    const { series } = anonimizarDicomBinario(dcmConPII({ PixelAspectRatio: [2, 1] }));
+    expect(series[0]?.pixelSpacing).toEqual([2, 1]);
+  });
+
+  it('sin datos de aspecto → pixelSpacing null (píxel cuadrado)', () => {
+    expect(anonimizarDicomBinario(dcmConPII()).series[0]?.pixelSpacing).toBeNull();
+  });
+});
+
+describe('espaciadoDeDataset (aspect ratio de USG)', () => {
+  it('prioriza PixelSpacing [row, col] en mm', () => {
+    expect(espaciadoDeDataset({ PixelSpacing: [0.3, 0.2], PixelAspectRatio: [2, 1] })).toEqual([0.3, 0.2]);
+  });
+
+  it('usa la región de ultrasonido en cm (unidad 3) → mm ×10', () => {
+    const ds = {
+      SequenceOfUltrasoundRegions: [
+        { PhysicalDeltaX: 0.02, PhysicalDeltaY: 0.03, PhysicalUnitsXDirection: 3, PhysicalUnitsYDirection: 3 },
+      ],
+    };
+    expect(espaciadoDeDataset(ds)).toEqual([0.3, 0.2]);
+  });
+
+  it('cae a Pixel Aspect Ratio (vertical\\horizontal → col 1)', () => {
+    expect(espaciadoDeDataset({ PixelAspectRatio: [3, 2] })).toEqual([1.5, 1]);
+  });
+
+  it('1:1 o sin datos → null', () => {
+    expect(espaciadoDeDataset({ PixelAspectRatio: [1, 1] })).toBeNull();
+    expect(espaciadoDeDataset({})).toBeNull();
   });
 });

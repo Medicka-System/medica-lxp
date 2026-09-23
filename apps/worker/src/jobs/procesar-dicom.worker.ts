@@ -22,6 +22,8 @@ type SeriePersistida = {
   frames: number;
   instancias: number;
   ref: string;
+  /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
+  pixel_spacing?: [number, number] | null;
 };
 
 /** Traza auditable agregada del estudio (§10) — forma JSON serializable. */
@@ -114,6 +116,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
           frames: s?.frames ?? 1,
           instancias: s?.instancias ?? 1,
           ref: destino.ref,
+          pixel_spacing: s?.pixelSpacing ?? null,
         });
       }
 

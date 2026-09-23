@@ -4,6 +4,7 @@ import {
   init as coreInit,
   RenderingEngine,
   Enums as CoreEnums,
+  metaData,
   type Types,
 } from '@cornerstonejs/core';
 import {
@@ -26,6 +27,7 @@ import {
 import { init as dicomImageLoaderInit } from '@cornerstonejs/dicom-image-loader';
 import { obtenerHerramienta, type HerramientaId } from '../herramientas';
 import { MotorVisorError, type MotorVisor } from '../motor';
+import { registrarEspaciadoUltrasonido } from './espaciado-ultrasonido';
 
 /**
  * Implementación de `MotorVisor` sobre **Cornerstone3D** (§3, §4.7).
@@ -60,6 +62,10 @@ function inicializarCornerstone(): Promise<void> {
     await coreInit();
     await toolsInit();
     dicomImageLoaderInit();
+    // Aspect ratio real de ultrasonido (§ contexto clínico): el loader solo lee
+    // PixelSpacing y asume píxeles cuadrados; registramos un proveedor que devuelve el
+    // espaciado real calculado en la ingesta (ver módulo `espaciado-ultrasonido`).
+    registrarEspaciadoUltrasonido(metaData);
     for (const Clase of CLASES_HERRAMIENTA) addTool(Clase);
   })().catch((e) => {
     inicializado = null; // permitir reintento si falló
