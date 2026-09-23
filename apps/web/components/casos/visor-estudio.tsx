@@ -34,56 +34,34 @@ function framesDeDcm(urlLectura: string, nFrames: number, desde: number): FrameD
 }
 
 /**
- * Construye el EstudioDicom AGRUPANDO por SeriesInstanceUID (contexto clínico · FASE 1).
+ * Construye el EstudioDicom: **cada `.dcm` = UNA imagen/serie** (una miniatura en la tira).
  *
- * El pipeline registra un `.dcm` por FUENTE (una imagen o un ZIP expandido), pero varios
- * `.dcm` con el MISMO SeriesInstanceUID son FRAMES de UNA sola serie (un cine loop), no
- * series distintas — así llega un estudio de ultrasonido troceado en instancias. Aquí se
- * reconcilian:
- *   · Mismo `series_uid` (no vacío)  → UNA serie con N frames (los frames de cada `.dcm`
- *     miembro, concatenados en orden de subida). Un cine loop.
- *   · `series_uid` distinto o vacío  → series distintas (longitudinal, transversal,
- *     Doppler…), items separados en la tira de miniaturas.
- * Un `.dcm` que ya es multi-frame (NumberOfFrames > 1) aporta sus N frames a su grupo.
+ * La distinción cine-loop vs galería la da el TAG DICOM, no la extensión ni el UID:
+ *   · UN `.dcm` con NumberOfFrames > 1  → un CINE LOOP real (frames dentro del archivo) →
+ *     la serie trae N frames y el visor muestra play/scrubbing/velocidad.
+ *   · VARIOS `.dcm` single-frame        → imágenes/series SEPARADAS → cada una es su propia
+ *     serie de 1 frame; el visor muestra la GALERÍA de miniaturas (una por imagen) SIN play.
+ * NO se fusionan archivos distintos por compartir SeriesInstanceUID: subir 2-3 imágenes son
+ * 2-3 series, no un loop. El play solo aparece cuando UN archivo es multi-frame de verdad.
  *
  * El `id` de cada serie es un id de UI (key de React + selección en `useVisorDicom`),
- * derivado del índice del GRUPO → siempre único (nunca choca aunque el UID se repita).
- * El UID real se conserva en `metadatos` para overlays/diagnóstico.
+ * derivado del índice → siempre único. El UID real se conserva en `metadatos`.
  */
 function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
-  // Agrupa preservando el orden de aparición. UID vacío = grupo propio (no fusionar).
-  const grupos = new Map<string, SerieLectura[]>();
-  const orden: string[] = [];
-  series.forEach((s, i) => {
-    const uid = s.series_uid?.trim();
-    const clave = uid ? `uid:${uid}` : `idx:${i}`;
-    const g = grupos.get(clave);
-    if (g) g.push(s);
-    else {
-      grupos.set(clave, [s]);
-      orden.push(clave);
-    }
-  });
-
   return {
     id: casoId,
-    series: orden.map((clave, gi) => {
-      const miembros = grupos.get(clave)!;
-      const frames: FrameDicom[] = [];
-      for (const m of miembros) {
-        frames.push(...framesDeDcm(m.urlLectura, m.frames ?? 1, frames.length));
-        // Aspect ratio real de USG (§ contexto clínico): el espaciado lo calculó la
-        // ingesta; se registra por imageId (main-thread) para que Cornerstone no asuma 1:1.
-        const esp = m.pixelSpacing;
-        if (esp && esp.length === 2) registrarEspaciadoImagen(`wadouri:${m.urlLectura}`, esp[0], esp[1]);
-      }
-      const uid = miembros[0]!.series_uid;
+    series: series.map((s, i) => {
+      // Aspect ratio real de USG (§ contexto clínico): el espaciado lo calculó la ingesta;
+      // se registra por imageId (main-thread) para que Cornerstone no asuma píxel 1:1.
+      const esp = s.pixelSpacing;
+      if (esp && esp.length === 2) registrarEspaciadoImagen(`wadouri:${s.urlLectura}`, esp[0], esp[1]);
       return {
-        id: `${casoId}-s${gi}`,
-        descripcion: `Serie ${gi + 1}`,
-        modalidad: miembros[0]!.modalidad || 'US',
-        ...(uid ? { metadatos: { series_uid: uid } } : {}),
-        frames,
+        id: `${casoId}-s${i}`,
+        descripcion: `Serie ${i + 1}`,
+        modalidad: s.modalidad || 'US',
+        ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
+        // Cine loop SOLO si este único `.dcm` es multi-frame (frames > 1).
+        frames: framesDeDcm(s.urlLectura, s.frames ?? 1, 0),
       };
     }),
   };
