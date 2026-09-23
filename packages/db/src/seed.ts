@@ -586,15 +586,81 @@ async function seed(sql: Sql): Promise<void> {
 
   // (La entrega de a1 a la tarea ya se sembró arriba, anclada por leccion_id · mig 0026.)
 
-  // ── Ateneo (uno aprobado, uno pendiente) ───────────────────────────────
-  await sql`
-    insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
-    values (${docente}, ${'anuncio_comunidad'}::lxp.post_ateneo_tipo,
-      'Bienvenidos al Ateneo', 'Comparte tus casos.', ${'aprobado'}::lxp.estado_validacion, 'inscritos')`;
-  await sql`
-    insert into lxp.posts_ateneo (autor_id, tipo, titulo, vineta, estado, visibilidad)
-    values (${alumnos.a1}, ${'caso'}::lxp.post_ateneo_tipo,
-      'Caso FAST positivo', 'Paciente con trauma abdominal.', ${'pendiente'}::lxp.estado_validacion, 'inscritos')`;
+  // ── Ateneo (red social · §1): perfiles con especialidad/sede, posts de cada tipo,
+  //    reacciones, encuesta con votos, hilo anidado y colegas (mig 0032). ──────────
+  await sql`update lxp.perfiles set especialidad = 'Ultrasonografía', sede = 'Guadalajara' where user_id = ${alumnos.a1}`;
+  await sql`update lxp.perfiles set especialidad = 'Urgencias', sede = 'Puebla' where user_id = ${alumnos.a2}`;
+  await sql`update lxp.perfiles set especialidad = 'Medicina interna', sede = 'Monterrey' where user_id = ${alumnos.a3}`;
+  await sql`update lxp.perfiles set especialidad = 'Renal y abdomen', sede = 'Docente' where user_id = ${docente}`;
+
+  const postAteneo = async (
+    autor: string,
+    tipo: string,
+    campos: { titulo: string; cuerpo?: string; temas?: string[]; media?: { tipo: string; url?: string }[]; casoOrigen?: string; cierraDias?: number },
+    hace: string,
+  ) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.posts_ateneo
+          (autor_id, tipo, titulo, cuerpo, temas, media, caso_origen_id, cierra_en, estado, visibilidad, created_at)
+        values (${autor}, ${tipo}::lxp.post_ateneo_tipo, ${campos.titulo}, ${campos.cuerpo ?? null},
+                ${sql.json(campos.temas ?? [])}, ${sql.json(campos.media ?? [])},
+                ${campos.casoOrigen ?? null},
+                ${campos.cierraDias ? sql`now() + (${campos.cierraDias} || ' days')::interval` : null},
+                'aprobado'::lxp.estado_validacion, 'inscritos', now() - ${hace}::interval)
+        returning id`,
+    ).id;
+  const reac = (post: string, usuario: string, tipo: string) =>
+    sql`insert into lxp.reacciones_ateneo (post_id, usuario_id, tipo) values (${post}, ${usuario}, ${tipo}::lxp.reaccion_ateneo_tipo) on conflict do nothing`;
+  const comAteneo = async (post: string, autor: string, cuerpo: string, parent?: string) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.comentarios_ateneo (post_id, autor_id, cuerpo, parent_id)
+        values (${post}, ${autor}, ${cuerpo}, ${parent ?? null}) returning id`,
+    ).id;
+
+  // CASO (a1 presenta su caso validado de la bitácora → abre el visor real).
+  const pCaso = await postAteneo(alumnos.a1, 'caso',
+    { titulo: '¿Asimetría cortical crónica o me está ganando el ángulo?',
+      cuerpo: 'Mujer de 46, dolor lumbar derecho de 3 días, creatinina normal. Traigo el estudio completo de mi bitácora.',
+      casoOrigen: casoAprobado.id }, '2 hours');
+  const kDoc = await comAteneo(pCaso, docente, 'Mida la cortical en los dos polos y en el mismo plano. Si la diferencia se sostiene, es real; si no, es el ángulo.');
+  await comAteneo(pCaso, alumnos.a2, 'Polo superior derecho: 9.4. Se sostiene.', kDoc);
+  await comAteneo(pCaso, alumnos.a3, '¿Tiene el contralateral en el mismo plano? Sin eso no me animo a llamarlo crónico.');
+  await reac(pCaso, alumnos.a2, 'util'); await reac(pCaso, alumnos.a3, 'ojo'); await reac(pCaso, docente, 'aclara');
+
+  // PREGUNTA (a3).
+  const pPreg = await postAteneo(alumnos.a3, 'pregunta',
+    { titulo: '¿Alguien sigue midiendo el diámetro AP de la pelvis renal para graduar?',
+      cuerpo: 'En la residencia lo usábamos para decidir. Aquí nadie lo menciona y quiero saber si quedó en desuso.',
+      temas: ['#renal', '#gradación'] }, '3 hours');
+  await reac(pPreg, alumnos.a1, 'duda'); await reac(pPreg, alumnos.a2, 'util');
+
+  // ENCUESTA (a2) + opciones + votos.
+  const pEnc = await postAteneo(alumnos.a2, 'encuesta',
+    { titulo: 'En equipos portátiles, ¿qué preset usan de entrada para riñón?', cierraDias: 2 }, '4 hours');
+  const o1 = first(await sql<{ id: string }[]>`insert into lxp.encuesta_opciones (post_id, orden, texto) values (${pEnc}, 0, 'Abdomen general, bajando ganancia') returning id`).id;
+  const o2 = first(await sql<{ id: string }[]>`insert into lxp.encuesta_opciones (post_id, orden, texto) values (${pEnc}, 1, 'Preset renal del fabricante') returning id`).id;
+  const o3 = first(await sql<{ id: string }[]>`insert into lxp.encuesta_opciones (post_id, orden, texto) values (${pEnc}, 2, 'Uno propio guardado') returning id`).id;
+  await sql`insert into lxp.encuesta_votos (post_id, usuario_id, opcion_id) values (${pEnc}, ${alumnos.a1}, ${o1}), (${pEnc}, ${alumnos.a3}, ${o1}), (${pEnc}, ${docente}, ${o2})`;
+  void o3;
+  await reac(pEnc, alumnos.a1, 'util'); await reac(pEnc, alumnos.a3, 'aclara');
+
+  // MEDIA (a3, imágenes placeholder que renderizan).
+  const pMedia = await postAteneo(alumnos.a3, 'media',
+    { titulo: 'Tres cortes de vesícula con el preset abdomen',
+      cuerpo: 'Mi equipo portátil nuevo en la sede: tres cortes de vesícula con el preset abdomen, sin tocar nada.',
+      media: [{ tipo: 'imagen', url: '/libros-stack-v2.png' }, { tipo: 'imagen', url: '/libros-stack-v2.png' }, { tipo: 'video' }] }, '1 day');
+  await reac(pMedia, alumnos.a1, 'util'); await reac(pMedia, alumnos.a2, 'bien');
+
+  // TEXTO (docente).
+  const pTexto = await postAteneo(docente, 'texto',
+    { titulo: 'Recordatorio del jet ureteral',
+      cuerpo: 'Recordatorio para quien arranca el módulo 5: el jet ureteral se busca con Doppler color a baja escala. Si no lo ve en 5 minutos, no concluya ausencia — espere o pida al paciente que tome agua.' }, '5 hours');
+  await reac(pTexto, alumnos.a1, 'util'); await reac(pTexto, alumnos.a2, 'aclara'); await reac(pTexto, alumnos.a3, 'bien');
+
+  // COLEGAS: a1 ↔ a2 y a1 ↔ a3 (aceptadas); docente/a4 quedan como sugerencias.
+  await sql`insert into lxp.conexiones_ateneo (solicitante_id, receptor_id, estado) values (${alumnos.a2}, ${alumnos.a1}, 'colegas'), (${alumnos.a1}, ${alumnos.a3}, 'colegas')`;
 
   // ── Biblioteca: caso con VERDAD ESTRUCTURADA (habilita a Eco · §7A) ─────
   await sql`

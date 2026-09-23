@@ -257,7 +257,7 @@ async function main(): Promise<void> {
         join lxp.foro_mensajes fm on fm.actividad_id = a.id
         where a.tipo = 'foro'
         limit 1`
-    )[0];
+    )[0]!;
     // a1 (sin post) NO ve los posts de sus compañeros (RLS los oculta).
     const a1VeForo = await como(sql, claimsA1, (tx) =>
       tx<{ n: string }[]>`select count(*)::int as n from lxp.foro_mensajes where actividad_id = ${foro.act}`,
@@ -291,6 +291,69 @@ async function main(): Promise<void> {
       (await fueRechazada(() =>
         como(sql, claimsA1, (tx) => tx`select 1 from lxp.foro_reacciones limit 1`),
       )) === false,
+    );
+
+    // ── ATENEO (0032): reacciones, votos de encuesta y colegas ──
+    const postAteneo = (
+      await sql<{ id: string }[]>`select id from lxp.posts_ateneo where tipo = 'texto' limit 1`
+    )[0]!;
+    const opcion = (
+      await sql<{ id: string; post_id: string }[]>`select id, post_id from lxp.encuesta_opciones limit 1`
+    )[0]!;
+
+    let a1Reacciona = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`insert into lxp.reacciones_ateneo (post_id, usuario_id, tipo)
+                 values (${postAteneo.id}, ${a1}, 'util') on conflict (post_id, usuario_id) do update set tipo = 'ojo'`;
+      });
+      a1Reacciona = true;
+    } catch {
+      a1Reacciona = false;
+    }
+    check('a1 SÍ puede reaccionar a un post del Ateneo', a1Reacciona);
+
+    check(
+      'a1 NO puede reaccionar a nombre de a2',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.reacciones_ateneo (post_id, usuario_id, tipo) values (${postAteneo.id}, ${a2}, 'util')`,
+        ),
+      ),
+    );
+
+    let a1Vota = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`insert into lxp.encuesta_votos (post_id, usuario_id, opcion_id)
+                 values (${opcion.post_id}, ${a1}, ${opcion.id})
+                 on conflict (post_id, usuario_id) do update set opcion_id = excluded.opcion_id`;
+      });
+      a1Vota = true;
+    } catch {
+      a1Vota = false;
+    }
+    check('a1 SÍ puede votar una encuesta del Ateneo', a1Vota);
+
+    let a1Conecta = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`delete from lxp.conexiones_ateneo where solicitante_id = ${a1} and receptor_id = ${a2}`;
+        await tx`insert into lxp.conexiones_ateneo (solicitante_id, receptor_id, estado) values (${a1}, ${a2}, 'pendiente')`;
+      });
+      a1Conecta = true;
+    } catch {
+      a1Conecta = false;
+    }
+    check('a1 SÍ puede solicitar conexión con un colega', a1Conecta);
+
+    check(
+      'a1 NO puede solicitar conexión a nombre de a2',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.conexiones_ateneo (solicitante_id, receptor_id, estado) values (${a2}, ${a1}, 'pendiente')`,
+        ),
+      ),
     );
 
     // ── 7) Progreso ANCLADO A LA LECCIÓN (mig 0028): completar cualquier tipo ──
