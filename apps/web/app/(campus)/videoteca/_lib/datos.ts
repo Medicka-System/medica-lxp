@@ -12,13 +12,16 @@ import { comoAlumno } from '@/lib/db.server';
  * La lectura corre como el alumno (`comoAlumno`), respetando RLS (`lecciones` y
  * `contenidos` son de lectura authenticated).
  *
+ * Las **grabaciones de clases** (sesiones en vivo · Zoom → `ingesta-grabacion-zoom`, o
+ * stream) viven en `lxp.videoteca` (mig 0017) con `origen in ('zoom','stream')` y se
+ * leen aparte (`getGrabacionesClase`) para separarlas VISUALMENTE del contenido
+ * instruccional de producción (§ Videoteca · dos colecciones distintas).
+ *
  * PENDIENTE DE API (contratos en `../_components/reproductor.tsx`):
  *  - La **reproducción** necesita una URL firmada del servicio de media (`apps/api`);
  *    aquí solo viaja `recursoRef` (referencia en object storage).
- *  - Las **grabaciones de clases** (Zoom → `ingesta-grabacion-zoom`) viven en su propia
- *    tabla `lxp.videoteca` (mig 0017); su galería se integra por separado (PENDIENTE).
- *  - El **scoping por inscripción** (qué programas ve cada alumno) vive en CORA y se
- *    endurece en el Sprint 11; hoy RLS permite leer el catálogo publicado.
+ *  - El **scoping por inscripción** (qué programas/grupos ve cada alumno) vive en CORA y
+ *    se endurece en el Sprint 11; hoy RLS permite leer el catálogo/grabaciones publicados.
  */
 
 export type TipoContenido = 'video' | 'h5p' | 'scorm' | 'xapi' | 'texto' | 'quiz';
@@ -103,5 +106,73 @@ export async function getVideoteca(userId: string): Promise<VideotecaData> {
     }
 
     return { videos, programas: [...porPrograma.values()] };
+  });
+}
+
+/** Origen de una grabación de clase (sesión en vivo). */
+export type OrigenGrabacion = 'zoom' | 'stream';
+
+/**
+ * Grabación de una clase EN VIVO que el alumno fue acumulando (no es contenido de
+ * producción). Sale de `lxp.videoteca` con `origen in ('zoom','stream')`.
+ */
+export type GrabacionClase = {
+  id: string;
+  titulo: string;
+  descripcion: string | null;
+  origen: OrigenGrabacion;
+  /** Grupo al que pertenece la sesión (null si aún no se ligó). */
+  grupo: string | null;
+  /** Lección asociada, si la grabación quedó ligada a una lección del programa. */
+  leccion: string | null;
+  duracionSeg: number | null;
+  /** Referencia en object storage; la URL firmada la emite `apps/api` (PENDIENTE). */
+  recursoRef: string | null;
+  /** Fecha de la sesión (inicio programado de la clase, o alta de la grabación). */
+  fecha: Date;
+};
+
+/**
+ * Grabaciones de clases en vivo del alumno (`lxp.videoteca`, `origen in ('zoom','stream')`,
+ * estado `listo`), leídas con RLS (`comoAlumno` · policy `videoteca_read`). Ordenadas de
+ * la más reciente a la más antigua. Separadas del contenido instruccional a propósito.
+ */
+export async function getGrabacionesClase(userId: string): Promise<GrabacionClase[]> {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<
+      {
+        id: string;
+        titulo: string;
+        descripcion: string | null;
+        origen: OrigenGrabacion;
+        grupo: string | null;
+        leccion: string | null;
+        duracion_seg: number | null;
+        recurso_ref: string | null;
+        fecha: Date;
+      }[]
+    >`
+      select v.id, v.titulo, v.descripcion, v.origen::text as origen,
+             g.nombre as grupo, l.nombre as leccion,
+             v.duracion_seg, v.recurso_ref,
+             coalesce(cl.inicio_programado, v.created_at) as fecha
+      from lxp.videoteca v
+      left join lxp.grupos    g  on g.id  = v.grupo_id
+      left join lxp.lecciones l  on l.id  = v.leccion_id
+      left join lxp.clases    cl on cl.id = v.clase_id
+      where v.origen in ('zoom', 'stream') and v.estado = 'listo'
+      order by fecha desc nulls last, v.created_at desc`;
+
+    return rows.map((r) => ({
+      id: r.id,
+      titulo: r.titulo,
+      descripcion: r.descripcion,
+      origen: r.origen,
+      grupo: r.grupo,
+      leccion: r.leccion,
+      duracionSeg: r.duracion_seg,
+      recursoRef: r.recurso_ref,
+      fecha: r.fecha,
+    }));
   });
 }

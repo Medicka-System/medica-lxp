@@ -1,6 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton';
 
-/** Skeleton de la Videoteca: cabecera + controles + grid 3×n de tarjetas de video. */
+/** Skeleton de la Videoteca: cabecera + pestañas (dos colecciones) + controles + grid. */
 export default function CargandoVideoteca() {
   return (
     <div className="mx-auto w-full max-w-[1240px] px-5 pb-12 pt-7 sm:px-6 lg:px-8">
@@ -9,7 +9,15 @@ export default function CargandoVideoteca() {
         <Skeleton className="h-4 w-80 max-w-full" />
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
+      {/* Pestañas: Biblioteca de videos · Mis clases grabadas */}
+      <div className="mt-6 flex gap-1.5">
+        <Skeleton className="h-10 w-[190px] rounded-full" />
+        <Skeleton className="h-10 w-[190px] rounded-full" />
+      </div>
+
+      <Skeleton className="mt-4 h-4 w-96 max-w-full" />
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
         <Skeleton className="h-11 min-w-[240px] flex-1 rounded-full" />
         <Skeleton className="h-11 w-[280px] max-w-full rounded-full" />
       </div>
@@ -18,12 +26,6 @@ export default function CargandoVideoteca() {
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-[248px] rounded-xl" />
         ))}
-      </div>
-
-      <div className="mt-10 space-y-3">
-        <Skeleton className="h-5 w-52" />
-        <Skeleton className="h-16 rounded-xl" />
-        <Skeleton className="h-28 rounded-xl" />
       </div>
     </div>
   );
