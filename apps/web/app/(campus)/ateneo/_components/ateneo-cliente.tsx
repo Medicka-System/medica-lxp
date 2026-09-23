@@ -103,8 +103,14 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
     });
   };
 
+  // "Abrir en el visor" abre la publicación COMPLETA (con el visor DICOM real embebido),
+  // igual que "Comentar" — NO navega a la bitácora.
   const onAbrirCaso = (casoId: string) => {
-    if (casoId) router.push(`/bitacora/${casoId}`);
+    const post = posts.find((p) => p.tipo === 'caso' && p.caso.id === casoId);
+    if (post) {
+      setAbierto(post.id);
+      getHiloAteneo(post.id).then(setHilo).catch(() => setHilo([]));
+    }
   };
 
   const onBuscarColegas = (q: string) => {

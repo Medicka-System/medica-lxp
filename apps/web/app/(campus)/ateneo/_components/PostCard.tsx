@@ -271,6 +271,7 @@ export function PostCard({
   onCompartir,
   onVotar,
   onAbrirCaso,
+  visorCaso,
 }: {
   post: Post;
   yo: Persona;
@@ -279,6 +280,8 @@ export function PostCard({
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
   onAbrirCaso: (casoId: string) => void;
+  /** Visor DICOM real embebido (solo en el detalle): reemplaza el placeholder. */
+  visorCaso?: React.ReactNode;
 }) {
   const interacciones = (
     <BarraInteracciones post={post} onReaccionar={onReaccionar} onComentar={onAbrir} onCompartir={onCompartir} />
@@ -296,18 +299,29 @@ export function PostCard({
           <Cabecera post={post} chip={<Chip tono="caso" icono={<ScanLine aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Caso presentado</Chip>} />
           <p className="mt-3.5 text-[16.5px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{post.titulo}</p>
           <p className={`mt-1.5 text-[13.5px] leading-relaxed ${softText}`}>{post.texto}</p>
-          <button type="button" onClick={() => onAbrirCaso(post.caso.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
-            <Estudio
-              poster={post.caso.poster}
-              etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
-              badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}
-            />
-            <span className="flex flex-wrap items-center gap-2.5 bg-accent px-3.5 py-2.5">
-              <Chip tono="teal">{post.caso.area} · {post.caso.organo}</Chip>
-              <Chip tono="teal">{post.caso.dominio}</Chip>
-              <span className="ml-auto text-[12px] font-semibold text-secondary">Abrir en el visor →</span>
-            </span>
-          </button>
+          {visorCaso ? (
+            // En el detalle: el visor DICOM real (Cornerstone3D), no el placeholder.
+            <div className="mt-3.5">
+              {visorCaso}
+              <span className="mt-3 flex flex-wrap items-center gap-2.5">
+                <Chip tono="teal">{post.caso.area} · {post.caso.organo}</Chip>
+                <Chip tono="teal">{post.caso.dominio}</Chip>
+              </span>
+            </div>
+          ) : (
+            <button type="button" onClick={() => onAbrirCaso(post.caso.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
+              <Estudio
+                poster={post.caso.poster}
+                etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
+                badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}
+              />
+              <span className="flex flex-wrap items-center gap-2.5 bg-accent px-3.5 py-2.5">
+                <Chip tono="teal">{post.caso.area} · {post.caso.organo}</Chip>
+                <Chip tono="teal">{post.caso.dominio}</Chip>
+                <span className="ml-auto text-[12px] font-semibold text-secondary">Abrir en el visor →</span>
+              </span>
+            </button>
+          )}
           {interacciones}
           {preview}
         </div>

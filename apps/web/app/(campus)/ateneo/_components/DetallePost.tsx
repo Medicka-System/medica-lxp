@@ -14,6 +14,7 @@ import { Send } from "lucide-react";
 import type { Comentario, Persona, Post, TipoReaccion } from "./tipos";
 import { PostCard } from "./PostCard";
 import { Avatar, ChipDocente, Modal, focusRing, mono } from "./ui";
+import { VisorEstudio } from "@/components/casos/visor-estudio";
 
 function Burbuja({ c, nivel }: { c: Comentario; nivel: 0 | 1 }) {
   return (
@@ -93,7 +94,8 @@ export function DetallePost({
         </form>
       }
     >
-      {/* el post, sin su preview (el hilo completo va abajo) */}
+      {/* el post, sin su preview (el hilo completo va abajo). Si es CASO, el visor
+          DICOM real (Cornerstone3D) va embebido aquí mismo, no navega a bitácora. */}
       <div className="[&>article]:rounded-none [&>article]:border-0 [&>article]:shadow-none">
         <PostCard
           post={{ ...post, preview: [] }}
@@ -103,6 +105,11 @@ export function DetallePost({
           onCompartir={onCompartir}
           onVotar={onVotar}
           onAbrirCaso={onAbrirCaso}
+          visorCaso={
+            post.tipo === "caso" && post.caso.id ? (
+              <VisorEstudio casoId={post.caso.id} tabla="bitacora_casos" soloLectura className="h-[52vh] min-h-[360px]" />
+            ) : undefined
+          }
         />
       </div>
 
