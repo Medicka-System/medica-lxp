@@ -92,6 +92,18 @@ export function crearMotorFake(opts: {
     limpiarAnotaciones() {
       registro.anotacionesLimpiadas += 1;
     },
+    serializarAnotaciones() {
+      return [];
+    },
+    restaurarAnotaciones() {
+      /* no-op en el doble */
+    },
+    borrarAnotacion() {
+      /* no-op en el doble */
+    },
+    onCambioAnotaciones() {
+      return () => {};
+    },
     reencuadrar() {
       registro.reencuadres += 1;
     },

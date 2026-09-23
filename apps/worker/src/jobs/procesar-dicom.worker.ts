@@ -255,10 +255,11 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     const sql = this.db.sql;
     const refPrimaria = series[0]!.ref;
     if (tabla === 'casos_biblioteca') {
+      // casos_biblioteca usa `dicom_ref` (no existe `estudio_dicom_ref` aquí; ese vive en
+      // bitacora_casos). Fijarlo tumbaba la ingesta del curado.
       await sql`
         update lxp.casos_biblioteca
         set estudio_estado    = 'anonimizado',
-            estudio_dicom_ref = ${refPrimaria},
             dicom_ref         = ${refPrimaria},
             estudio_series    = ${sql.json(series)},
             anonimizacion     = ${sql.json(traza)},

@@ -382,6 +382,57 @@ async function main(): Promise<void> {
       ),
     );
 
+    // ── Anotaciones DICOM (mig 0035 · FASE 2) ─────────────────────────
+    // Datos comprometidos: una anotación de a1 en su caso + una del "curador" en un
+    // caso de biblioteca. Se prueban visibilidad y escritura; al final se limpian.
+    const casoA1 = await sql<{ id: string }[]>`
+      select id from lxp.bitacora_casos where id_alumno = ${a1} limit 1`;
+    const casoBib = await sql<{ id: string }[]>`select id from lxp.casos_biblioteca limit 1`;
+    if (casoA1[0] && casoBib[0]) {
+      const cA1 = casoA1[0].id;
+      const cBib = casoBib[0].id;
+      const ANOT_A1 = '11111111-0000-0000-0000-0000000000a1';
+      const ANOT_BIB = '11111111-0000-0000-0000-0000000000b1';
+      await sql`delete from lxp.anotaciones_dicom where id in (${ANOT_A1}::uuid, ${ANOT_BIB}::uuid)`;
+      await sql`
+        insert into lxp.anotaciones_dicom (id, caso_id, tabla, autor_id, autor_nombre, tipo, datos, valor)
+        values
+          (${ANOT_A1}::uuid, ${cA1}, 'bitacora_casos', ${a1}, 'A1', 'Length', '{}'::jsonb, '12 mm'),
+          (${ANOT_BIB}::uuid, ${cBib}, 'casos_biblioteca', ${a2}, 'Curador', 'Length', '{}'::jsonb, '9 mm')`;
+
+      const a1VeSuya = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.anotaciones_dicom where id = ${ANOT_A1}::uuid`,
+      );
+      check('a1 ve SU medición en su caso', num(a1VeSuya) === 1);
+
+      const a2VeDeA1 = await como(sql, claimsA2, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.anotaciones_dicom where id = ${ANOT_A1}::uuid`,
+      );
+      check('a2 NO ve la medición de a1 (caso ajeno)', num(a2VeDeA1) === 0, `vio ${num(a2VeDeA1)}`);
+
+      const todosVenCurado = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.anotaciones_dicom where id = ${ANOT_BIB}::uuid`,
+      );
+      check('curados: la medición del curador es visible a todos', num(todosVenCurado) === 1);
+
+      check(
+        'a1 NO puede INSERT medición en un curado (congelado)',
+        await fueRechazada(() =>
+          como(sql, claimsA1, (tx) =>
+            tx`insert into lxp.anotaciones_dicom (caso_id, tabla, autor_id, autor_nombre, tipo, datos)
+               values (${cBib}, 'casos_biblioteca', ${a1}, 'A1', 'Length', '{}'::jsonb)`,
+          ),
+        ),
+      );
+
+      const a2EditaDeA1 = await como(sql, claimsA2, (tx) =>
+        tx<{ id: string }[]>`update lxp.anotaciones_dicom set valor = 'HACK' where id = ${ANOT_A1}::uuid returning id`,
+      );
+      check('a2 NO puede editar la medición de a1', a2EditaDeA1.length === 0);
+
+      await sql`delete from lxp.anotaciones_dicom where id in (${ANOT_A1}::uuid, ${ANOT_BIB}::uuid)`;
+    }
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

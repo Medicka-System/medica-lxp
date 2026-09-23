@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, ImageOff, Film, Maximize2, Minimize2 } from 'lucide-react';
+import { Loader2, ImageOff, Film, Maximize2, Minimize2, Ruler, Trash2, Check, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { HerramientaId } from './herramientas';
 import type { MotorVisor } from './motor';
 import type { EstudioDicom } from './types';
 import { useVisorDicom } from './use-visor-dicom';
+import { useAnotaciones, etiquetaTipo, type ConfigAnotaciones } from './use-anotaciones';
 import { BarraHerramientas, ControlesCine } from './toolbar';
 
 export interface VisorDicomProps {
@@ -33,6 +34,12 @@ export interface VisorDicomProps {
   /** Clase para el contenedor externo (alto/ancho). */
   className?: string;
   onHerramientaChange?: (id: HerramientaId) => void;
+  /**
+   * Persistencia de mediciones/anotaciones (FASE 2). Si se pasa, el visor carga las
+   * guardadas al abrir y auto-guarda las del usuario; en curados (`congelado`) se ven
+   * pero no se guardan. Sin este prop, las anotaciones son efímeras (sesión).
+   */
+  anotaciones?: ConfigAnotaciones;
 }
 
 /** Fábrica por defecto: importa el motor Cornerstone3D solo en el cliente. */
@@ -57,6 +64,7 @@ export function VisorDicom({
   seriesLayout = 'vertical',
   className,
   onHerramientaChange,
+  anotaciones,
 }: VisorDicomProps) {
   const [loop, setLoop] = useState(true);
   const [velocidad, setVelocidad] = useState(1);
@@ -101,6 +109,9 @@ export function VisorDicom({
     listo,
     error,
   } = visor;
+
+  // Persistencia de mediciones (FASE 2): carga/guarda; congelado en curados.
+  const persistencia = useAnotaciones(estudio, listo, visor.anotaciones, anotaciones);
 
   if (!serieActiva) {
     return (
@@ -225,6 +236,77 @@ export function VisorDicom({
           onSeleccionar={seleccionarSerie}
           orientacion="horizontal"
         />
+      )}
+
+      {persistencia.activo && (
+        <PanelMediciones
+          lista={persistencia.lista}
+          guardado={persistencia.guardado}
+          congelado={persistencia.congelado}
+          onEliminar={persistencia.eliminar}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Panel de mediciones guardadas (FASE 2): lista con autor/valor y estado de guardado. */
+function PanelMediciones({
+  lista,
+  guardado,
+  congelado,
+  onEliminar,
+}: {
+  lista: ReturnType<typeof useAnotaciones>['lista'];
+  guardado: ReturnType<typeof useAnotaciones>['guardado'];
+  congelado: boolean;
+  onEliminar: (uid: string) => void;
+}) {
+  return (
+    <div className="border-t border-border bg-card">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Ruler size={15} strokeWidth={1.75} className="text-muted-foreground" />
+        <span className="text-[12px] font-semibold">Mediciones</span>
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{lista.length}</span>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium">
+          {congelado ? (
+            <span className="inline-flex items-center gap-1 text-muted-foreground">
+              <Lock size={12} strokeWidth={2} /> Curado · no se guarda
+            </span>
+          ) : guardado === 'guardando' ? (
+            <span className="inline-flex items-center gap-1 text-muted-foreground">
+              <Loader2 size={12} strokeWidth={2} className="animate-spin" /> Guardando…
+            </span>
+          ) : guardado === 'guardado' ? (
+            <span className="inline-flex items-center gap-1 text-secondary">
+              <Check size={13} strokeWidth={2.5} /> Guardado
+            </span>
+          ) : guardado === 'error' ? (
+            <span className="text-destructive">No se pudo guardar</span>
+          ) : null}
+        </span>
+      </div>
+
+      {lista.length > 0 && (
+        <ul className="max-h-[132px] overflow-y-auto border-t border-border">
+          {lista.map((m) => (
+            <li key={m.uid} className="flex items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-accent">
+              <span className="font-semibold">{etiquetaTipo(m.tipo)}</span>
+              {m.valor && <span className="font-mono tabular-nums text-secondary">{m.valor}</span>}
+              <span className="ml-auto truncate text-[11px] text-muted-foreground">{m.autor}</span>
+              {m.esMia && !congelado && (
+                <button
+                  type="button"
+                  aria-label="Borrar medición"
+                  onClick={() => onEliminar(m.uid)}
+                  className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-muted-foreground transition-colors hover:bg-[color:var(--track)] hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Trash2 size={13} strokeWidth={1.75} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

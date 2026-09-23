@@ -209,10 +209,10 @@ export class IngestaService {
     const refPrimaria = vacio ? null : (series[0]!.ref ?? null);
     const sql = this.db.sql;
     if (tabla === 'casos_biblioteca') {
+      // casos_biblioteca usa `dicom_ref` (no `estudio_dicom_ref`).
       await sql`
         update lxp.casos_biblioteca
         set estudio_series = ${sql.json(series)},
-            estudio_dicom_ref = ${refPrimaria},
             dicom_ref = ${refPrimaria},
             estudio_estado = ${vacio ? null : 'anonimizado'}::lxp.estudio_dicom_estado,
             anonimizado_en = case when ${vacio} then null else anonimizado_en end

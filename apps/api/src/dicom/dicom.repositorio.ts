@@ -39,7 +39,9 @@ export async function cargarCaso(
       ? await sql<CasoEstudio[]>`
           select id,
                  estudio_estado::text as estudio_estado,
-                 estudio_dicom_ref,
+                 -- casos_biblioteca usa dicom_ref (no estudio_dicom_ref, que vive en
+                 -- bitacora_casos) — sin este alias la lectura del curado da 500.
+                 dicom_ref as estudio_dicom_ref,
                  coalesce(estudio_series, '[]'::jsonb) as estudio_series
           from lxp.casos_biblioteca where id = ${casoId}`
       : await sql<CasoEstudio[]>`

@@ -32,7 +32,7 @@ export default async function CasoBibliotecaPage({
       volverLabel="Volver a la biblioteca"
       visor={
         caso.tieneDicom ? (
-          <VisorEstudio casoId={caso.id} tabla="casos_biblioteca" soloLectura />
+          <VisorEstudio casoId={caso.id} tabla="casos_biblioteca" />
         ) : (
           <div className={`${card} overflow-hidden`}>
             <VisorDicomPlaceholder etiqueta={caso.organo ?? caso.titulo} alto={430} />

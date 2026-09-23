@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HERRAMIENTA_POR_DEFECTO, type HerramientaId } from './herramientas';
-import type { MotorVisor } from './motor';
+import type { AnotacionMotor, AnotacionRestaurar, MotorVisor } from './motor';
 import { esCineLoop, fpsEfectivo, type EstudioDicom, type SerieDicom } from './types';
 import { useCineLoop, type CineLoop } from './use-cine-loop';
 
@@ -41,6 +41,17 @@ export interface VisorDicomEstado {
   listo: boolean;
   /** Mensaje de error si el motor falló al montar/cargar. */
   error: string | null;
+  /** API de anotaciones GUARDABLES (FASE 2), ligada al motor (estable). */
+  anotaciones: AnotacionesApi;
+}
+
+/** API de anotaciones expuesta al orquestador de persistencia (`use-anotaciones`). */
+export interface AnotacionesApi {
+  serializar: () => AnotacionMotor[];
+  restaurar: (items: AnotacionRestaurar[]) => void;
+  borrar: (annotationUID: string) => void;
+  limpiar: () => void;
+  onCambio: (cb: () => void) => () => void;
 }
 
 /**
@@ -186,6 +197,18 @@ export function useVisorDicom({
     motorRef.current?.reencuadrar();
   }, []);
 
+  // API de anotaciones ligada al motor (el ref es estable → memo sin deps).
+  const anotaciones = useMemo<AnotacionesApi>(
+    () => ({
+      serializar: () => motorRef.current?.serializarAnotaciones() ?? [],
+      restaurar: (items) => motorRef.current?.restaurarAnotaciones(items),
+      borrar: (uid) => motorRef.current?.borrarAnotacion(uid),
+      limpiar: () => motorRef.current?.limpiarAnotaciones(),
+      onCambio: (cb) => motorRef.current?.onCambioAnotaciones(cb) ?? (() => {}),
+    }),
+    [],
+  );
+
   return {
     contenedorRef,
     series,
@@ -200,5 +223,6 @@ export function useVisorDicom({
     esCine: serieActiva ? esCineLoop(serieActiva) : false,
     listo,
     error,
+    anotaciones,
   };
 }

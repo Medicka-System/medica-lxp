@@ -11,12 +11,14 @@
  * monta bajo demanda para no arrastrar el WASM de Cornerstone a las listas.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, ImageOff } from 'lucide-react';
 import type { TablaEstudioDicom } from '@campus/shared';
 import { VisorDicom, type EstudioDicom, type FrameDicom } from '@/components/dicom';
+import type { ConfigAnotaciones } from '@/components/dicom/use-anotaciones';
 import { registrarEspaciadoImagen } from '@/components/dicom/engine/espaciado-ultrasonido';
 import { lecturaEstudioDicom, type SerieLectura } from '@/lib/dicom/acciones';
+import { getAnotaciones, guardarAnotaciones } from '@/lib/dicom/anotaciones-acciones';
 
 /** Imagen (o frames de un multi-frame) de UN `.dcm` anonimizado firmado. */
 function framesDeDcm(urlLectura: string, nFrames: number, desde: number): FrameDicom[] {
@@ -83,6 +85,34 @@ export function VisorEstudio({
   const [estudio, setEstudio] = useState<EstudioDicom | null>(null);
   const [error, setError] = useState('');
 
+  // Persistencia de mediciones (FASE 2). Curado (biblioteca) o consulta (soloLectura) =
+  // CONGELADO: se ven las guardadas pero no se persisten las nuevas. Memoizado para no
+  // re-disparar la carga/restauración en cada render.
+  const configAnotaciones = useMemo<ConfigAnotaciones>(
+    () => ({
+      congelado: tabla === 'casos_biblioteca' || soloLectura,
+      cargar: async () => {
+        const r = await getAnotaciones(casoId, tabla);
+        return r.ok
+          ? r.datos.map((a) => ({
+              id: a.id,
+              serie: a.serie,
+              frame: a.frame,
+              tipo: a.tipo,
+              datos: a.datos,
+              valor: a.valor,
+              autorNombre: a.autorNombre,
+              esMia: a.esMia,
+            }))
+          : [];
+      },
+      guardar: async (items) => {
+        await guardarAnotaciones(casoId, tabla, items);
+      },
+    }),
+    [casoId, tabla, soloLectura],
+  );
+
   useEffect(() => {
     let vivo = true;
     setEstado('cargando');
@@ -147,6 +177,7 @@ export function VisorEstudio({
       estudio={estudio}
       seriesLayout="horizontal"
       soloLectura={soloLectura}
+      anotaciones={configAnotaciones}
       className={className}
     />
   );
