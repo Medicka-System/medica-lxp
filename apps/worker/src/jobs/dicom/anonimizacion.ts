@@ -49,15 +49,24 @@ export interface TrazaAnonimizacion {
 }
 
 /**
- * Identificadores directos del paciente y personas/instituciones (subconjunto del
- * perfil de confidencialidad DICOM, PS3.15). Se REMUEVEN. Lo clínico
- * (StudyDescription, SeriesDescription, hallazgos, modalidad, frames) se CONSERVA.
+ * Identificadores del paciente, personas, institución, fechas y equipo — según el
+ * perfil de confidencialidad DICOM (PS3.15, Basic Application Level Confidentiality).
+ * Se REMUEVEN. Lo CLÍNICO se conserva: Modality, StudyDescription, SeriesDescription,
+ * BodyPartExamined, ProtocolName, NumberOfFrames, PixelData, SequenceOfUltrasoundRegions,
+ * PixelSpacing/PixelAspectRatio, y los UID (StudyInstanceUID/SeriesInstanceUID/
+ * SOPInstanceUID) que la app necesita para agrupar/ver (su re-mapeo es endurecimiento
+ * futuro, no PII visible).
+ *
+ * OJO (§10): esta lista solo cubre PII en TAGS. La PII QUEMADA en los píxeles (banner del
+ * ecógrafo con nombre/ID sobre la imagen) NO se quita aquí — la redacta el enmascarado de
+ * pixel-data por región de ultrasonido (ver `redaccion-pixeles`).
  */
 export const PII_KEYWORDS: ReadonlySet<string> = new Set([
-  // Paciente
+  // ── Paciente: nombres, IDs, contacto, demografía ──
   'PatientName',
   'PatientID',
   'IssuerOfPatientID',
+  'IssuerOfPatientIDQualifiersSequence',
   'OtherPatientIDs',
   'OtherPatientIDsSequence',
   'OtherPatientNames',
@@ -67,32 +76,97 @@ export const PII_KEYWORDS: ReadonlySet<string> = new Set([
   'PatientMotherBirthName',
   'PatientAddress',
   'PatientTelephoneNumbers',
+  'PatientTelecomInformation',
+  'CountryOfResidence',
+  'RegionOfResidence',
+  'CurrentPatientLocation',
+  'PatientInstitutionResidence',
   'PatientInsurancePlanCodeSequence',
   'PatientReligiousPreference',
+  'PatientSex',
+  'PatientSexNeutered',
+  'PatientAge',
+  'PatientSize',
+  'PatientWeight',
+  'PatientState',
+  'Occupation',
   'MilitaryRank',
   'BranchOfService',
+  'MedicalRecordLocator',
+  'MedicalAlerts',
+  'Allergies',
+  'AdditionalPatientHistory',
+  'PatientComments',
   'ResponsiblePerson',
   'ResponsiblePersonRole',
   'ResponsibleOrganization',
-  'PatientComments',
-  // Personal clínico / institución
+  // ── Personal clínico / institución ──
   'ReferringPhysicianName',
   'ReferringPhysicianAddress',
   'ReferringPhysicianTelephoneNumbers',
+  'ReferringPhysicianIdentificationSequence',
   'PerformingPhysicianName',
+  'PerformingPhysicianIdentificationSequence',
   'NameOfPhysiciansReadingStudy',
+  'PhysiciansReadingStudyIdentificationSequence',
   'PhysiciansOfRecord',
+  'PhysiciansOfRecordIdentificationSequence',
   'RequestingPhysician',
+  'RequestingService',
   'ScheduledPerformingPhysicianName',
   'OperatorsName',
+  'OperatorIdentificationSequence',
+  'ContentCreatorName',
+  'VerifyingObserverName',
+  'ReviewerName',
   'InstitutionName',
   'InstitutionAddress',
   'InstitutionalDepartmentName',
+  'InstitutionCodeSequence',
   'StationName',
-  'DeviceSerialNumber',
-  // Identificadores de orden/estudio ligados a la persona
+  // ── Identificadores de orden / estudio / procedimiento ligados a la persona ──
   'AccessionNumber',
   'StudyID',
+  'RequestAttributesSequence',
+  'RequestedProcedureID',
+  'ScheduledProcedureStepID',
+  'PerformedProcedureStepID',
+  'PerformedProcedureStepDescription',
+  'CommentsOnThePerformedProcedureStep',
+  'OrderEnteredBy',
+  'OrderEntererLocation',
+  'OrderCallbackPhoneNumber',
+  'AdmissionID',
+  'IssuerOfAdmissionID',
+  'AdmittingDiagnosesDescription',
+  // ── Fechas/horas identificantes (el perfil las quita o desplaza) ──
+  'StudyDate',
+  'SeriesDate',
+  'AcquisitionDate',
+  'ContentDate',
+  'OverlayDate',
+  'CurveDate',
+  'AcquisitionDateTime',
+  'StudyTime',
+  'SeriesTime',
+  'AcquisitionTime',
+  'ContentTime',
+  'OverlayTime',
+  'CurveTime',
+  'AdmittingDate',
+  'AdmittingTime',
+  'ScheduledProcedureStepStartDate',
+  'ScheduledProcedureStepStartTime',
+  'PerformedProcedureStepStartDate',
+  'PerformedProcedureStepStartTime',
+  // ── Equipo (número de serie / UIDs de dispositivo, re-identificables) ──
+  'DeviceSerialNumber',
+  'DeviceUID',
+  'GantryID',
+  'PlateID',
+  'GeneratorID',
+  'CassetteID',
+  'DetectorID',
 ]);
 
 /**

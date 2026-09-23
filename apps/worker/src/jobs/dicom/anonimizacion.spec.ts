@@ -56,6 +56,23 @@ describe('esTagPrivado / esPII', () => {
     expect(esPII('StudyDescription')).toBe(false);
     expect(esPII('SeriesDescription')).toBe(false);
   });
+
+  it('cubre el perfil ampliado: demografía, fechas/horas, orden y equipo (§10)', () => {
+    for (const t of [
+      'PatientSex', 'PatientAge', 'PatientWeight', 'PatientAddress', 'AdditionalPatientHistory',
+      'StudyDate', 'StudyTime', 'AcquisitionDateTime', 'ContentDate',
+      'AdmissionID', 'RequestingService', 'PerformedProcedureStepDescription',
+      'InstitutionName', 'StationName', 'DeviceSerialNumber', 'DeviceUID',
+    ]) {
+      expect(esPII(t)).toBe(true);
+    }
+  });
+
+  it('conserva UIDs y datos que la app necesita (no son PII visible)', () => {
+    for (const t of ['SeriesInstanceUID', 'StudyInstanceUID', 'SOPInstanceUID', 'NumberOfFrames', 'PixelSpacing', 'SequenceOfUltrasoundRegions']) {
+      expect(esPII(t)).toBe(false);
+    }
+  });
 });
 
 describe('anonimizarDataset', () => {
