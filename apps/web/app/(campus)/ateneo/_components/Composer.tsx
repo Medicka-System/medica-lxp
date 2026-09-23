@@ -27,6 +27,7 @@ import {
   ScanLine,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide-react";
 import type { CasoBitacora, ModoComposer, PerfilResumen } from "./tipos";
@@ -87,12 +88,18 @@ export function EntradaComposer({
 
 /* ───────────── Modal del composer ───────────── */
 
-export type BorradorPost =
-  | { modo: "texto"; texto: string }
-  | { modo: "caso"; texto: string; casoId: string }
-  | { modo: "pregunta"; pregunta: string; contexto: string; temas: string[] }
-  | { modo: "media"; texto: string; archivos: File[] }
-  | { modo: "encuesta"; pregunta: string; opciones: string[]; cierraEnDias: number };
+/** A quién se dirige la publicación: toda la comunidad o solo mis colegas. */
+export type Audiencia = "ateneo" | "colegas";
+
+type ConAudiencia = { audiencia: Audiencia };
+export type BorradorPost = ConAudiencia &
+  (
+    | { modo: "texto"; texto: string }
+    | { modo: "caso"; texto: string; casoId: string }
+    | { modo: "pregunta"; pregunta: string; contexto: string; temas: string[] }
+    | { modo: "media"; texto: string; archivos: File[] }
+    | { modo: "encuesta"; pregunta: string; opciones: string[]; cierraEnDias: number }
+  );
 
 export function ComposerModal({
   yo,
@@ -115,6 +122,8 @@ export function ComposerModal({
   const [opciones, setOpciones] = useState<string[]>(["", ""]);
   const [cierra, setCierra] = useState(3);
   const [archivos, setArchivos] = useState<{ nombre: string; progreso: number }[]>([]);
+  const [audiencia, setAudiencia] = useState<Audiencia>("ateneo");
+  const [menuAud, setMenuAud] = useState(false);
 
   const caso = misCasos.find((c) => c.id === casoId);
 
@@ -127,11 +136,11 @@ export function ComposerModal({
 
   const publicar = () => {
     if (!puedePublicar) return;
-    if (modo === "caso" && casoId) onPublicar({ modo, texto, casoId });
-    else if (modo === "pregunta") onPublicar({ modo, pregunta, contexto: texto, temas });
-    else if (modo === "encuesta") onPublicar({ modo, pregunta, opciones: opciones.filter((o) => o.trim()), cierraEnDias: cierra });
-    else if (modo === "media") onPublicar({ modo, texto, archivos: [] });
-    else onPublicar({ modo: "texto", texto });
+    if (modo === "caso" && casoId) onPublicar({ modo, texto, casoId, audiencia });
+    else if (modo === "pregunta") onPublicar({ modo, pregunta, contexto: texto, temas, audiencia });
+    else if (modo === "encuesta") onPublicar({ modo, pregunta, opciones: opciones.filter((o) => o.trim()), cierraEnDias: cierra, audiencia });
+    else if (modo === "media") onPublicar({ modo, texto, archivos: [], audiencia });
+    else onPublicar({ modo: "texto", texto, audiencia });
   };
 
   const Editor = ({ placeholder, grande = true }: { placeholder: string; grande?: boolean }) => (
@@ -216,11 +225,52 @@ export function ComposerModal({
           <Avatar p={yo} size={42} />
           <div>
             <p className="text-[14px] font-bold">{yo.nombre}</p>
-            <button type="button" className={`mt-1 inline-flex h-[26px] items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 text-[11.5px] font-semibold ${softText} ${focusRing}`}>
-              <Globe aria-hidden className="h-3 w-3" strokeWidth={1.75} />
-              Todo el Ateneo
-              <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
-            </button>
+            {/* Audiencia: a toda la comunidad o solo a mis colegas */}
+            <div className="relative mt-1">
+              <button
+                type="button"
+                onClick={() => setMenuAud((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={menuAud}
+                className={`inline-flex h-[26px] items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 text-[11.5px] font-semibold ${softText} ${focusRing}`}
+              >
+                {audiencia === "ateneo" ? (
+                  <Globe aria-hidden className="h-3 w-3" strokeWidth={1.75} />
+                ) : (
+                  <Users aria-hidden className="h-3 w-3" strokeWidth={1.75} />
+                )}
+                {audiencia === "ateneo" ? "Todo el Ateneo" : "Mis colegas"}
+                <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
+              </button>
+              {menuAud && (
+                <div role="menu" className="absolute left-0 top-[30px] z-20 w-[190px] overflow-hidden rounded-[10px] border border-border bg-card shadow-[0_6px_20px_rgba(17,24,39,0.12)]">
+                  {(
+                    [
+                      ["ateneo", Globe, "Todo el Ateneo", "Toda la comunidad lo ve"],
+                      ["colegas", Users, "Mis colegas", "Solo sus conexiones"],
+                    ] as const
+                  ).map(([id, Icono, etiqueta, ayuda]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAudiencia(id);
+                        setMenuAud(false);
+                      }}
+                      className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent ${focusRing} ${audiencia === id ? "bg-accent" : ""}`}
+                    >
+                      <Icono aria-hidden className="mt-px h-4 w-4 shrink-0 text-secondary" strokeWidth={1.75} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12.5px] font-bold">{etiqueta}</span>
+                        <span className={`block text-[11px] ${softText}`}>{ayuda}</span>
+                      </span>
+                      {audiencia === id && <Check aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary" strokeWidth={2.4} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

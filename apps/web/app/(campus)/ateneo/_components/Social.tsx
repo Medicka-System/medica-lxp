@@ -77,11 +77,8 @@ export function RailSocial({
   return (
     <aside className="flex min-w-0 flex-col gap-[18px]">
       <section className={`${card} overflow-hidden`}>
-        <div className="relative h-[62px]" style={{ background: "var(--sidebar)" }}>
-          <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
-        </div>
-        <div className="-mt-[26px] px-4 pb-3.5">
-          <span aria-hidden className="grid h-[54px] w-[54px] place-items-center rounded-full border-[3px] border-card bg-sidebar text-[17px] font-bold text-sidebar-foreground">
+        <div className="px-4 pb-3.5 pt-4">
+          <span aria-hidden className="grid h-[54px] w-[54px] place-items-center rounded-full bg-sidebar text-[17px] font-bold text-sidebar-foreground">
             {yo.ini}
           </span>
           <p className="mt-2.5 text-[15px] font-bold">{yo.nombre}</p>

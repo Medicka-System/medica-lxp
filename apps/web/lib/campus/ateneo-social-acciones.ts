@@ -27,13 +27,15 @@ function tituloDesde(texto: string, fallback = 'Publicación'): string {
 export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  // Audiencia → visibilidad del post: toda la comunidad ('inscritos') o solo mis colegas.
+  const vis = b.audiencia === 'colegas' ? 'colegas' : 'inscritos';
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       if (b.modo === 'texto') {
         const t = b.texto.trim();
         if (!t) throw new Error('vacio');
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
-          values (${alumno.userId}, 'texto', ${tituloDesde(t)}, ${t}, 'aprobado', 'inscritos')`;
+          values (${alumno.userId}, 'texto', ${tituloDesde(t)}, ${t}, 'aprobado', ${vis})`;
       } else if (b.modo === 'caso') {
         // El caso debe ser del alumno y estar anonimizado (RLS de bitácora ya lo aísla).
         const caso = (await sql<{ id: string }[]>`
@@ -42,19 +44,19 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         if (!caso) throw new Error('caso');
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, dicom_ref, caso_origen_id, estado, visibilidad)
           values (${alumno.userId}, 'caso', ${tituloDesde(b.texto, 'Caso presentado')}, ${b.texto.trim()},
-                  null, ${b.casoId}, 'aprobado', 'inscritos')
+                  null, ${b.casoId}, 'aprobado', ${vis})
           on conflict (caso_origen_id) where caso_origen_id is not null do nothing`;
       } else if (b.modo === 'pregunta') {
         const q = b.pregunta.trim();
         if (!q) throw new Error('vacio');
         const temas = b.temas.map((t) => t.trim()).filter(Boolean).slice(0, 8);
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, temas, estado, visibilidad)
-          values (${alumno.userId}, 'pregunta', ${q}, ${b.contexto.trim() || null}, ${sql.json(temas)}, 'aprobado', 'inscritos')`;
+          values (${alumno.userId}, 'pregunta', ${q}, ${b.contexto.trim() || null}, ${sql.json(temas)}, 'aprobado', ${vis})`;
       } else if (b.modo === 'media') {
         // Subida real de archivos: PENDIENTE (§ declarado). Se publica el texto sin media.
         const t = b.texto.trim();
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
-          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, 'aprobado', 'inscritos')`;
+          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, 'aprobado', ${vis})`;
       } else if (b.modo === 'encuesta') {
         const q = b.pregunta.trim();
         const opciones = b.opciones.map((o) => o.trim()).filter(Boolean).slice(0, 4);
@@ -62,7 +64,7 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         const cierre = new Date(Date.now() + Math.max(1, b.cierraEnDias) * REL);
         const post = (await sql<{ id: string }[]>`
           insert into lxp.posts_ateneo (autor_id, tipo, titulo, cierra_en, estado, visibilidad)
-          values (${alumno.userId}, 'encuesta', ${q}, ${cierre}, 'aprobado', 'inscritos')
+          values (${alumno.userId}, 'encuesta', ${q}, ${cierre}, 'aprobado', ${vis})
           returning id`)[0]!;
         for (let i = 0; i < opciones.length; i++) {
           await sql`insert into lxp.encuesta_opciones (post_id, orden, texto) values (${post.id}, ${i}, ${opciones[i]})`;
