@@ -449,7 +449,7 @@ async function seed(sql: Sql): Promise<void> {
     'Antes de discutir grados: midan la cortical en dos polos',
     '<p>Leí los primeros casos y en varios la cortical viene de una sola medida. Ese es el origen de casi todas las dudas entre II y III que están describiendo.</p><p>Cuando el polo inferior no se deja, uso una ventana intercostal posterior con el paciente en decúbito lateral. Midan los dos polos y verán que la diferencia no se sostiene.</p>',
   );
-  const pA2 = await postRaiz(
+  await postRaiz(
     alumnos.a2,
     'Dudé por el jet ureteral, no por la cortical',
     '<p>Mi caso es distinto al de la mayoría: la cortical estaba clara en 8.4 mm, pero el jet del lado derecho no apareció en 20 minutos de observación.</p><p>¿Eso mueve el grado, o solo la sospecha de obstrucción? Me quedé en II pero con una nota de alerta.</p>',
