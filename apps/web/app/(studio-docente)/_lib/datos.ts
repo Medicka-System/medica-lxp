@@ -258,6 +258,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       ({
         id: string;
         grupo_id: string | null;
+        grupo: string | null;
         alumno_id: string;
         organo: string | null;
         dominio_iaim: DominioIaim | null;
@@ -277,7 +278,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
              c.diagnostico_presuntivo,
              c.horas_estimadas::float8 as horas, c.created_at,
-             a.nombre as alumno, m.nombre as modulo, c.estudio_dicom_ref as dicom_ref,
+             a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
              exists (
@@ -291,6 +292,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       from lxp.bitacora_casos c
       join lxp.perfiles a on a.user_id = c.id_alumno
       left join lxp.modulos m on m.id = c.modulo_id
+      left join lxp.grupos g on g.id = c.grupo_id
       left join lxp.eco_propuestas ep
         on ep.objeto_tipo = 'caso' and ep.objeto_id = c.id and ep.estado = 'propuesta'
       where c.estado_validacion = 'pendiente'
@@ -300,6 +302,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
     return rows.map((r) => ({
       id: r.id,
       grupoId: r.grupo_id,
+      grupo: r.grupo,
       alumnoId: r.alumno_id,
       alumno: r.alumno,
       iniciales: iniciales(r.alumno),
@@ -449,6 +452,7 @@ export async function getCasoValidacion(
       ({
         id: string;
         grupo_id: string | null;
+        grupo: string | null;
         alumno_id: string;
         organo: string | null;
         dominio_iaim: DominioIaim | null;
@@ -469,7 +473,7 @@ export async function getCasoValidacion(
     >`
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
              c.diagnostico_presuntivo, c.horas_estimadas::float8 as horas, c.created_at,
-             a.nombre as alumno, m.nombre as modulo, c.estudio_dicom_ref as dicom_ref,
+             a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
              exists (
@@ -484,6 +488,7 @@ export async function getCasoValidacion(
       from lxp.bitacora_casos c
       join lxp.perfiles a on a.user_id = c.id_alumno
       left join lxp.modulos m on m.id = c.modulo_id
+      left join lxp.grupos g on g.id = c.grupo_id
       left join lateral (
         select feedback from lxp.validaciones
         where caso_id = c.id order by created_at desc limit 1
@@ -499,6 +504,7 @@ export async function getCasoValidacion(
     return {
       id: r.id,
       grupoId: r.grupo_id,
+      grupo: r.grupo,
       alumnoId: r.alumno_id,
       alumno: r.alumno,
       iniciales: iniciales(r.alumno),

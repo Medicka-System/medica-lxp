@@ -702,23 +702,30 @@ async function seed(sql: Sql): Promise<void> {
   const casoAprobado = first(
     await sql<{ id: string }[]>`
       insert into lxp.bitacora_casos
-        (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, diagnostico_presuntivo,
+        (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, diagnostico_presuntivo,
          horas_estimadas, estado_validacion, origen, anonimizado_en)
-      values (${alumnos.a1}, ${m2.id}, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
+      values (${alumnos.a1}, ${grupoSync.id}, ${m2.id}, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
          'Líquido libre en Morrison', 'Hemoperitoneo', 1.5, ${'aprobado'}::lxp.estado_validacion,
          ${'alumno'}::lxp.origen_caso, now())
       returning id`,
   );
+  // `created_at` backdateado para variar la espera de la bandeja (y mostrar el urgente >72 h).
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a1}, ${m1.id}, 'Tórax', ${'interpretacion'}::lxp.dominio_iaim,
-       'Líneas B difusas', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, 'Tórax', ${'interpretacion'}::lxp.dominio_iaim,
+       'Líneas B difusas', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '4 hours')`;
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a2}, ${m1.id}, 'Riñón', ${'indicacion'}::lxp.dominio_iaim,
-       'Hidronefrosis leve', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a2}, ${grupoSync.id}, ${m1.id}, 'Riñón', ${'indicacion'}::lxp.dominio_iaim,
+       'Hidronefrosis leve', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '3 days')`;
+  // Caso pendiente en la cohorte B (a5) → la bandeja muestra dos grupos y el filtro "Grupo ▾".
+  await sql`
+    insert into lxp.bitacora_casos
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a5}, ${grupoAsync.id}, ${m2.id}, 'Vesícula', ${'interpretacion'}::lxp.dominio_iaim,
+       'Pared engrosada, Murphy ecográfico', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '6 hours')`;
 
   // Caso OBSTÉTRICO con VERDAD ESTRUCTURADA (§7A · Opción B): como si viniera de un reporte
   // con tabla de biometría. Sirve para demostrar el puente bitácora→banco y el render
@@ -769,18 +776,18 @@ async function seed(sql: Sql): Promise<void> {
   };
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, contenido_estructurado,
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, contenido_estructurado,
        horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a1}, ${m1.id}, 'Obstétrico', ${'interpretacion'}::lxp.dominio_iaim,
+    values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, 'Obstétrico', ${'interpretacion'}::lxp.dominio_iaim,
        'Biometría fetal acorde a 31.4 semanas; ILA normal.', ${sql.json(contenidoObstetrico)},
        1.5, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
 
   // Caso del alumno suspendido: ni siquiera él debe verlo (acceso_activo=false).
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a4}, ${m1.id}, 'Vejiga', ${'adquisicion'}::lxp.dominio_iaim,
-       'Globo vesical', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a4}, ${grupoSync.id}, ${m1.id}, 'Vejiga', ${'adquisicion'}::lxp.dominio_iaim,
+       'Globo vesical', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '26 hours')`;
 
   // Validación del docente sobre el caso aprobado de a1.
   await sql`

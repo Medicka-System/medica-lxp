@@ -110,6 +110,8 @@ export type CasoValidacion = {
   id: string;
   /** Grupo del caso (para disparar el análisis de Eco por grupo · §7A). */
   grupoId: string | null;
+  /** Nombre del grupo (para la línea meta de la bandeja y el filtro "Grupo ▾"). */
+  grupo: string | null;
   /** Alumno dueño del caso (para agrupar la bandeja y cargar sus estudios). */
   alumnoId: string;
   alumno: string;

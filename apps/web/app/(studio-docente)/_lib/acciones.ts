@@ -66,6 +66,42 @@ export async function validarCaso(input: {
 }
 
 /**
+ * Aprueba en LOTE los casos "listos para confirmar" de la bandeja (§7A · pie de la bandeja).
+ * El docente CONFIRMA el lote tras revisar el resumen — no se asienta nada sin ese paso
+ * (Eco propone, el humano firma). Cada aprobación acredita las horas del caso. La
+ * clasificación "listo" es hoy un PLACEHOLDER del cliente (Eco no conectado); el docente
+ * ve la lista y decide. RLS: `es_docente_o_mas` sobre `lxp.validaciones`/`bitacora_casos`.
+ */
+export async function aprobarCasosLote(
+  casoIds: string[],
+): Promise<ResultadoAccion & { aprobados?: number }> {
+  const { userId } = await requireDocente();
+  const ids = [...new Set(casoIds)].filter(Boolean);
+  if (!ids.length) return { ok: false, error: 'No hay casos listos que aprobar.' };
+  try {
+    await comoStaff(userId, async (sql) => {
+      await sql.begin(async (tx) => {
+        for (const casoId of ids) {
+          await tx`
+            insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+            values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
+          await tx`
+            update lxp.bitacora_casos
+            set estado_validacion = 'aprobado'::lxp.estado_validacion
+            where id = ${casoId} and estado_validacion = 'pendiente'`;
+        }
+      });
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo aprobar el lote. Inténtalo de nuevo.' };
+  }
+  // PENDIENTE DE API: encolar calculo-competencia + xAPI `validó` por cada caso (§8/§7).
+  revalidatePath('/docente/validacion');
+  revalidatePath('/docente');
+  return { ok: true, aprobados: ids.length };
+}
+
+/**
  * Carga bajo demanda todos los estudios de un alumno (rejilla de Validación) con RLS
  * `comoStaff`. Lectura simple para el cliente: no muta nada. `null` si el alumno no existe
  * o el docente no puede verlo.
