@@ -24,6 +24,20 @@ const REVALIDAR = '/herramientas/reportes';
 
 type ResultadoCrear = { ok: true; id: string } | { ok: false; error: string };
 
+/** Genera un expediente de 6 dígitos ÚNICO entre los reportes existentes. */
+async function expedienteUnico(
+  sql: Parameters<Parameters<typeof comoAlumno>[1]>[0],
+): Promise<string> {
+  for (let intento = 0; intento < 20; intento++) {
+    const candidato = String(Math.floor(100000 + Math.random() * 900000));
+    const [existe] = await sql<{ x: number }[]>`
+      select 1 as x from lxp.reportes where datos_paciente->>'expediente' = ${candidato} limit 1`;
+    if (!existe) return candidato;
+  }
+  // Fallback improbable: sufijo por tiempo para no colisionar.
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 /** Crea un reporte en borrador para la plantilla elegida (publicada) y devuelve su id. */
 export async function crearReporte(plantillaId: string): Promise<ResultadoCrear> {
   const alumno = await getSesionAlumno();
@@ -42,9 +56,14 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
       const folio = `RPT-${String(n + 1).padStart(4, '0')}`;
       const contenido = contenidoVacio(folio, plantillaId);
 
+      // Encabezado autollenado: expediente ÚNICO + médico solicitante = usuario logueado.
+      const expediente = await expedienteUnico(sql);
+      const datosPaciente = { expediente, solicitante: alumno.nombre ?? '' };
+
       const [row] = await sql<{ id: string }[]>`
         insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)
-        values (${alumno.userId}, ${plantillaId}, '{}'::jsonb, ${JSON.stringify(contenido)}::jsonb, 'borrador')
+        values (${alumno.userId}, ${plantillaId}, ${JSON.stringify(datosPaciente)}::jsonb,
+                ${JSON.stringify(contenido)}::jsonb, 'borrador')
         returning id`;
       return row.id;
     });

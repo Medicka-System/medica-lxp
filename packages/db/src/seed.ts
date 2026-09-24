@@ -755,7 +755,7 @@ async function seed(sql: Sql): Promise<void> {
   console.log('✓ Seed mock cargado.');
 }
 
-/** Card de encabezado estándar: los 7 datos del paciente en grid de 3 (como el reporte). */
+/** Card de encabezado estándar: datos del paciente en grid de 3 (como el reporte). */
 function encabezadoPaciente() {
   return {
     id: 'enc',
@@ -764,11 +764,12 @@ function encabezadoPaciente() {
     columnas: 3,
     campos: [
       { id: 'paciente', tipo: 'texto', nombre: 'Paciente' },
-      { id: 'edadSexo', tipo: 'texto', nombre: 'Edad y sexo' },
-      { id: 'expediente', tipo: 'texto', nombre: 'Expediente' },
-      { id: 'fechaEstudio', tipo: 'texto', nombre: 'Fecha del estudio' },
-      { id: 'solicitante', tipo: 'texto', nombre: 'Médico solicitante' },
-      { id: 'equipo', tipo: 'texto', nombre: 'Equipo' },
+      { id: 'edad', tipo: 'numero', nombre: 'Edad', span: 1 },
+      { id: 'sexo', tipo: 'opcion', nombre: 'Sexo', opciones: ['Masculino', 'Femenino'], span: 1 },
+      { id: 'expediente', tipo: 'texto', nombre: 'Expediente', span: 1, bloqueado: true },
+      { id: 'fechaEstudio', tipo: 'fecha', nombre: 'Fecha del estudio', span: 1 },
+      { id: 'solicitante', tipo: 'texto', nombre: 'Médico solicitante', span: 1 },
+      { id: 'equipo', tipo: 'texto', nombre: 'Equipo', span: 1 },
       { id: 'motivo', tipo: 'texto', nombre: 'Motivo del estudio', span: 99 },
     ],
   };

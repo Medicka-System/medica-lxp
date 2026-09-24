@@ -43,7 +43,19 @@ function normalizarContenido(raw: unknown, fallbackFolio: string): ContenidoRepo
 }
 
 function normalizarPaciente(d: Partial<DatosPaciente> | null): DatosPaciente {
-  return { ...datosPacienteVacios(), ...(d ?? {}) };
+  const base = datosPacienteVacios();
+  if (!d || typeof d !== 'object') return base;
+  for (const [k, v] of Object.entries(d)) base[k] = typeof v === 'string' ? v : '';
+  return base;
+}
+
+function campoP(p: DatosPaciente, id: string): string {
+  return (p[id] ?? '').trim();
+}
+
+/** "42 · Masculino" para la columna del listado (edad y sexo ya separados). */
+function edadSexo(p: DatosPaciente): string {
+  return [campoP(p, 'edad'), campoP(p, 'sexo')].filter(Boolean).join(' · ');
 }
 
 function contarImagenes(c: ContenidoReporte): number {
@@ -53,7 +65,7 @@ function contarImagenes(c: ContenidoReporte): number {
 function nota(estado: EstadoReporte, paciente: DatosPaciente, contenido: ContenidoReporte): string {
   if (estado === 'enviado') return 'Enviado al paciente';
   if (estado === 'finalizado') return 'Listo para enviar';
-  if (!paciente.paciente.trim()) return 'Sin datos del paciente';
+  if (!campoP(paciente, 'paciente')) return 'Sin datos del paciente';
   if (!contenido.impresion.trim()) return 'Falta impresión diagnóstica';
   return 'Sin finalizar';
 }
@@ -116,8 +128,8 @@ export async function getReportes(userId: string): Promise<ReportesData> {
       return {
         id: f.id,
         folio: contenido.folio,
-        paciente: paciente.paciente.trim() || 'Sin nombre',
-        edadSexo: paciente.edadSexo.trim() || '—',
+        paciente: campoP(paciente, 'paciente') || 'Sin nombre',
+        edadSexo: edadSexo(paciente) || '—',
         plantilla: f.plantilla_nombre ?? '—',
         tipoEstudio: f.plantilla_tipo ?? '',
         fecha: fechaCorta(new Date(f.created_at)),

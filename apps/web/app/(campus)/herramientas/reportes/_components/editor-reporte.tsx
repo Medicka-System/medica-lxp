@@ -31,6 +31,7 @@ import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import {
   campoCompleto,
+  campoPacienteDesdeCatalogo,
   CAMPOS_PACIENTE_CATALOGO,
   esCampoEstatico,
   type CampoPlantilla,
@@ -69,12 +70,7 @@ const GRID_COLS: Record<number, string> = {
 
 /** Campos del paciente por defecto si la plantilla no trae card de encabezado. */
 function encabezadoPorDefecto(): CampoPlantilla[] {
-  return CAMPOS_PACIENTE_CATALOGO.map((p) => ({
-    id: p.id,
-    tipo: 'texto' as const,
-    nombre: p.nombre,
-    ...(p.span ? { span: p.span } : {}),
-  }));
+  return CAMPOS_PACIENTE_CATALOGO.map(campoPacienteDesdeCatalogo);
 }
 
 export function EditorReporte({
@@ -119,7 +115,7 @@ export function EditorReporte({
 
   const checklist = useMemo(() => {
     const base = [
-      { item: 'Datos del paciente', listo: paciente.paciente.trim() !== '' && paciente.edadSexo.trim() !== '' },
+      { item: 'Datos del paciente', listo: (paciente.paciente ?? '').trim() !== '' },
     ];
     const porCampo = camposLlenables.map((c) => ({
       item: c.nombre || 'Campo sin nombre',
@@ -305,7 +301,7 @@ export function EditorReporte({
                 <div key={c.id} className={claseSpan(c, columnasEnc)}>
                   <CampoReporte
                     campo={c}
-                    valor={(paciente as Record<string, unknown>)[c.id] ?? ''}
+                    valor={paciente[c.id] ?? ''}
                     modo="llenar"
                     onCambio={(v) => setPacienteCampo(c.id, v)}
                   />

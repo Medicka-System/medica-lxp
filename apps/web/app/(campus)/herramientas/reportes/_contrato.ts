@@ -15,16 +15,17 @@ import type { EstructuraPlantilla, ValoresReporte } from '@/lib/reportes/estruct
 
 export type EstadoReporte = 'borrador' | 'finalizado' | 'enviado';
 
-/** Datos de paciente — viven SOLO en el reporte clínico, nunca en el caso educativo (§10). */
-export type DatosPaciente = {
-  paciente: string;
-  edadSexo: string;
-  expediente: string;
-  fechaEstudio: string;
-  solicitante: string;
-  equipo: string;
-  motivo: string;
-};
+/**
+ * Datos de paciente — viven SOLO en el reporte clínico, nunca en el caso educativo (§10).
+ * Indexados por `campo.id` del encabezado (edad/sexo separados; expediente autollenado).
+ * Se guarda laxo (Record) porque el encabezado es editable: el diseñador puede quitar o
+ * añadir campos y sus valores se guardan por id.
+ */
+export type DatosPaciente = Record<string, string>;
+
+/** Ids estándar del encabezado (los que tienen comportamiento especial). */
+export const CAMPO_EXPEDIENTE = 'expediente';
+export const CAMPO_SOLICITANTE = 'solicitante';
 
 /** Cuerpo del reporte, persistido en `lxp.reportes.contenido` (jsonb). */
 export type ContenidoReporte = {
@@ -100,15 +101,7 @@ export const ETIQUETA_ESTADO: Record<EstadoReporte, string> = {
 };
 
 export function datosPacienteVacios(): DatosPaciente {
-  return {
-    paciente: '',
-    edadSexo: '',
-    expediente: '',
-    fechaEstudio: '',
-    solicitante: '',
-    equipo: '',
-    motivo: '',
-  };
+  return {};
 }
 
 export function contenidoVacio(folio: string, plantillaId: string | null): ContenidoReporte {

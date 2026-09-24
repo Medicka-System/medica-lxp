@@ -3,30 +3,25 @@
 /**
  * Constructor de PLANTILLA DE REPORTE por BLOQUES/CARDS (Studio · §5B/§5C · §6.5).
  *
- * Arma la MISMA estructura que el médico llena, con la MISMA apariencia: monta el reporte
- * en modo "previa" (`<CampoReporte modo="previa">`) — card de "Datos del estudio"
- * (encabezado) + cards de hallazgos por sección, en su grid de columnas. El diseñador
- * agrega/quita/reordena secciones y campos, y ajusta cada campo con su panel de propiedades.
- * Guarda en `plantillas_reporte.estructura` (jsonb) vía `guardarEstructuraPlantilla` (RLS
- * es_autoria). El resultado se ve idéntico en "Mis reportes".
+ * INTUITIVO (estilo Notion/Airtable): todo se edita EN LÍNEA — el título de la sección y
+ * el nombre de cada campo se escriben directo (click y teclea), la configuración del campo
+ * (unidad, opciones, tabla…) está a la vista sin un paso "editar" aparte, y las tablas se
+ * arman con botones claros de +columna / +fila.
+ *
+ * Monta el reporte en modo "previa" (`<CampoReporte modo="previa">`) para que se vea IGUAL
+ * a "Mis reportes": card de "Datos del estudio" (encabezado, editable como bloque) + cards
+ * de hallazgos. Guarda en `plantillas_reporte.estructura` (jsonb) vía
+ * `guardarEstructuraPlantilla` (RLS es_autoria).
  */
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Pencil,
-  Plus,
-  Save,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronUp, Plus, Save, Trash2, X } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
 import {
   campoNuevo,
+  campoPacienteDesdeCatalogo,
   CAMPOS_PACIENTE_CATALOGO,
   contarCampos,
   ETIQUETA_TIPO,
@@ -44,9 +39,6 @@ import type { PlantillaConstructor } from '@/lib/studio/datos';
 
 const TIPOS_ESTUDIO = ['Abdominal', 'Obstétrico', 'Mama', 'Doppler', 'MSK', 'Tiroideo', 'Renal', 'Pélvico'];
 
-/** Tipos que el diseñador coloca dentro de una card de hallazgos. */
-const TIPOS_AGREGABLES: TipoCampo[] = TIPOS_CAMPO;
-
 const GRID_COLS: Record<number, string> = {
   1: 'grid-cols-1',
   2: 'grid-cols-1 sm:grid-cols-2',
@@ -57,20 +49,23 @@ const GRID_COLS: Record<number, string> = {
 const inputCls =
   'h-9 w-full rounded-[8px] border border-border bg-card px-2.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary';
 
+/** Input sin caja que se siente como texto plano hasta que lo enfocas (edición inline). */
+const inlineCls =
+  'w-full rounded-[6px] bg-transparent outline-none transition-colors hover:bg-muted/60 focus:bg-muted focus:px-1';
+
+/* ═══════════════════════════ raíz ═══════════════════════════ */
 export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstructor }) {
   const router = useRouter();
   const [nombre, setNombre] = useState(plantilla.nombre);
   const [tipoEstudio, setTipoEstudio] = useState(plantilla.tipoEstudio);
   const [secciones, setSecciones] = useState<SeccionPlantilla[]>(() => {
     const base = plantilla.estructura.secciones;
-    const tieneEnc = base.some((s) => s.tipo === 'encabezado');
-    return tieneEnc ? base : [seccionEncabezadoPorDefecto(), ...base];
+    return base.some((s) => s.tipo === 'encabezado') ? base : [seccionEncabezadoPorDefecto(), ...base];
   });
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pendiente, iniciar] = useTransition();
 
-  const encIndex = secciones.findIndex((s) => s.tipo === 'encabezado');
-  const encabezado = secciones[encIndex];
+  const encabezado = secciones.find((s) => s.tipo === 'encabezado');
   const hallazgos = secciones.filter((s) => s.tipo === 'hallazgos');
   const totalCampos = useMemo(() => contarCampos({ secciones }), [secciones]);
 
@@ -81,7 +76,8 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
     setSecciones((prev) => prev.map((s) => (s.id === seccionId ? { ...s, campos: fn(s.campos) } : s)));
   }
   function agregarSeccion() {
-    setSecciones((prev) => [...prev, seccionHallazgosNueva(`Sección ${prev.filter((s) => s.tipo === 'hallazgos').length + 1}`)]);
+    const n = secciones.filter((s) => s.tipo === 'hallazgos').length + 1;
+    setSecciones((prev) => [...prev, seccionHallazgosNueva(`Sección ${n}`)]);
   }
   function eliminarSeccion(id: string) {
     setSecciones((prev) => prev.filter((s) => s.id !== id));
@@ -90,8 +86,7 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
     setSecciones((prev) => {
       const i = prev.findIndex((s) => s.id === id);
       const j = i + dir;
-      // No se mueve fuera de rango ni por encima del encabezado (índice 0).
-      if (i < 0 || j < 1 || j >= prev.length) return prev;
+      if (i < 0 || j < 1 || j >= prev.length) return prev; // no pasar por encima del encabezado
       const cp = [...prev];
       [cp[i], cp[j]] = [cp[j], cp[i]];
       return cp;
@@ -114,7 +109,6 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ══ header contextual ══ */}
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border bg-card px-6 py-3">
         <button
           type="button"
@@ -184,22 +178,20 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
         </div>
       )}
 
-      {/* ══ documento (mismo ancho de lectura que el reporte) ══ */}
       <div className="mx-auto flex max-w-[900px] flex-col gap-5 px-5 py-6">
         <p className={`${kicker} text-muted-foreground`}>Vista de construcción · así se verá en “Mis reportes”</p>
 
-        {/* card de encabezado */}
         {encabezado && (
-          <CardEncabezado
+          <CardSeccion
             seccion={encabezado}
+            esEncabezado
             onSeccion={(patch) => actualizarSeccion(encabezado.id, patch)}
             onCampos={(fn) => mutarCampos(encabezado.id, fn)}
           />
         )}
 
-        {/* cards de hallazgos */}
         {hallazgos.map((s) => (
-          <CardHallazgos
+          <CardSeccion
             key={s.id}
             seccion={s}
             onSeccion={(patch) => actualizarSeccion(s.id, patch)}
@@ -218,11 +210,10 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
           Agregar sección de hallazgos
         </button>
 
-        {/* impresión: card fija del reporte */}
         <section className="rounded-xl border border-dashed border-border bg-muted/40 p-5">
           <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
           <p className={`mt-1.5 text-[12.5px] ${softText}`}>
-            Card fija: siempre aparece al final del reporte para la conclusión del médico. No se configura aquí.
+            Card fija: siempre aparece al final del reporte para la conclusión del médico.
           </p>
         </section>
       </div>
@@ -230,193 +221,98 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
   );
 }
 
-/* ═══════════════ card de encabezado (datos del paciente) ═══════════════ */
-function CardEncabezado({
+/* ═══════════════════════════ card de sección ═══════════════════════════ */
+function CardSeccion({
   seccion,
-  onSeccion,
-  onCampos,
-}: {
-  seccion: SeccionPlantilla;
-  onSeccion: (patch: Partial<SeccionPlantilla>) => void;
-  onCampos: (fn: (c: CampoPlantilla[]) => CampoPlantilla[]) => void;
-}) {
-  const presentes = new Set(seccion.campos.map((c) => c.id));
-  const disponibles = CAMPOS_PACIENTE_CATALOGO.filter((p) => !presentes.has(p.id));
-
-  return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-rest">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <input
-          value={seccion.titulo}
-          onChange={(e) => onSeccion({ titulo: e.target.value })}
-          aria-label="Título del encabezado"
-          className="min-w-0 flex-1 rounded-[7px] bg-transparent text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground outline-none focus:bg-muted focus:px-1"
-        />
-        <SelectorColumnas columnas={seccion.columnas} onCambio={(n) => onSeccion({ columnas: n })} />
-      </div>
-
-      <div className={`mt-4 grid gap-3.5 ${GRID_COLS[seccion.columnas] ?? GRID_COLS[3]}`}>
-        {seccion.campos.map((c, i) => (
-          <div key={c.id} className={`${claseSpan(c, seccion.columnas)} group relative`}>
-            <CampoReporte campo={c} valor="" modo="previa" />
-            <div className="mt-1 flex items-center gap-1">
-              <span className={`${mono} text-[10px] text-muted-foreground`}>{c.nombre}</span>
-              <button
-                type="button"
-                onClick={() => onCampos((cs) => cs.filter((x) => x.id !== c.id))}
-                aria-label={`Quitar ${c.nombre}`}
-                className={`ml-auto grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)] ${focusRing}`}
-              >
-                <X aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onCampos((cs) => (i === 0 ? cs : swap(cs, i, i - 1)))}
-                disabled={i === 0}
-                aria-label="Mover antes"
-                className={`grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30 ${focusRing}`}
-              >
-                <ChevronUp aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onCampos((cs) => (i === cs.length - 1 ? cs : swap(cs, i, i + 1)))}
-                disabled={i === seccion.campos.length - 1}
-                aria-label="Mover después"
-                className={`grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30 ${focusRing}`}
-              >
-                <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {disponibles.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <span className="text-[11.5px] font-semibold text-muted-foreground">Agregar dato del paciente:</span>
-          {disponibles.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() =>
-                onCampos((cs) => [...cs, { id: p.id, tipo: 'texto', nombre: p.nombre, ...(p.span ? { span: p.span } : {}) }])
-              }
-              className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
-            >
-              <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
-              {p.nombre}
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/* ═══════════════ card de hallazgos ═══════════════ */
-function CardHallazgos({
-  seccion,
+  esEncabezado = false,
   onSeccion,
   onCampos,
   onEliminar,
   onMover,
 }: {
   seccion: SeccionPlantilla;
+  esEncabezado?: boolean;
   onSeccion: (patch: Partial<SeccionPlantilla>) => void;
   onCampos: (fn: (c: CampoPlantilla[]) => CampoPlantilla[]) => void;
-  onEliminar: () => void;
-  onMover: (dir: -1 | 1) => void;
+  onEliminar?: () => void;
+  onMover?: (dir: -1 | 1) => void;
 }) {
-  const [editando, setEditando] = useState<string | null>(null);
+  const presentes = new Set(seccion.campos.map((c) => c.id));
+  const pacienteFaltantes = CAMPOS_PACIENTE_CATALOGO.filter((p) => !presentes.has(p.id));
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-rest">
+      {/* barra de la sección */}
       <div className="flex flex-wrap items-center gap-2.5">
+        {esEncabezado && (
+          <span className={`${kicker} shrink-0 text-muted-foreground`}>Encabezado ·</span>
+        )}
         <input
           value={seccion.titulo}
           onChange={(e) => onSeccion({ titulo: e.target.value })}
           aria-label="Título de la sección"
           placeholder="Título de la sección"
-          className="min-w-0 flex-1 rounded-[7px] bg-transparent text-[14.5px] font-bold leading-snug text-foreground outline-none focus:bg-muted focus:px-1"
+          className={`${inlineCls} min-w-0 flex-1 text-[15px] font-bold leading-snug text-foreground`}
         />
         <SelectorColumnas columnas={seccion.columnas} onCambio={(n) => onSeccion({ columnas: n })} />
-        <button
-          type="button"
-          onClick={() => onMover(-1)}
-          aria-label="Subir sección"
-          className={`grid h-8 w-8 place-items-center rounded-[8px] border border-border text-muted-foreground hover:bg-muted ${focusRing}`}
-        >
-          <ChevronUp aria-hidden className="h-4 w-4" strokeWidth={2} />
-        </button>
-        <button
-          type="button"
-          onClick={() => onMover(1)}
-          aria-label="Bajar sección"
-          className={`grid h-8 w-8 place-items-center rounded-[8px] border border-border text-muted-foreground hover:bg-muted ${focusRing}`}
-        >
-          <ChevronDown aria-hidden className="h-4 w-4" strokeWidth={2} />
-        </button>
-        <button
-          type="button"
-          onClick={onEliminar}
-          aria-label="Eliminar sección"
-          className={`grid h-8 w-8 place-items-center rounded-[8px] border border-border text-muted-foreground transition-colors hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)] ${focusRing}`}
-        >
-          <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-        </button>
+        {!esEncabezado && (
+          <>
+            <IconoBorde label="Subir sección" onClick={() => onMover?.(-1)}>
+              <ChevronUp className="h-4 w-4" strokeWidth={2} />
+            </IconoBorde>
+            <IconoBorde label="Bajar sección" onClick={() => onMover?.(1)}>
+              <ChevronDown className="h-4 w-4" strokeWidth={2} />
+            </IconoBorde>
+            <IconoBorde label="Eliminar sección" peligro onClick={onEliminar}>
+              <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+            </IconoBorde>
+          </>
+        )}
       </div>
 
+      {/* grid de campos */}
       {seccion.campos.length > 0 && (
-        <div className={`mt-3.5 grid gap-3.5 ${GRID_COLS[seccion.columnas] ?? GRID_COLS[1]}`}>
+        <div className={`mt-4 grid gap-3.5 ${GRID_COLS[seccion.columnas] ?? GRID_COLS[1]}`}>
           {seccion.campos.map((c, i) => (
-            <div
-              key={c.id}
-              className={`${claseSpan(c, seccion.columnas)} rounded-[11px] border border-dashed border-border p-2.5`}
-            >
-              <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex h-5 items-center rounded-full bg-muted px-2 text-[10px] font-bold text-muted-foreground">
-                  {ETIQUETA_TIPO[c.tipo]}
-                </span>
-                <span className={`${mono} text-[10px] text-muted-foreground`}>{formatoCampo(c)}</span>
-                <div className="ml-auto flex items-center gap-0.5">
-                  <SelectorSpan
-                    span={c.span}
-                    columnas={seccion.columnas}
-                    onCambio={(n) => onCampos((cs) => cs.map((x) => (x.id === c.id ? { ...x, span: n } : x)))}
-                  />
-                  <IconBtn label="Editar" activo={editando === c.id} onClick={() => setEditando(editando === c.id ? null : c.id)}>
-                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  </IconBtn>
-                  <IconBtn label="Subir" disabled={i === 0} onClick={() => onCampos((cs) => swap(cs, i, i - 1))}>
-                    <ChevronUp className="h-3.5 w-3.5" strokeWidth={2} />
-                  </IconBtn>
-                  <IconBtn label="Bajar" disabled={i === seccion.campos.length - 1} onClick={() => onCampos((cs) => swap(cs, i, i + 1))}>
-                    <ChevronDown className="h-3.5 w-3.5" strokeWidth={2} />
-                  </IconBtn>
-                  <IconBtn label="Eliminar" peligro onClick={() => onCampos((cs) => cs.filter((x) => x.id !== c.id))}>
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  </IconBtn>
-                </div>
-              </div>
-
-              {/* PREVIEW idéntico al reporte */}
-              <CampoReporte campo={c} valor="" modo="previa" />
-
-              {/* panel de propiedades */}
-              {editando === c.id && (
-                <PropiedadesCampo campo={c} onCambio={(patch) => onCampos((cs) => cs.map((x) => (x.id === c.id ? { ...x, ...patch } : x)))} />
-              )}
+            <div key={c.id} className={claseSpan(c, seccion.columnas)}>
+              <CampoConstructor
+                campo={c}
+                primero={i === 0}
+                ultimo={i === seccion.campos.length - 1}
+                columnas={seccion.columnas}
+                onCambio={(patch) => onCampos((cs) => cs.map((x) => (x.id === c.id ? { ...x, ...patch } : x)))}
+                onReemplazar={(nuevo) => onCampos((cs) => cs.map((x) => (x.id === c.id ? nuevo : x)))}
+                onEliminar={() => onCampos((cs) => cs.filter((x) => x.id !== c.id))}
+                onMover={(dir) => onCampos((cs) => swap(cs, i, i + dir))}
+              />
             </div>
           ))}
         </div>
       )}
 
-      {/* agregar campo */}
+      {/* agregar campos */}
       <div className="mt-3.5 rounded-xl border-[1.5px] border-dashed border-[color:var(--track)] bg-muted/40 p-3.5">
+        {esEncabezado && pacienteFaltantes.length > 0 && (
+          <div className="mb-3 border-b border-border pb-3">
+            <p className={`${kicker} text-muted-foreground`}>Datos del paciente</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pacienteFaltantes.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onCampos((cs) => [...cs, campoPacienteDesdeCatalogo(p)])}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
+                >
+                  <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  {p.nombre}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <p className={`${kicker} text-muted-foreground`}>Agregar campo</p>
         <div className="mt-2.5 flex flex-wrap gap-2">
-          {TIPOS_AGREGABLES.map((t) => (
+          {TIPOS_CAMPO.map((t) => (
             <button
               key={t}
               type="button"
@@ -424,7 +320,7 @@ function CardHallazgos({
               className={`inline-flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
             >
               <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
-              {t === 'imagen' ? 'Imagen' : ETIQUETA_TIPO[t]}
+              {ETIQUETA_TIPO[t]}
             </button>
           ))}
         </div>
@@ -433,112 +329,280 @@ function CardHallazgos({
   );
 }
 
-/* ═══════════════ panel de propiedades de un campo ═══════════════ */
-function PropiedadesCampo({
+/* ═══════════════════════════ campo (edición inline) ═══════════════════════════ */
+function CampoConstructor({
   campo,
+  primero,
+  ultimo,
+  columnas,
   onCambio,
+  onReemplazar,
+  onEliminar,
+  onMover,
 }: {
   campo: CampoPlantilla;
+  primero: boolean;
+  ultimo: boolean;
+  columnas: number;
   onCambio: (patch: Partial<CampoPlantilla>) => void;
+  onReemplazar: (nuevo: CampoPlantilla) => void;
+  onEliminar: () => void;
+  onMover: (dir: -1 | 1) => void;
 }) {
+  function cambiarTipo(tipo: TipoCampo) {
+    // Nuevo campo del tipo elegido, conservando id + nombre + guía.
+    onReemplazar({ ...campoNuevo(tipo), id: campo.id, nombre: campo.nombre, guia: campo.guia });
+  }
+
   return (
-    <div className="mt-3 flex flex-col gap-2.5 rounded-[9px] border border-border bg-muted/60 p-3">
-      {campo.tipo === 'titulo' || campo.tipo === 'guia' ? (
-        <label className="block">
-          <span className="text-[11px] font-semibold text-muted-foreground">
-            {campo.tipo === 'titulo' ? 'Texto del subtítulo' : 'Texto de la guía'}
-          </span>
+    <div className="rounded-[11px] border border-dashed border-border bg-card p-3">
+      {/* toolbar */}
+      <div className="mb-2 flex items-center gap-1.5">
+        <select
+          value={campo.tipo}
+          onChange={(e) => cambiarTipo(e.target.value as TipoCampo)}
+          aria-label="Tipo de campo"
+          className="h-6 rounded-full bg-muted px-2 text-[10.5px] font-bold text-muted-foreground outline-none focus:ring-1 focus:ring-secondary"
+        >
+          {TIPOS_CAMPO.map((t) => (
+            <option key={t} value={t}>
+              {ETIQUETA_TIPO[t]}
+            </option>
+          ))}
+        </select>
+        <span className={`${mono} truncate text-[10px] text-muted-foreground`}>{formatoCampo(campo)}</span>
+        <div className="ml-auto flex items-center gap-0.5">
+          <SelectorSpan span={campo.span} columnas={columnas} onCambio={(n) => onCambio({ span: n })} />
+          <IconoMini label="Subir" disabled={primero} onClick={() => onMover(-1)}>
+            <ChevronUp className="h-3.5 w-3.5" strokeWidth={2} />
+          </IconoMini>
+          <IconoMini label="Bajar" disabled={ultimo} onClick={() => onMover(1)}>
+            <ChevronDown className="h-3.5 w-3.5" strokeWidth={2} />
+          </IconoMini>
+          <IconoMini label="Eliminar" peligro onClick={onEliminar}>
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </IconoMini>
+        </div>
+      </div>
+
+      {/* subtítulo / guía: el nombre ES el contenido */}
+      {campo.tipo === 'titulo' ? (
+        <input
+          value={campo.nombre}
+          onChange={(e) => onCambio({ nombre: e.target.value })}
+          placeholder="Escribe el subtítulo…"
+          className={`${inlineCls} text-[15px] font-bold tracking-[-0.01em] text-foreground`}
+        />
+      ) : campo.tipo === 'guia' ? (
+        <div
+          className="rounded-[11px] border-[1.5px] border-dashed p-3"
+          style={{ borderColor: 'color-mix(in oklab, var(--secondary) 35%, white)' }}
+        >
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-secondary">Guía de la plantilla</p>
           <textarea
             value={campo.nombre}
             onChange={(e) => onCambio({ nombre: e.target.value })}
-            rows={campo.tipo === 'guia' ? 2 : 1}
-            className={`${inputCls} mt-1 h-auto resize-y py-2`}
+            rows={2}
+            placeholder="Escribe la guía / sugerencias de esta sección…"
+            className={`${inlineCls} mt-1 resize-y text-[12.5px] leading-relaxed ${softText}`}
           />
-        </label>
+        </div>
       ) : (
-        <label className="block">
-          <span className="text-[11px] font-semibold text-muted-foreground">Nombre del campo</span>
-          <input value={campo.nombre} onChange={(e) => onCambio({ nombre: e.target.value })} className={`${inputCls} mt-1 font-semibold`} />
-        </label>
-      )}
-
-      {campo.tipo === 'medida' && (
-        <label className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-muted-foreground">Unidad</span>
-          <input value={campo.unidad ?? ''} onChange={(e) => onCambio({ unidad: e.target.value })} placeholder="mm · cm · cc" className={`${inputCls} max-w-[140px]`} />
-        </label>
-      )}
-
-      {campo.tipo === 'opcion' && (
-        <label className="block">
-          <span className="text-[11px] font-semibold text-muted-foreground">Opciones (separadas por coma)</span>
+        <>
+          {/* nombre (etiqueta) inline */}
           <input
-            value={(campo.opciones ?? []).join(', ')}
-            onChange={(e) => onCambio({ opciones: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
-            placeholder="normal, aumentada, disminuida"
-            className={`${inputCls} mt-1`}
+            value={campo.nombre}
+            onChange={(e) => onCambio({ nombre: e.target.value })}
+            placeholder="Nombre del campo"
+            className={`${inlineCls} text-[11.5px] font-semibold text-foreground`}
           />
-        </label>
-      )}
 
-      {campo.tipo === 'tabla' && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-[11px] font-semibold text-muted-foreground">Columnas (coma)</span>
-            <input
-              value={(campo.columnas ?? []).join(', ')}
-              onChange={(e) => onCambio({ columnas: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
-              placeholder="Longitudinal, AP, Transverso"
-              className={`${inputCls} mt-1`}
-            />
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-semibold text-muted-foreground">Filas (coma)</span>
-            <input
-              value={(campo.filas ?? []).join(', ')}
-              onChange={(e) => onCambio({ filas: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
-              placeholder="Derecho, Izquierdo"
-              className={`${inputCls} mt-1`}
-            />
-          </label>
-        </div>
-      )}
-
-      {campo.tipo === 'imagen' && (
-        <div className="flex flex-col gap-2">
-          <label className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold text-muted-foreground">Origen</span>
-            <select
-              value={campo.origen ?? 'dicom'}
-              onChange={(e) => onCambio({ origen: e.target.value as 'referencia' | 'dicom' })}
-              className={`${inputCls} max-w-[240px]`}
-            >
-              <option value="dicom">Estudio del médico (DICOM)</option>
-              <option value="referencia">Referencia fija de la plantilla</option>
-            </select>
-          </label>
-          {campo.origen === 'referencia' && (
-            <input
-              value={campo.refUrl ?? ''}
-              onChange={(e) => onCambio({ refUrl: e.target.value })}
-              placeholder="URL de la imagen de referencia (diagrama anatómico)"
-              className={inputCls}
-            />
+          {/* configuración inline por tipo */}
+          {campo.tipo === 'medida' && (
+            <label className="mt-1.5 flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground">Unidad</span>
+              <input
+                value={campo.unidad ?? ''}
+                onChange={(e) => onCambio({ unidad: e.target.value })}
+                placeholder="mm · cm · cc"
+                className={`${inputCls} max-w-[120px]`}
+              />
+            </label>
           )}
-        </div>
-      )}
+          {campo.tipo === 'opcion' && (
+            <OpcionesEditor opciones={campo.opciones ?? []} onCambio={(op) => onCambio({ opciones: op })} />
+          )}
+          {campo.tipo === 'imagen' && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <select
+                value={campo.origen ?? 'dicom'}
+                onChange={(e) => onCambio({ origen: e.target.value as 'referencia' | 'dicom' })}
+                className={`${inputCls} max-w-[240px]`}
+              >
+                <option value="dicom">Estudio del médico (DICOM)</option>
+                <option value="referencia">Referencia fija de la plantilla</option>
+              </select>
+              {campo.origen === 'referencia' && (
+                <input
+                  value={campo.refUrl ?? ''}
+                  onChange={(e) => onCambio({ refUrl: e.target.value })}
+                  placeholder="URL de la imagen de referencia"
+                  className={`${inputCls} min-w-[180px] flex-1`}
+                />
+              )}
+            </div>
+          )}
 
-      {campo.tipo !== 'titulo' && campo.tipo !== 'guia' && campo.tipo !== 'imagen' && (
-        <label className="block">
-          <span className="text-[11px] font-semibold text-muted-foreground">Texto guía (orienta al médico, no sale en el informe)</span>
-          <input value={campo.guia ?? ''} onChange={(e) => onCambio({ guia: e.target.value })} className={`${inputCls} mt-1`} />
-        </label>
+          {/* preview del control (idéntico al reporte) o constructor de tabla */}
+          <div className="mt-2">
+            {campo.tipo === 'tabla' ? (
+              <TablaBuilder campo={campo} onCambio={onCambio} />
+            ) : (
+              <CampoReporte campo={campo} valor="" modo="previa" ocultarEtiqueta />
+            )}
+          </div>
+
+          {/* guía opcional */}
+          <input
+            value={campo.guia ?? ''}
+            onChange={(e) => onCambio({ guia: e.target.value })}
+            placeholder="Texto guía opcional (orienta al médico, no sale en el informe)"
+            className={`${inlineCls} mt-2 text-[11px] text-muted-foreground`}
+          />
+        </>
       )}
     </div>
   );
 }
 
-/* ═══════════════ auxiliares ═══════════════ */
+/* ═══════════════════════════ editor de opciones (chips) ═══════════════════════════ */
+function OpcionesEditor({ opciones, onCambio }: { opciones: string[]; onCambio: (op: string[]) => void }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {opciones.map((o, i) => (
+        <span key={i} className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-1.5 py-0.5">
+          <input
+            value={o}
+            onChange={(e) => onCambio(opciones.map((x, xi) => (xi === i ? e.target.value : x)))}
+            placeholder="opción"
+            className="w-[9ch] min-w-[6ch] max-w-[16ch] bg-transparent text-[12px] font-semibold text-foreground outline-none"
+            style={{ width: `${Math.max(6, o.length + 2)}ch` }}
+          />
+          <button
+            type="button"
+            onClick={() => onCambio(opciones.filter((_, xi) => xi !== i))}
+            aria-label={`Quitar ${o}`}
+            className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]"
+          >
+            <X aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+          </button>
+        </span>
+      ))}
+      <button
+        type="button"
+        onClick={() => onCambio([...opciones, ''])}
+        className={`inline-flex h-6 items-center gap-1 rounded-full bg-accent px-2 text-[11px] font-bold text-accent-foreground ${focusRing}`}
+      >
+        <Plus aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+        opción
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════ constructor de tabla ═══════════════════════════ */
+function TablaBuilder({ campo, onCambio }: { campo: CampoPlantilla; onCambio: (patch: Partial<CampoPlantilla>) => void }) {
+  const cols = campo.columnas ?? [];
+  const filas = campo.filas ?? [];
+
+  const setCol = (i: number, v: string) => onCambio({ columnas: cols.map((x, xi) => (xi === i ? v : x)) });
+  const setFila = (i: number, v: string) => onCambio({ filas: filas.map((x, xi) => (xi === i ? v : x)) });
+  const addCol = () => onCambio({ columnas: [...cols, `Columna ${cols.length + 1}`] });
+  const delCol = (i: number) => onCambio({ columnas: cols.filter((_, xi) => xi !== i) });
+  const addFila = () => onCambio({ filas: [...filas, `Fila ${filas.length + 1}`] });
+  const delFila = (i: number) => onCambio({ filas: filas.filter((_, xi) => xi !== i) });
+
+  const cellInput = 'h-8 w-full min-w-[70px] bg-transparent px-1.5 text-[12px] font-semibold text-foreground outline-none focus:bg-accent';
+
+  return (
+    <div className="overflow-x-auto rounded-[10px] border border-border">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="bg-muted">
+            <th className="w-[130px] border-b border-border px-1.5 py-1 text-left text-[10px] font-bold text-muted-foreground">
+              filas ↓ / columnas →
+            </th>
+            {cols.map((c, ci) => (
+              <th key={ci} className="border-b border-l border-border px-0.5 py-0.5">
+                <div className="flex items-center">
+                  <input value={c} onChange={(e) => setCol(ci, e.target.value)} placeholder={`Columna ${ci + 1}`} className={cellInput} />
+                  <button
+                    type="button"
+                    onClick={() => delCol(ci)}
+                    aria-label={`Quitar columna ${c}`}
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]"
+                  >
+                    <X aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+                  </button>
+                </div>
+              </th>
+            ))}
+            <th className="border-b border-l border-border px-1 py-0.5">
+              <button
+                type="button"
+                onClick={addCol}
+                className={`inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[7px] bg-accent px-2 text-[11px] font-bold text-accent-foreground ${focusRing}`}
+              >
+                <Plus aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+                col
+              </button>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, ri) => (
+            <tr key={ri}>
+              <th className="border-t border-border bg-muted/40 px-0.5 py-0.5">
+                <div className="flex items-center">
+                  <input value={f} onChange={(e) => setFila(ri, e.target.value)} placeholder={`Fila ${ri + 1}`} className={cellInput} />
+                  <button
+                    type="button"
+                    onClick={() => delFila(ri)}
+                    aria-label={`Quitar fila ${f}`}
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]"
+                  >
+                    <X aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+                  </button>
+                </div>
+              </th>
+              {cols.map((_, ci) => (
+                <td key={ci} className="border-l border-t border-border p-0">
+                  <input disabled placeholder="—" className="h-8 w-full min-w-[70px] bg-card px-1.5 text-[12px] text-muted-foreground outline-none" />
+                </td>
+              ))}
+              <td className="border-l border-t border-border bg-muted/20" />
+            </tr>
+          ))}
+          <tr>
+            <td className="border-t border-border px-1 py-1">
+              <button
+                type="button"
+                onClick={addFila}
+                className={`inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[7px] bg-accent px-2 text-[11px] font-bold text-accent-foreground ${focusRing}`}
+              >
+                <Plus aria-hidden className="h-3 w-3" strokeWidth={2.4} />
+                fila
+              </button>
+            </td>
+            <td className="border-t border-border" colSpan={cols.length + 1} />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ═══════════════════════════ auxiliares ═══════════════════════════ */
 function swap<T>(arr: T[], i: number, j: number): T[] {
   if (j < 0 || j >= arr.length) return arr;
   const cp = [...arr];
@@ -586,20 +650,18 @@ function SelectorSpan({ span, columnas, onCambio }: { span?: number; columnas: n
   );
 }
 
-function IconBtn({
+function IconoMini({
   children,
   label,
   onClick,
   disabled,
   peligro,
-  activo,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   peligro?: boolean;
-  activo?: boolean;
 }) {
   return (
     <button
@@ -608,7 +670,32 @@ function IconBtn({
       disabled={disabled}
       aria-label={label}
       className={`grid h-6 w-6 place-items-center rounded text-muted-foreground transition-colors disabled:opacity-30 ${focusRing} ${
-        activo ? 'bg-accent text-accent-foreground' : peligro ? 'hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]' : 'hover:bg-muted hover:text-foreground'
+        peligro ? 'hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]' : 'hover:bg-muted hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconoBorde({
+  children,
+  label,
+  onClick,
+  peligro,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  peligro?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`grid h-8 w-8 shrink-0 place-items-center rounded-[8px] border border-border text-muted-foreground transition-colors ${focusRing} ${
+        peligro ? 'hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)]' : 'hover:bg-muted hover:text-foreground'
       }`}
     >
       {children}

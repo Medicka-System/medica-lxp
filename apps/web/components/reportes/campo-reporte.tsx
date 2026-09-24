@@ -50,6 +50,7 @@ export function CampoReporte({
   onElegirEstudio,
   onQuitarEstudio,
   renderVisorDicom,
+  ocultarEtiqueta = false,
 }: {
   campo: CampoPlantilla;
   valor: unknown;
@@ -60,6 +61,8 @@ export function CampoReporte({
   onQuitarEstudio?: () => void;
   /** `imagen/dicom`, modo llenar: el editor del médico inyecta el visor real. */
   renderVisorDicom?: (ref: RefDicom) => ReactNode;
+  /** El constructor pone su propia etiqueta editable en línea → oculta la del control. */
+  ocultarEtiqueta?: boolean;
 }) {
   const deshabilitado = modo === 'previa';
   const cambia = (v: unknown) => onCambio?.(v);
@@ -93,17 +96,40 @@ export function CampoReporte({
 
   return (
     <label className="block">
-      <span className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[11.5px] font-semibold text-foreground">{etiqueta}</span>
-        {campo.tipo === 'medida' && campo.unidad && (
-          <span className="text-[10.5px] text-muted-foreground">({campo.unidad})</span>
-        )}
-      </span>
+      {!ocultarEtiqueta && (
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-[11.5px] font-semibold text-foreground">{etiqueta}</span>
+          {campo.tipo === 'medida' && campo.unidad && (
+            <span className="text-[10.5px] text-muted-foreground">({campo.unidad})</span>
+          )}
+        </span>
+      )}
 
       {/* control por tipo */}
       {campo.tipo === 'texto' && (
         <input
           type="text"
+          disabled={deshabilitado || campo.bloqueado}
+          value={leerTexto(valor)}
+          onChange={(e) => cambia(e.target.value)}
+          placeholder={campo.bloqueado ? 'Se asigna al crear el reporte' : undefined}
+          className={`${inputBase} mt-1.5 h-11 ${campo.bloqueado ? 'bg-muted font-mono tracking-wide text-muted-foreground' : ''}`}
+        />
+      )}
+
+      {campo.tipo === 'numero' && (
+        <input
+          type="number"
+          disabled={deshabilitado}
+          value={leerTexto(valor)}
+          onChange={(e) => cambia(e.target.value)}
+          className={`${inputBase} mt-1.5 h-11`}
+        />
+      )}
+
+      {campo.tipo === 'fecha' && (
+        <input
+          type="date"
           disabled={deshabilitado}
           value={leerTexto(valor)}
           onChange={(e) => cambia(e.target.value)}

@@ -11,19 +11,21 @@
  *
  * Modelo por BLOQUES/CARDS (fiel al reporte "Ultrasonido abdominal"):
  *   · Una plantilla = N SECCIONES; cada sección es una CARD.
- *   · La sección `encabezado` = card "Datos del estudio" (campos del paciente).
+ *   · La sección `encabezado` = card "Datos del estudio" (campos del paciente), EDITABLE.
  *   · Las secciones `hallazgos` = cards de redacción (campos tipados).
  *   · Cada sección tiene un GRID (`columnas` 1–4); cada campo ocupa `span` columnas.
  *
- * Tipos de campo (§5C, ampliados): texto · multitexto · medida · tabla · sino · opcion ·
- * imagen · guia · titulo. La IMAGEN distingue origen `referencia` (fija de la plantilla)
- * vs `dicom` (hueco que el médico llena con su estudio, visor Cornerstone3D real).
+ * Tipos de campo (§5C): texto · multitexto · numero · medida · fecha · tabla · sino ·
+ * opcion · imagen · guia · titulo. La IMAGEN distingue origen `referencia` (fija de la
+ * plantilla) vs `dicom` (hueco que el médico llena con su estudio, visor real).
  */
 
 export type TipoCampo =
   | 'texto' // input de una línea
   | 'multitexto' // textarea (hallazgos, párrafos)
-  | 'medida' // numérico + unidad
+  | 'numero' // numérico simple (edad…)
+  | 'medida' // numérico + unidad (mm/cm/cc)
+  | 'fecha' // selector de fecha
   | 'tabla' // rejilla filas × columnas (mediciones obstétrico/carótida)
   | 'sino' // checkbox / sí-no
   | 'opcion' // selección de una lista
@@ -55,6 +57,8 @@ export type CampoPlantilla = {
   columnas?: string[];
   /** `tabla`: etiquetas de fila (primera celda de cada fila). */
   filas?: string[];
+  /** Campo de solo lectura autollenado (ej. expediente): visible pero no editable. */
+  bloqueado?: boolean;
 };
 
 export type SeccionPlantilla = {
@@ -73,7 +77,9 @@ export type EstructuraPlantilla = {
 export const TIPOS_CAMPO: TipoCampo[] = [
   'texto',
   'multitexto',
+  'numero',
   'medida',
+  'fecha',
   'tabla',
   'sino',
   'opcion',
@@ -82,13 +88,15 @@ export const TIPOS_CAMPO: TipoCampo[] = [
   'titulo',
 ];
 
-/** Tipos que el diseñador coloca dentro de una card de hallazgos (encabezado usa catálogo aparte). */
+/** Tipos que el diseñador coloca dentro de una card de hallazgos. */
 export const TIPOS_CAMPO_HALLAZGOS = TIPOS_CAMPO;
 
 export const ETIQUETA_TIPO: Record<TipoCampo, string> = {
   texto: 'Texto',
   multitexto: 'Multitexto',
+  numero: 'Número',
   medida: 'Medida',
+  fecha: 'Fecha',
   tabla: 'Tabla',
   sino: 'Sí / No',
   opcion: 'Opción',
@@ -97,16 +105,35 @@ export const ETIQUETA_TIPO: Record<TipoCampo, string> = {
   titulo: 'Título',
 };
 
-/** Campos del paciente disponibles en la card de encabezado (§10 · viven en datos_paciente). */
-export const CAMPOS_PACIENTE_CATALOGO: { id: string; nombre: string; span?: number; mono?: boolean }[] = [
-  { id: 'paciente', nombre: 'Paciente' },
-  { id: 'edadSexo', nombre: 'Edad y sexo' },
-  { id: 'expediente', nombre: 'Expediente', mono: true },
-  { id: 'fechaEstudio', nombre: 'Fecha del estudio' },
-  { id: 'solicitante', nombre: 'Médico solicitante' },
-  { id: 'equipo', nombre: 'Equipo' },
-  { id: 'motivo', nombre: 'Motivo del estudio', span: 99 },
+/** Campos del paciente del catálogo estándar (§10 · viven en datos_paciente). */
+export type CampoPacienteCatalogo = {
+  id: string;
+  nombre: string;
+  tipo: TipoCampo;
+  span?: number;
+  opciones?: string[];
+  bloqueado?: boolean;
+};
+
+export const CAMPOS_PACIENTE_CATALOGO: CampoPacienteCatalogo[] = [
+  { id: 'paciente', nombre: 'Paciente', tipo: 'texto' },
+  { id: 'edad', nombre: 'Edad', tipo: 'numero', span: 1 },
+  { id: 'sexo', nombre: 'Sexo', tipo: 'opcion', opciones: ['Masculino', 'Femenino'], span: 1 },
+  { id: 'expediente', nombre: 'Expediente', tipo: 'texto', span: 1, bloqueado: true },
+  { id: 'fechaEstudio', nombre: 'Fecha del estudio', tipo: 'fecha', span: 1 },
+  { id: 'solicitante', nombre: 'Médico solicitante', tipo: 'texto', span: 1 },
+  { id: 'equipo', nombre: 'Equipo', tipo: 'texto', span: 1 },
+  { id: 'motivo', nombre: 'Motivo del estudio', tipo: 'texto', span: 99 },
 ];
+
+/** Construye un campo de plantilla a partir de una entrada del catálogo de paciente. */
+export function campoPacienteDesdeCatalogo(p: CampoPacienteCatalogo): CampoPlantilla {
+  const c: CampoPlantilla = { id: p.id, tipo: p.tipo, nombre: p.nombre };
+  if (p.span) c.span = p.span;
+  if (p.opciones) c.opciones = [...p.opciones];
+  if (p.bloqueado) c.bloqueado = true;
+  return c;
+}
 
 /** ¿Es un campo de solo presentación (sin respuesta del médico)? */
 export function esCampoEstatico(t: TipoCampo): boolean {
@@ -117,11 +144,15 @@ export function esCampoEstatico(t: TipoCampo): boolean {
 export function formatoCampo(c: CampoPlantilla): string {
   switch (c.tipo) {
     case 'texto':
-      return 'texto de una línea';
+      return c.bloqueado ? 'autollenado' : 'texto de una línea';
     case 'multitexto':
       return 'texto libre (párrafo)';
+    case 'numero':
+      return 'numérico';
     case 'medida':
       return `${c.unidad?.trim() || '—'} · numérico`;
+    case 'fecha':
+      return 'fecha';
     case 'tabla':
       return `tabla ${(c.filas?.length ?? 0)}×${(c.columnas?.length ?? 0)}`;
     case 'sino':
@@ -149,7 +180,6 @@ export function contarCampos(e: EstructuraPlantilla): number {
 
 function idAleatorio(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID().slice(0, 8);
-  // Sin crypto (SSR raro): índice temporal; el constructor corre en cliente.
   return Math.floor(Math.random() * 1e9).toString(36);
 }
 
@@ -157,19 +187,14 @@ export function nuevoId(prefijo: string): string {
   return `${prefijo}_${idAleatorio()}`;
 }
 
-/** Card de encabezado por defecto: los 7 campos del paciente en grid de 3 (como el reporte). */
+/** Card de encabezado por defecto: los datos del paciente en grid de 3 (como el reporte). */
 export function seccionEncabezadoPorDefecto(): SeccionPlantilla {
   return {
     id: nuevoId('s'),
     tipo: 'encabezado',
     titulo: 'Datos del estudio',
     columnas: 3,
-    campos: CAMPOS_PACIENTE_CATALOGO.map((p) => ({
-      id: p.id,
-      tipo: 'texto' as const,
-      nombre: p.nombre,
-      ...(p.span ? { span: p.span } : {}),
-    })),
+    campos: CAMPOS_PACIENTE_CATALOGO.map(campoPacienteDesdeCatalogo),
   };
 }
 
@@ -184,6 +209,8 @@ export function campoNuevo(tipo: TipoCampo): CampoPlantilla {
       base.unidad = 'mm';
       base.span = 1;
       break;
+    case 'numero':
+    case 'fecha':
     case 'texto':
     case 'sino':
       base.span = 1;
@@ -230,6 +257,7 @@ function normalizarCampo(raw: unknown, i: number): CampoPlantilla | null {
   const c: CampoPlantilla = { id: txt(o.id) || `c${i + 1}`, tipo: o.tipo, nombre: txt(o.nombre) };
   if (txt(o.guia)) c.guia = txt(o.guia);
   if (num(o.span) !== undefined) c.span = num(o.span);
+  if (o.bloqueado === true) c.bloqueado = true;
   if (o.tipo === 'medida' && txt(o.unidad)) c.unidad = txt(o.unidad);
   if (o.tipo === 'opcion') c.opciones = listaTxt(o.opciones).filter(Boolean);
   if (o.tipo === 'imagen') {
@@ -310,7 +338,9 @@ export function campoCompleto(campo: CampoPlantilla, valor: unknown): boolean {
   switch (campo.tipo) {
     case 'texto':
     case 'multitexto':
+    case 'numero':
     case 'medida':
+    case 'fecha':
     case 'opcion':
       return leerTexto(valor).trim() !== '';
     case 'sino':
