@@ -1,7 +1,7 @@
 import 'server-only';
 import type postgres from 'postgres';
 import { comoAlumno } from '@/lib/db.server';
-import { programasDelAlumno } from './inscripcion';
+import { gruposDelAlumno, programasDelAlumno } from './inscripcion';
 import type {
   CursoResumen,
   ModuloCatalogo,
@@ -93,12 +93,18 @@ async function primeraLeccionPorPrograma(
  */
 export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
   return comoAlumno(userId, async (sql) => {
-    const [programas, inscritos, completados, primeras] = await Promise.all([
+    const [programas, grupos, completados, primeras] = await Promise.all([
       programasPublicados(sql),
-      programasDelAlumno(sql, userId),
+      gruposDelAlumno(sql, userId),
       completadosPorPrograma(sql, userId),
       primeraLeccionPorPrograma(sql),
     ]);
+
+    // Grupo (cohorte) del alumno por programa + set de programas inscritos.
+    const grupoPorPrograma = new Map(
+      grupos.map((g) => [g.programaId, { id: g.grupoId, nombre: g.grupoNombre }]),
+    );
+    const inscritos = new Set(grupoPorPrograma.keys());
 
     const mios = inscritos.size > 0
       ? programas.filter((p) => inscritos.has(p.id))
@@ -109,6 +115,7 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
       return {
         programaId: p.id,
         nombre: p.nombre,
+        grupo: grupoPorPrograma.get(p.id) ?? null,
         descripcion: p.descripcion,
         modulos: p.modulos,
         lecciones: p.lecciones,

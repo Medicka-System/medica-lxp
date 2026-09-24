@@ -245,7 +245,7 @@ async function seed(sql: Sql): Promise<void> {
       })})`;
 
   // ── (2) VIDEO → config (ref + transcripción + highlights) ───────────────
-  await crearLeccion({
+  const lVideo = await crearLeccion({
     moduloId: m1.id, nombre: 'Artefactos en modo B', orden: 2, horas: 2, tipo: 'video',
     config: {
       // Enlace directo (demo reproducible sin subir a MinIO · soportado por el editor
@@ -554,13 +554,11 @@ async function seed(sql: Sql): Promise<void> {
               ],
             })}, 8.0, ${'enviada'}::lxp.entrega_estado, now())`;
 
-  // ── Inscripción de a1: señal de progreso que dispara la heurística
-  //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.
-  //    reproduccion_progreso.contenido_id es NOT NULL FK a lxp.contenidos (modelo
-  //    viejo, aún vivo), así que se crea un contenido "puente" en la lección video
-  //    del demo y se ancla el progreso a ÉL y a la LECCIÓN (leccion_id · mig 0026).
-  //    (La bitácora de a1 —abajo— también lo inscribe vía modulo_id; esto refuerza
-  //    la rama de reproducción, que es la que valida el re-cableo de players.)
+  // ── Progreso demo: a1 completa una lección (contenido "puente" · modelo viejo aún
+  //    vivo: reproduccion_progreso.contenido_id es NOT NULL FK a lxp.contenidos) y a2
+  //    completa una lección ANCLADA A LA LECCIÓN (modelo nuevo · mig 0028, contenido_id
+  //    NULL). Así el roster del Studio (getGrupoAlumnos) muestra avance real y variado
+  //    en la cohorte A. La inscripción del alumno ya la resuelve el grupo (mig 0036).
   const contPuente = first(
     await sql<{ id: string }[]>`
       insert into lxp.contenidos (leccion_id, tipo, titulo, recurso_ref, orden)
@@ -571,6 +569,10 @@ async function seed(sql: Sql): Promise<void> {
   await sql`
     insert into lxp.reproduccion_progreso (alumno_id, contenido_id, leccion_id, porcentaje, completado)
     values (${alumnos.a1}, ${contPuente.id}, ${lTeoria}, 100, true)`;
+  // a2: lección completada leccion-keyed (sin contenido) → avance ≠ 0 distinto al de a1.
+  await sql`
+    insert into lxp.reproduccion_progreso (alumno_id, leccion_id, porcentaje, completado)
+    values (${alumnos.a2}, ${lVideo}, 100, true)`;
 
   // ── Bitácora: casos en varios estados (para probar RLS de aislamiento) ──
   const casoAprobado = first(

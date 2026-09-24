@@ -260,8 +260,8 @@ export function GruposTabla({
                     </span>
                   )}
                 </td>
-                <td className={`${mono} px-3 py-3.5 text-right text-[13px] font-semibold text-muted-foreground`}>
-                  —
+                <td className={`${mono} px-3 py-3.5 text-right text-[13px] font-semibold ${g.alumnos > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {g.alumnos}
                 </td>
                 <td className="px-3 py-3.5">
                   <span className={`inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[11.5px] font-bold ${ESTADO[g.estado].clase}`}>
@@ -306,11 +306,10 @@ export function GruposTabla({
         </span>
         <p className={`text-[12.5px] leading-relaxed ${softText}`}>
           Alumnos, inscripciones y calificaciones son fuente de verdad de{' '}
-          <span className="font-bold text-foreground">CORA</span>: aquí se consultarán. Lo editable
-          del grupo es sus datos, el docente y sus personalizaciones de contenido.{' '}
-          <span className="text-muted-foreground">
-            (El puente que liga un grupo del LXP con su generación de CORA es pendiente de DB/API.)
-          </span>
+          <span className="font-bold text-foreground">CORA</span>: aquí se{' '}
+          <span className="font-bold text-foreground">consultan en solo lectura</span>. El conteo de
+          alumnos y el roster de cada grupo se leen ya vía el puente de inscripción (CORA→LXP). Lo
+          editable del grupo es sus datos, el docente y sus personalizaciones de contenido.
         </p>
       </div>
 

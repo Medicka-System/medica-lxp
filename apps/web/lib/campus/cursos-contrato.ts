@@ -34,6 +34,8 @@
 export type CursoResumen = {
   programaId: string;
   nombre: string;
+  /** Cohorte del alumno en este programa (su grupo · inscripción CORA). null si no mapeado. */
+  grupo: { id: string; nombre: string } | null;
   descripcion: string | null;
   modulos: number;
   lecciones: number;

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BookOpen, Clock, Layers, Play } from 'lucide-react';
+import { BookOpen, Clock, Layers, Play, Users } from 'lucide-react';
 import { card, mono } from '@/components/tokens';
 import type { CursoResumen } from '@/lib/campus/cursos-contrato';
 
@@ -20,8 +20,14 @@ export function TarjetaCurso({ curso }: { curso: CursoResumen }) {
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-[15.5px] font-bold leading-snug">{curso.nombre}</h2>
+            {curso.grupo && (
+              <span className="mt-1 inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-pill bg-accent px-2.5 text-[11.5px] font-semibold text-accent-foreground">
+                <Users className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                {curso.grupo.nombre}
+              </span>
+            )}
             {curso.descripcion && (
-              <p className="mt-0.5 line-clamp-2 text-[12.5px] text-muted-foreground">{curso.descripcion}</p>
+              <p className="mt-1 line-clamp-2 text-[12.5px] text-muted-foreground">{curso.descripcion}</p>
             )}
           </div>
         </div>

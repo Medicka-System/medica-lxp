@@ -53,3 +53,25 @@ export async function programasDelAlumno(
     join lxp.cora_grupos_de(${userId}) cg on cg.grupo_id = g.cora_grupo_id`;
   return new Set(rows.map((r) => r.programa_id));
 }
+
+/**
+ * Cohorte del alumno POR PROGRAMA (para pintar "Mis cursos" con su grupo). Un alumno
+ * normalmente tiene un grupo por programa; si hubiera más, el consumidor toma el 1.º.
+ */
+export async function gruposDelAlumno(
+  sql: Sql,
+  userId: string,
+): Promise<{ programaId: string; grupoId: string; grupoNombre: string }[]> {
+  const rows = await sql<
+    { programa_id: string; grupo_id: string; grupo_nombre: string }[]
+  >`
+    select g.programa_id, g.id as grupo_id, g.nombre as grupo_nombre
+    from lxp.grupos g
+    join lxp.cora_grupos_de(${userId}) cg on cg.grupo_id = g.cora_grupo_id
+    order by g.created_at`;
+  return rows.map((r) => ({
+    programaId: r.programa_id,
+    grupoId: r.grupo_id,
+    grupoNombre: r.grupo_nombre,
+  }));
+}
