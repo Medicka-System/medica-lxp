@@ -907,6 +907,63 @@ async function seed(sql: Sql): Promise<void> {
   await msgConsulta(conCol, alumnos.a1, 'Coronal por flanco, bajando ganancia. Me lo sugirió Sandoval en una consulta.', '17 hours');
   await msgConsulta(conCol, alumnos.a2, 'Genial, gracias. ¿Me pasas el loop cuando puedas?', '20 minutes');
 
+  // ── Bandeja del DOCENTE (§5B): consultas dirigidas a él, de ALUMNOS y STAFF, en
+  //    varios estados. Alimenta la consola /docente/consultas (contraparte del chat
+  //    del alumno). Estado 'sin-responder/respondida/cerrada' se DERIVA del último
+  //    mensaje; a2 y a3 comparten el módulo de `lTeoria` → dispara el "patrón" de Eco. ──
+  // El CONTACTO siempre es la docente (tipo_contacto='docente'); que la contraparte sea
+  // alumno o staff lo decide el ROL del opener (op_rol) al leerse en la consola.
+  const crearConsultaDoc = async (
+    opener: string,
+    asunto: string,
+    estado: 'abierta' | 'cerrada',
+    origenLeccion: string | null,
+  ) =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.consultas
+          (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado, origen_leccion_id, alumno_leido_en)
+        values (${opener}, ${docente}, 'docente'::lxp.consulta_tipo_contacto,
+                ${docente}, ${asunto}, ${estado}, ${origenLeccion}, now())
+        returning id`,
+    ).id;
+  const msgAdj = (
+    consulta: string,
+    autor: string,
+    cuerpo: string,
+    hace: string,
+    adj: { id: string; tipo: string; nombre: string; meta: string }[],
+  ) =>
+    sql`insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo, adjuntos, created_at)
+        values (${consulta}, ${autor}, ${cuerpo}, ${sql.json(adj)}, now() - ${hace}::interval)`;
+
+  // a2 — SIN RESPONDER (último del alumno) · mismo módulo que a1 · adjunta un loop.
+  const conA2 = await crearConsultaDoc(alumnos.a2, '¿Por qué mi caso salió como quiste?', 'abierta', lTeoria);
+  await msgConsulta(conA2, alumnos.a2, 'Doctor, ¿por qué mi caso del riñón derecho salió como quiste? Yo veía el cáliz dilatado.', '5 hours');
+  await msgAdj(conA2, alumnos.a2, 'Le dejo el loop para que lo revise cuando pueda.', '5 hours', [
+    { id: 'loop-a2', tipo: 'loop', nombre: 'loop_rinon_der.dcm', meta: '4 s · de su bitácora' },
+  ]);
+
+  // a3 — SIN RESPONDER · mismo módulo (refuerza el patrón de Eco).
+  const conA3 = await crearConsultaDoc(alumnos.a3, 'Dónde medir la cortical', 'abierta', lTeoria);
+  await msgConsulta(conA3, alumnos.a3, 'Doctor, ¿la cortical se mide en los dos polos o basta con el polo medio?', '3 hours');
+
+  // a5 (grupo B) — RESPONDIDA (la docente contestó al final; el alumno ya lo leyó).
+  const conA5 = await crearConsultaDoc(alumnos.a5, 'Informe estructurado de vía biliar', 'abierta', null);
+  await msgConsulta(conA5, alumnos.a5, '¿El informe estructurado que vimos aplica igual para la vía biliar?', '2 days');
+  await msgConsulta(conA5, docente, 'Sí: la estructura es la misma, solo cambian los hallazgos esperables. Lo vemos en la próxima clase.', '1 day');
+
+  // a4 — CERRADA (resuelta).
+  const conA4 = await crearConsultaDoc(alumnos.a4, 'Entrega de la tarea del módulo 7', 'cerrada', null);
+  await msgConsulta(conA4, alumnos.a4, 'Doctora, ¿puedo entregar la tarea del módulo 7 el lunes? Estoy de guardia el fin de semana.', '3 days');
+  await msgConsulta(conA4, docente, 'Claro, se la reabro hasta el lunes. Suba lo que tenga.', '2 days');
+  await msgConsulta(conA4, alumnos.a4, 'Gracias, con eso me queda claro. Subo el caso el lunes sin falta.', '2 days');
+  await sql`update lxp.consultas set cerrada_el = now() - interval '2 days' where id = ${conA4}`;
+
+  // STAFF → DOCENTE: control escolar coordina con la docente (contraparte = staff).
+  const conStaffDoc = await crearConsultaDoc(admin, 'Alumno con acceso en pausa', 'abierta', null);
+  await msgConsulta(conStaffDoc, admin, 'Doctora, el alumno Cuatro quedó suspendido por pago. ¿Le extiendo la entrega cuando regularice?', '4 hours');
+
   // ── Biblioteca: caso con VERDAD ESTRUCTURADA (habilita a Eco · §7A) ─────
   await sql`
     insert into lxp.casos_biblioteca

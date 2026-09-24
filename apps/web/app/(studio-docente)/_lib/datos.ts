@@ -9,8 +9,10 @@ import type {
   CasoValidacion,
   ClaseAgenda,
   ClasificacionEco,
-  ConsultaDetalle,
-  ConsultaHilo,
+  ConsultaDetalleDoc,
+  ConsultaResumen,
+  ConsultasDocenteData,
+  ContraparteConsulta,
   CriterioRubricaVista,
   DocenteDashboard,
   DominioIaim,
@@ -23,12 +25,14 @@ import type {
   EstudioAlumno,
   EstudiosAlumnoData,
   GrupoSeguimiento,
-  MensajeConsulta,
+  MensajeConsultaDoc,
   PostAteneoResumen,
   PreguntaAcierto,
   PropuestaEcoResumen,
   RecursoDocente,
+  RecursoEnlazable,
   ResumenAlumno,
+  SugerenciaEcoConsulta,
   TipoActividad,
   TipoVistaEntrega,
 } from './contrato';
@@ -892,83 +896,321 @@ export async function getEntregasVista(
   });
 }
 
-// ── Consultas 1:1 ───────────────────────────────────────────────────────────────
-export async function getConsultas(userId: string): Promise<ConsultaHilo[]> {
-  return comoStaff(userId, async (sql) => {
-    const rows = await sql<
-      {
-        id: string;
-        asunto: string;
-        estado: 'abierta' | 'cerrada';
-        updated_at: Date;
-        alumno: string;
-        mensajes: number;
-        ultimo: string | null;
-      }[]
-    >`
-      select q.id, q.asunto, q.estado, q.updated_at, al.nombre as alumno,
-             coalesce((select count(*) from lxp.consulta_mensajes cm where cm.consulta_id = q.id), 0)::int as mensajes,
-             (select cm.cuerpo from lxp.consulta_mensajes cm
-              where cm.consulta_id = q.id order by cm.created_at desc limit 1) as ultimo
-      from lxp.consultas q
-      join lxp.perfiles al on al.user_id = q.id_alumno
-      order by case q.estado when 'abierta' then 0 else 1 end, q.updated_at desc`;
+// ── Consultas 1:1 (docente · chat entre PERSONAS · §5B) ──────────────────────────
+// El docente ve las consultas que le abren sus ALUMNOS y el STAFF (contacto_id/id_docente
+// = él) y responde. Reusa el motor bidireccional (consultas/consulta_mensajes · 0034);
+// misma tabla que consume el lado alumno. El estado se deriva igual que allá. Eco es
+// MOCK/placeholder (sin endpoint conversacional · §7A). SIN realtime: refetch por navegación.
 
-    return rows.map((r) => ({
-      id: r.id,
-      alumno: r.alumno,
-      iniciales: iniciales(r.alumno),
-      asunto: r.asunto,
-      estado: r.estado,
-      actualizado: r.updated_at,
-      ultimoMensaje: corto(r.ultimo, 90),
-      mensajes: r.mensajes,
-    }));
+const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const MES_ABR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function mismoDiaUTC(a: Date, b: Date): boolean {
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+/** "10:24" hoy · "ayer" · "lun" (misma semana) · "22 sep". */
+function horaRelDoc(d: Date): string {
+  const now = new Date();
+  if (mismoDiaUTC(d, now)) return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  if (mismoDiaUTC(d, new Date(now.getTime() - 86_400_000))) return 'ayer';
+  if ((now.getTime() - d.getTime()) / 86_400_000 < 7) return DIAS_SEM[d.getUTCDay()] ?? '';
+  return `${d.getUTCDate()} ${MES_ABR[d.getUTCMonth()] ?? ''}`;
+}
+/** Etiqueta de día del separador del hilo. */
+function diaMsgDoc(d: Date): string {
+  const now = new Date();
+  if (mismoDiaUTC(d, now)) return 'hoy';
+  if (mismoDiaUTC(d, new Date(now.getTime() - 86_400_000))) return 'ayer';
+  return `${d.getUTCDate()} ${MES_ABR[d.getUTCMonth()] ?? ''}`;
+}
+function hhmmDoc(d: Date): string {
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+/** "45 min" / "2 h" / "3 días" — cuánto lleva esperando desde `d`. */
+function esperaDesde(d: Date): string {
+  const min = Math.max(1, Math.round((Date.now() - d.getTime()) / 60_000));
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} h`;
+  const dias = Math.round(h / 24);
+  return `${dias} día${dias === 1 ? '' : 's'}`;
+}
+function moduloLabel(orden: number | null): string {
+  return orden != null ? `M${String(orden).padStart(2, '0')}` : '—';
+}
+
+/** Columnas comunes de una fila de consulta (bandeja o detalle). */
+type FilaConsulta = {
+  id: string;
+  estado: 'abierta' | 'cerrada';
+  op_id: string;
+  op_nombre: string;
+  op_rol: string;
+  op_esp: string | null;
+  ultimo_texto: string | null;
+  ultimo_autor: string | null;
+  ultimo_en: Date | null;
+  ultimo_contraparte_en: Date | null;
+  creada: Date;
+  grupo: string | null;
+  modulo_orden: number | null;
+  leccion_orden: number | null;
+  horas_comp: number;
+  horas_aprob: number;
+};
+
+/** La otra parte del hilo (alumno o staff) con su contexto académico. */
+function contraparteDe(r: FilaConsulta): ContraparteConsulta {
+  const esAlumno = r.op_rol === 'alumno';
+  const grupo = esAlumno ? r.grupo : null;
+  const modulo = esAlumno
+    ? r.modulo_orden != null
+      ? `${moduloLabel(r.modulo_orden)}${r.leccion_orden ? ` · L${r.leccion_orden}` : ''}`
+      : null
+    : null;
+  const horas = esAlumno ? Math.round(r.horas_comp > 0 ? r.horas_comp : r.horas_aprob) : null;
+  const contexto = esAlumno
+    ? grupo ?? 'Sin grupo'
+    : `Staff · ${r.op_esp?.trim() || 'Campus'}`;
+  return {
+    id: r.op_id,
+    ini: iniciales(r.op_nombre),
+    nombre: r.op_nombre,
+    tipo: esAlumno ? 'alumno' : 'staff',
+    grupo,
+    moduloEnCurso: modulo,
+    horas,
+    contexto,
+  };
+}
+
+/** Deriva el estado de bandeja y el tiempo de espera desde la fila + autor del último mensaje. */
+function estadoDe(r: FilaConsulta, userId: string): { estado: ConsultaResumen['estado']; esperando?: string } {
+  if (r.estado === 'cerrada') return { estado: 'cerrada' };
+  // "respondida" si el último mensaje lo puso el docente; si no, sigue esperándolo.
+  if (r.ultimo_autor && r.ultimo_autor === userId) return { estado: 'respondida' };
+  return { estado: 'sin-responder', esperando: esperaDesde(r.ultimo_contraparte_en ?? r.creada) };
+}
+
+/** SELECT compartido de la fila (bandeja y detalle). `where` lo pone quien llama. */
+const COLUMNAS_CONSULTA = (sql: Parameters<Parameters<typeof comoStaff>[1]>[0]) => sql`
+  q.id, q.estado, q.origen_leccion_id, q.created_at as creada,
+  op.user_id as op_id, op.nombre as op_nombre, op.rol::text as op_rol, op.especialidad as op_esp,
+  lm.cuerpo as ultimo_texto, lm.autor_id as ultimo_autor, lm.created_at as ultimo_en,
+  (select max(cm.created_at) from lxp.consulta_mensajes cm
+     where cm.consulta_id = q.id and cm.autor_id = q.id_alumno) as ultimo_contraparte_en,
+  gr.nombre as grupo, mo.orden as modulo_orden, lec.orden as leccion_orden,
+  coalesce((select sum(cd.horas)::float8 from lxp.competencia_dominios cd where cd.id_alumno = q.id_alumno), 0) as horas_comp,
+  coalesce((select sum(bc.horas_estimadas)::float8 from lxp.bitacora_casos bc
+              where bc.id_alumno = q.id_alumno and bc.estado_validacion = 'aprobado'), 0) as horas_aprob`;
+
+const JOINS_CONSULTA = (sql: Parameters<Parameters<typeof comoStaff>[1]>[0]) => sql`
+  from lxp.consultas q
+  join lxp.perfiles op on op.user_id = q.id_alumno
+  left join lateral (
+    select cm.cuerpo, cm.autor_id, cm.created_at from lxp.consulta_mensajes cm
+    where cm.consulta_id = q.id order by cm.created_at desc limit 1
+  ) lm on true
+  left join lxp.lecciones lec on lec.id = q.origen_leccion_id
+  left join lxp.modulos mo on mo.id = lec.modulo_id
+  -- Grupo = cohorte REAL de inscripción (CORA · mig 0036), leída con la función puente
+  -- SECURITY DEFINER (keyea por el param, no auth.uid()); robusta aunque no tenga casos.
+  left join lateral (
+    select cg.nombre from lxp.cora_grupos_de(q.id_alumno) cg order by cg.nombre limit 1
+  ) gr on true`;
+
+/** Bandeja del docente (columna 1): consultas dirigidas a él (alumnos + staff · §5B). */
+export async function getConsultasDocente(userId: string): Promise<ConsultasDocenteData> {
+  return comoStaff(userId, async (sql) => {
+    const yo = (await sql<{ nombre: string }[]>`select nombre from lxp.perfiles where user_id = ${userId}`)[0];
+    const filas = await sql<FilaConsulta[]>`
+      select ${COLUMNAS_CONSULTA(sql)}
+      ${JOINS_CONSULTA(sql)}
+      where q.contacto_id = ${userId} or q.id_docente = ${userId}
+      order by coalesce(lm.created_at, q.created_at) desc`;
+
+    const conversaciones: ConsultaResumen[] = filas.map((r) => {
+      const { estado, esperando } = estadoDe(r, userId);
+      return {
+        id: r.id,
+        contraparte: contraparteDe(r),
+        estado,
+        ...(esperando ? { esperando } : {}),
+        hora: horaRelDoc(r.ultimo_en ?? r.creada),
+        ultimoMensaje: corto(r.ultimo_texto, 120) ?? 'Conversación nueva',
+      };
+    });
+
+    const grupos = [...new Set(conversaciones.map((c) => c.contraparte.grupo).filter((g): g is string => !!g))];
+    const sinResponder = conversaciones.filter((c) => c.estado === 'sin-responder').length;
+    return { docente: { nombre: yo?.nombre ?? 'Docente' }, grupos, conversaciones, sinResponder };
   });
 }
 
-export async function getConsultaDetalle(
+/** El hilo abierto (columnas 2 y 3): mensajes + Eco derivado. `null` si no existe/visible. */
+export async function getConsultaDocenteDetalle(
   userId: string,
   consultaId: string,
-): Promise<ConsultaDetalle | null> {
+): Promise<ConsultaDetalleDoc | null> {
   return comoStaff(userId, async (sql) => {
-    const q = (
-      await sql<
-        { id: string; asunto: string; estado: 'abierta' | 'cerrada'; id_alumno: string; alumno: string }[]
-      >`
-        select q.id, q.asunto, q.estado, q.id_alumno, al.nombre as alumno
-        from lxp.consultas q
-        join lxp.perfiles al on al.user_id = q.id_alumno
-        where q.id = ${consultaId} limit 1`
+    const r = (
+      await sql<(FilaConsulta & { alumno_leido_en: Date | null; origen_leccion_id: string | null; origen_nombre: string | null; modulo_id: string | null })[]>`
+        select ${COLUMNAS_CONSULTA(sql)}, q.alumno_leido_en, lec.nombre as origen_nombre, lec.modulo_id
+        ${JOINS_CONSULTA(sql)}
+        where q.id = ${consultaId} and (q.contacto_id = ${userId} or q.id_docente = ${userId})
+        limit 1`
     )[0];
-    if (!q) return null;
+    if (!r) return null;
 
-    const mensajes = await sql<
-      { id: string; autor_id: string; cuerpo: string; created_at: Date; autor: string }[]
-    >`
-      select cm.id, cm.autor_id, cm.cuerpo, cm.created_at, pe.nombre as autor
+    const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date }[]>`
+      select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at
       from lxp.consulta_mensajes cm
-      join lxp.perfiles pe on pe.user_id = cm.autor_id
       where cm.consulta_id = ${consultaId}
       order by cm.created_at asc`;
 
+    const mensajes: MensajeConsultaDoc[] = filas.map((m) => {
+      const deMi = m.autor_id === userId;
+      const adjArr = Array.isArray(m.adjuntos) ? (m.adjuntos as Record<string, string>[]) : [];
+      const a0 = adjArr[0];
+      return {
+        id: m.id,
+        de: deMi ? 'docente' : 'contraparte',
+        texto: m.cuerpo,
+        hora: hhmmDoc(m.created_at),
+        dia: diaMsgDoc(m.created_at),
+        ...(a0
+          ? {
+              adjunto: {
+                id: a0.id ?? m.id,
+                tipo: (['loop', 'imagen', 'video', 'archivo'].includes(a0.tipo ?? '') ? a0.tipo : 'archivo') as 'loop' | 'imagen' | 'video' | 'archivo',
+                nombre: a0.nombre ?? 'archivo',
+                meta: a0.meta ?? '',
+                ...(a0.url ? { url: a0.url } : {}),
+              },
+            }
+          : {}),
+        // "leído": el alumno leyó el hilo después de que el docente escribió (real, `alumno_leido_en`).
+        ...(deMi ? { leido: !!r.alumno_leido_en && r.alumno_leido_en.getTime() > m.created_at.getTime() } : {}),
+      };
+    });
+
+    const { estado, esperando } = estadoDe(r, userId);
+    const contraparte = contraparteDe(r);
+    const origen = r.origen_leccion_id
+      ? {
+          etiqueta: `${moduloLabel(r.modulo_orden)}${r.leccion_orden ? ` · L${r.leccion_orden}` : ''} · ${r.origen_nombre ?? 'la lección'}`,
+          href: `/leccion/${r.origen_leccion_id}`,
+        }
+      : null;
+
+    const eco = await construirEcoConsulta(sql, userId, {
+      consultaId,
+      moduloId: r.modulo_id,
+      moduloOrden: r.modulo_orden,
+      leccionOrden: r.leccion_orden,
+      origenNombre: r.origen_nombre,
+      estadoDerivado: estado,
+      mensajes,
+    });
+
     return {
-      id: q.id,
-      alumno: q.alumno,
-      iniciales: iniciales(q.alumno),
-      asunto: q.asunto,
-      estado: q.estado,
-      mensajes: mensajes.map(
-        (m): MensajeConsulta => ({
-          id: m.id,
-          autor: m.autor_id === q.id_alumno ? 'alumno' : 'docente',
-          autorNombre: m.autor,
-          cuerpo: m.cuerpo,
-          creadoEn: m.created_at,
-        }),
-      ),
+      id: r.id,
+      contraparte,
+      estado,
+      ...(esperando ? { esperando } : {}),
+      hora: horaRelDoc(r.ultimo_en ?? r.creada),
+      ultimoMensaje: corto(r.ultimo_texto, 120) ?? 'Conversación nueva',
+      origen,
+      mensajes,
+      eco,
     };
   });
+}
+
+/**
+ * Sugerencia de Eco para el hilo (§7A). Tools-first: `resumen`/`metaHilo`/`patron`/
+ * `recursos` se DERIVAN de datos reales (SQL), no de un LLM. El `borrador` (la parte
+ * de lenguaje) es PLACEHOLDER hasta que `apps/api` exponga el endpoint conversacional
+ * (§7A/§13) — no se fabrica una respuesta clínica; el docente redacta y decide (§7A).
+ */
+async function construirEcoConsulta(
+  sql: Parameters<Parameters<typeof comoStaff>[1]>[0],
+  userId: string,
+  ctx: {
+    consultaId: string;
+    moduloId: string | null;
+    moduloOrden: number | null;
+    leccionOrden: number | null;
+    origenNombre: string | null;
+    estadoDerivado: ConsultaResumen['estado'];
+    mensajes: MensajeConsultaDoc[];
+  },
+): Promise<SugerenciaEcoConsulta> {
+  const deContraparte = ctx.mensajes.filter((m) => m.de === 'contraparte');
+  const disponible = deContraparte.length > 0 && ctx.estadoDerivado === 'sin-responder';
+  const tieneAdjunto = ctx.mensajes.some((m) => m.adjunto);
+  const resumen = deContraparte.at(-1)?.texto ?? 'El alumno aún no ha escrito su duda.';
+  const dias = new Set(ctx.mensajes.map((m) => m.dia)).size;
+  const metaHilo = `${ctx.mensajes.length} mensaje${ctx.mensajes.length === 1 ? '' : 's'}${dias > 1 ? ` · ${dias} días` : ''}${tieneAdjunto ? ' · adjuntó 1 archivo' : ''}`;
+
+  // Patrón REAL: otras consultas del MISMO módulo que también esperan respuesta (§7A).
+  let patron: SugerenciaEcoConsulta['patron'] = null;
+  const cita = ctx.moduloOrden != null
+    ? `cita ${moduloLabel(ctx.moduloOrden)}${ctx.leccionOrden ? ` · L${ctx.leccionOrden}` : ''}`
+    : null;
+  if (ctx.moduloId) {
+    const otras = await sql<{ nombre: string }[]>`
+      select op.nombre from lxp.consultas q2
+      join lxp.perfiles op on op.user_id = q2.id_alumno
+      join lxp.lecciones lec on lec.id = q2.origen_leccion_id
+      where (q2.contacto_id = ${userId} or q2.id_docente = ${userId})
+        and q2.id <> ${ctx.consultaId} and q2.estado = 'abierta'
+        and lec.modulo_id = ${ctx.moduloId}
+        and (select cm.autor_id from lxp.consulta_mensajes cm
+             where cm.consulta_id = q2.id order by cm.created_at desc limit 1) = q2.id_alumno`;
+    if (otras.length >= 1) {
+      const inis = otras.slice(0, 5).map((o) => iniciales(o.nombre));
+      patron = {
+        cuantos: otras.length + 1,
+        inis,
+        texto: `Otros ${otras.length} alumnos del ${moduloLabel(ctx.moduloOrden)} tienen una consulta abierta y sin responder. Puede responderles juntos o llevarlo al foro del grupo.`,
+      };
+    }
+  }
+
+  // Recursos REALES: lecciones del módulo de origen (material para enlazar en la respuesta).
+  let recursos: RecursoEnlazable[] = [];
+  if (ctx.moduloId) {
+    const lecs = await sql<{ id: string; nombre: string; orden: number }[]>`
+      select id, nombre, orden from lxp.lecciones
+      where modulo_id = ${ctx.moduloId} order by orden asc limit 3`;
+    recursos = lecs.map((l) => ({
+      clave: `${moduloLabel(ctx.moduloOrden)} · L${l.orden}`,
+      titulo: l.nombre,
+      meta: 'lección',
+      href: `/leccion/${l.id}`,
+    }));
+  }
+
+  // Borrador: la ÚNICA parte que requiere LLM → PENDIENTE de endpoint (§7A). No se
+  // inventa una respuesta clínica; se muestra un marcador honesto que el docente edita.
+  const borrador = disponible
+    ? 'Eco redactará aquí un borrador cuando apps/api exponga su endpoint conversacional (§7A). Por ahora, responda con su criterio clínico — Eco ya le dejó el resumen, el patrón y el material para apoyarse.'
+    : null;
+
+  return {
+    disponible,
+    resumen,
+    metaHilo,
+    patron,
+    recursos,
+    borrador,
+    cita,
+    ajustes: ['Hazla más breve', 'Explícalo con un ejemplo', '¿Qué le contesté antes?'],
+  };
 }
 
 /** Seguimiento de un grupo: cabecera + temario del programa (referencia). El avance
