@@ -52,7 +52,16 @@ const DOMINIOS: DominioIaim[] = ['indicacion', 'adquisicion', 'interpretacion', 
 const campoBase =
   'mt-1.5 w-full rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
 
-export function EditorCaso({ caso, modulos }: { caso: CasoEditor; modulos: ModuloOpcionCaso[] }) {
+export function EditorCaso({
+  caso,
+  modulos,
+  rutaBase = '/studio/casos',
+}: {
+  caso: CasoEditor;
+  modulos: ModuloOpcionCaso[];
+  /** Base para "Volver": /studio/casos (diseñador) o /docente/biblioteca (docente curador). */
+  rutaBase?: string;
+}) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [titulo, setTitulo] = useState(caso.titulo);
@@ -189,7 +198,7 @@ export function EditorCaso({ caso, modulos }: { caso: CasoEditor; modulos: Modul
       {/* ───── Header contextual ───── */}
       <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
-          href="/studio/casos"
+          href={rutaBase}
           aria-label="Volver a Casos"
           className={`grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[9px] border border-white/20 text-sidebar-foreground transition-colors hover:bg-white/10 ${focusRingDark}`}
         >

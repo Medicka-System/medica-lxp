@@ -89,9 +89,15 @@ function ChipUso({ usos, programas }: { usos: number; programas: number }) {
 export function ContenidoBiblioteca({
   recursos,
   pendienteDb,
+  rutaBase = '/studio/contenido',
+  soloLectura = false,
 }: {
   recursos: Recurso[];
   pendienteDb: boolean;
+  /** Base de navegación al detalle: /studio/contenido (diseñador) o /docente/recursos (docente). */
+  rutaBase?: string;
+  /** El docente CONSULTA/usa la biblioteca; subir es del diseñador → oculta "Subir recurso". */
+  soloLectura?: boolean;
 }) {
   const router = useRouter();
   const [busca, setBusca] = useState('');
@@ -135,14 +141,16 @@ export function ContenidoBiblioteca({
             DICOM viven en Casos.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setSubir(true)}
-          className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
-        >
-          <Upload aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
-          Subir recurso
-        </button>
+        {!soloLectura && (
+          <button
+            type="button"
+            onClick={() => setSubir(true)}
+            className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+          >
+            <Upload aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
+            Subir recurso
+          </button>
+        )}
       </div>
 
       {pendienteDb && (
@@ -250,7 +258,7 @@ export function ContenidoBiblioteca({
                   >
                     <button
                       type="button"
-                      onClick={() => !r.procesando && router.push(`/studio/contenido/${r.id}`)}
+                      onClick={() => !r.procesando && router.push(`${rutaBase}/${r.id}`)}
                       disabled={r.procesando}
                       aria-label={`Abrir ${r.nombre}`}
                       className={`relative grid w-full place-items-center ${focusRing}`}

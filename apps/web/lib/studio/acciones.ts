@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { requireAutoria } from '@/lib/studio/session';
+import { requireAutoria, requireCurador } from '@/lib/studio/session';
 import { comoStaff } from '@/lib/db.server';
 import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
@@ -130,8 +130,8 @@ function refrescarCaso(casoId?: string) {
 
 /** Crea un caso "por curar" cargado por staff (metadatos; el DICOM se adjunta luego
  *  vía el pipeline de ingesta · PENDIENTE 4.7). Abre el editor. */
-export async function crearCaso(): Promise<void> {
-  const { userId } = await requireAutoria();
+export async function crearCaso(rutaBase = '/studio/casos'): Promise<void> {
+  const { userId } = await requireCurador();
   const id = await comoStaff(userId, async (sql) => {
     const rows = await sql<{ id: string }[]>`
       insert into lxp.casos_biblioteca (curador_id, titulo, publicado)
@@ -140,7 +140,9 @@ export async function crearCaso(): Promise<void> {
     return rows[0]!.id;
   });
   revalidatePath('/studio/casos');
-  redirect(`/studio/casos/${id}`);
+  // `rutaBase` deja al editor abrir en su shell: /studio/casos (diseñador) o
+  // /docente/biblioteca (docente curador). El default conserva el Studio del diseñador.
+  redirect(`${rutaBase}/${id}`);
 }
 
 /**
@@ -165,7 +167,7 @@ export async function guardarCaso(
     erroresComunes?: string[];
   },
 ): Promise<void> {
-  const { userId } = await requireAutoria();
+  const { userId } = await requireCurador();
   await comoStaff(userId, async (sql) => {
     if (datos.titulo !== undefined) {
       const limpio = datos.titulo.trim();
@@ -226,7 +228,7 @@ export async function guardarContenidoEstructuradoCaso(
   casoId: string,
   contenido: import('@campus/shared').ContenidoEstructuradoCaso | null,
 ): Promise<void> {
-  const { userId } = await requireAutoria();
+  const { userId } = await requireCurador();
   await comoStaff(userId, async (sql) => {
     await sql`
       update lxp.casos_biblioteca
@@ -238,7 +240,7 @@ export async function guardarContenidoEstructuradoCaso(
 
 /** Publica el caso a la Biblioteca (o lo regresa a "por curar"). */
 export async function publicarCaso(casoId: string, publicado: boolean): Promise<void> {
-  const { userId } = await requireAutoria();
+  const { userId } = await requireCurador();
   await comoStaff(userId, async (sql) => {
     await sql`update lxp.casos_biblioteca set publicado = ${publicado} where id = ${casoId}`;
   });

@@ -13,6 +13,14 @@ export type SesionStaff = NonNullable<Awaited<ReturnType<typeof resolverStaffDev
 /** Roles que construyen contenido (autoría · §5B): diseñador + admins. */
 const ROLES_AUTORIA = ['disenador_instruccional', 'admin', 'super_admin'] as const;
 
+/**
+ * Roles que CURAN la biblioteca clínica (§5B): autoría + DOCENTE. El docente estructura
+ * la "verdad del caso" y valida imágenes (un pedagogo no puede juzgar una ecografía). La
+ * RLS `es_staff()` (incluye docente) es el segundo candado. En dev la sesión se resuelve
+ * por env; en prod, del JWT del usuario real.
+ */
+const ROLES_CURADURIA = [...ROLES_AUTORIA, 'docente'] as const;
+
 export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
   const email = process.env.DEV_STAFF_EMAIL ?? 'disenador@seed.local';
   const staff = await resolverStaffDev(email);
@@ -32,6 +40,19 @@ export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
 export const requireAutoria = cache(async (): Promise<SesionStaff> => {
   const staff = await getSesionStaff();
   if (!ROLES_AUTORIA.includes(staff.rol as (typeof ROLES_AUTORIA)[number])) {
+    redirect('/inicio');
+  }
+  return staff;
+});
+
+/**
+ * Guard de la CURADURÍA clínica (biblioteca de casos): autoría + docente. El docente cura
+ * la verdad del caso (§5B); el resto de no-curadores va al Campus. RLS `es_staff()` valida
+ * la escritura en `lxp.casos_biblioteca`.
+ */
+export const requireCurador = cache(async (): Promise<SesionStaff> => {
+  const staff = await getSesionStaff();
+  if (!ROLES_CURADURIA.includes(staff.rol as (typeof ROLES_CURADURIA)[number])) {
     redirect('/inicio');
   }
   return staff;
