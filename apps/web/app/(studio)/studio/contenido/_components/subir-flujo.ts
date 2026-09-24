@@ -11,6 +11,7 @@ import {
   crearRecurso,
   firmarSubidaMediaArchivo,
   ingestarPaqueteBiblioteca,
+  reemplazarArchivoRecurso,
   subirH5pBiblioteca,
 } from '@/lib/studio/contenido-acciones';
 import { solicitarSubidaVideo, confirmarVideo, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
@@ -18,6 +19,10 @@ import type { TipoRecurso } from '@/lib/studio/contenido-contrato';
 
 type Resultado = { ok: true } | { ok: false; error: string };
 type Progreso = (m: string) => void;
+
+type MetaRecurso = Record<string, string | number | boolean | undefined>;
+/** Artefacto ya firmado/ingerido, listo para crear o reemplazar la fila. */
+type Artefacto = { ok: true; storageKey: string; meta: MetaRecurso; reproduccion?: string } | { ok: false; error: string };
 
 function extDe(nombre: string): string {
   return nombre.split('.').pop()?.toLowerCase() ?? '';
@@ -65,24 +70,22 @@ function mmss(seg: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** Convierte el resultado de crearRecurso en el resultado de flujo. */
-async function crearYMapear(input: Parameters<typeof crearRecurso>[0]): Promise<Resultado> {
-  const r = await crearRecurso(input);
-  return r.ok ? { ok: true } : { ok: false, error: r.error };
-}
-
-export async function subirRecursoFlujo(
+/**
+ * Firma/ingiere el artefacto en el api y sube el binario a object storage según el tipo.
+ * Devuelve la `storageKey` + `meta` para que el llamador cree o reemplace la fila.
+ * `titulo` solo se usa para pre-registrar (video) o nombrar el paquete.
+ */
+async function subirArtefacto(
   archivo: File,
   tipo: TipoRecurso | 'zip',
-  nombre: string,
-  etiquetas: string[],
+  titulo: string,
   onProgreso: Progreso,
-): Promise<Resultado> {
+): Promise<Artefacto & { tipoResuelto?: TipoRecurso }> {
   const ext = extDe(archivo.name);
 
   if (tipo === 'video') {
     onProgreso('Firmando subida…');
-    const sol = await solicitarSubidaVideo({ titulo: nombre });
+    const sol = await solicitarSubidaVideo({ titulo });
     if (!sol.ok) return sol;
     onProgreso('Subiendo video…');
     if (!(await putBinario(sol.datos.urlSubida, archivo))) {
@@ -92,18 +95,12 @@ export async function subirRecursoFlujo(
     onProgreso('Confirmando…');
     const conf = await confirmarVideo(sol.datos.videotecaId, dur);
     if (!conf.ok) return conf;
-    onProgreso('Registrando en la biblioteca…');
-    return crearYMapear({
-      tipo: 'video',
-      nombre,
+    return {
+      ok: true,
       storageKey: sol.datos.videotecaId,
       reproduccion: 'Cloudflare Stream',
-      etiquetas,
-      meta: {
-        ...(dur ? { duracion: mmss(dur) } : {}),
-        peso: `${(archivo.size / 1024 / 1024).toFixed(1)} MB`,
-      },
-    });
+      meta: { ...(dur ? { duracion: mmss(dur) } : {}), peso: `${(archivo.size / 1024 / 1024).toFixed(1)} MB` },
+    };
   }
 
   if (tipo === 'imagen') {
@@ -114,14 +111,7 @@ export async function subirRecursoFlujo(
     if (!(await putBinario(sol.datos.urlSubida, archivo))) {
       return { ok: false, error: 'No se pudo subir la imagen a object storage.' };
     }
-    onProgreso('Registrando en la biblioteca…');
-    return crearYMapear({
-      tipo: 'imagen',
-      nombre,
-      storageKey: sol.datos.ref,
-      etiquetas,
-      meta: { peso: `${(archivo.size / 1024).toFixed(0)} KB` },
-    });
+    return { ok: true, storageKey: sol.datos.ref, meta: { peso: `${(archivo.size / 1024).toFixed(0)} KB` } };
   }
 
   if (tipo === 'pdf' || tipo === 'word' || tipo === 'ppt') {
@@ -132,55 +122,81 @@ export async function subirRecursoFlujo(
     if (!(await putBinario(sol.datos.urlSubida, archivo))) {
       return { ok: false, error: 'No se pudo subir el documento a object storage.' };
     }
-    onProgreso('Registrando en la biblioteca…');
-    return crearYMapear({
-      tipo,
-      nombre,
-      storageKey: sol.datos.ref,
-      etiquetas,
-      meta: { peso: `${(archivo.size / 1024 / 1024).toFixed(1)} MB` },
-    });
+    return { ok: true, storageKey: sol.datos.ref, meta: { peso: `${(archivo.size / 1024 / 1024).toFixed(1)} MB` } };
   }
 
-  if (tipo === 'zip') {
+  if (tipo === 'zip' || tipo === 'scorm' || tipo === 'xapi') {
     onProgreso('Validando el paquete (manifiesto)…');
     const fd = new FormData();
     fd.append('archivo', archivo);
-    fd.append('titulo', nombre);
+    fd.append('titulo', titulo);
     const ing = await ingestarPaqueteBiblioteca(fd);
     if (!ing.ok) return ing;
     const t: TipoRecurso = ing.datos.tipo === 'xapi' ? 'xapi' : 'scorm';
-    onProgreso('Registrando en la biblioteca…');
-    return crearYMapear({
-      tipo: t,
-      nombre,
+    return {
+      ok: true,
+      tipoResuelto: t,
       storageKey: ing.datos.recursoRef,
       reproduccion: 'Reporta progreso',
-      etiquetas,
       meta: {
         peso: `${(archivo.size / 1024 / 1024).toFixed(1)} MB`,
         ...(ing.datos.entryPoint ? { entryPoint: ing.datos.entryPoint } : {}),
         ...(t === 'xapi' ? { fuente: 'Articulate' } : {}),
       },
-    });
+    };
   }
 
   if (tipo === 'h5p') {
     onProgreso('Instalando el paquete H5P…');
     const fd = new FormData();
     fd.append('archivo', archivo);
-    fd.append('titulo', nombre);
+    fd.append('titulo', titulo);
     const ing = await subirH5pBiblioteca(fd);
     if (!ing.ok) return ing;
-    onProgreso('Registrando en la biblioteca…');
-    return crearYMapear({
-      tipo: 'h5p',
-      nombre,
-      storageKey: ing.datos.contentId,
-      reproduccion: 'Reporta progreso',
-      etiquetas,
-    });
+    return { ok: true, storageKey: ing.datos.contentId, reproduccion: 'Reporta progreso', meta: {} };
   }
 
   return { ok: false, error: 'Tipo de archivo no soportado.' };
+}
+
+/** Sube un recurso NUEVO a la biblioteca (crea la fila lxp.recursos). */
+export async function subirRecursoFlujo(
+  archivo: File,
+  tipo: TipoRecurso | 'zip',
+  nombre: string,
+  etiquetas: string[],
+  onProgreso: Progreso,
+): Promise<Resultado> {
+  const art = await subirArtefacto(archivo, tipo, nombre, onProgreso);
+  if (!art.ok) return art;
+  const tipoFinal: TipoRecurso = art.tipoResuelto ?? (tipo === 'zip' ? 'scorm' : tipo);
+  onProgreso('Registrando en la biblioteca…');
+  const r = await crearRecurso({
+    tipo: tipoFinal,
+    nombre,
+    storageKey: art.storageKey,
+    reproduccion: art.reproduccion,
+    etiquetas,
+    meta: art.meta,
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+/** Reemplaza el ARCHIVO de un recurso existente (sube versión; mismo tipo). */
+export async function reemplazarRecursoFlujo(
+  archivo: File,
+  tipo: TipoRecurso,
+  recursoId: string,
+  titulo: string,
+  onProgreso: Progreso,
+): Promise<Resultado> {
+  const art = await subirArtefacto(archivo, tipo, titulo, onProgreso);
+  if (!art.ok) return art;
+  onProgreso('Aplicando el nuevo archivo…');
+  const r = await reemplazarArchivoRecurso(recursoId, {
+    storageKey: art.storageKey,
+    meta: art.meta,
+    reproduccion: art.reproduccion,
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
