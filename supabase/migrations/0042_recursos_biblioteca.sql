@@ -61,6 +61,9 @@ create table if not exists lxp.recursos (
 
 create index if not exists recursos_tipo_idx on lxp.recursos (tipo, created_at desc);
 
+-- Idempotente (seed-safe): `create trigger` no admite `if not exists`, así que se dropea
+-- primero — cubre re-aplicar la migración (p.ej. tras renumerar 0041→0042).
+drop trigger if exists recursos_touch on lxp.recursos;
 create trigger recursos_touch
   before update on lxp.recursos
   for each row execute function lxp.touch_updated_at();
@@ -79,7 +82,10 @@ grant all on lxp.recursos to service_role;
 -- solo autoría (diseñador/admin · §5B) sube/edita/borra en la biblioteca. ──
 alter table lxp.recursos enable row level security;
 
+-- Idempotente (seed-safe): `create policy` no admite `if not exists` en PG15.
+drop policy if exists recursos_read on lxp.recursos;
 create policy recursos_read on lxp.recursos
   for select to authenticated using (true);
+drop policy if exists recursos_write on lxp.recursos;
 create policy recursos_write on lxp.recursos
   for all to authenticated using (lxp.es_autoria()) with check (lxp.es_autoria());
