@@ -35,7 +35,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
-import { DOMINIO_LABEL, type CasoEditor, type DominioIaim } from '@/lib/studio/casos-contrato';
+import { DOMINIO_LABEL, type CasoEditor, type DominioIaim, type ModuloOpcionCaso } from '@/lib/studio/casos-contrato';
 import { guardarCaso, guardarContenidoEstructuradoCaso, publicarCaso } from '@/lib/studio/acciones';
 import { quitarSerieDicom } from '@/lib/dicom/acciones';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
@@ -52,13 +52,14 @@ const DOMINIOS: DominioIaim[] = ['indicacion', 'adquisicion', 'interpretacion', 
 const campoBase =
   'mt-1.5 w-full rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
 
-export function EditorCaso({ caso }: { caso: CasoEditor }) {
+export function EditorCaso({ caso, modulos }: { caso: CasoEditor; modulos: ModuloOpcionCaso[] }) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [titulo, setTitulo] = useState(caso.titulo);
   const [organo, setOrgano] = useState(caso.organo);
   const [patologia, setPatologia] = useState(caso.patologia);
   const [dominio, setDominio] = useState<DominioIaim | null>(caso.dominioIaim);
+  const [moduloId, setModuloId] = useState<string | null>(caso.moduloId);
   const [tecnica, setTecnica] = useState(caso.tecnica);
   const [equipo, setEquipo] = useState(caso.equipo);
   const [vineta, setVineta] = useState(caso.vineta);
@@ -137,11 +138,23 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
     setEtiquetaNueva('');
   };
 
+  // Módulos agrupados por programa para el dropdown (§5B · lo elige el docente).
+  const modulosPorPrograma = useMemo(() => {
+    const m = new Map<string, ModuloOpcionCaso[]>();
+    for (const mod of modulos) {
+      const lista = m.get(mod.programa) ?? [];
+      lista.push(mod);
+      m.set(mod.programa, lista);
+    }
+    return [...m.entries()];
+  }, [modulos]);
+
   const datos = () => ({
     titulo,
     organo,
     patologia,
     dominio,
+    moduloId,
     tecnica,
     equipo,
     vineta,
@@ -418,6 +431,28 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
                 })}
               </div>
             </div>
+            <label className="mt-3 block">
+              <span className="flex items-baseline gap-2">
+                <span className="block text-[11.5px] font-semibold">Módulo</span>
+                <span className="text-[10.5px] text-muted-foreground">lo asignas tú (no se adivina)</span>
+              </span>
+              <select
+                value={moduloId ?? ''}
+                onChange={(e) => setModuloId(e.target.value || null)}
+                className={`${campoBase} h-10 appearance-none`}
+              >
+                <option value="">Sin asignar</option>
+                {modulosPorPrograma.map(([programa, mods]) => (
+                  <optgroup key={programa} label={programa}>
+                    {mods.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.nombre}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
             <label className="mt-3 block">
               <span className="block text-[11.5px] font-semibold">Viñeta clínica</span>
               <textarea

@@ -81,4 +81,14 @@ export type CasoEditor = {
   /** Verdad ESTRUCTURADA heredada del reporte/caso de origen (§7A). null = sin estructura.
    *  El curador la ajusta (tablas/mediciones) antes de publicar. Coincide con el reporte. */
   contenidoEstructurado: ContenidoEstructuradoCaso | null;
+  /** Módulo al que el DOCENTE asigna el caso al curar (§5B). Auto-heredado del origen si
+   *  lo tenía; NO se adivina por palabra clave. null = sin asignar. */
+  moduloId: string | null;
+};
+
+/** Opción de módulo para el dropdown de curaduría (agrupado por programa). */
+export type ModuloOpcionCaso = {
+  id: string;
+  nombre: string;
+  programa: string;
 };

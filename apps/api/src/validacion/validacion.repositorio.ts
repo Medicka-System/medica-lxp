@@ -88,14 +88,14 @@ export async function promoverCasoABanco(
   // Título por defecto: patología → órgano → primeras palabras de los hallazgos.
   const insertadas = await sql<{ id: string }[]>`
     insert into lxp.casos_biblioteca
-      (curador_id, titulo, organo, dominio_iaim, patologia, tecnica, equipo, vineta,
+      (curador_id, titulo, organo, dominio_iaim, modulo_id, patologia, tecnica, equipo, vineta,
        etiquetas, diagnostico_correcto, contenido_estructurado,
        estudio_estado, estudio_series, anonimizacion, anonimizado_en,
        origen_caso_id, publicado)
     select
       null,
       coalesce(nullif(btrim(coalesce(b.patologia, b.organo, left(b.hallazgos, 60))), ''), 'Caso del alumno'),
-      b.organo, b.dominio_iaim, b.patologia, b.tecnica, b.equipo, b.vineta,
+      b.organo, b.dominio_iaim, b.modulo_id, b.patologia, b.tecnica, b.equipo, b.vineta,
       b.etiquetas, b.diagnostico_presuntivo, b.contenido_estructurado,
       b.estudio_estado, b.estudio_series, b.anonimizacion, b.anonimizado_en,
       b.id, false

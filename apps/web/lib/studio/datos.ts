@@ -644,12 +644,13 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           series: number;
           curador: string | null;
           contenido_estructurado: import('@campus/shared').ContenidoEstructuradoCaso | null;
+          modulo_id: string | null;
         }[]
       >`
         select id, titulo, organo, patologia, dominio_iaim, tecnica, equipo, vineta,
                etiquetas, diagnostico_correcto,
                hallazgos_clave, puntos_aprendizaje, errores_comunes,
-               contenido_estructurado,
+               contenido_estructurado, modulo_id,
                publicado, estudio_estado::text as estudio_estado,
                coalesce(jsonb_array_length(estudio_series), 0)::int as series,
                lxp.nombre_de(curador_id) as curador
@@ -676,7 +677,27 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
       series: r.series,
       curador: r.curador,
       contenidoEstructurado: r.contenido_estructurado ?? null,
+      moduloId: r.modulo_id ?? null,
     };
+  });
+}
+
+/**
+ * Catálogo de módulos para el dropdown de curaduría (§5B): el docente asigna el caso a
+ * su módulo. De programas PUBLICADOS, agrupado por programa. RLS: lectura de módulos es
+ * true para staff. (Acotar al programa del grupo llega con el contrato CORA · Sprint 11.)
+ */
+export async function getModulosCatalogo(
+  userId: string,
+): Promise<import('./casos-contrato').ModuloOpcionCaso[]> {
+  return comoStaff(userId, async (sql) => {
+    const rows = await sql<{ id: string; nombre: string; programa: string }[]>`
+      select m.id, m.nombre, pr.nombre as programa
+      from lxp.modulos m
+      join lxp.programas pr on pr.id = m.programa_id
+      where pr.publicado
+      order by pr.nombre, m.orden`;
+    return rows.map((r) => ({ id: r.id, nombre: r.nombre, programa: r.programa }));
   });
 }
 

@@ -154,6 +154,7 @@ export async function guardarCaso(
     organo?: string;
     patologia?: string;
     dominio?: DominioIaim | null;
+    moduloId?: string | null;
     tecnica?: string;
     equipo?: string;
     vineta?: string;
@@ -195,6 +196,9 @@ export async function guardarCaso(
       } else {
         await sql`update lxp.casos_biblioteca set dominio_iaim = null where id = ${casoId}`;
       }
+    }
+    if (datos.moduloId !== undefined) {
+      await sql`update lxp.casos_biblioteca set modulo_id = ${datos.moduloId || null} where id = ${casoId}`;
     }
     if (datos.diagnostico !== undefined) {
       await sql`update lxp.casos_biblioteca set diagnostico_correcto = ${datos.diagnostico || null} where id = ${casoId}`;
