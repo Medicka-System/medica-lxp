@@ -18,6 +18,7 @@
  *       tsx src/seed.ts --clean  → solo limpia (deja la BD sin basura)
  */
 import { createSql, type Sql } from './client';
+import { PLANTILLAS_REALES } from './plantillas-reales';
 
 const SEED_EMAIL_DOMINIO = '@seed.local';
 
@@ -755,144 +756,9 @@ async function seed(sql: Sql): Promise<void> {
   console.log('✓ Seed mock cargado.');
 }
 
-/** Card de encabezado estándar: datos del paciente en grid de 3 (como el reporte). */
-function encabezadoPaciente() {
-  return {
-    id: 'enc',
-    tipo: 'encabezado',
-    titulo: 'Datos del estudio',
-    columnas: 3,
-    campos: [
-      { id: 'paciente', tipo: 'texto', nombre: 'Paciente' },
-      { id: 'edad', tipo: 'numero', nombre: 'Edad', span: 1 },
-      { id: 'sexo', tipo: 'opcion', nombre: 'Sexo', opciones: ['Masculino', 'Femenino'], span: 1 },
-      { id: 'expediente', tipo: 'texto', nombre: 'Expediente', span: 1, bloqueado: true },
-      { id: 'fechaEstudio', tipo: 'fecha', nombre: 'Fecha del estudio', span: 1 },
-      { id: 'solicitante', tipo: 'texto', nombre: 'Médico solicitante', span: 1 },
-      { id: 'equipo', tipo: 'texto', nombre: 'Equipo', span: 1 },
-      { id: 'motivo', tipo: 'texto', nombre: 'Motivo del estudio', span: 99 },
-    ],
-  };
-}
-
-/** Siembra plantillas de reporte reales (publicadas) que cubren todos los tipos de campo. */
+/** Siembra las plantillas de reporte REALES (Fase 2, convertidas) — publicadas. */
 async function seedPlantillasReporte(sql: Sql): Promise<void> {
-  const plantillas: { nombre: string; tipo: string; estructura: unknown }[] = [
-    {
-      nombre: 'Ultrasonido abdominal · informe estándar',
-      tipo: 'Abdominal',
-      estructura: {
-        secciones: [
-          encabezadoPaciente(),
-          {
-            id: 's_higado',
-            tipo: 'hallazgos',
-            titulo: 'Hígado y vía biliar',
-            columnas: 2,
-            campos: [
-              { id: 'c_guia_hig', tipo: 'guia', nombre: 'Describa tamaño, ecogenicidad y bordes. Mida el colédoco en su porción proximal.' },
-              { id: 'c_hig_txt', tipo: 'multitexto', nombre: 'Hallazgos del hígado', guia: 'Ecoestructura, tamaño y lesiones focales.' },
-              { id: 'c_coledoco', tipo: 'medida', nombre: 'Calibre del colédoco', unidad: 'mm', span: 1 },
-              { id: 'c_porta', tipo: 'medida', nombre: 'Calibre de vena porta', unidad: 'mm', span: 1 },
-              { id: 'c_vesicula', tipo: 'opcion', nombre: 'Vesícula biliar', opciones: ['normal', 'litiásica', 'colecistectomía'], span: 1 },
-            ],
-          },
-          {
-            id: 's_rinones',
-            tipo: 'hallazgos',
-            titulo: 'Riñones',
-            columnas: 2,
-            campos: [
-              { id: 'c_rd', tipo: 'medida', nombre: 'Longitud riñón derecho', unidad: 'cm', span: 1 },
-              { id: 'c_ri', tipo: 'medida', nombre: 'Longitud riñón izquierdo', unidad: 'cm', span: 1 },
-              { id: 'c_eco', tipo: 'opcion', nombre: 'Ecogenicidad cortical', opciones: ['normal', 'aumentada', 'disminuida'], guia: 'Compare contra el hígado.', span: 1 },
-              { id: 'c_dil', tipo: 'sino', nombre: 'Dilatación pielocalicial', span: 1 },
-              { id: 'c_rin_txt', tipo: 'multitexto', nombre: 'Comentarios' },
-            ],
-          },
-          {
-            id: 's_img',
-            tipo: 'hallazgos',
-            titulo: 'Imágenes del estudio',
-            columnas: 1,
-            campos: [{ id: 'c_galeria', tipo: 'galeria', nombre: 'Imágenes del estudio' }],
-          },
-        ],
-      },
-    },
-    {
-      nombre: 'Doppler renal bilateral',
-      tipo: 'Renal',
-      estructura: {
-        secciones: [
-          encabezadoPaciente(),
-          {
-            id: 's_medic',
-            tipo: 'hallazgos',
-            titulo: 'Mediciones Doppler',
-            columnas: 1,
-            campos: [
-              {
-                id: 'c_tabla',
-                tipo: 'tabla',
-                nombre: 'Índices por territorio',
-                columnas: ['PSV (cm/s)', 'EDV (cm/s)', 'IR'],
-                filas: ['Arteria renal derecha', 'Arteria renal izquierda', 'Interlobar derecha', 'Interlobar izquierda'],
-              },
-            ],
-          },
-          {
-            id: 's_hall',
-            tipo: 'hallazgos',
-            titulo: 'Hallazgos e interpretación',
-            columnas: 1,
-            campos: [
-              { id: 'c_guia_r', tipo: 'guia', nombre: 'Valore simetría de índices y morfología de onda.' },
-              { id: 'c_txt', tipo: 'multitexto', nombre: 'Descripción' },
-              { id: 'c_gal', tipo: 'galeria', nombre: 'Imágenes del estudio' },
-            ],
-          },
-        ],
-      },
-    },
-    {
-      nombre: 'Obstétrico · segundo trimestre',
-      tipo: 'Obstétrico',
-      estructura: {
-        secciones: [
-          encabezadoPaciente(),
-          {
-            id: 's_conf',
-            tipo: 'hallazgos',
-            titulo: 'Confiabilidad y técnica',
-            columnas: 3,
-            campos: [
-              { id: 'c_conf', tipo: 'sino', nombre: 'Estudio confiable', span: 1 },
-              { id: 'c_via', tipo: 'opcion', nombre: 'Vía', opciones: ['Abdominal', 'Vaginal'], span: 1 },
-              { id: 'c_vis', tipo: 'opcion', nombre: 'Visualización', opciones: ['Adecuada', 'Limitada'], span: 1 },
-            ],
-          },
-          {
-            id: 's_biom',
-            tipo: 'hallazgos',
-            titulo: 'Biometría fetal',
-            columnas: 1,
-            campos: [
-              {
-                id: 'c_biom',
-                tipo: 'tabla',
-                nombre: 'Biometría',
-                columnas: ['Medida (mm)', 'Percentil', 'Comentario'],
-                filas: ['DBP', 'CC', 'CA', 'LF'],
-              },
-              { id: 'c_obs_txt', tipo: 'multitexto', nombre: 'Anatomía y hallazgos' },
-              { id: 'c_obs_gal', tipo: 'galeria', nombre: 'Imágenes del estudio' },
-            ],
-          },
-        ],
-      },
-    },
-  ];
+  const plantillas = PLANTILLAS_REALES;
 
   for (const p of plantillas) {
     await sql`

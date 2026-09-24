@@ -47,18 +47,27 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
   try {
     const id = await comoAlumno(alumno.userId, async (sql) => {
       // La plantilla debe existir y estar publicada (RLS select ya lo restringe al alumno).
-      const [pl] = await sql<{ id: string }[]>`
-        select id from lxp.plantillas_reporte where id = ${plantillaId} and publicado limit 1`;
+      const [pl] = await sql<{ id: string; estructura: unknown }[]>`
+        select id, estructura from lxp.plantillas_reporte where id = ${plantillaId} and publicado limit 1`;
       if (!pl) throw new Error('plantilla no disponible');
 
       const [{ n }] = await sql<{ n: number }[]>`
         select count(*)::int as n from lxp.reportes where id_medico = ${alumno.userId}`;
       const folio = `RPT-${String(n + 1).padStart(4, '0')}`;
+
+      // Boilerplate de la plantilla (Familia A · Fase 2): precarga los campos con su texto
+      // predeterminado (los `xx` intactos que el médico rellena) + la impresión sugerida.
+      const { normalizarEstructura, inicialesDesde } = await import('@/lib/reportes/estructura');
+      const estructura = normalizarEstructura(pl.estructura);
+      const iniciales = inicialesDesde(estructura);
+
       const contenido = contenidoVacio(folio, plantillaId);
+      contenido.valores = iniciales.valores;
+      contenido.impresion = estructura.impresionDefecto ?? '';
 
       // Encabezado autollenado: expediente ÚNICO + médico solicitante = usuario logueado.
       const expediente = await expedienteUnico(sql);
-      const datosPaciente = { expediente, solicitante: alumno.nombre ?? '' };
+      const datosPaciente = { ...iniciales.datosPaciente, expediente, solicitante: alumno.nombre ?? '' };
 
       const [row] = await sql<{ id: string }[]>`
         insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)

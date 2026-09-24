@@ -60,6 +60,12 @@ export type CampoPlantilla = {
   filas?: string[];
   /** Campo de solo lectura autollenado (ej. expediente): visible pero no editable. */
   bloqueado?: boolean;
+  /**
+   * Contenido PREDETERMINADO del campo (texto/multitexto): el boilerplate clínico que
+   * trae la plantilla (Familia A · Fase 2) con los `xx`/`___` intactos. Se copia a
+   * `contenido.valores` al crear el reporte; el médico lo edita y rellena.
+   */
+  valorDefecto?: string;
 };
 
 export type SeccionPlantilla = {
@@ -73,6 +79,8 @@ export type SeccionPlantilla = {
 
 export type EstructuraPlantilla = {
   secciones: SeccionPlantilla[];
+  /** Texto predeterminado de la card fija "Impresión diagnóstica" (boilerplate · Fase 2). */
+  impresionDefecto?: string;
 };
 
 export const TIPOS_CAMPO: TipoCampo[] = [
@@ -266,6 +274,7 @@ function normalizarCampo(raw: unknown, i: number): CampoPlantilla | null {
   if (txt(o.guia)) c.guia = txt(o.guia);
   if (num(o.span) !== undefined) c.span = num(o.span);
   if (o.bloqueado === true) c.bloqueado = true;
+  if (typeof o.valorDefecto === 'string' && o.valorDefecto) c.valorDefecto = o.valorDefecto;
   if (o.tipo === 'medida' && txt(o.unidad)) c.unidad = txt(o.unidad);
   if (o.tipo === 'opcion') c.opciones = listaTxt(o.opciones).filter(Boolean);
   if (o.tipo === 'imagen') {
@@ -297,7 +306,30 @@ export function normalizarEstructura(raw: unknown): EstructuraPlantilla {
   const secciones = Array.isArray(o.secciones)
     ? o.secciones.map((s, i) => normalizarSeccion(s, i)).filter((s): s is SeccionPlantilla => s !== null)
     : [];
-  return { secciones };
+  const est: EstructuraPlantilla = { secciones };
+  if (typeof o.impresionDefecto === 'string' && o.impresionDefecto) est.impresionDefecto = o.impresionDefecto;
+  return est;
+}
+
+/**
+ * Valores INICIALES de un reporte recién creado a partir de la plantilla: copia el
+ * `valorDefecto` de cada campo (Familia A · boilerplate). Los campos del encabezado van a
+ * `datos_paciente`; los de hallazgos a `valores`.
+ */
+export function inicialesDesde(estructura: EstructuraPlantilla): {
+  valores: Record<string, unknown>;
+  datosPaciente: Record<string, string>;
+} {
+  const valores: Record<string, unknown> = {};
+  const datosPaciente: Record<string, string> = {};
+  for (const s of estructura.secciones) {
+    for (const c of s.campos) {
+      if (typeof c.valorDefecto !== 'string' || c.valorDefecto === '') continue;
+      if (s.tipo === 'encabezado') datosPaciente[c.id] = c.valorDefecto;
+      else valores[c.id] = c.valorDefecto;
+    }
+  }
+  return { valores, datosPaciente };
 }
 
 /* ───────────────────── Valores del reporte (instancia del médico) ───────────────────── */

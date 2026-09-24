@@ -62,6 +62,7 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
     const base = plantilla.estructura.secciones;
     return base.some((s) => s.tipo === 'encabezado') ? base : [seccionEncabezadoPorDefecto(), ...base];
   });
+  const [impresionDefecto, setImpresionDefecto] = useState(plantilla.estructura.impresionDefecto ?? '');
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pendiente, iniciar] = useTransition();
 
@@ -95,7 +96,7 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
 
   function onGuardar() {
     setMensaje(null);
-    const estructura: EstructuraPlantilla = { secciones };
+    const estructura: EstructuraPlantilla = { secciones, ...(impresionDefecto.trim() ? { impresionDefecto } : {}) };
     iniciar(async () => {
       const res = await guardarEstructuraPlantilla(plantilla.id, { nombre, tipoEstudio, estructura });
       if (res.ok) {
@@ -213,8 +214,15 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
         <section className="rounded-xl border border-dashed border-border bg-muted/40 p-5">
           <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
           <p className={`mt-1.5 text-[12.5px] ${softText}`}>
-            Card fija: siempre aparece al final del reporte para la conclusión del médico.
+            Card fija al final del reporte. Opcional: texto predeterminado que el médico edita.
           </p>
+          <textarea
+            value={impresionDefecto}
+            onChange={(e) => setImpresionDefecto(e.target.value)}
+            rows={2}
+            placeholder="Impresión sugerida por defecto (ej. Se sugiere correlación clínica)…"
+            className={`${inputCls} mt-2 h-auto resize-y bg-card py-2 leading-relaxed`}
+          />
         </section>
       </div>
     </div>
@@ -458,9 +466,25 @@ function CampoConstructor({
             {campo.tipo === 'tabla' ? (
               <TablaBuilder campo={campo} onCambio={onCambio} />
             ) : (
-              <CampoReporte campo={campo} valor="" modo="previa" ocultarEtiqueta />
+              <CampoReporte campo={campo} valor={campo.valorDefecto ?? ''} modo="previa" ocultarEtiqueta />
             )}
           </div>
+
+          {/* contenido predeterminado (boilerplate que el médico rellena) */}
+          {(campo.tipo === 'texto' || campo.tipo === 'multitexto') && (
+            <label className="mt-2 block">
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                Contenido predeterminado (boilerplate · el médico lo edita)
+              </span>
+              <textarea
+                value={campo.valorDefecto ?? ''}
+                onChange={(e) => onCambio({ valorDefecto: e.target.value })}
+                rows={campo.tipo === 'multitexto' ? 3 : 1}
+                placeholder="Texto que trae el reporte por defecto (deja los xx / ___ para que el médico los rellene)"
+                className={`${inputCls} mt-1 h-auto resize-y py-2 leading-relaxed`}
+              />
+            </label>
+          )}
 
           {/* guía opcional */}
           <input
