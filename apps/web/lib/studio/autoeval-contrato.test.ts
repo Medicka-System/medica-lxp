@@ -60,7 +60,9 @@ describe('normalizarReactivo', () => {
 
   it('limpia imagen vacía a undefined y conserva una URL', () => {
     expect(normalizarReactivo({ enunciado: 'x', imagen: '   ' })!.imagen).toBeUndefined();
-    expect(normalizarReactivo({ enunciado: 'x', imagen: ' http://a/b.png ' })!.imagen).toBe(
+    // `imagen` se normaliza al objeto ImagenReactivo ({ url, pie, anotaciones }): la URL
+    // (recortada) vive en `.url`. Antes el reactivo guardaba un string plano.
+    expect(normalizarReactivo({ enunciado: 'x', imagen: ' http://a/b.png ' })!.imagen?.url).toBe(
       'http://a/b.png',
     );
   });
