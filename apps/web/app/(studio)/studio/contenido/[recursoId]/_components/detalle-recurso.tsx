@@ -48,7 +48,17 @@ const ICONO: Record<TipoRecurso, typeof Play> = {
   imagen: ImageIcon,
 };
 
-export function DetalleRecurso({ recurso }: { recurso: RecursoDetalle }) {
+export function DetalleRecurso({
+  recurso,
+  rutaBase = '/studio/contenido',
+  soloLectura = false,
+}: {
+  recurso: RecursoDetalle;
+  /** Base de "Volver": /studio/contenido (diseñador) o /docente/recursos (docente). */
+  rutaBase?: string;
+  /** El docente consulta; eliminar/reemplazar son del diseñador → se ocultan. */
+  soloLectura?: boolean;
+}) {
   const { id, nombre, tipo, duracion, reproduccion, metadatos, etiquetas, usos, versiones } = recurso;
   const router = useRouter();
   const [dialogo, setDialogo] = useState<null | 'reemplazar' | 'eliminar'>(null);
@@ -60,30 +70,32 @@ export function DetalleRecurso({ recurso }: { recurso: RecursoDetalle }) {
     <div className="mx-auto w-full max-w-[1240px] px-8 pb-10 pt-7">
       <div className="flex flex-wrap items-center gap-3">
         <Link
-          href="/studio/contenido"
+          href={rutaBase}
           className={`inline-flex h-10 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
         >
           <ChevronLeft aria-hidden className="h-4 w-4" strokeWidth={2} />
           Volver a Contenido
         </Link>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setDialogo('eliminar')}
-            className={`inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-muted-foreground transition-colors hover:border-[color:var(--destructive-border)] hover:bg-[color:var(--destructive-surface)] hover:text-destructive ${focusRing}`}
-          >
-            <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-            Eliminar
-          </button>
-          <button
-            type="button"
-            onClick={() => setDialogo('reemplazar')}
-            className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
-          >
-            <Repeat2 aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
-            Reemplazar archivo
-          </button>
-        </div>
+        {!soloLectura && (
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setDialogo('eliminar')}
+              className={`inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-muted-foreground transition-colors hover:border-[color:var(--destructive-border)] hover:bg-[color:var(--destructive-surface)] hover:text-destructive ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Eliminar
+            </button>
+            <button
+              type="button"
+              onClick={() => setDialogo('reemplazar')}
+              className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+            >
+              <Repeat2 aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+              Reemplazar archivo
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">

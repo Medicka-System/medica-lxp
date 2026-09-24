@@ -37,7 +37,14 @@ function ChipEstado({ estado }: { estado: EstadoCaso }) {
   );
 }
 
-export function CasosBanco({ casos }: { casos: CasoResumen[] }) {
+export function CasosBanco({
+  casos,
+  rutaBase = '/studio/casos',
+}: {
+  casos: CasoResumen[];
+  /** Base de navegación: /studio/casos (diseñador) o /docente/biblioteca (docente curador). */
+  rutaBase?: string;
+}) {
   const router = useRouter();
   const [bandeja, setBandeja] = useState<Bandeja>('por-curar');
   const [busca, setBusca] = useState('');
@@ -87,7 +94,7 @@ export function CasosBanco({ casos }: { casos: CasoResumen[] }) {
         </div>
         <button
           type="button"
-          onClick={() => iniciar(() => crearCaso())}
+          onClick={() => iniciar(() => crearCaso(rutaBase))}
           disabled={creando}
           className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
         >
@@ -216,7 +223,7 @@ export function CasosBanco({ casos }: { casos: CasoResumen[] }) {
                   >
                     <button
                       type="button"
-                      onClick={() => router.push(`/studio/casos/${c.id}`)}
+                      onClick={() => router.push(`${rutaBase}/${c.id}`)}
                       aria-label={`Abrir ${c.titulo}`}
                       className={`relative grid w-full place-items-center ${focusRing}`}
                       style={{ aspectRatio: '4 / 3', background: 'var(--sidebar)' }}
