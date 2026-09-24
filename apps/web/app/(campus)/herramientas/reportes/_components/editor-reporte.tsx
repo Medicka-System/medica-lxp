@@ -328,6 +328,7 @@ export function EditorReporte({
               onValor={setValor}
               onPicker={setPickerCampo}
               renderVisorDicom={renderVisorDicom}
+              reporteId={reporte.id}
             />
           ))}
 
@@ -431,12 +432,14 @@ function SeccionCard({
   onValor,
   onPicker,
   renderVisorDicom,
+  reporteId,
 }: {
   seccion: SeccionPlantilla;
   valores: Record<string, unknown>;
   onValor: (campoId: string, v: unknown) => void;
   onPicker: (campoId: string) => void;
   renderVisorDicom: (ref: RefDicom) => React.ReactNode;
+  reporteId: string;
 }) {
   return (
     <section className={`${card} p-5`}>
@@ -452,6 +455,7 @@ function SeccionCard({
               onElegirEstudio={() => onPicker(c.id)}
               onQuitarEstudio={() => onValor(c.id, null)}
               renderVisorDicom={renderVisorDicom}
+              reporteId={reporteId}
             />
           </div>
         ))}

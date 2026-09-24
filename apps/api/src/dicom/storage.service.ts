@@ -37,6 +37,18 @@ export class StorageService {
     return `dicom/casos/${casoId}/${indice}.${limpio}`;
   }
 
+  /** Clave del binario CRUDO (con PII posible) de una imagen de reporte mientras se redacta. */
+  claveReporteCrudo(reporteId: string, id: string, ext: string): string {
+    const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
+    return `reportes/crudo/${reporteId}/${id}.${e}`;
+  }
+
+  /** Clave de la imagen REDACTADA (§10) de la galería del reporte (la que ve/imprime el médico). */
+  claveReporteImagen(reporteId: string, id: string, ext: string): string {
+    const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
+    return `reportes/imagenes/${reporteId}/${id}.${e}`;
+  }
+
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {
     return presignS3({
       metodo,

@@ -30,6 +30,7 @@ export type TipoCampo =
   | 'sino' // checkbox / sí-no
   | 'opcion' // selección de una lista
   | 'imagen' // referencia fija | hueco DICOM
+  | 'galeria' // galería: el médico sube VARIAS imágenes (grid 2 col, reordenables)
   | 'guia' // texto de ayuda/instrucciones (no editable, no sale en el informe)
   | 'titulo'; // subtítulo dentro de la card
 
@@ -84,6 +85,7 @@ export const TIPOS_CAMPO: TipoCampo[] = [
   'sino',
   'opcion',
   'imagen',
+  'galeria',
   'guia',
   'titulo',
 ];
@@ -101,6 +103,7 @@ export const ETIQUETA_TIPO: Record<TipoCampo, string> = {
   sino: 'Sí / No',
   opcion: 'Opción',
   imagen: 'Imagen',
+  galeria: 'Galería',
   guia: 'Guía',
   titulo: 'Título',
 };
@@ -161,6 +164,8 @@ export function formatoCampo(c: CampoPlantilla): string {
       return (c.opciones ?? []).filter(Boolean).join(' / ') || 'sin opciones';
     case 'imagen':
       return c.origen === 'referencia' ? 'imagen de referencia (fija)' : 'imagen del estudio (DICOM)';
+    case 'galeria':
+      return 'galería · el médico sube varias imágenes';
     case 'guia':
       return 'guía de la plantilla';
     case 'titulo':
@@ -225,6 +230,9 @@ export function campoNuevo(tipo: TipoCampo): CampoPlantilla {
     case 'tabla':
       base.columnas = ['Longitudinal', 'AP', 'Transverso'];
       base.filas = ['Derecho', 'Izquierdo'];
+      break;
+    case 'galeria':
+      base.nombre = 'Imágenes del estudio';
       break;
     case 'guia':
       base.nombre = 'Aquí van los campos y sugerencias de esta sección.';
@@ -300,6 +308,25 @@ export type RefDicom = { casoId: string; tabla: 'bitacora_casos' | 'casos_biblio
 /** Valor de una `tabla`: matriz filas × columnas de texto. */
 export type ValorTabla = string[][];
 
+/** Una imagen de una `galeria`: ref en object storage (redactada · §10) + pie opcional. */
+export type ImagenGaleria = { ref: string; ext: string; pie?: string };
+
+/** Lee el valor de una `galeria`: lista ordenada de imágenes. */
+export function leerGaleria(v: unknown): ImagenGaleria[] {
+  const arr = Array.isArray(v) ? v : v && typeof v === 'object' ? (v as { imagenes?: unknown }).imagenes : null;
+  if (!Array.isArray(arr)) return [];
+  const salida: ImagenGaleria[] = [];
+  for (const x of arr) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    if (typeof o.ref !== 'string' || !o.ref) continue;
+    const item: ImagenGaleria = { ref: o.ref, ext: typeof o.ext === 'string' ? o.ext : 'jpg' };
+    if (typeof o.pie === 'string') item.pie = o.pie;
+    salida.push(item);
+  }
+  return salida;
+}
+
 /**
  * Valores que el médico captura, indexados por `campo.id`. El tipo real lo dicta el `tipo`
  * del campo; se guarda laxo y se lee con los helpers de abajo (persiste en
@@ -349,6 +376,8 @@ export function campoCompleto(campo: CampoPlantilla, valor: unknown): boolean {
       return Array.isArray(valor) && valor.some((f) => Array.isArray(f) && f.some((x) => leerTexto(x).trim() !== ''));
     case 'imagen':
       return campo.origen === 'referencia' ? true : leerRefDicom(valor) !== null;
+    case 'galeria':
+      return leerGaleria(valor).length > 0;
     case 'guia':
     case 'titulo':
       return true;

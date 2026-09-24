@@ -17,6 +17,7 @@
 import type { ReactNode } from 'react';
 import { Images, ImageOff, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
+import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
 import {
   esCampoEstatico,
   leerBool,
@@ -24,6 +25,7 @@ import {
   leerTabla,
   leerTexto,
   type CampoPlantilla,
+  type ImagenGaleria,
   type RefDicom,
 } from '@/lib/reportes/estructura';
 
@@ -34,7 +36,7 @@ const inputBase =
 
 /** Clase de col-span del campo dentro del grid de la sección. */
 export function claseSpan(campo: CampoPlantilla, columnas: number): string {
-  const bloque = ['multitexto', 'tabla', 'imagen', 'guia', 'titulo'].includes(campo.tipo);
+  const bloque = ['multitexto', 'tabla', 'imagen', 'galeria', 'guia', 'titulo'].includes(campo.tipo);
   const span = campo.span ?? 1;
   if (bloque || span >= columnas || span >= 4) return 'col-span-full';
   if (span >= 3) return 'lg:col-span-3';
@@ -51,6 +53,7 @@ export function CampoReporte({
   onQuitarEstudio,
   renderVisorDicom,
   ocultarEtiqueta = false,
+  reporteId,
 }: {
   campo: CampoPlantilla;
   valor: unknown;
@@ -63,6 +66,8 @@ export function CampoReporte({
   renderVisorDicom?: (ref: RefDicom) => ReactNode;
   /** El constructor pone su propia etiqueta editable en línea → oculta la del control. */
   ocultarEtiqueta?: boolean;
+  /** `galeria`, modo llenar: id del reporte para anclar y firmar las subidas. */
+  reporteId?: string;
 }) {
   const deshabilitado = modo === 'previa';
   const cambia = (v: unknown) => onCambio?.(v);
@@ -216,6 +221,17 @@ export function CampoReporte({
           renderVisorDicom={renderVisorDicom}
         />
       )}
+
+      {campo.tipo === 'galeria' &&
+        (modo === 'llenar' && reporteId ? (
+          <GaleriaReporte
+            reporteId={reporteId}
+            valor={valor}
+            onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)}
+          />
+        ) : (
+          <GaleriaPlaceholder />
+        ))}
 
       {ayuda && !esCampoEstatico(campo.tipo) && (
         <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">{ayuda}</span>
