@@ -809,12 +809,12 @@ function RejillaCargando() {
   return (
     <div className="min-w-0 flex-1 overflow-y-auto bg-background">
       <div className="h-[128px] animate-pulse bg-sidebar/90" />
-      <div className="px-7 pb-7 pt-5">
+      <div className="max-w-[838px] px-7 pb-7 pt-5">
         <div className="h-9 w-64 animate-pulse rounded-full bg-muted" />
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="overflow-hidden rounded-[14px] border border-border bg-card">
-              <div className="aspect-[4/3] animate-pulse bg-muted" />
+              <div className="aspect-[755/570] animate-pulse bg-muted" />
               <div className="space-y-2 p-[15px]">
                 <div className="h-4 w-24 animate-pulse rounded-full bg-muted" />
                 <div className="h-4 w-40 animate-pulse rounded bg-muted" />

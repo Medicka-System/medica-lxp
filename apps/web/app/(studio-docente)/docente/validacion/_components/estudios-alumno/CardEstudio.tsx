@@ -37,7 +37,7 @@ export function CardEstudio({ estudio, onAbrir }: { estudio: EstudioAlumno; onAb
 
   return (
     <article
-      className={`flex flex-col overflow-hidden rounded-[14px] border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)] transition-[border-color,box-shadow] hover:border-primary hover:shadow-[0_8px_24px_rgba(15,45,82,0.10)] ${
+      className={`flex w-full flex-col overflow-hidden rounded-[14px] border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)] transition-[border-color,box-shadow] hover:border-primary hover:shadow-[0_8px_24px_rgba(15,45,82,0.10)] ${
         urgente ? "border-[color:var(--warning-border)]" : "border-border"
       }`}
     >

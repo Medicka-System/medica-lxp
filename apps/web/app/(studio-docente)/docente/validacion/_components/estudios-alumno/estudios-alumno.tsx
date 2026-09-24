@@ -78,11 +78,14 @@ export function EstudiosAlumno({ alumno, estudios, onAbrirEstudio, onEnviarConsu
         onBitacora={() => onVerBitacora(alumno.id)}
       />
 
-      <div className="px-7 pb-7 pt-5">
+      {/* Zona de contenido ~780px de área útil (grid) beside la bandeja izq: 3 columnas de ~250px
+          + gap 16 = 782 grid, + px-7 (28×2) = 838. Cap left-aligned para que las cards no se inflen
+          al ancho completo del panel principal (§ spec Claude Design · card de estudio). */}
+      <div className="max-w-[838px] px-7 pb-7 pt-5">
         <FiltrosEstudios estudios={estudios} filtro={filtro} orden={orden} onFiltro={setFiltro} onOrden={setOrden} />
 
         {visibles.length ? (
-          <ul className="mt-4 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="mt-4 grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
             {visibles.map((e) => (
               <li key={e.id} className="flex">
                 <div className="flex w-full">

@@ -30,7 +30,8 @@ export function MiniaturaEstudio({
   titulo: string;
   onAbrir: (id: string) => void;
 }) {
-  // Proporción por defecto (4/3) mientras se mide la real, para no saltar el layout.
+  // Proporción por defecto 755/570 (≈1.32:1, la nativa del estudio) mientras se mide la real
+  // desde la metadata DICOM, para no saltar el layout (§ spec Claude Design · card de estudio).
   const [estado, setEstado] = useState<Estado>({ fase: 'cargando' });
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function MiniaturaEstudio({
     };
   }, [casoId]);
 
-  const aspecto = estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '4 / 3';
+  const aspecto = estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '755 / 570';
 
   return (
     <button
