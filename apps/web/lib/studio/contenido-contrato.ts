@@ -6,7 +6,7 @@
  * El acervo: un recurso se sube UNA vez y N lecciones lo REFERENCIAN (no lo copian),
  * con "dónde se usa" real y versionado del archivo. Ya construido:
  *
- * ── DB (mig 0040 · lxp.recursos) ──
+ * ── DB (mig 0041 · lxp.recursos) ──
  *   tipo (enum recurso_tipo: video|h5p|scorm|xapi|pdf|word|ppt|imagen), nombre,
  *   storage_key, meta jsonb, reproduccion, etiquetas text[], version, procesando,
  *   progreso, created_by. RLS: select authenticated · write lxp.es_autoria().

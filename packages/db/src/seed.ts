@@ -244,7 +244,7 @@ async function seed(sql: Sql): Promise<void> {
         descripcion: 'Guía externa de POCUS para ampliar.',
       })})`;
 
-  // ── BIBLIOTECA DE CONTENIDO (mig 0040) — acervo reutilizable ────────────
+  // ── BIBLIOTECA DE CONTENIDO (mig 0041) — acervo reutilizable ────────────
   // Recursos que se suben UNA vez y las lecciones REFERENCIAN. Uno de cada tipo para
   // probar las pestañas del Studio; `created_by` = diseñador (autoría · §5B). Dos de
   // ellos se referencian desde bloques de la lección de teoría de arriba → "dónde se

@@ -1,5 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0040 · BIBLIOTECA DE CONTENIDO reutilizable (lxp.recursos · §5B/§5C)
+-- 0041 · BIBLIOTECA DE CONTENIDO reutilizable (lxp.recursos · §5B/§5C)
+-- (numerada 0041 para no chocar con la 0040 de la rama casos-funcional)
 --
 -- El acervo de recursos que se suben UNA vez y N lecciones REFERENCIAN (no copian):
 -- video, H5P, SCORM, xAPI, PDF, Word, PowerPoint, imagen. DICOM y casos clínicos NO
@@ -64,7 +65,7 @@ create trigger recursos_touch
   for each row execute function lxp.touch_updated_at();
 
 comment on table lxp.recursos is
-  'Biblioteca de Contenido reutilizable (§5B · mig 0040): un recurso se sube una vez y '
+  'Biblioteca de Contenido reutilizable (§5B · mig 0041): un recurso se sube una vez y '
   'las lecciones lo REFERENCIAN (lxp.bloques.config.recursoId), no lo copian. DICOM/casos '
   'clínicos NO van aquí (viven en Casos).';
 

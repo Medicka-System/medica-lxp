@@ -464,7 +464,7 @@ async function main(): Promise<void> {
       await sql`delete from lxp.anotaciones_dicom where id in (${ANOT_A1}::uuid, ${ANOT_BIB}::uuid)`;
     }
 
-    // ── BIBLIOTECA DE CONTENIDO (mig 0040): lectura authenticated, escritura autoría ──
+    // ── BIBLIOTECA DE CONTENIDO (mig 0041): lectura authenticated, escritura autoría ──
     // El alumno LEE recursos (para renderizar el que la lección referencia) pero NO
     // sube/edita (eso es es_autoria · diseñador/admin). anon no lee nada.
     check(
