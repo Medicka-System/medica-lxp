@@ -518,10 +518,10 @@ const JOINS_CONSULTA = (sql: Parameters<Parameters<typeof comoStaff>[1]>[0]) => 
   ) lm on true
   left join lxp.lecciones lec on lec.id = q.origen_leccion_id
   left join lxp.modulos mo on mo.id = lec.modulo_id
+  -- Grupo = cohorte REAL de inscripción (CORA · mig 0036), leída con la función puente
+  -- SECURITY DEFINER (keyea por el param, no auth.uid()); robusta aunque no tenga casos.
   left join lateral (
-    select g.nombre from lxp.bitacora_casos bc join lxp.grupos g on g.id = bc.grupo_id
-    where bc.id_alumno = q.id_alumno and bc.grupo_id is not null
-    order by bc.created_at desc limit 1
+    select cg.nombre from lxp.cora_grupos_de(q.id_alumno) cg order by cg.nombre limit 1
   ) gr on true`;
 
 /** Bandeja del docente (columna 1): consultas dirigidas a él (alumnos + staff · §5B). */
