@@ -45,12 +45,15 @@ describe('tipos-bloque · registro del editor de teoría', () => {
     expect(configInicial('html')).toEqual({ html: '' });
     expect(configInicial('imagen')).toEqual({ src: '', alt: '', pie: '' });
     expect(configInicial('galeria')).toEqual({ imagenes: [] });
-    expect(configInicial('video')).toEqual({ src: '', poster: '', titulo: '', hitos: [] });
+    // Video usa el contrato de fuente compartido con la lección (subir/enlace + hitos);
+    // `src`/`poster` ya no forman parte del cuerpo inicial (son compat de bloques viejos).
+    expect(configInicial('video')).toEqual({ titulo: '', hitos: [] });
     expect(configInicial('link')).toEqual({ url: '', titulo: '', descripcion: '' });
     expect(configInicial('pdf')).toEqual({ src: '', titulo: '' });
     expect(configInicial('caso')).toEqual({ casoId: '', titulo: '' });
     expect(configInicial('h5p')).toEqual({ contentId: '', titulo: '' });
-    expect(configInicial('xapi')).toEqual({ paqueteId: '', titulo: '' });
+    // xAPI arranca solo con título; la fuente (contenidoId por ingesta o url por enlace) se fija después.
+    expect(configInicial('xapi')).toEqual({ titulo: '' });
   });
 
   it('configInicial devuelve objetos nuevos (sin estado compartido entre bloques)', () => {

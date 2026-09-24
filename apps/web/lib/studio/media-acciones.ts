@@ -98,6 +98,53 @@ export async function urlReproduccionVideo(
   }
 }
 
+/* ─────────────────────────── Imágenes de contenido (§5C) ─────────────────────────── */
+
+export type SubidaImagen = { id: string; ext: string; ref: string; urlSubida: string; urlLectura: string };
+
+/**
+ * Firma la subida DIRECTA de una imagen de bloque a object storage (el navegador la sube
+ * tal cual). Es CONTENIDO educativo (diagramas/ilustraciones) → NO pasa por el redactor
+ * Presidio; la anonimización (§10) vive solo en los flujos de paciente
+ * (bitácora/biblioteca/reportes). Devuelve la ref final + su URL de lectura.
+ */
+export async function firmarSubidaImagenContenido(ext: string): Promise<ResultadoVideo<SubidaImagen>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `El servicio de imágenes rechazó la solicitud (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as SubidaImagen };
+  } catch (e) {
+    console.error('[firmarSubidaImagenContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio de imágenes (apps/api).' };
+  }
+}
+
+/** Firma la lectura de imágenes de contenido (preview del Studio). */
+export async function firmarLecturaImagenContenido(
+  refs: string[],
+): Promise<ResultadoVideo<{ urls: Record<string, string> }>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-lectura`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refs }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo firmar la lectura (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as { urls: Record<string, string> } };
+  } catch (e) {
+    console.error('[firmarLecturaImagenContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo firmar la lectura de imágenes (apps/api).' };
+  }
+}
+
 export type IngestaPaquete = {
   contenidoId: string;
   tipo: string;

@@ -203,7 +203,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
       <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
@@ -355,7 +355,10 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
         </aside>
 
         {/* ════════ Lienzo: la lección y sus bloques ════════ */}
-        <div className="min-w-0 flex-1 overflow-y-auto px-7 py-6">
+        {/* `relative`: es el bloque contenedor de los absolutos internos (p.ej. los
+            <input class="sr-only"> de las zonas de subida). Sin esto se anclan al <html>
+            y estiran el documento → segundo scrollbar de ventana + espacio muerto. */}
+        <div className="relative min-w-0 flex-1 overflow-y-auto px-7 py-6">
           {leccion && modulo ? (
             <>
               <p className={`${kicker} text-secondary`}>
@@ -463,11 +466,11 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
 
           <div className="mt-4 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] p-3">
             <p className="text-[11.5px] font-bold text-[color:var(--info-foreground)]">
-              Versionado — pendiente de API
+              Diff y aviso a docentes — próximamente
             </p>
             <p className="mt-1 text-[11.5px] leading-relaxed text-[color:var(--info-foreground)]">
-              El snapshot de versión, el diff de cambios sin publicar y el aviso a los docentes se
-              resuelven en el dominio (apps/api). Aquí se alterna la visibilidad.
+              Al publicar se congela el snapshot de la versión y queda en el historial. Falta el diff de
+              “cambios sin publicar” y el aviso automático a los docentes cuando cambia una versión.
             </p>
           </div>
 

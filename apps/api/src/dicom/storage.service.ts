@@ -49,6 +49,12 @@ export class StorageService {
     return `reportes/imagenes/${reporteId}/${id}.${e}`;
   }
 
+  /** Clave de una imagen de CONTENIDO de teoría (educativa, sin PII); se lee con URL firmada. */
+  claveImagenContenido(id: string, ext: string): string {
+    const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
+    return `media/imagenes/${id}.${e}`;
+  }
+
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {
     return presignS3({
       metodo,
