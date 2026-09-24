@@ -66,6 +66,29 @@ export type HitoVideo = {
   nota?: string;
 };
 
+/**
+ * FUENTE de un video autorada por el diseñador (§5C · Sprint 6). Es el contrato COMPARTIDO
+ * entre la LECCIÓN tipo video (`lecciones.config`) y el BLOQUE de video dentro de teoría
+ * (`lxp.bloques.config`) — así ambos guardan la misma forma y el mismo editor de autoría
+ * (`EditorVideoAutoria`) sirve a los dos, garantizando que se vean y funcionen IDÉNTICO.
+ *
+ * Dos vías excluyentes de fuente:
+ *   · `videotecaId` — video SUBIDO al object storage (se firma la lectura para reproducir).
+ *   · `url`         — ENLACE directo (YouTube / Stream / CDN); se reproduce tal cual.
+ */
+export type FuenteVideoConfig = {
+  /** Video subido a la videoteca (alterna con `url`). */
+  videotecaId?: string;
+  /** Enlace directo (YouTube / Stream / CDN; alterna con `videotecaId`). */
+  url?: string;
+  /** Clave del recurso en storage (bookkeeping del servicio de media). */
+  recursoRef?: string;
+  estado?: 'procesando' | 'listo';
+  duracionSeg?: number;
+  hitos?: HitoVideo[];
+  transcripcion?: CueTranscripcion[];
+};
+
 /** Punto interactivo (hotspot) sobre una imagen o frame de video. */
 export type Hotspot = {
   id: string;
