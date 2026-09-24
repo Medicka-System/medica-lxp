@@ -159,6 +159,124 @@ export type EntregaRevision = {
   eco: PropuestaEcoResumen | null;
 };
 
+// ── Vista de Entregas (bandeja fiel al mock · §5B) ───────────────────────────────
+/**
+ * Contrato de la pantalla `/docente/entregas` reconstruida fiel al mock aprobado
+ * (`campus-lxp-mocks/studio/docente/entregas`). A diferencia de `EntregaRevision`
+ * (lista plana), aquí la vista se organiza por GRUPO × ACTIVIDAD: la lección de tipo
+ * `tarea`/`autoevaluacion` es la "actividad". Todo esto se LEE de BD real (RLS
+ * `es_staff` / roster de CORA); las superficies de Eco (pre-análisis, chat, lote) son
+ * PLACEHOLDER — no hay pipeline conectado aquí (§7A · se enchufa al final).
+ *
+ * Estado de la fila en la bandeja (vocabulario del mock + `calificada` para tareas ya
+ * asentadas, que el mock no cubría explícitamente):
+ *   · `auto`             → autoevaluación (la califica el sistema al enviarse).
+ *   · `requiere-lectura` → tarea abierta sin calificar (espera al docente · ÁMBAR).
+ *   · `sugerida`         → tarea con nota sugerida por Eco (PLACEHOLDER · VIOLETA).
+ *   · `calificada`       → tarea ya asentada por el docente.
+ *   · `sin-entregar`     → alumno del roster sin entrega (bloque aparte).
+ */
+export type EstadoVistaEntrega =
+  | 'auto'
+  | 'sugerida'
+  | 'requiere-lectura'
+  | 'calificada'
+  | 'sin-entregar';
+
+/** Tipo de entrega en la vista: la `tarea` del dominio se muestra como "abierta". */
+export type TipoVistaEntrega = 'abierta' | 'autoevaluacion';
+
+/** Alumno mínimo para avatar + nombre (roster o autor de la entrega). */
+export type AlumnoRef = { id: string; ini: string; nombre: string };
+
+/** Referencia a la actividad (lección `tarea`/`autoevaluacion`) del selector. */
+export type ActividadRef = {
+  /** `leccion_id` — ancla de la vista. */
+  id: string;
+  /** Clave corta tipo `M02 · L3` (orden de módulo · orden de lección). */
+  clave: string;
+  titulo: string;
+  tipo: TipoVistaEntrega;
+  /** Consigna (lineamientos de la tarea, texto plano); null en autoevaluación. */
+  consigna: string | null;
+};
+
+/** Un criterio de la rúbrica del catálogo, tal como se muestra en el detalle. */
+export type CriterioRubricaVista = {
+  id: string;
+  texto: string;
+  /** Peso en % (0–100). */
+  peso: number;
+  descripcion: string | null;
+};
+
+/**
+ * Pre-análisis de Eco — PLACEHOLDER. La estructura y el espacio están listos; los
+ * datos son de EJEMPLO y no provienen de ningún pipeline. Se enchufa al final (§7A).
+ */
+export type PreAnalisisEcoPlaceholder = {
+  notaSugerida: number;
+  confianza: 'alta' | 'media' | 'baja';
+  sustento: { clase: 'ok' | 'falta'; texto: string }[];
+  comentario: string;
+  /** Marca explícita: estos datos NO son reales. */
+  esPlaceholder: true;
+};
+
+/** Una entrega en la bandeja de la vista (datos reales de `lxp.entregas`). */
+export type EntregaVista = {
+  id: string;
+  alumno: AlumnoRef;
+  tipo: TipoVistaEntrega;
+  estado: EstadoVistaEntrega;
+  creadoEn: Date;
+  nota: number | null;
+  /** Texto de la respuesta del alumno partido en párrafos (tarea); null en autoeval. */
+  respuesta: string[] | null;
+  /** Rúbrica del diseñador (catálogo) contra la que se juzga; null si la actividad no tiene. */
+  rubrica: CriterioRubricaVista[] | null;
+  /** Nota informada por una sugerencia de Eco (hoy siempre placeholder). */
+  ecoSugerida: boolean;
+};
+
+/** Acierto del grupo en una pregunta objetiva de la autoevaluación. */
+export type PreguntaAcierto = {
+  n: string;
+  texto: string;
+  aciertoPct: number;
+  aciertos: string;
+};
+
+/** Auditoría de una autoevaluación (se califica sola; el docente solo observa). */
+export type AuditoriaAutoeval = {
+  contestada: string;
+  estadisticas: { promedio: number; mediana: number; masBaja: number; masAlta: number } | null;
+  preguntas: PreguntaAcierto[];
+};
+
+/** Todo lo que necesita la pantalla para una selección grupo × actividad. */
+export type EntregasVista = {
+  grupo: { id: string; nombre: string } | null;
+  grupos: { id: string; nombre: string }[];
+  actividad: ActividadRef | null;
+  actividades: ActividadRef[];
+  resumen: {
+    entregadas: number;
+    delGrupo: number;
+    autoCalificadas: number;
+    porConfirmar: number;
+    promedio: number | null;
+    sinEntregar: number;
+    vencio: string;
+  };
+  entregas: EntregaVista[];
+  sinEntregar: AlumnoRef[];
+  /** PLACEHOLDER (Eco): nº de entregas que Eco confirmaría en lote. Hoy de ejemplo. */
+  altaConfianza: number;
+  /** Presente solo cuando la actividad es autoevaluación. */
+  auditoria: AuditoriaAutoeval | null;
+};
+
 // ── Consultas 1:1 ───────────────────────────────────────────────────────────────
 export type MensajeConsulta = {
   id: string;
