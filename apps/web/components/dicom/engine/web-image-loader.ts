@@ -18,16 +18,59 @@
  * el visor NO ofrece medición en mm (las mediciones caen a píxeles · §3).
  */
 
-import { imageLoader, utilities, Enums, type Types } from '@cornerstonejs/core';
+import { imageLoader, metaData, utilities, Enums, type Types } from '@cornerstonejs/core';
 
 const ESQUEMA = 'web';
 let registrado = false;
 
-/** Registra el loader `web:` una sola vez por proceso (idempotente). */
+/** Registra el loader `web:` + su proveedor de metadatos, una sola vez (idempotente). */
 export function registrarWebImageLoader(): void {
   if (registrado) return;
   imageLoader.registerImageLoader(ESQUEMA, cargarWebImage as never);
+  // El StackViewport arma el actor leyendo los MÓDULOS del REGISTRO de metadatos (no del
+  // objeto imagen · buildMetadata/getImageDataMetadata). El loader DICOM los registra; el web
+  // debe hacer lo mismo. Sin `imagePlaneModule`, `getImagePlaneModule` hace
+  // `undefined.usingDefaultValues` y LANZA → el actor no se crea y la imagen se ve NEGRA.
+  metaData.addProvider(proveedorMetadatosWeb, 10_000);
   registrado = true;
+}
+
+/** Proveedor de metadatos para imageIds `web:` — RGB 8-bit, sin calibración física. */
+function proveedorMetadatosWeb(type: string, imageId: unknown): unknown {
+  if (typeof imageId !== 'string' || !imageId.startsWith(`${ESQUEMA}:`)) return undefined;
+  if (type === 'imagePlaneModule') {
+    // OBLIGATORIO: sin esto, `getImagePlaneModule` de Cornerstone hace
+    // `undefined.usingDefaultValues` y LANZA → el actor no se crea y la imagen se ve NEGRA.
+    // Espaciado 1 (px): imagen sin calibración física — no hay medición en mm.
+    return {
+      columnPixelSpacing: 1,
+      rowPixelSpacing: 1,
+      columnCosines: [0, 1, 0],
+      rowCosines: [1, 0, 0],
+      imagePositionPatient: [0, 0, 0],
+      imageOrientationPatient: [1, 0, 0, 0, 1, 0],
+      usingDefaultValues: true,
+    };
+  }
+  if (type === 'imagePixelModule') {
+    return {
+      samplesPerPixel: 3,
+      photometricInterpretation: 'RGB',
+      planarConfiguration: 0,
+      bitsAllocated: 8,
+      bitsStored: 8,
+      highBit: 7,
+      pixelRepresentation: 0,
+      // Sin ventana clínica: rango completo 8-bit (no hay windowing en una imagen web).
+      windowWidth: 256,
+      windowCenter: 128,
+    };
+  }
+  if (type === 'generalSeriesModule') {
+    // XC = fotografía/captura externa (no US). Coherente con "imagen sin calibración".
+    return { modality: 'XC' };
+  }
+  return undefined;
 }
 
 /** Construye el `imageId` de una imagen web a partir de su URL firmada. */
