@@ -299,9 +299,9 @@ export function EditorCaso({ caso }: { caso: CasoEditor }) {
               <div className="relative mx-auto max-w-[520px] p-6">
                 <p className="text-[15px] font-bold text-white">Suba el estudio del caso</p>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)' }}>
-                  Varias series (.dcm) a la vez o un <strong>.zip</strong> con el estudio completo. Se
-                  anonimizan en la ingesta (§10) antes de entrar al banco. El visor Cornerstone3D las
-                  muestra al terminar.
+                  Varias series (.dcm), imágenes <strong>JPG/PNG</strong> del equipo, o un{' '}
+                  <strong>.zip</strong> con el estudio completo. Se anonimizan en la ingesta (§10)
+                  antes de entrar al banco. El visor Cornerstone3D las muestra al terminar.
                 </p>
                 <div className="mt-4 rounded-xl bg-card p-3.5">
                   {fase !== 'idle' && fase !== 'anonimizado' ? (

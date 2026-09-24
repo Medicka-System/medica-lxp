@@ -179,6 +179,13 @@ export function VisorDicom({
               {serieActiva.modalidad}
               {esCine && ` · ${total} frames`}
             </span>
+            {serieActiva.tipo === 'imagen' && (
+              /* Imagen web (JPG/PNG): no tiene calibración física → las mediciones no van
+                 en mm (px o solo visuales). La UI lo deja claro (§3). */
+              <span className="inline-flex w-fit items-center gap-1 rounded-pill bg-amber-500/85 px-2 py-0.5 text-[10px] font-semibold text-white">
+                <Ruler size={11} strokeWidth={2} /> Imagen sin calibración · sin medición en mm
+              </span>
+            )}
           </div>
 
           {esCine && (

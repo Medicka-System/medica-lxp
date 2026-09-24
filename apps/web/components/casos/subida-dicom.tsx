@@ -14,11 +14,12 @@
  *     un `.zip` lo descomprime el worker server-side en N series · §10).
  *
  * El binario va cliente → object storage directo (URL firmada); nunca por el web/api.
- * Solo se procesan `.dcm` y `.zip` (la anonimización dcmjs es DICOM); JPG/MP4 sueltos
- * exigen conversión previa a DICOM y quedan fuera de este paso.
+ * Se procesan `.dcm` y `.zip` (DICOM) y también imágenes **JPG/PNG** extraídas del equipo
+ * (§3): el worker husmea el formato y las pasa por Presidio igual (§10). Un estudio puede
+ * MEZCLAR series DICOM e imágenes; el visor abre cada una con el loader correcto.
  */
 
-import { useRef, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, type DragEvent } from 'react';
 import { FileArchive, FileCheck2, Upload, X } from 'lucide-react';
 import type { TablaEstudioDicom } from '@campus/shared';
 import { mono, tramaEstilo, focusRing } from '@/components/tokens';
@@ -52,9 +53,22 @@ export function esZip(f: File): boolean {
   return /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed';
 }
 
-/** Acepta solo lo que el pipeline sabe procesar: `.dcm` sueltos y `.zip` de estudio. */
+/** ¿La fuente es una imagen web (JPG/PNG) extraída del equipo? (§3) */
+export function esImagen(f: File): boolean {
+  return /\.(jpe?g|png)$/i.test(f.name) || f.type === 'image/jpeg' || f.type === 'image/png';
+}
+
+/** Acepta lo que el pipeline sabe procesar: `.dcm`, `.zip` de estudio, e imágenes JPG/PNG. */
 export function esFuenteValida(f: File): boolean {
-  return esZip(f) || /\.dcm$/i.test(f.name) || f.type === 'application/dicom';
+  return esZip(f) || esImagen(f) || /\.dcm$/i.test(f.name) || f.type === 'application/dicom';
+}
+
+/** Content-type para el PUT del crudo a storage (MinIO no lo firma; solo por corrección). */
+function contentTypeFuente(f: File): string {
+  if (esZip(f)) return 'application/zip';
+  if (/\.png$/i.test(f.name) || f.type === 'image/png') return 'image/png';
+  if (esImagen(f)) return 'image/jpeg';
+  return 'application/dicom';
 }
 
 /**
@@ -81,7 +95,7 @@ export async function ejecutarSubidaMulti(
     if (!file) continue;
     const put = await fetch(item.urlSubida, {
       method: 'PUT',
-      headers: { 'content-type': item.esZip ? 'application/zip' : 'application/dicom' },
+      headers: { 'content-type': contentTypeFuente(file) },
       body: file,
     }).catch(() => null);
     if (!put || !put.ok) {
@@ -99,7 +113,7 @@ export async function ejecutarSubidaMulti(
     if (!est.ok) continue;
     if (est.datos.estado === 'anonimizado') return onFase('anonimizado'), 'anonimizado';
     if (est.datos.estado === 'error') {
-      return onFase('error', 'La anonimización falló. Revisa que sean DICOM (.dcm) válidos.'), 'error';
+      return onFase('error', 'La anonimización falló. Revisa que sean DICOM (.dcm) o imágenes (JPG/PNG) válidas.'), 'error';
     }
   }
   return onFase('error', 'El procesamiento está tardando más de lo esperado. Revisa el worker.'), 'error';
@@ -107,7 +121,7 @@ export async function ejecutarSubidaMulti(
 
 /** Etiqueta corta de una serie para la miniatura (nombre sin extensión, en corto). */
 function etiquetaSerie(f: File): string {
-  const base = f.name.replace(/\.(dcm|zip)$/i, '');
+  const base = f.name.replace(/\.(dcm|zip|jpe?g|png)$/i, '');
   return base.length > 22 ? `${base.slice(0, 20)}…` : base;
 }
 
@@ -122,6 +136,12 @@ function MiniaturaSerie({
   bloqueado?: boolean;
 }) {
   const zip = esZip(file);
+  const imagen = !zip && esImagen(file);
+  // Vista previa real para imágenes (JPG/PNG); se libera al desmontar.
+  const previa = useMemo(() => (imagen ? URL.createObjectURL(file) : null), [imagen, file]);
+  useEffect(() => () => {
+    if (previa) URL.revokeObjectURL(previa);
+  }, [previa]);
   return (
     <div className="group relative w-[104px] shrink-0">
       <div
@@ -131,12 +151,22 @@ function MiniaturaSerie({
         <span aria-hidden className="absolute inset-0" style={{ background: tramaEstilo }} />
         {zip ? (
           <FileArchive aria-hidden className="relative h-5 w-5 text-[color:var(--hero-ink-muted)]" strokeWidth={1.75} />
+        ) : imagen && previa ? (
+          <img src={previa} alt={file.name} className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <span
             className={`relative ${mono} px-1 text-center text-[8px] uppercase tracking-[0.12em]`}
             style={{ color: 'var(--hero-ink-muted)' }}
           >
             {etiquetaSerie(file)}
+          </span>
+        )}
+        {imagen && (
+          <span
+            className={`absolute bottom-1 left-1 rounded-full px-1.5 py-[1px] text-[8px] font-bold ${mono}`}
+            style={{ background: 'rgba(15,45,82,.82)', color: 'var(--hero-ink)' }}
+          >
+            imagen
           </span>
         )}
         {zip && (
@@ -201,7 +231,7 @@ export function SelectorArchivosDicom({
       <input
         ref={input}
         type="file"
-        accept=".dcm,application/dicom,.zip,application/zip"
+        accept=".dcm,application/dicom,.zip,application/zip,.jpg,.jpeg,.png,image/jpeg,image/png"
         multiple
         className="sr-only"
         onChange={(e) => {
@@ -222,10 +252,11 @@ export function SelectorArchivosDicom({
           >
             <Upload className="h-[22px] w-[22px]" strokeWidth={1.75} />
           </span>
-          <p className="mt-3 text-[14px] font-bold">Arrastre las series del estudio o un .zip</p>
+          <p className="mt-3 text-[14px] font-bold">Arrastre las series del estudio, imágenes o un .zip</p>
           <p className="mt-1 text-[12.5px] text-muted-foreground">
-            Varios <strong>.dcm</strong> a la vez o un <strong>.zip</strong> con el estudio completo.
-            Se anonimizan al procesarse (§10) · sin datos del paciente.
+            Varios <strong>.dcm</strong>, imágenes <strong>JPG/PNG</strong> del equipo, o un{' '}
+            <strong>.zip</strong> con el estudio completo. Se anonimizan al procesarse (§10) · sin
+            datos del paciente.
           </p>
           <button
             type="button"

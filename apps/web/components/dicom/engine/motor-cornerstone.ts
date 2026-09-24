@@ -35,6 +35,7 @@ import {
   type AnotacionRestaurar,
 } from '../motor';
 import { registrarEspaciadoUltrasonido } from './espaciado-ultrasonido';
+import { registrarWebImageLoader } from './web-image-loader';
 
 /** Forma mínima de una anotación de Cornerstone que consultamos (tolerante). */
 interface AnotacionCruda {
@@ -122,6 +123,9 @@ function inicializarCornerstone(): Promise<void> {
     await coreInit();
     await toolsInit();
     dicomImageLoaderInit();
+    // Loader propio para imágenes web (JPG/PNG) bajo el esquema `web:` — el visor es
+    // transversal y muestra `.dcm` e imágenes en el mismo viewport (§3).
+    registrarWebImageLoader();
     // Aspect ratio real de ultrasonido (§ contexto clínico): el loader solo lee
     // PixelSpacing y asume píxeles cuadrados; registramos un proveedor que devuelve el
     // espaciado real calculado en la ingesta (ver módulo `espaciado-ultrasonido`).

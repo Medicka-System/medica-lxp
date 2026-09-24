@@ -95,6 +95,13 @@ export interface FirmarAnonimizadosReq {
   cantidad: number;
   /** Índice base (para anexar sin pisar refs existentes). Default 0. */
   desde?: number;
+  /**
+   * Extensión del binario de CADA serie (`dcm` | `jpg` | `png`), en orden. El estudio
+   * puede MEZCLAR DICOM e imágenes web (JPG/PNG extraídas del equipo · §3): el worker,
+   * tras husmear el tipo de cada fuente, indica aquí la extensión para que la ref del
+   * anonimizado la lleve y el visor elija el loader correcto. Si falta, se asume `dcm`.
+   */
+  extensiones?: string[];
 }
 
 /** Un destino firmado para persistir una serie anonimizada. */

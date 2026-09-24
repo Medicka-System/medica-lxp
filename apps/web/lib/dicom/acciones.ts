@@ -59,6 +59,8 @@ export interface SerieLectura {
   modalidad: string;
   frames: number;
   urlLectura: string;
+  /** `dicom` (loader wadouri) o `imagen` (JPG/PNG · web loader). Default `dicom`. */
+  tipo?: 'dicom' | 'imagen';
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
   pixelSpacing?: [number, number] | null;
   /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null` si no hay. */

@@ -28,11 +28,13 @@ export class StorageService {
   }
 
   /**
-   * Clave del binario `.dcm` ANONIMIZADO de una SERIE (educativo, sin PII; lo lee el
-   * visor). Un estudio tiene N series → N claves `0.dcm`, `1.dcm`, …
+   * Clave del binario ANONIMIZADO de una SERIE (educativo, sin PII; lo lee el visor). Un
+   * estudio tiene N series → N claves `0.dcm`, `1.dcm`, … La extensión distingue el
+   * formato: `dcm` (DICOM · loader wadouri) o `jpg`/`png` (imagen web · web loader · §3).
    */
-  claveAnonimizado(casoId: string, indice: number): string {
-    return `dicom/casos/${casoId}/${indice}.dcm`;
+  claveAnonimizado(casoId: string, indice: number, ext = 'dcm'): string {
+    const limpio = /^[a-z0-9]+$/.test(ext) ? ext : 'dcm';
+    return `dicom/casos/${casoId}/${indice}.${limpio}`;
   }
 
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {

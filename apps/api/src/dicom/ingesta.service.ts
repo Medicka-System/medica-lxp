@@ -38,6 +38,8 @@ export interface SerieLectura {
   modalidad: string;
   frames: number;
   urlLectura: string;
+  /** `dicom` (loader wadouri) o `imagen` (JPG/PNG · web loader). Default `dicom`. */
+  tipo: 'dicom' | 'imagen';
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
   pixelSpacing: [number, number] | null;
   /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null` si no hay. */
@@ -100,6 +102,7 @@ export class IngestaService {
       frames: s.frames,
       // `ref` por serie (multi-serie); compat con estudios viejos de una sola ref.
       urlLectura: this.storage.firmarLectura(s.ref ?? caso.estudio_dicom_ref ?? this.storage.claveAnonimizado(casoId, i)),
+      tipo: s.tipo === 'imagen' ? 'imagen' : 'dicom',
       pixelSpacing: s.pixel_spacing ?? null,
       region: s.region ?? null,
     }));
@@ -173,11 +176,14 @@ export class IngestaService {
     tabla: TablaEstudioDicom,
     cantidad: number,
     desde = 0,
+    extensiones: string[] = [],
   ): Promise<{ destinos: DestinoAnonimizado[] }> {
     await this.exigirCaso(casoId, tabla);
     const destinos: DestinoAnonimizado[] = Array.from({ length: Math.max(0, cantidad) }, (_, i) => {
       const indice = desde + i;
-      const ref = this.storage.claveAnonimizado(casoId, indice);
+      // La extensión (dcm/jpg/png) la manda el worker tras husmear cada fuente; el ref la
+      // lleva para que el visor elija el loader correcto (§3). Default `dcm`.
+      const ref = this.storage.claveAnonimizado(casoId, indice, extensiones[i] ?? 'dcm');
       return { indice, ref, urlSubida: this.storage.firmarSubida(ref) };
     });
     return { destinos };

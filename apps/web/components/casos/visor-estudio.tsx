@@ -17,6 +17,7 @@ import type { TablaEstudioDicom } from '@campus/shared';
 import { VisorDicom, type EstudioDicom, type FrameDicom } from '@/components/dicom';
 import type { ConfigAnotaciones } from '@/components/dicom/use-anotaciones';
 import { registrarEspaciadoImagen } from '@/components/dicom/engine/espaciado-ultrasonido';
+import { imageIdWeb } from '@/components/dicom/engine/web-image-loader';
 import { lecturaEstudioDicom, type SerieLectura } from '@/lib/dicom/acciones';
 import { getAnotaciones, guardarAnotaciones } from '@/lib/dicom/anotaciones-acciones';
 
@@ -53,14 +54,28 @@ function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
   return {
     id: casoId,
     series: series.map((s, i) => {
-      // Aspect ratio real de USG (§ contexto clínico): el espaciado lo calculó la ingesta;
-      // se registra por imageId (main-thread) para que Cornerstone no asuma píxel 1:1.
+      const esImagen = s.tipo === 'imagen';
+      if (esImagen) {
+        // Imagen web (JPG/PNG): loader `web:`, un solo frame, SIN calibración (no mm),
+        // sin cine ni auto-encuadre (no hay región de ultrasonido).
+        return {
+          id: `${casoId}-s${i}`,
+          descripcion: `Imagen ${i + 1}`,
+          modalidad: s.modalidad || 'IMG',
+          tipo: 'imagen' as const,
+          ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
+          frames: [{ imageId: imageIdWeb(s.urlLectura), indice: 0 }],
+        };
+      }
+      // DICOM: aspect ratio real de USG (§ contexto clínico); el espaciado lo calculó la
+      // ingesta y se registra por imageId (main-thread) para que Cornerstone no asuma 1:1.
       const esp = s.pixelSpacing;
       if (esp && esp.length === 2) registrarEspaciadoImagen(`wadouri:${s.urlLectura}`, esp[0], esp[1]);
       return {
         id: `${casoId}-s${i}`,
         descripcion: `Serie ${i + 1}`,
         modalidad: s.modalidad || 'US',
+        tipo: 'dicom' as const,
         ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
         // Región de ultrasonido (0018,6011) que extrajo la ingesta: el visor la usa para
         // auto-encuadrar y que la imagen clínica llene el viewport (sin bandas negras · §5A).

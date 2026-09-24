@@ -93,7 +93,10 @@ export class IngestaController {
     const cantidad = typeof cuerpo?.cantidad === 'number' ? cuerpo.cantidad : 0;
     if (cantidad < 1) throw new BadRequestException('cantidad debe ser >= 1.');
     const desde = typeof cuerpo?.desde === 'number' && cuerpo.desde >= 0 ? cuerpo.desde : 0;
-    return this.ingesta.firmarAnonimizados(casoId, tablaDe(cuerpo?.tabla), cantidad, desde);
+    const extensiones = Array.isArray(cuerpo?.extensiones)
+      ? cuerpo.extensiones.map((e) => (typeof e === 'string' ? e : 'dcm'))
+      : [];
+    return this.ingesta.firmarAnonimizados(casoId, tablaDe(cuerpo?.tabla), cantidad, desde, extensiones);
   }
 
   /** Quita UNA serie del estudio (editar caso): borra su binario + la saca de la ficha. */

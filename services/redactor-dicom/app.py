@@ -1,10 +1,11 @@
 """
-Redactor de PII QUEMADA en píxeles DICOM (§10) — Presidio (OCR + NER), ON-PREM.
+Redactor de PII QUEMADA en píxeles DICOM **e imágenes web** (§10) — Presidio (OCR + NER), ON-PREM.
 
 El problema: los ecógrafos (Mindray, Philips…) IMPRIMEN el nombre del paciente SOBRE la
-imagen (texto en el pixel-data, no en tags). La anonimización de tags no lo quita, y
-enmascarar por región tapa DE MÁS (Doppler, escalas, barra de color). Aquí se detecta y
-tapa SOLO la caja del texto del NOMBRE:
+imagen (texto en el pixel-data, no en tags) — tanto en el `.dcm` como en las JPG/PNG que
+se exportan del equipo (screenshots). La anonimización de tags no lo quita, y enmascarar
+por región tapa DE MÁS (Doppler, escalas, barra de color). `/redact` ramifica por
+content-type (imagen web vs DICOM P10); en ambos se detecta y tapa SOLO la caja del NOMBRE:
 
   Tesseract (OCR) → detecta TODO el texto y su bounding box
   spaCy es_core_news_lg (NER, vía Presidio) → identifica cuál es PERSON (nombre)
@@ -136,6 +137,35 @@ def _clasificar_linea(analyzer: AnalyzerEngine, linea: dict) -> str:
     return "omitir"
 
 
+def _cajas_y_revision(img: Image.Image):
+    """Corre OCR+NER (UNA sola pasada) sobre una imagen RGB. Devuelve
+    (cajas de nombre a tapar, revisar?, texto OCR concatenado).
+
+    Núcleo compartido por el DICOM (frame 0 del banner) y la imagen web (JPG/PNG):
+    Presidio trabaja sobre PÍXELES, así que detecta el nombre quemado igual en ambos."""
+    analyzer = _get_analyzer()
+    cajas: List[Tuple[int, int, int, int]] = []
+    revisar = False
+    lineas = _lineas_ocr(img)
+    for linea in lineas:
+        accion = _clasificar_linea(analyzer, linea)
+        if accion == "redactar":
+            cajas.append(linea["box"])
+        elif accion == "revisar":
+            revisar = True
+    ocr_texto = " ".join(l["texto"] for l in lineas).strip()
+    return cajas, revisar, ocr_texto
+
+
+def _tapar_cajas(arr: np.ndarray, cajas, rows: int, cols: int) -> None:
+    """Ennegrece (con margen PAD) cada caja de nombre en TODOS los frames de `arr`.
+    `arr` es (F,H,W) mono o (F,H,W,3) RGB — el slicing cubre ambos."""
+    for (l, t, w, h) in cajas:
+        l0, t0 = max(0, l - PAD), max(0, t - PAD)
+        l1, t1 = min(cols, l + w + PAD), min(rows, t + h + PAD)
+        arr[:, t0:t1, l0:l1] = 0
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "modelo": SPACY_MODEL, "ocr": OCR_LANG, "cargado": _analyzer is not None}
@@ -160,9 +190,64 @@ def _pil_rgb(frame: np.ndarray, samples: int) -> Image.Image:
     return Image.fromarray(f8, "L").convert("RGB")
 
 
+def _redact_imagen(data: bytes, content_type: str) -> Response:
+    """Redacta la PII quemada de una IMAGEN web (JPG/PNG) — screenshot del equipo (§3/§10).
+
+    La imagen no tiene tags que limpiar, pero SÍ puede traer el nombre del paciente quemado.
+    Se corre el MISMO OCR+NER que en DICOM (Presidio sobre píxeles), se ennegrece la caja del
+    nombre y se re-codifica en el MISMO formato (sin recomprimir agresivo). FALLBACK: si algo
+    falla, cuarentena (X-Revision-Manual: 1) — nunca se devuelve la imagen sin garantizar §10."""
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        formato = (img.format or ("PNG" if "png" in content_type else "JPEG")).upper()
+    except Exception as e:  # noqa: BLE001
+        return Response(
+            content=data,
+            media_type=content_type or "application/octet-stream",
+            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"open:{e}"[:120]},
+        )
+    try:
+        cajas, revisar, _ = _cajas_y_revision(img)
+        arr = np.asarray(img).copy()  # (H,W,3)
+        rows, cols = arr.shape[0], arr.shape[1]
+        # `_tapar_cajas` espera (F,H,W,3): se añade eje de frame único.
+        arr4 = arr[np.newaxis, ...]
+        _tapar_cajas(arr4, cajas, rows, cols)
+        salida = Image.fromarray(arr4[0], "RGB")
+
+        out = io.BytesIO()
+        # Conserva el formato de entrada; PNG sin pérdida, JPEG con calidad alta.
+        if formato == "PNG":
+            salida.save(out, format="PNG")
+            media = "image/png"
+        else:
+            salida.save(out, format="JPEG", quality=92, subsampling=0)
+            media = "image/jpeg"
+        return Response(
+            content=out.getvalue(),
+            media_type=media,
+            headers={
+                "X-Redacciones": str(len(cajas)),
+                "X-Revision-Manual": "1" if revisar else "0",
+                "X-Entidad": "PERSON",
+            },
+        )
+    except Exception as e:  # noqa: BLE001
+        return Response(
+            content=data,
+            media_type=content_type or "application/octet-stream",
+            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"img:{e}"[:120]},
+        )
+
+
 @app.post("/redact")
 async def redact(req: Request) -> Response:
     data = await req.body()
+    # Ramifica por content-type: imagen web (JPG/PNG) vs DICOM P10. Presidio (OCR+NER) es
+    # el mismo en ambos — solo cambia el contenedor (§3).
+    content_type = (req.headers.get("content-type") or "").lower()
+    if content_type.startswith("image/"):
+        return _redact_imagen(data, content_type)
     try:
         ds = pydicom.dcmread(io.BytesIO(data))
     except Exception as e:  # noqa: BLE001
@@ -183,26 +268,12 @@ async def redact(req: Request) -> Response:
 
         img0 = _pil_rgb(arr[0], samples)
 
-        # OCR por LÍNEA (el nombre va en su propia línea del banner). Se ennegrece la caja
-        # de la línea de NOMBRE completa → quita el nombre aunque el NER solo marque parte;
-        # las líneas con dígitos (fecha/ID/parámetros) se omiten (se conservan).
-        analyzer = _get_analyzer()
-        lineas = _lineas_ocr(img0)
-        ocr_texto = " ".join(l["texto"] for l in lineas).strip()
-        cajas: List[Tuple[int, int, int, int]] = []
-        revisar = False
-        for linea in lineas:
-            accion = _clasificar_linea(analyzer, linea)
-            if accion == "redactar":
-                cajas.append(linea["box"])
-            elif accion == "revisar":
-                revisar = True  # posible nombre no concluyente → cuarentena
+        # OCR+NER por LÍNEA sobre el frame 0 (el banner es estático en el cine). Núcleo
+        # compartido con el redactor de imagen — misma detección de nombre sobre píxeles.
+        cajas, revisar, ocr_texto = _cajas_y_revision(img0)
 
         # Ennegrece la caja del nombre (con margen PAD) en TODOS los frames (banner estático).
-        for (l, t, w, h) in cajas:
-            l0, t0 = max(0, l - PAD), max(0, t - PAD)
-            l1, t1 = min(cols, l + w + PAD), min(rows, t + h + PAD)
-            arr[:, t0:t1, l0:l1] = 0  # cubre mono (F,H,W) y RGB (F,H,W,3)
+        _tapar_cajas(arr, cajas, rows, cols)  # cubre mono (F,H,W) y RGB (F,H,W,3)
 
         # Reescribe el pixel-data (mismo layout; los frames se concatenan).
         ds.PixelData = np.ascontiguousarray(arr).tobytes()

@@ -183,7 +183,7 @@ function SheetSubirCaso({
 
           <div className="mt-5">
             <span className="block text-[11.5px] font-semibold">
-              Series del estudio · DICOM (.dcm) o .zip
+              Series del estudio · DICOM (.dcm), imágenes JPG/PNG o .zip
             </span>
 
             {/* Progreso del pipeline (una vez enviado) */}

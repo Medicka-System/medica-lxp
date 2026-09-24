@@ -15,7 +15,9 @@ export type SerieEstudio = {
   series_uid: string;
   modalidad: string;
   frames: number;
-  /** Clave del `.dcm` anonimizado de esta serie en object storage. */
+  /** `dicom` (loader wadouri) o `imagen` (JPG/PNG · web loader). Ausente = `dicom`. */
+  tipo?: 'dicom' | 'imagen';
+  /** Clave del binario anonimizado de esta serie en object storage. */
   ref?: string;
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null`/ausente = píxel cuadrado. */
   pixel_spacing?: [number, number] | null;

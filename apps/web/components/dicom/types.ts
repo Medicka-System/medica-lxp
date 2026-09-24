@@ -36,6 +36,11 @@ export interface SerieDicom {
   descripcion: string;
   /** Modalidad DICOM (para POCUS casi siempre "US"). */
   modalidad: string;
+  /**
+   * `dicom` (loader wadouri: cine, mm reales, aspect ratio, auto-encuadre) o `imagen`
+   * (JPG/PNG por el web loader: SIN calibración, sin medición en mm · §3). Default `dicom`.
+   */
+  tipo?: 'dicom' | 'imagen';
   /** Frames ordenados. Longitud 1 = estática; >1 = multi-frame/cine. */
   frames: FrameDicom[];
   /** Cuadros por segundo del cine-loop (default 30 si se omite). */
