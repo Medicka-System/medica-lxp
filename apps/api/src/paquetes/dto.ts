@@ -5,7 +5,10 @@ import { z } from 'zod';
  * multipart, por eso `orden` se coacciona a número).
  */
 export const ingestarPaqueteSchema = z.object({
-  leccionId: z.string().uuid(),
+  // Opcional: si viene, el paquete se registra en la lección (course builder, modelo
+  // nuevo + compat). Si NO viene (modo Biblioteca · §5C), solo se valida + guarda el
+  // .zip en object storage y se devuelve la ref para que el web cree el lxp.recursos.
+  leccionId: z.string().uuid().optional(),
   titulo: z.string().min(1).max(300).optional(),
   orden: z.coerce.number().int().min(0).optional(),
 });

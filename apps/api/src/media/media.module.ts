@@ -4,14 +4,17 @@ import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
 import { MediaImagenesController } from './media-imagenes.controller';
 import { MediaImagenesService } from './media-imagenes.service';
+import { MediaArchivosController } from './media-archivos.controller';
+import { MediaArchivosService } from './media-archivos.service';
 
 /**
- * Media (§3/§9 · Sprint 6). Usa DbModule (global) y reusa `StorageService` (SigV4 del
- * Sprint 4.7) para firmar subida/lectura de video Y de imágenes de contenido (§5C/§10)
- * en object storage. Las imágenes de contenido pasan por el redactor Presidio (§10).
+ * Media (§3/§9 · Sprint 6 + biblioteca §5C). Usa DbModule (global) y reusa
+ * `StorageService` (SigV4 del Sprint 4.7) para firmar subida/lectura de video, de
+ * imágenes de contenido y de documentos de la Biblioteca (PDF/Word/PPT) en object
+ * storage. Contenido educativo → NO pasa por Presidio (§10, solo flujos de paciente).
  */
 @Module({
-  controllers: [MediaController, MediaImagenesController],
-  providers: [MediaService, StorageService, MediaImagenesService],
+  controllers: [MediaController, MediaImagenesController, MediaArchivosController],
+  providers: [MediaService, StorageService, MediaImagenesService, MediaArchivosService],
 })
 export class MediaModule {}

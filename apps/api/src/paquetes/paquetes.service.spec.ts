@@ -52,7 +52,29 @@ describe('PaquetesService (ingesta SCORM/xAPI · §7)', () => {
       expect.anything(),
       expect.objectContaining({ tipo: 'scorm', leccionId: 'lec', titulo: 'Curso demo' }),
     );
-    expect(r).toEqual({ contenidoId: 'cid', tipo: 'scorm', titulo: 'Curso demo', entryPoint: 'index.html' });
+    expect(r).toEqual({
+      contenidoId: 'cid',
+      tipo: 'scorm',
+      titulo: 'Curso demo',
+      entryPoint: 'index.html',
+      recursoRef: expect.stringMatching(/^media\/paquetes\/.+\/paquete\.zip$/),
+    });
+    fetchMock.mockRestore();
+  });
+
+  it('modo Biblioteca (sin leccionId): valida + sube pero NO registra en lección', async () => {
+    const { svc, storage } = crear();
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue({ ok: true, text: async () => '' } as never);
+
+    const r = await svc.ingestar(zipScorm(), {});
+
+    expect(storage.firmarSubida).toHaveBeenCalled();
+    expect(insertar).not.toHaveBeenCalled(); // sin lección → no toca lxp.contenidos
+    expect(r.tipo).toBe('scorm');
+    expect(r.titulo).toBe('Curso demo');
+    expect(r.recursoRef).toMatch(/^media\/paquetes\/.+\/paquete\.zip$/);
     fetchMock.mockRestore();
   });
 

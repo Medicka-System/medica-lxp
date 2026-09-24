@@ -55,6 +55,15 @@ export class StorageService {
     return `media/imagenes/${id}.${e}`;
   }
 
+  /**
+   * Clave de un DOCUMENTO de contenido de la Biblioteca (PDF/Word/PowerPoint · §5C).
+   * Educativo, sin PII → NO pasa por el redactor Presidio (§10). Se lee con URL firmada.
+   */
+  claveArchivo(id: string, ext: string): string {
+    const e = /^[a-z0-9]+$/.test(ext) ? ext : 'pdf';
+    return `media/archivos/${id}.${e}`;
+  }
+
   private firmar(metodo: MetodoS3, key: string, ahora: Date): string {
     return presignS3({
       metodo,
