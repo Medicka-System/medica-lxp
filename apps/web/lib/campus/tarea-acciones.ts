@@ -5,6 +5,7 @@ import type postgres from 'postgres';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
 import { comoTareaConfig } from '@/lib/studio/tarea-contrato';
+import { grupoDelAlumnoEnPrograma } from './inscripcion';
 import type { ResultadoAccion } from './resultado';
 
 type Sql = ReturnType<typeof postgres>;
@@ -34,6 +35,7 @@ type Contenido = { texto?: string; archivo?: ArchivoEntrega | null };
 /** Resuelve el ancla (actividad de respaldo) y el grupo destino de la tarea (server-side). */
 async function anclaTarea(
   sql: Sql,
+  userId: string,
   leccionId: string,
 ): Promise<{ actividadId: string | null; grupoId: string | null; formato: string } | null> {
   const cab = (
@@ -57,12 +59,10 @@ async function anclaTarea(
           order by orden, created_at limit 1`
       )[0]?.id ?? null;
   }
+  // Grupo destino: la COHORTE REAL del alumno (inscripción CORA · §10). La RLS de
+  // `entregas` (mig 0036) rechaza entregar en un grupo ajeno.
   const grupoId =
-    (
-      await sql<{ id: string }[]>`
-        select id from lxp.grupos where programa_id = ${cab.programa_id}
-        order by created_at limit 1`
-    )[0]?.id ?? null;
+    (await grupoDelAlumnoEnPrograma(sql, userId, cab.programa_id))?.id ?? null;
   return { actividadId, grupoId, formato: cfg.entrega ?? 'archivo' };
 }
 
@@ -87,7 +87,7 @@ export async function entregarTarea(
 
   try {
     const error = await comoAlumno(alumno.userId, async (sql) => {
-      const ancla = await anclaTarea(sql, leccionId);
+      const ancla = await anclaTarea(sql, alumno.userId, leccionId);
       if (!ancla) return 'No se encontró la tarea.';
       if (!ancla.actividadId) {
         return 'Esta tarea aún no está lista para recibir entregas. Avisa a tu docente.';

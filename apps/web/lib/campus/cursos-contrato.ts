@@ -12,13 +12,16 @@
  *   • "Continuar donde lo dejaste": primera lección del programa (por orden de
  *     módulo/lección) — deep-link a /leccion/[id].
  *
+ * INSCRIPCIÓN REAL AL GRUPO (mig 0036 · §1/§6/§10):
+ *   • El alumno se inscribe al GRUPO (instancia del programa), no al programa. El
+ *     enlace CORA↔LXP es `lxp.grupos.cora_grupo_id` (vínculo por valor a public.grupos),
+ *     leído vía `lxp.cora_grupos_de` (SECURITY DEFINER, solo lectura). Mis cursos y el
+ *     flag `inscrito` derivan de `programasDelAlumno` (sus grupos → sus programas).
+ *     Fallback de resiliencia: sin inscripción mapeada, Mis cursos muestra el catálogo
+ *     publicado para poder arrancar. En el Sprint 11 solo cambia la FUENTE (CORA real),
+ *     no la lógica; en local la simula el seed.
+ *
  * PENDIENTE DE API / DB (fuera de apps/web — NO se implementa aquí):
- *   • Inscripción REAL alumno→programa: no existe enlace entre el grupo de CORA
- *     (public.grupos, se lee) y el grupo del LXP (lxp.grupos → programa). Hasta el
- *     Sprint 11 se usa una HEURÍSTICA de actividad (el alumno "tiene" un programa si
- *     registró casos en su bitácora o progreso de reproducción en él); si no hay
- *     señal, Mis cursos muestra el catálogo publicado para poder arrancar. El mapa
- *     definitivo lo cablea la integración CORA (mismo PENDIENTE que bitacora-contrato).
  *   • Upsell / checkout modular: la compra de un programa o módulo suelto vive en el
  *     portal de CORA (§1, "Pagos y facturación"). Explorar deja el CTA que hará el
  *     deep-link al checkout; aquí no se cobra ni se inscribe.
@@ -31,6 +34,8 @@
 export type CursoResumen = {
   programaId: string;
   nombre: string;
+  /** Cohorte del alumno en este programa (su grupo · inscripción CORA). null si no mapeado. */
+  grupo: { id: string; nombre: string } | null;
   descripcion: string | null;
   modulos: number;
   lecciones: number;

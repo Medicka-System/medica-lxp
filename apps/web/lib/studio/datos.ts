@@ -245,6 +245,8 @@ export type GrupoResumen = {
   fechaFin: Date | null;
   docente: string | null;
   overrides: number;
+  /** Alumnos inscritos (CORA, vía puente `cora_conteo_alumnos` · §10). */
+  alumnos: number;
   estado: EstadoGrupo;
 };
 
@@ -257,29 +259,36 @@ function estadoDeGrupo(inicio: Date | null, fin: Date | null, hoy: Date): Estado
 
 export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
   return comoStaff(userId, async (sql) => {
-    const rows = await sql<
-      {
-        id: string;
-        nombre: string;
-        modalidad: ModalidadGrupo;
-        fecha_inicio: Date | null;
-        fecha_fin: Date | null;
-        programa_id: string;
-        programa_nombre: string;
-        programa_version: number;
-        docente: string | null;
-        overrides: number;
-      }[]
-    >`
-      select
-        g.id, g.nombre, g.modalidad, g.fecha_inicio, g.fecha_fin,
-        g.programa_id, p.nombre as programa_nombre, p.version as programa_version,
-        lxp.nombre_de(g.docente_id) as docente,
-        coalesce((select count(*) from lxp.grupo_overrides o where o.grupo_id = g.id), 0)::int as overrides
-      from lxp.grupos g
-      join lxp.programas p on p.id = g.programa_id
-      order by g.created_at desc`;
+    const [rows, conteos] = await Promise.all([
+      sql<
+        {
+          id: string;
+          nombre: string;
+          modalidad: ModalidadGrupo;
+          fecha_inicio: Date | null;
+          fecha_fin: Date | null;
+          programa_id: string;
+          programa_nombre: string;
+          programa_version: number;
+          docente: string | null;
+          overrides: number;
+          cora_grupo_id: string | null;
+        }[]
+      >`
+        select
+          g.id, g.nombre, g.modalidad, g.fecha_inicio, g.fecha_fin,
+          g.programa_id, p.nombre as programa_nombre, p.version as programa_version,
+          lxp.nombre_de(g.docente_id) as docente, g.cora_grupo_id,
+          coalesce((select count(*) from lxp.grupo_overrides o where o.grupo_id = g.id), 0)::int as overrides
+        from lxp.grupos g
+        join lxp.programas p on p.id = g.programa_id
+        order by g.created_at desc`,
+      // Roster de CORA por grupo (una sola query · puente SECDEF, gated a staff · §10).
+      sql<{ cora_grupo_id: string; alumnos: number }[]>`
+        select cora_grupo_id, alumnos from lxp.cora_conteo_alumnos()`,
+    ]);
 
+    const alumnosPorCora = new Map(conteos.map((c) => [c.cora_grupo_id, c.alumnos]));
     const hoy = new Date();
     return rows.map((r) => ({
       id: r.id,
@@ -292,6 +301,7 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
       fechaFin: r.fecha_fin,
       docente: r.docente,
       overrides: r.overrides,
+      alumnos: r.cora_grupo_id ? (alumnosPorCora.get(r.cora_grupo_id) ?? 0) : 0,
       estado: estadoDeGrupo(r.fecha_inicio, r.fecha_fin, hoy),
     }));
   });
@@ -427,6 +437,74 @@ export async function getGrupoDetalle(
         creadoEn: o.created_at,
       })),
     };
+  });
+}
+
+// ── Roster + avance de un grupo (§5B) ──────────────────────────────────────────
+// El roster viene de CORA vía el puente SECDEF `cora_alumnos_de_grupo` (§10, gated a
+// staff); el avance se calcula del progreso real del alumno (reproduccion_progreso,
+// que el staff lee bajo RLS · 0017). Nada se escribe en `public`.
+export type AlumnoDeGrupo = {
+  userId: string;
+  nombre: string;
+  matricula: string | null;
+  /** Lecciones completadas / total de lecciones del programa. */
+  completadas: number;
+  totalLecciones: number;
+  avancePct: number;
+};
+
+export async function getGrupoAlumnos(
+  userId: string,
+  grupoId: string,
+): Promise<AlumnoDeGrupo[]> {
+  return comoStaff(userId, async (sql) => {
+    const g = (
+      await sql<{ programa_id: string; cora_grupo_id: string | null }[]>`
+        select programa_id, cora_grupo_id from lxp.grupos where id = ${grupoId} limit 1`
+    )[0];
+    if (!g || !g.cora_grupo_id) return [];
+
+    // Roster desde CORA (solo staff obtiene filas · §10).
+    const roster = await sql<{ supabase_auth_id: string; nombre: string; matricula: string | null }[]>`
+      select supabase_auth_id, nombre, matricula
+      from lxp.cora_alumnos_de_grupo(${g.cora_grupo_id})`;
+    if (roster.length === 0) return [];
+
+    // Total de lecciones del programa (denominador del avance).
+    const total =
+      (
+        await sql<{ n: number }[]>`
+          select count(*)::int as n
+          from lxp.lecciones l
+          join lxp.modulos m on m.id = l.modulo_id
+          where m.programa_id = ${g.programa_id}`
+      )[0]?.n ?? 0;
+
+    // Lecciones completadas por alumno (staff lee todo · reproduccion_progreso_select).
+    const ids = roster.map((r) => r.supabase_auth_id);
+    const progreso = await sql<{ alumno_id: string; n: number }[]>`
+      select rp.alumno_id, count(distinct rp.leccion_id)::int as n
+      from lxp.reproduccion_progreso rp
+      join lxp.lecciones l on l.id = rp.leccion_id
+      join lxp.modulos m on m.id = l.modulo_id
+      where m.programa_id = ${g.programa_id}
+        and rp.completado
+        and rp.alumno_id in ${sql(ids)}
+      group by rp.alumno_id`;
+    const completadasPor = new Map(progreso.map((p) => [p.alumno_id, p.n]));
+
+    return roster.map((r): AlumnoDeGrupo => {
+      const completadas = completadasPor.get(r.supabase_auth_id) ?? 0;
+      return {
+        userId: r.supabase_auth_id,
+        nombre: r.nombre,
+        matricula: r.matricula,
+        completadas,
+        totalLecciones: total,
+        avancePct: total > 0 ? Math.round((100 * completadas) / total) : 0,
+      };
+    });
   });
 }
 

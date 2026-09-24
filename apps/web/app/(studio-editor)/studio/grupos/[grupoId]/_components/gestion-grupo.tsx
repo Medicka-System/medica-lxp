@@ -37,7 +37,13 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
-import type { EstadoGrupo, GrupoDetalle, NodoLeccionGrupo, NodoModuloGrupo } from '@/lib/studio/datos';
+import type {
+  AlumnoDeGrupo,
+  EstadoGrupo,
+  GrupoDetalle,
+  NodoLeccionGrupo,
+  NodoModuloGrupo,
+} from '@/lib/studio/datos';
 import type { TipoOverride } from '@/lib/studio/herencia-contrato';
 import { actualizarGrupo } from '@/lib/studio/acciones';
 
@@ -83,9 +89,11 @@ const ETIQUETA_ENTIDAD: Record<string, string> = {
 export function GestionGrupo({
   grupo,
   docentes,
+  alumnos,
 }: {
   grupo: GrupoDetalle;
   docentes: { userId: string; nombre: string }[];
+  alumnos: AlumnoDeGrupo[];
 }) {
   const [guardando, iniciar] = useTransition();
 
@@ -201,7 +209,7 @@ export function GestionGrupo({
         ))}
         <span className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-3 text-[12px] font-semibold text-muted-foreground">
           <Lock aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Alumnos · CORA
+          <span className={mono}>{alumnos.length}</span> alumnos · CORA
         </span>
       </div>
 
@@ -359,14 +367,55 @@ export function GestionGrupo({
               Solo lectura
             </span>
           </div>
-          <div className="mt-2.5 flex items-start gap-2.5 rounded-[11px] border border-border bg-muted px-3 py-2.5">
-            <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-            <p className={`text-[11.5px] leading-relaxed ${softText}`}>
-              Las inscripciones vienen de CORA. El puente que liga este grupo del LXP con su
-              generación de CORA (para listar alumnos y avance) es{' '}
-              <span className="font-bold text-foreground">pendiente de DB/API</span>.
-            </p>
-          </div>
+          <p className={`mt-2 text-[11.5px] leading-relaxed ${softText}`}>
+            Inscripción y nombres vienen de <span className="font-semibold text-foreground">CORA</span>{' '}
+            (solo lectura); el avance es su progreso real en el temario del grupo.
+          </p>
+          {alumnos.length === 0 ? (
+            <div className="mt-3 flex items-start gap-2.5 rounded-[11px] border border-border bg-muted px-3 py-2.5">
+              <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <p className={`text-[11.5px] leading-relaxed ${softText}`}>
+                Este grupo aún no tiene alumnos inscritos en CORA.
+              </p>
+            </div>
+          ) : (
+            <ul className="mt-3 flex flex-col gap-1.5">
+              {alumnos.map((a) => (
+                <li key={a.userId} className="rounded-[11px] border border-border bg-card px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      aria-hidden
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-sidebar text-[10px] font-bold text-sidebar-foreground"
+                    >
+                      {a.nombre.trim().split(/\s+/).slice(0, 2).map((p) => p[0] ?? '').join('').toUpperCase() || '—'}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] font-semibold leading-snug">{a.nombre}</span>
+                      {a.matricula && (
+                        <span className={`${mono} block text-[10.5px] text-muted-foreground`}>{a.matricula}</span>
+                      )}
+                    </span>
+                    <span className={`${mono} shrink-0 text-[12px] font-bold ${a.avancePct > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                      {a.avancePct}%
+                    </span>
+                  </div>
+                  <div
+                    className="mt-2 h-1.5 w-full overflow-hidden rounded-pill bg-muted"
+                    role="progressbar"
+                    aria-valuenow={a.avancePct}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`Avance de ${a.nombre}`}
+                  >
+                    <div className="h-full rounded-pill bg-primary transition-[width] duration-300" style={{ width: `${a.avancePct}%` }} />
+                  </div>
+                  <p className="mt-1 text-[10.5px] text-muted-foreground">
+                    {a.completadas} de {a.totalLecciones} lecciones
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
 
           <p className={`${kicker} mt-6 text-muted-foreground`}>Personalizaciones de este grupo</p>
           {grupo.overrides.length === 0 ? (

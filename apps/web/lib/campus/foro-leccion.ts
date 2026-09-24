@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { comoConfigForo, estadoVentanaForo } from '@/lib/studio/foro-config';
+import { grupoDelAlumnoEnPrograma } from './inscripcion';
 
 /**
  * FORO de la lección — data layer del alumno (§5C · mock leccion-foro). Recablea el
@@ -13,10 +14,12 @@ import { comoConfigForo, estadoVentanaForo } from '@/lib/studio/foro-config';
  *   listado  → publicó su post raíz → la RLS desbloquea los posts del grupo.
  *   post     → interior: cuerpo rico + reacción + hilo de 2 niveles.
  *
- * DISCUSIÓN CERRADA por (grupo, lección): la query filtra por `grupo_id` (el grupo que
- * instancia el programa · patrón local) y `actividad_id` (la actividad foro de la
- * lección) — nunca posts de otros grupos. La membresía real del grupo se endurece en
- * el Sprint 11 (vínculo CORA↔LXP). El GATE de desbloqueo sí es server-side (RLS).
+ * DISCUSIÓN CERRADA por (grupo, lección): la query filtra por `grupo_id` (la COHORTE
+ * REAL del alumno, resuelta vía `grupoDelAlumnoEnPrograma` → inscripción CORA · §10) y
+ * `actividad_id` (la actividad foro de la lección) — nunca posts de otros grupos. La
+ * membresía se refuerza server-side en la RLS (`es_miembro_grupo` · mig 0036): ver el
+ * foro ajeno exige ser miembro Y haber publicado. En el Sprint 11 solo cambia la fuente
+ * (CORA real), no la lógica.
  */
 
 export type AutorForo = {
@@ -185,13 +188,9 @@ export async function getForoLeccion(
     const cfg = comoConfigForo(act.config);
     const ventana = estadoVentanaForo(cfg, new Date());
 
-    // Grupo destino: el grupo que instancia el programa (patrón local · Sprint 11 lo
-    // endurece a la inscripción real del alumno vía CORA).
-    const grupo = (
-      await sql<{ id: string; nombre: string }[]>`
-        select id, nombre from lxp.grupos where programa_id = ${act.programa_id}
-        order by created_at limit 1`
-    )[0];
+    // Grupo destino: la COHORTE REAL del alumno en este programa (su inscripción CORA,
+    // leída vía lxp.cora_grupos_de · §10). null si aún no está mapeado a un grupo.
+    const grupo = await grupoDelAlumnoEnPrograma(sql, userId, act.programa_id);
     const grupoId = grupo?.id ?? null;
     const grupoNombre = grupo?.nombre ?? 'tu grupo';
 

@@ -22,7 +22,7 @@ import { PLANTILLAS_REALES } from './plantillas-reales';
 
 const SEED_EMAIL_DOMINIO = '@seed.local';
 
-type AlumnoKey = 'a1' | 'a2' | 'a3' | 'a4';
+type AlumnoKey = 'a1' | 'a2' | 'a3' | 'a4' | 'a5';
 
 /** Primera fila de un resultado, con aserción de existencia (para RETURNING). */
 function first<T>(rows: readonly T[]): T {
@@ -113,12 +113,21 @@ async function seed(sql: Sql): Promise<void> {
     acceso: true,
   });
 
-  // ── Alumnos (4; a4 con pago vencido = suspendido) ──────────────────────
-  const alumnosSpec: { key: AlumnoKey; nombre: string; vencido: boolean }[] = [
-    { key: 'a1', nombre: 'Alumno Uno', vencido: false },
-    { key: 'a2', nombre: 'Alumno Dos', vencido: false },
-    { key: 'a3', nombre: 'Alumno Tres', vencido: false },
-    { key: 'a4', nombre: 'Alumno Cuatro (suspendido)', vencido: true },
+  // ── Alumnos (5) — repartidos en DOS cohortes para ver el aislamiento por grupo:
+  //    a1/a2/a3/a4 → Generación 2026-A (donde vive la demo del foro velado);
+  //    a5 → Generación 2026-B (activo, sin posts → su foro sale vacío, no ve el de A).
+  //    a4 con pago vencido = suspendido. `coraGrupo` decide su inscripción CORA. ──────
+  const alumnosSpec: {
+    key: AlumnoKey;
+    nombre: string;
+    vencido: boolean;
+    coraGrupo: 'A' | 'B';
+  }[] = [
+    { key: 'a1', nombre: 'Alumno Uno', vencido: false, coraGrupo: 'A' },
+    { key: 'a2', nombre: 'Alumno Dos', vencido: false, coraGrupo: 'A' },
+    { key: 'a3', nombre: 'Alumno Tres', vencido: false, coraGrupo: 'A' },
+    { key: 'a4', nombre: 'Alumno Cuatro (suspendido)', vencido: true, coraGrupo: 'A' },
+    { key: 'a5', nombre: 'Alumno Cinco (grupo B)', vencido: false, coraGrupo: 'B' },
   ];
   const alumnos = {} as Record<AlumnoKey, string>;
   for (const a of alumnosSpec) {
@@ -133,10 +142,18 @@ async function seed(sql: Sql): Promise<void> {
   }
 
   // ── Datos CORA (public.*) que el LXP LEE ───────────────────────────────
+  // DOS grupos CORA: la inscripción alumno↔grupo vive aquí (el seed SIMULA a CORA · §10;
+  // en producción el LXP nunca escribe en public). El vínculo a lxp.grupos se hace más
+  // abajo con `cora_grupo_id` (mig 0036).
   const gCoraA = first(
     await sql<{ id: string }[]>`
       insert into public.grupos (nombre, ciclo) values ('Generación 2026-A', '2026') returning id`,
   );
+  const gCoraB = first(
+    await sql<{ id: string }[]>`
+      insert into public.grupos (nombre, ciclo) values ('Generación 2026-B', '2026') returning id`,
+  );
+  const coraGrupoId = { A: gCoraA.id, B: gCoraB.id } as const;
   for (const a of alumnosSpec) {
     const authId = alumnos[a.key];
     await sql`
@@ -144,7 +161,7 @@ async function seed(sql: Sql): Promise<void> {
       values (${authId}, ${'MAT-' + a.key.toUpperCase()}, ${a.nombre})`;
     await sql`
       insert into public.inscripciones (supabase_auth_id, grupo_id)
-      values (${authId}, ${gCoraA.id})`;
+      values (${authId}, ${coraGrupoId[a.coraGrupo]})`;
     await sql`
       insert into public.pagos (supabase_auth_id, estado, vence_el)
       values (${authId}, ${a.vencido ? 'vencido' : 'al_corriente'}, ${
@@ -228,7 +245,7 @@ async function seed(sql: Sql): Promise<void> {
       })})`;
 
   // ── (2) VIDEO → config (ref + transcripción + highlights) ───────────────
-  await crearLeccion({
+  const lVideo = await crearLeccion({
     moduloId: m1.id, nombre: 'Artefactos en modo B', orden: 2, horas: 2, tipo: 'video',
     config: {
       // Enlace directo (demo reproducible sin subir a MinIO · soportado por el editor
@@ -414,15 +431,18 @@ async function seed(sql: Sql): Promise<void> {
   });
 
   // ── Grupos LXP (síncrono/asíncrono) de la plantilla ────────────────────
+  // Cada grupo LXP INSTANCIA el programa y se enlaza a su grupo CORA vía `cora_grupo_id`
+  // (mig 0036 · vínculo por valor, solo lectura · §10). Demo A ↔ CORA A, Demo B ↔ CORA B:
+  // así la membresía real (cora_grupos_de) resuelve la cohorte correcta.
   const grupoSync = first(
     await sql<{ id: string }[]>`
-      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
-      values (${programa.id}, 'Demo 2026-A (síncrono)', ${'sincrono'}::lxp.modalidad, '2026-02-01', ${docente})
+      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id, cora_grupo_id)
+      values (${programa.id}, 'Demo 2026-A (síncrono)', ${'sincrono'}::lxp.modalidad, '2026-02-01', ${docente}, ${gCoraA.id})
       returning id`,
   );
   await sql`
-    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
-    values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente})`;
+    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id, cora_grupo_id)
+    values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente}, ${gCoraB.id})`;
 
   // ── Foro: a2/a3/docente ya publicaron; a1 NO (para ver el muro velado → publicar
   //    lo desbloquea · gate por RLS 0030). Posts raíz con título + cuerpo rico, hilo
@@ -534,13 +554,11 @@ async function seed(sql: Sql): Promise<void> {
               ],
             })}, 8.0, ${'enviada'}::lxp.entrega_estado, now())`;
 
-  // ── Inscripción de a1: señal de progreso que dispara la heurística
-  //    `programasConActividad` (cursos-datos.ts) → el demo aparece en /cursos.
-  //    reproduccion_progreso.contenido_id es NOT NULL FK a lxp.contenidos (modelo
-  //    viejo, aún vivo), así que se crea un contenido "puente" en la lección video
-  //    del demo y se ancla el progreso a ÉL y a la LECCIÓN (leccion_id · mig 0026).
-  //    (La bitácora de a1 —abajo— también lo inscribe vía modulo_id; esto refuerza
-  //    la rama de reproducción, que es la que valida el re-cableo de players.)
+  // ── Progreso demo: a1 completa una lección (contenido "puente" · modelo viejo aún
+  //    vivo: reproduccion_progreso.contenido_id es NOT NULL FK a lxp.contenidos) y a2
+  //    completa una lección ANCLADA A LA LECCIÓN (modelo nuevo · mig 0028, contenido_id
+  //    NULL). Así el roster del Studio (getGrupoAlumnos) muestra avance real y variado
+  //    en la cohorte A. La inscripción del alumno ya la resuelve el grupo (mig 0036).
   const contPuente = first(
     await sql<{ id: string }[]>`
       insert into lxp.contenidos (leccion_id, tipo, titulo, recurso_ref, orden)
@@ -551,6 +569,10 @@ async function seed(sql: Sql): Promise<void> {
   await sql`
     insert into lxp.reproduccion_progreso (alumno_id, contenido_id, leccion_id, porcentaje, completado)
     values (${alumnos.a1}, ${contPuente.id}, ${lTeoria}, 100, true)`;
+  // a2: lección completada leccion-keyed (sin contenido) → avance ≠ 0 distinto al de a1.
+  await sql`
+    insert into lxp.reproduccion_progreso (alumno_id, leccion_id, porcentaje, completado)
+    values (${alumnos.a2}, ${lVideo}, 100, true)`;
 
   // ── Bitácora: casos en varios estados (para probar RLS de aislamiento) ──
   const casoAprobado = first(
