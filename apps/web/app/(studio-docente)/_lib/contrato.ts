@@ -159,33 +159,94 @@ export type EntregaRevision = {
   eco: PropuestaEcoResumen | null;
 };
 
-// ── Consultas 1:1 ───────────────────────────────────────────────────────────────
-export type MensajeConsulta = {
+// ── Consultas 1:1 (docente) — chat entre PERSONAS (§5B) ──────────────────────────
+// Contraparte de la consola del alumno (`app/(campus)/consultas`). El docente ve las
+// consultas que le abren sus ALUMNOS y el STAFF (contacto_id/id_docente = él) y responde.
+// El estado 'abierta|cerrada' se ALMACENA; "sin-responder/respondida" se DERIVA de la
+// dirección del último mensaje (mismo criterio que el lado alumno · mig 0034).
+// Eco es MOCK/placeholder aquí: no hay endpoint conversacional todavía (§7A).
+
+/** El estado que pinta la bandeja: quién debe la próxima respuesta. */
+export type EstadoConsultaDoc = 'sin-responder' | 'respondida' | 'cerrada';
+
+/** La otra parte del hilo, desde la óptica del docente: un alumno o un miembro del staff. */
+export type TipoContraparte = 'alumno' | 'staff';
+
+export type ContraparteConsulta = {
   id: string;
-  autor: 'docente' | 'alumno';
-  autorNombre: string;
-  cuerpo: string;
-  creadoEn: Date;
+  ini: string;
+  nombre: string;
+  tipo: TipoContraparte;
+  /** Contexto académico (solo alumno); `null` para staff. */
+  grupo: string | null;
+  moduloEnCurso: string | null;
+  horas: number | null;
+  /** Línea corta de contexto: «Grupo B · Nov 2026» o «Staff · Constancias». */
+  contexto: string;
 };
 
-export type ConsultaHilo = {
+export type AdjuntoConsultaDoc = {
   id: string;
-  alumno: string;
-  iniciales: string;
-  asunto: string;
-  estado: 'abierta' | 'cerrada';
-  actualizado: Date;
-  ultimoMensaje: string | null;
-  mensajes: number;
+  tipo: 'loop' | 'imagen' | 'video' | 'archivo';
+  nombre: string;
+  meta: string;
+  url?: string;
 };
 
-export type ConsultaDetalle = {
+export type MensajeConsultaDoc = {
   id: string;
-  alumno: string;
-  iniciales: string;
-  asunto: string;
-  estado: 'abierta' | 'cerrada';
-  mensajes: MensajeConsulta[];
+  de: 'contraparte' | 'docente';
+  texto: string;
+  hora: string;
+  dia?: string;
+  adjunto?: AdjuntoConsultaDoc;
+  /** Solo mensajes del docente: leído por la contraparte (deriva de `alumno_leido_en`). */
+  leido?: boolean;
+};
+
+/** Material que Eco propone enlazar (lección / caso de biblioteca). */
+export type RecursoEnlazable = { clave: string; titulo: string; meta: string; href?: string };
+
+/**
+ * Sugerencia de Eco para el hilo. `resumen`, `metaHilo`, `patron` y `recursos` se
+ * DERIVAN de datos reales (tools-first · §7A). `borrador`/`cita` son PLACEHOLDER: la
+ * redacción por LLM espera el endpoint conversacional de `apps/api` (§7A/§13).
+ */
+export type SugerenciaEcoConsulta = {
+  disponible: boolean;
+  resumen: string;
+  metaHilo: string;
+  patron: { cuantos: number; inis: string[]; texto: string } | null;
+  recursos: RecursoEnlazable[];
+  /** Borrador redactado por Eco — PENDIENTE de endpoint (§7A). `null` mientras no exista. */
+  borrador: string | null;
+  cita: string | null;
+  ajustes: string[];
+};
+
+/** Fila de la bandeja (columna 1). Ligera: sin mensajes ni Eco. */
+export type ConsultaResumen = {
+  id: string;
+  contraparte: ContraparteConsulta;
+  estado: EstadoConsultaDoc;
+  /** Tiempo que lleva esperando respuesta (solo `sin-responder`), p.ej. «2 h». */
+  esperando?: string;
+  hora: string;
+  ultimoMensaje: string;
+};
+
+/** El hilo abierto (columnas 2 y 3): resumen + mensajes + Eco. */
+export type ConsultaDetalleDoc = ConsultaResumen & {
+  origen: { etiqueta: string; href: string } | null;
+  mensajes: MensajeConsultaDoc[];
+  eco: SugerenciaEcoConsulta;
+};
+
+export type ConsultasDocenteData = {
+  docente: { nombre: string };
+  grupos: string[];
+  conversaciones: ConsultaResumen[];
+  sinResponder: number;
 };
 
 // ── Mis recursos (almacén personal) ─────────────────────────────────────────────
