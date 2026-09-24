@@ -52,14 +52,13 @@ export const TIPOS_BLOQUE_TEORIA: readonly TipoBloqueTeoria[] = [
 export type ConfigTexto = { html: string };
 
 /**
- * Imagen única: por ENLACE (`src`) o SUBIDA (`ref` = clave de storage redactada §10, que
- * se firma para leer). Texto alternativo y pie. `revisionManual` marca que la imagen
- * subida quedó en revisión (el redactor no estuvo seguro de tapar la PII quemada · §10).
+ * Imagen única de CONTENIDO educativo (diagrama/esquema/ilustración, sin PII): por ENLACE
+ * (`src`) o SUBIDA directa (`ref` = clave de storage, que se firma para leer). No pasa por
+ * el redactor Presidio — eso es solo de los flujos de paciente (§10). Alt y pie.
  */
 export type ConfigImagen = {
   src: string;
   ref?: string;
-  revisionManual?: boolean;
   alt: string;
   pie: string;
 };

@@ -2,16 +2,13 @@ import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { MediaImagenesService } from './media-imagenes.service';
 
 /**
- * Puente de las IMÁGENES de contenido del course builder (§5C · §10). El web (tras gatear
- * autoría con `requireAutoria`, staff) firma la subida, dispara la redacción Presidio (§10)
- * y firma la lectura. El binario nunca pasa por el `api` salvo el instante de redactar (§2).
+ * Puente de las IMÁGENES de contenido del course builder (§5C). El web (tras gatear autoría
+ * con `requireAutoria`, staff) firma la subida DIRECTA y la lectura. Es CONTENIDO educativo
+ * (diagramas/ilustraciones), no imágenes de paciente → NO pasa por el redactor Presidio; la
+ * anonimización (§10) vive solo en los flujos de paciente (bitácora/biblioteca/reportes).
  */
 
 interface FirmarSubidaBody {
-  ext: string;
-}
-interface ProcesarBody {
-  id: string;
   ext: string;
 }
 interface LecturaBody {
@@ -26,14 +23,6 @@ export class MediaImagenesController {
   firmarSubida(@Body() b: FirmarSubidaBody) {
     if (!b || typeof b.ext !== 'string') throw new BadRequestException('Falta la extensión.');
     return this.svc.firmarSubida(b.ext);
-  }
-
-  @Post('procesar')
-  procesar(@Body() b: ProcesarBody) {
-    if (!b || typeof b.id !== 'string' || typeof b.ext !== 'string') {
-      throw new BadRequestException('Faltan id/ext.');
-    }
-    return this.svc.procesar(b.id, b.ext);
   }
 
   @Post('firmar-lectura')

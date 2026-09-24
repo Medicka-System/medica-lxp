@@ -98,12 +98,16 @@ export async function urlReproduccionVideo(
   }
 }
 
-/* ─────────────────────────── Imágenes de contenido (§5C · §10) ─────────────────────────── */
+/* ─────────────────────────── Imágenes de contenido (§5C) ─────────────────────────── */
 
-export type SubidaImagen = { id: string; ext: string; urlSubida: string };
-export type ImagenProcesada = { ref: string; ext: string; revisionManual: boolean; urlLectura: string };
+export type SubidaImagen = { id: string; ext: string; ref: string; urlSubida: string; urlLectura: string };
 
-/** Paso 1: firma la subida del CRUDO de una imagen de bloque (el navegador la sube directo). */
+/**
+ * Firma la subida DIRECTA de una imagen de bloque a object storage (el navegador la sube
+ * tal cual). Es CONTENIDO educativo (diagramas/ilustraciones) → NO pasa por el redactor
+ * Presidio; la anonimización (§10) vive solo en los flujos de paciente
+ * (bitácora/biblioteca/reportes). Devuelve la ref final + su URL de lectura.
+ */
 export async function firmarSubidaImagenContenido(ext: string): Promise<ResultadoVideo<SubidaImagen>> {
   await requireAutoria();
   try {
@@ -118,24 +122,6 @@ export async function firmarSubidaImagenContenido(ext: string): Promise<Resultad
   } catch (e) {
     console.error('[firmarSubidaImagenContenido] fallo:', e);
     return { ok: false, error: 'No se pudo contactar el servicio de imágenes (apps/api).' };
-  }
-}
-
-/** Paso 2: redacta la PII quemada (§10) y deja la imagen final. Devuelve su ref + URL de lectura. */
-export async function procesarImagenContenido(id: string, ext: string): Promise<ResultadoVideo<ImagenProcesada>> {
-  await requireAutoria();
-  try {
-    const res = await fetch(`${apiBase()}/media/imagenes/procesar`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, ext }),
-      cache: 'no-store',
-    });
-    if (!res.ok) return { ok: false, error: `No se pudo procesar la imagen (HTTP ${res.status}).` };
-    return { ok: true, datos: (await res.json()) as ImagenProcesada };
-  } catch (e) {
-    console.error('[procesarImagenContenido] fallo:', e);
-    return { ok: false, error: 'No se pudo procesar la imagen (apps/api).' };
   }
 }
 

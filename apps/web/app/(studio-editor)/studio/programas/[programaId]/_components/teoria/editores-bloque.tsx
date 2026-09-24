@@ -27,7 +27,6 @@ import {
   Plus,
   ScanLine,
   Trash2,
-  TriangleAlert,
   Upload,
 } from 'lucide-react';
 import { EditorRico } from '@/components/editor-rico/editor-rico';
@@ -41,7 +40,6 @@ import {
   firmarLecturaImagenContenido,
   firmarSubidaImagenContenido,
   ingestarPaquete,
-  procesarImagenContenido,
 } from '@/lib/studio/media-acciones';
 
 /**
@@ -184,7 +182,7 @@ function EditorTexto({ config, onCambio }: { config: ConfigTexto; onCambio: (c: 
   );
 }
 
-/* ── Imagen (SUBIR con redacción Presidio §10 · o ENLACE) ── */
+/* ── Imagen (SUBIR directo · contenido educativo sin PII · o ENLACE) ── */
 function extDe(nombre: string): string {
   const m = /\.([a-zA-Z0-9]+)$/.exec(nombre);
   const e = (m?.[1] ?? 'jpg').toLowerCase();
@@ -237,18 +235,9 @@ function EditorImagen({ config, onCambio }: { config: ConfigImagen; onCambio: (c
         setError('No se pudo subir la imagen al almacenamiento (URL firmada). Reintenta.');
         return;
       }
-      const proc = await procesarImagenContenido(sol.datos.id, sol.datos.ext);
-      if (!proc.ok) {
-        setError(proc.error);
-        return;
-      }
-      setPreviewRef(proc.datos.urlLectura);
-      onCambio({
-        ...config,
-        ref: proc.datos.ref,
-        revisionManual: proc.datos.revisionManual,
-        src: '',
-      });
+      // Subida DIRECTA: es contenido educativo (sin PII), no pasa por el redactor (§10).
+      setPreviewRef(sol.datos.urlLectura);
+      onCambio({ ...config, ref: sol.datos.ref, src: '' });
       setReemplazando(false);
     } finally {
       setSubiendo(false);
@@ -262,14 +251,14 @@ function EditorImagen({ config, onCambio }: { config: ConfigImagen; onCambio: (c
       setError('Pega una URL válida (http/https) de la imagen.');
       return;
     }
-    onCambio({ ...config, src: u, ref: undefined, revisionManual: false });
+    onCambio({ ...config, src: u, ref: undefined });
     setReemplazando(false);
   }
 
   function quitar() {
     setEnlace('');
     setPreviewRef(null);
-    onCambio({ ...config, src: '', ref: undefined, revisionManual: false });
+    onCambio({ ...config, src: '', ref: undefined });
     setReemplazando(false);
   }
 
@@ -304,9 +293,7 @@ function EditorImagen({ config, onCambio }: { config: ConfigImagen; onCambio: (c
             </span>
             <p className="min-w-0 flex-1 text-[12.5px] font-semibold">
               {config.ref ? 'Imagen subida' : 'Imagen por enlace'}
-              <span className={`ml-1 font-normal ${softText}`}>
-                {config.ref ? '· anonimizada (§10)' : `· ${config.src}`}
-              </span>
+              {!config.ref && config.src && <span className={`ml-1 font-normal ${softText}`}>· {config.src}</span>}
             </p>
             <button
               type="button"
@@ -328,15 +315,6 @@ function EditorImagen({ config, onCambio }: { config: ConfigImagen; onCambio: (c
               Quitar
             </button>
           </div>
-
-          {config.ref && config.revisionManual && (
-            <div className="flex items-start gap-2.5 rounded-[10px] border border-[color:var(--warning-border,#fde68a)] bg-[color:var(--warning-surface,#fffbeb)] px-3.5 py-2.5">
-              <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" strokeWidth={1.9} />
-              <p className="text-[11.5px] leading-relaxed text-amber-800">
-                El redactor no pudo confirmar que tapó toda la PII quemada. Revisa la imagen antes de publicar (§10).
-              </p>
-            </div>
-          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo etiqueta="Texto alternativo (alt)" valor={config.alt ?? ''} onCambio={(alt) => onCambio({ ...config, alt })} />
@@ -446,12 +424,12 @@ function FuenteImagen({
             {subiendo ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={1.75} /> : <Upload className="h-5 w-5" strokeWidth={1.6} />}
           </span>
           <span className="text-[13px] font-bold">
-            {subiendo ? 'Subiendo y anonimizando…' : 'Elige una imagen (JPG o PNG)'}
+            {subiendo ? 'Subiendo…' : 'Elige una imagen (JPG o PNG)'}
           </span>
           <span className={`max-w-[42ch] text-[11.5px] leading-relaxed ${softText}`}>
             {subiendo
-              ? 'Se sube al almacenamiento y pasa por el redactor de PII quemada (§10); no cierres esta pantalla.'
-              : 'Se sube directo al almacenamiento y se anonimiza la PII quemada (§10) antes de guardarla.'}
+              ? 'Se sube directo al almacenamiento; no cierres esta pantalla.'
+              : 'Imagen de contenido educativo (diagrama, esquema, ilustración). Se sube directo al almacenamiento.'}
           </span>
         </label>
       ) : (
@@ -475,7 +453,7 @@ function FuenteImagen({
             </button>
           </div>
           <p className={`mt-2 text-[11.5px] leading-relaxed ${softText}`}>
-            El enlace se usa tal cual (imagen ya pública). Para una captura clínica, súbela: se anonimiza la PII (§10).
+            El enlace se usa tal cual (imagen ya pública) o sube el archivo directo al almacenamiento.
           </p>
         </div>
       )}

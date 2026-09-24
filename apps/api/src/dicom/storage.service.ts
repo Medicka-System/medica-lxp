@@ -49,13 +49,7 @@ export class StorageService {
     return `reportes/imagenes/${reporteId}/${id}.${e}`;
   }
 
-  /** Clave del CRUDO de una imagen de CONTENIDO (bloque de teoría) mientras se redacta (§10). */
-  claveImagenContenidoCrudo(id: string, ext: string): string {
-    const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
-    return `media/imagenes/crudo/${id}.${e}`;
-  }
-
-  /** Clave FINAL (redactada §10) de una imagen de contenido de teoría; se lee con URL firmada. */
+  /** Clave de una imagen de CONTENIDO de teoría (educativa, sin PII); se lee con URL firmada. */
   claveImagenContenido(id: string, ext: string): string {
     const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
     return `media/imagenes/${id}.${e}`;
