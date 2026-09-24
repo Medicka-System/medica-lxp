@@ -709,3 +709,35 @@ export async function reordenarBloquesTeoria(
   });
   refrescar(programaId);
 }
+
+// ── Constructor de plantilla de reporte (§6.5) ──────────────────────────────────
+// Escribe la ESTRUCTURA (secciones/campos/guía) en `plantillas_reporte.estructura`
+// (jsonb) — CRUD real bajo RLS es_autoria. La forma se sanea con el normalizador del
+// contrato compartido antes de persistir (no confiar en el cliente).
+export async function guardarEstructuraPlantilla(
+  id: string,
+  datos: {
+    nombre: string;
+    tipoEstudio: string;
+    estructura: import('@/lib/reportes/estructura').EstructuraPlantilla;
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const { normalizarEstructura } = await import('@/lib/reportes/estructura');
+  const nombre = datos.nombre.trim() || 'Plantilla sin título';
+  const tipo = datos.tipoEstudio.trim() || null;
+  const estructura = normalizarEstructura(datos.estructura);
+  try {
+    await comoStaff(userId, async (sql) => {
+      await sql`
+        update lxp.plantillas_reporte
+        set nombre = ${nombre}, tipo_estudio = ${tipo}, estructura = ${JSON.stringify(estructura)}::jsonb
+        where id = ${id}`;
+    });
+    revalidatePath('/studio/herramientas/plantillas');
+    revalidatePath(`/studio/herramientas/plantillas/${id}`);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'No se pudo guardar la plantilla.' };
+  }
+}

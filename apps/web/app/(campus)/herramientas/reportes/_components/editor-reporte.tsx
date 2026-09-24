@@ -1,14 +1,15 @@
 'use client';
 
 /**
- * Editor de reporte clínico (§6.5) — documento a la izquierda, estación (visor DICOM +
- * checklist + puente académico) a la derecha. App real: el cuerpo se persiste en
- * `lxp.reportes.contenido`/`.datos_paciente` (jsonb) bajo RLS vía server actions.
+ * Editor de reporte clínico (§6.5) — FASE 1 cableada.
  *
- * PLACEHOLDERS (contenido clínico definido aparte con el equipo, §6.5 — NO inventado):
- *   · Guía de cada sección · Recomendaciones sugeridas · Membrete y firma.
- * El visor usa el hueco de DICOM (pipeline real de ingesta/anonimización = Sprint 4.7).
- * Generar PDF, enviar por correo y "Guardar como caso" son dominio (`apps/api`) — stubs.
+ * La forma sale de la plantilla real (`plantillas_reporte.estructura`): card de "Datos
+ * del estudio" (encabezado, campos del paciente) + cards de hallazgos por sección, cada
+ * campo renderizado por su tipo con `<CampoReporte>` (la MISMA pieza del constructor →
+ * se ve igual). El campo `imagen/dicom` monta el visor Cornerstone3D real insertando un
+ * estudio de la bitácora del médico. Los valores se persisten en `contenido.valores`.
+ *
+ * DOMINIO (stubs · `apps/api`): generar PDF, enviar por correo, "guardar como caso".
  */
 
 import { useMemo, useState, useTransition } from 'react';
@@ -16,15 +17,24 @@ import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   Download,
-  Images,
+  FileWarning,
   Mail,
   MoreHorizontal,
   NotebookText,
   Printer,
   Save,
+  Search,
+  X,
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
-import { VisorDicomPlaceholder } from '../../../_components/visor-dicom';
+import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
+import {
+  campoCompleto,
+  CAMPOS_PACIENTE_CATALOGO,
+  esCampoEstatico,
+  type CampoPlantilla,
+  type SeccionPlantilla,
+} from '@/lib/reportes/estructura';
 import {
   enviarReporte,
   finalizarReporte,
@@ -34,6 +44,7 @@ import {
 } from '../_acciones';
 import {
   ETIQUETA_ESTADO,
+  type CasoDicomOpcion,
   type ContenidoReporte,
   type DatosPaciente,
   type EstadoReporte,
@@ -47,78 +58,82 @@ const claseEstado: Record<EstadoReporte, string> = {
     'border border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
 };
 
-const campoCls =
-  'mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary';
+const GRID_COLS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-1 sm:grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+};
 
-const CAMPOS_PACIENTE: { key: keyof DatosPaciente; etiqueta: string; mono?: boolean }[] = [
-  { key: 'paciente', etiqueta: 'Paciente' },
-  { key: 'edadSexo', etiqueta: 'Edad y sexo' },
-  { key: 'expediente', etiqueta: 'Expediente', mono: true },
-  { key: 'fechaEstudio', etiqueta: 'Fecha del estudio' },
-  { key: 'solicitante', etiqueta: 'Médico solicitante' },
-  { key: 'equipo', etiqueta: 'Equipo' },
-];
-
-/** Zona reservada: la estructura existe, el contenido clínico se define aparte (§6.5). */
-function Zona({ titulo, nota, minAlto }: { titulo: string; nota: string; minAlto: number }) {
-  return (
-    <div
-      className="rounded-[11px] border-[1.5px] border-dashed p-4"
-      style={{
-        minHeight: minAlto,
-        borderColor: 'color-mix(in oklab, var(--secondary) 35%, white)',
-        backgroundImage:
-          'repeating-linear-gradient(135deg, color-mix(in oklab, var(--secondary) 7%, transparent) 0 6px, transparent 6px 13px)',
-      }}
-    >
-      <p className={`${kicker} text-secondary`}>{titulo}</p>
-      <p className={`mt-1.5 text-[12.5px] leading-relaxed ${softText}`}>{nota}</p>
-    </div>
-  );
+/** Campos del paciente por defecto si la plantilla no trae card de encabezado. */
+function encabezadoPorDefecto(): CampoPlantilla[] {
+  return CAMPOS_PACIENTE_CATALOGO.map((p) => ({
+    id: p.id,
+    tipo: 'texto' as const,
+    nombre: p.nombre,
+    ...(p.span ? { span: p.span } : {}),
+  }));
 }
 
-export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
+export function EditorReporte({
+  reporte,
+  casosDicom,
+}: {
+  reporte: ReporteDetalle;
+  casosDicom: CasoDicomOpcion[];
+}) {
   const router = useRouter();
+  const estructura = reporte.plantilla?.estructura ?? { secciones: [] };
+
+  const encabezado = estructura.secciones.find((s) => s.tipo === 'encabezado');
+  const camposPaciente = encabezado?.campos.length ? encabezado.campos : encabezadoPorDefecto();
+  const columnasEnc = encabezado?.columnas ?? 3;
+  const secciones = estructura.secciones.filter((s) => s.tipo === 'hallazgos');
+
   const [paciente, setPaciente] = useState<DatosPaciente>(reporte.datosPaciente);
-  const [secciones, setSecciones] = useState(reporte.contenido.secciones);
+  const [valores, setValores] = useState<Record<string, unknown>>(reporte.contenido.valores ?? {});
   const [impresion, setImpresion] = useState(reporte.contenido.impresion);
-  const [piezas, setPiezas] = useState(reporte.contenido.piezas);
-  const [piezaSel, setPiezaSel] = useState(0);
-  const [seccionSel, setSeccionSel] = useState(0);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
+  const [pickerCampo, setPickerCampo] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
 
   const estado = reporte.estado;
-  const insertadas = piezas.filter((p) => p.insertada).length;
+
+  function setValor(campoId: string, v: unknown) {
+    setValores((prev) => ({ ...prev, [campoId]: v }));
+  }
+  function setPacienteCampo(id: string, v: unknown) {
+    setPaciente((p) => ({ ...p, [id]: typeof v === 'string' ? v : '' }));
+  }
+
+  const camposLlenables = useMemo(
+    () => secciones.flatMap((s) => s.campos).filter((c) => !esCampoEstatico(c.tipo)),
+    [secciones],
+  );
+  const imagenes = useMemo(
+    () => camposLlenables.filter((c) => c.tipo === 'imagen' && c.origen === 'dicom' && campoCompleto(c, valores[c.id])).length,
+    [camposLlenables, valores],
+  );
 
   const checklist = useMemo(() => {
     const base = [
       { item: 'Datos del paciente', listo: paciente.paciente.trim() !== '' && paciente.edadSexo.trim() !== '' },
-      { item: 'Al menos una imagen', listo: insertadas > 0 },
     ];
-    const porSeccion = secciones.map((s) => ({ item: s.titulo, listo: s.texto.trim() !== '' }));
-    return [...base, ...porSeccion, { item: 'Impresión diagnóstica', listo: impresion.trim() !== '' }];
-  }, [paciente, insertadas, secciones, impresion]);
+    const porCampo = camposLlenables.map((c) => ({
+      item: c.nombre || 'Campo sin nombre',
+      listo: campoCompleto(c, valores[c.id]),
+    }));
+    return [...base, ...porCampo, { item: 'Impresión diagnóstica', listo: impresion.trim() !== '' }];
+  }, [paciente, camposLlenables, valores, impresion]);
   const hechos = checklist.filter((c) => c.listo).length;
 
   function armarContenido(): ContenidoReporte {
     return {
       folio: reporte.contenido.folio,
-      tipo: reporte.contenido.tipo,
-      secciones,
+      plantillaId: reporte.plantilla?.id ?? reporte.contenido.plantillaId,
+      valores,
       impresion,
-      piezas,
     };
-  }
-
-  function insertarEnSeccion() {
-    const objetivo = piezas.findIndex((_, i) => i === piezaSel);
-    if (objetivo < 0) return;
-    setPiezas((prev) => prev.map((p, i) => (i === piezaSel ? { ...p, insertada: true } : p)));
-    setSecciones((prev) =>
-      prev.map((s, i) => (i === seccionSel ? { ...s, imagenesInsertadas: s.imagenesInsertadas + 1 } : s)),
-    );
-    setMensaje({ tipo: 'ok', texto: `Imagen añadida a "${secciones[seccionSel]?.titulo ?? ''}".` });
   }
 
   function conAccion(fn: () => Promise<{ ok: boolean; error?: string }>, exito: string) {
@@ -154,9 +169,16 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
     if (typeof window !== 'undefined') window.print();
   };
 
+  function elegirEstudio(casoId: string) {
+    if (pickerCampo) setValor(pickerCampo, { casoId, tabla: 'bitacora_casos' });
+    setPickerCampo(null);
+  }
+
+  const tituloReporte = reporte.plantilla?.nombre ?? 'Reporte clínico';
+
   return (
     <div className="mx-auto w-full max-w-[1240px] px-5 py-8 sm:px-6 lg:px-8">
-      {/* barra del reporte */}
+      {/* barra */}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -168,9 +190,7 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
         </button>
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">
-              Ultrasonido {reporte.contenido.tipo.toLowerCase()}
-            </h1>
+            <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">{tituloReporte}</h1>
             <span
               className={`inline-flex h-6 items-center rounded-full px-2.5 text-[11.5px] font-semibold ${claseEstado[estado]}`}
             >
@@ -251,119 +271,56 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
         </p>
       )}
 
-      <div className="mt-5 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+      {!reporte.plantilla && (
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-4 py-3">
+          <FileWarning aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={1.75} />
+          <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
+            La plantilla de este reporte ya no está publicada. Puedes editar los datos del paciente y la
+            impresión, pero la estructura de hallazgos no está disponible.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         {/* ══════ documento ══════ */}
         <div className="flex min-w-0 flex-col gap-5">
+          {/* card de encabezado: datos del estudio */}
           <section className={`${card} p-5`}>
             <div className="flex flex-wrap items-center gap-3">
-              <p className={`${kicker} text-muted-foreground`}>Datos del estudio</p>
+              <p className={`${kicker} text-muted-foreground`}>{encabezado?.titulo ?? 'Datos del estudio'}</p>
               <span className="ml-auto text-[12px] text-muted-foreground">
                 Documento clínico · sí lleva datos del paciente
               </span>
             </div>
-            <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-              {CAMPOS_PACIENTE.map((c) => (
-                <label key={c.key} className="block">
-                  <span className="block text-[11.5px] font-semibold">{c.etiqueta}</span>
-                  <input
-                    type="text"
-                    value={paciente[c.key]}
-                    onChange={(e) => setPaciente((p) => ({ ...p, [c.key]: e.target.value }))}
-                    className={`${campoCls} ${c.mono ? 'font-mono text-[13.5px]' : ''}`}
+            <div className={`mt-4 grid gap-3.5 ${GRID_COLS[columnasEnc] ?? GRID_COLS[3]}`}>
+              {camposPaciente.map((c) => (
+                <div key={c.id} className={claseSpan(c, columnasEnc)}>
+                  <CampoReporte
+                    campo={c}
+                    valor={(paciente as Record<string, unknown>)[c.id] ?? ''}
+                    modo="llenar"
+                    onCambio={(v) => setPacienteCampo(c.id, v)}
                   />
-                </label>
+                </div>
               ))}
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-              <span className="text-[12.5px] text-muted-foreground">Motivo del estudio</span>
-              <input
-                type="text"
-                value={paciente.motivo}
-                onChange={(e) => setPaciente((p) => ({ ...p, motivo: e.target.value }))}
-                placeholder="Motivo o indicación clínica del estudio"
-                className={`${campoCls} mt-0 min-w-[220px] flex-1`}
-              />
             </div>
           </section>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <p className={`${kicker} text-muted-foreground`}>Hallazgos por sección</p>
-            <span className={`${mono} text-[11.5px] text-muted-foreground`}>
-              plantilla: {reporte.contenido.tipo.toLowerCase()} · {secciones.length} secciones
-            </span>
-          </div>
+          {/* cards de hallazgos por sección */}
+          {secciones.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className={`${kicker} text-muted-foreground`}>Hallazgos por sección</p>
+              <span className={`${mono} text-[11.5px] text-muted-foreground`}>
+                {reporte.plantilla?.nombre?.toLowerCase()} · {secciones.length} secciones
+              </span>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-3.5">
-            {secciones.map((s, i) => {
-              const listo = s.texto.trim() !== '';
-              return (
-                <section
-                  key={s.id}
-                  onFocusCapture={() => setSeccionSel(i)}
-                  className={`overflow-hidden rounded-xl border ${
-                    i === seccionSel ? 'border-secondary' : 'border-border'
-                  } bg-card`}
-                >
-                  <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3.5">
-                    <span
-                      aria-hidden
-                      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${
-                        listo
-                          ? 'bg-primary text-[color:var(--sidebar)]'
-                          : 'border-2 border-[color:var(--track)] bg-card'
-                      }`}
-                    >
-                      {listo && (
-                        <svg viewBox="0 0 24 24" className="h-[13px] w-[13px]" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 13l4 4 10-10" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[14.5px] font-bold leading-snug">{s.titulo}</span>
-                      <span className={`${mono} mt-0.5 block text-[11.5px] text-muted-foreground`}>
-                        sección {i + 1} de la plantilla · {s.imagenesInsertadas}{' '}
-                        {s.imagenesInsertadas === 1 ? 'imagen' : 'imágenes'}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSeccionSel(i);
-                        insertarEnSeccion();
-                      }}
-                      className={`inline-flex h-10 items-center gap-[7px] rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
-                    >
-                      <Images aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                      Insertar imagen
-                    </button>
-                  </div>
-                  <div className="p-5">
-                    <textarea
-                      rows={3}
-                      value={s.texto}
-                      onFocus={() => setSeccionSel(i)}
-                      onChange={(e) =>
-                        setSecciones((prev) =>
-                          prev.map((x, xi) => (xi === i ? { ...x, texto: e.target.value } : x)),
-                        )
-                      }
-                      placeholder="Redacte los hallazgos de esta sección."
-                      className="w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
-                    />
-                    <div className="mt-3">
-                      <Zona
-                        titulo="Guía de la plantilla"
-                        nota="Aquí van los campos y sugerencias de esta sección (medidas esperadas, estructura y recordatorios para no omitir nada). El contenido clínico se define aparte."
-                        minAlto={78}
-                      />
-                    </div>
-                  </div>
-                </section>
-              );
-            })}
-          </div>
+          {secciones.map((s) => (
+            <SeccionCard key={s.id} seccion={s} valores={valores} onValor={setValor} onPicker={setPickerCampo} />
+          ))}
 
+          {/* impresión diagnóstica (fija) */}
           <section className={`${card} p-5`}>
             <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
             <textarea
@@ -373,120 +330,15 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
               placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
               className="mt-3 w-full resize-y rounded-[10px] border border-border bg-card p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
             />
-            <div className="mt-3.5">
-              <Zona
-                titulo="Recomendaciones sugeridas"
-                nota="Zona reservada para las recomendaciones y el seguimiento que proponga la plantilla."
-                minAlto={66}
-              />
-            </div>
-          </section>
-
-          <section className={`${card} p-5`}>
-            <p className={`${kicker} text-muted-foreground`}>Membrete y firma</p>
-            <div className="mt-3.5 grid gap-3.5 sm:grid-cols-2">
-              <Zona
-                titulo="Membrete del consultorio"
-                nota="Logotipo, dirección y teléfono. Se configura una vez y aparece en todos sus reportes."
-                minAlto={96}
-              />
-              <Zona
-                titulo="Firma del médico"
-                nota="Nombre, cédula profesional y firma digitalizada."
-                minAlto={96}
-              />
-            </div>
           </section>
         </div>
 
-        {/* ══════ estación: visor, checklist y puente académico ══════ */}
+        {/* ══════ estación: checklist + puente académico ══════ */}
         <aside className="flex min-w-0 flex-col gap-5">
-          <section className={`${card} overflow-hidden`}>
-            <VisorDicomPlaceholder
-              etiqueta={`visor DICOM · ${piezas[piezaSel]?.etiqueta ?? '—'}`}
-              alto={280}
-              loop
-              piezas={piezas.length}
-            />
-            <div className="border-t border-border p-3.5">
-              <div className="flex gap-2 overflow-x-auto">
-                {piezas.map((p, i) => (
-                  <button
-                    key={`${p.etiqueta}-${i}`}
-                    type="button"
-                    onClick={() => setPiezaSel(i)}
-                    aria-current={i === piezaSel}
-                    className={`relative grid h-14 w-[78px] shrink-0 place-items-center overflow-hidden rounded-[9px] border-2 ${focusRing} ${
-                      i === piezaSel ? 'border-primary' : 'border-transparent'
-                    }`}
-                    style={{ background: 'var(--wave-0)' }}
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute inset-0"
-                      style={{
-                        background:
-                          'repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 2px, transparent 2px 9px)',
-                      }}
-                    />
-                    <span
-                      className={`relative ${mono} text-center text-[7px] uppercase tracking-[0.08em]`}
-                      style={{ color: 'var(--hero-ink-muted)' }}
-                    >
-                      {p.etiqueta}
-                    </span>
-                    {p.insertada && (
-                      <span
-                        aria-label="Ya está en el reporte"
-                        className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-primary text-[color:var(--sidebar)]"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 13l4 4 10-10" />
-                        </svg>
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">
-                Hueco del visor DICOM (Cornerstone3D · Sprint 4.7). La ingesta y anonimización del
-                estudio son parte del pipeline de dominio.
-              </p>
-              <div className="mt-3 flex items-center gap-2.5">
-                <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
-                  <span className="shrink-0 text-[11.5px] text-muted-foreground">Sección</span>
-                  <select
-                    value={seccionSel}
-                    onChange={(e) => setSeccionSel(Number(e.target.value))}
-                    className="w-full appearance-none bg-transparent text-[12.5px] font-semibold text-foreground outline-none"
-                  >
-                    {secciones.map((s, i) => (
-                      <option key={s.id} value={i}>
-                        {s.titulo}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={insertarEnSeccion}
-                  className={`h-11 shrink-0 rounded-[10px] bg-accent px-3.5 text-[13px] font-bold text-accent-foreground transition-colors hover:bg-[color:var(--track)] ${focusRing}`}
-                >
-                  Insertar
-                </button>
-              </div>
-              <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
-                {insertadas} de {piezas.length} imágenes ya están en el reporte.
-              </p>
-            </div>
-          </section>
-
           <section className={`${card} p-5`}>
             <div className="flex items-baseline gap-2.5">
               <p className={`${kicker} text-muted-foreground`}>Antes de finalizar</p>
-              <span
-                className={`${mono} ml-auto text-[12px] font-bold text-[color:var(--warning-foreground)]`}
-              >
+              <span className={`${mono} ml-auto text-[12px] font-bold text-[color:var(--warning-foreground)]`}>
                 {hechos} de {checklist.length}
               </span>
             </div>
@@ -500,18 +352,16 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
             >
               <div
                 className="h-full rounded-full"
-                style={{ width: `${(hechos / checklist.length) * 100}%`, background: 'var(--warning)' }}
+                style={{ width: `${(hechos / Math.max(1, checklist.length)) * 100}%`, background: 'var(--warning)' }}
               />
             </div>
-            <ul className="mt-4 flex flex-col gap-2.5">
-              {checklist.map((c) => (
-                <li key={c.item} className="flex items-center gap-2.5">
+            <ul className="mt-4 flex max-h-[280px] flex-col gap-2.5 overflow-y-auto">
+              {checklist.map((c, i) => (
+                <li key={`${c.item}-${i}`} className="flex items-center gap-2.5">
                   <span
                     aria-hidden
                     className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${
-                      c.listo
-                        ? 'bg-primary text-[color:var(--sidebar)]'
-                        : 'border-2 border-[color:var(--warning)] bg-card'
+                      c.listo ? 'bg-primary text-[color:var(--sidebar)]' : 'border-2 border-[color:var(--warning)] bg-card'
                     }`}
                   >
                     {c.listo && (
@@ -527,8 +377,8 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
               ))}
             </ul>
             <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
-              La estructura de la plantilla evita omisiones: mientras falte algo, conviene dejar el
-              reporte en borrador.
+              {imagenes} {imagenes === 1 ? 'imagen DICOM insertada' : 'imágenes DICOM insertadas'}. La plantilla
+              evita omisiones: mientras falte algo, conviene dejar el reporte en borrador.
             </p>
           </section>
 
@@ -553,6 +403,129 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
             </p>
           </section>
         </aside>
+      </div>
+
+      {/* diálogo: elegir estudio DICOM de la bitácora */}
+      {pickerCampo && (
+        <PickerEstudio casos={casosDicom} onElegir={elegirEstudio} onCerrar={() => setPickerCampo(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ── card de una sección de hallazgos: grid de campos vía CampoReporte ── */
+function SeccionCard({
+  seccion,
+  valores,
+  onValor,
+  onPicker,
+}: {
+  seccion: SeccionPlantilla;
+  valores: Record<string, unknown>;
+  onValor: (campoId: string, v: unknown) => void;
+  onPicker: (campoId: string) => void;
+}) {
+  return (
+    <section className={`${card} p-5`}>
+      <p className="text-[14.5px] font-bold leading-snug">{seccion.titulo}</p>
+      <div className={`mt-3.5 grid gap-3.5 ${GRID_COLS[seccion.columnas] ?? GRID_COLS[1]}`}>
+        {seccion.campos.map((c) => (
+          <div key={c.id} className={claseSpan(c, seccion.columnas)}>
+            <CampoReporte
+              campo={c}
+              valor={valores[c.id]}
+              modo="llenar"
+              onCambio={(v) => onValor(c.id, v)}
+              onElegirEstudio={() => onPicker(c.id)}
+              onQuitarEstudio={() => onValor(c.id, null)}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── selector de estudio de la bitácora ── */
+function PickerEstudio({
+  casos,
+  onElegir,
+  onCerrar,
+}: {
+  casos: CasoDicomOpcion[];
+  onElegir: (casoId: string) => void;
+  onCerrar: () => void;
+}) {
+  const [busca, setBusca] = useState('');
+  const visibles = busca.trim()
+    ? casos.filter((c) => c.titulo.toLowerCase().includes(busca.trim().toLowerCase()))
+    : casos;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Elegir estudio DICOM"
+      onClick={onCerrar}
+    >
+      <div className={`${card} w-full max-w-[520px] p-6`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Insertar imagen del estudio</h2>
+            <p className={`mt-1 text-[12.5px] ${softText}`}>
+              Elige un estudio de tu bitácora. Se muestra anonimizado en el visor del reporte.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar"
+            onClick={onCerrar}
+            className={`ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
+          >
+            <X aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+          </button>
+        </div>
+
+        <label className="mt-4 flex h-10 items-center gap-2 rounded-[9px] border border-border bg-card px-3 focus-within:border-secondary">
+          <Search aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+          <input
+            type="search"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar estudio por órgano o hallazgo…"
+            className="w-full min-w-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </label>
+
+        <div className="mt-3 max-h-[320px] overflow-y-auto">
+          {visibles.length === 0 ? (
+            <p className="px-2 py-8 text-center text-[13px] text-muted-foreground">
+              {casos.length === 0
+                ? 'No tienes estudios con imágenes en tu bitácora todavía.'
+                : 'Ningún estudio coincide con la búsqueda.'}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {visibles.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => onElegir(c.id)}
+                    className={`flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-bold">{c.titulo}</span>
+                      <span className={`${mono} mt-0.5 block text-[11.5px] text-muted-foreground`}>
+                        {c.series} {c.series === 1 ? 'serie' : 'series'} · {c.fecha}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

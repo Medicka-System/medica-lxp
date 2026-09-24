@@ -60,10 +60,13 @@ export function HerramientasAdmin({
   tipo,
   items,
   conteos,
+  rutaEditar,
 }: {
   tipo: TipoHerramienta;
   items: HerramientaItem[];
   conteos: ConteosHerramientas;
+  /** Si se pasa, cada fila muestra "Editar" hacia el constructor de esa herramienta. */
+  rutaEditar?: (id: string) => string;
 }) {
   const meta = META[tipo];
   const Icono = meta.icono;
@@ -155,7 +158,14 @@ export function HerramientasAdmin({
           </thead>
           <tbody>
             {visibles.map((it) => (
-              <FilaHerramienta key={it.id} tipo={tipo} item={it} icono={Icono} onPendiente={iniciar} />
+              <FilaHerramienta
+                key={it.id}
+                tipo={tipo}
+                item={it}
+                icono={Icono}
+                onPendiente={iniciar}
+                rutaEditar={rutaEditar}
+              />
             ))}
           </tbody>
         </table>
@@ -183,11 +193,13 @@ function FilaHerramienta({
   item,
   icono: Icono,
   onPendiente,
+  rutaEditar,
 }: {
   tipo: TipoHerramienta;
   item: HerramientaItem;
   icono: typeof Calculator;
   onPendiente: (fn: () => void) => void;
+  rutaEditar?: (id: string) => string;
 }) {
   const [nombre, setNombre] = useState(item.nombre);
   const [editando, setEditando] = useState(false);
@@ -243,18 +255,34 @@ function FilaHerramienta({
         <ChipEstado publicado={item.publicado} />
       </td>
       <td className="px-4 py-3">
-        <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
-          Se define aparte
-        </span>
+        {rutaEditar ? (
+          <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full bg-accent px-2 text-[10px] font-bold text-accent-foreground">
+            Se edita aquí
+          </span>
+        ) : (
+          <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
+            Se define aparte
+          </span>
+        )}
       </td>
       <td className="px-3 py-3 text-right">
-        <button
-          type="button"
-          onClick={() => onPendiente(() => publicarHerramienta(tipo, item.id, !item.publicado))}
-          className={`h-9 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
-        >
-          {item.publicado ? 'Despublicar' : 'Publicar'}
-        </button>
+        <div className="flex items-center justify-end gap-1.5">
+          {rutaEditar && (
+            <Link
+              href={rutaEditar(item.id)}
+              className={`inline-flex h-9 items-center whitespace-nowrap rounded-[9px] bg-primary px-3 text-[12.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+            >
+              Editar
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => onPendiente(() => publicarHerramienta(tipo, item.id, !item.publicado))}
+            className={`h-9 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+          >
+            {item.publicado ? 'Despublicar' : 'Publicar'}
+          </button>
+        </div>
       </td>
     </tr>
   );

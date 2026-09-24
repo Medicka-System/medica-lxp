@@ -4,80 +4,65 @@ import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
 import type { ResultadoAccion } from '@/lib/campus/resultado';
-import {
-  plantillaDe,
-  piezasPorDefecto,
-  type ContenidoReporte,
-  type DatosPaciente,
-  type EstadoReporte,
-  type TipoEstudio,
-} from './_contrato';
+import { contenidoVacio, type ContenidoReporte, type DatosPaciente, type EstadoReporte } from './_contrato';
 
 /**
  * Server actions del generador de reportes. CRUD simple `web → Supabase` bajo RLS
  * (Regla de Oro §2 — NO pasa por NestJS): corren con `comoAlumno`, así que la policy
  * `reportes_insert/update` (id_medico = auth.uid()) es el segundo candado.
  *
+ * FASE 1: el reporte apunta a una plantilla real (`plantilla_id`) y guarda los VALORES
+ * de sus campos en `contenido.valores` (jsonb).
+ *
  * FRONTERA DE DOMINIO (PENDIENTE DE API · §2/§6.5/§8/§10):
- *   · generarPdf   → el servicio de PDF vive en `apps/api` (aquí solo se dispara).
- *   · enviarReporte → el envío por correo al paciente vive en `apps/api`/`worker`.
- *   · guardarComoCaso → la ANONIMIZACIÓN (quitar PII) es bloqueante y es dominio
- *     (worker `procesar-dicom`/pipeline). El caso educativo NUNCA se crea aquí con
- *     datos de paciente (§10). Se deja como stub hasta cablear el contrato con `api`.
+ *   · generarPdf   → servicio de PDF en `apps/api`.
+ *   · enviarReporte → envío por correo en `apps/api`/`worker`.
+ *   · guardarComoCaso → la ANONIMIZACIÓN (quitar PII) es bloqueante y es dominio (worker).
  */
 
 const REVALIDAR = '/herramientas/reportes';
 
 type ResultadoCrear = { ok: true; id: string } | { ok: false; error: string };
 
-/** Crea un reporte en borrador para el tipo de estudio elegido y devuelve su id. */
-export async function crearReporte(tipo: TipoEstudio): Promise<ResultadoCrear> {
+/** Crea un reporte en borrador para la plantilla elegida (publicada) y devuelve su id. */
+export async function crearReporte(plantillaId: string): Promise<ResultadoCrear> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para crear reportes.' };
   }
-
-  const plantilla = plantillaDe(tipo);
   try {
     const id = await comoAlumno(alumno.userId, async (sql) => {
+      // La plantilla debe existir y estar publicada (RLS select ya lo restringe al alumno).
+      const [pl] = await sql<{ id: string }[]>`
+        select id from lxp.plantillas_reporte where id = ${plantillaId} and publicado limit 1`;
+      if (!pl) throw new Error('plantilla no disponible');
+
       const [{ n }] = await sql<{ n: number }[]>`
         select count(*)::int as n from lxp.reportes where id_medico = ${alumno.userId}`;
       const folio = `RPT-${String(n + 1).padStart(4, '0')}`;
-      const contenido: ContenidoReporte = {
-        folio,
-        tipo,
-        secciones: plantilla.secciones.map((titulo, i) => ({
-          id: `s${i + 1}`,
-          titulo,
-          texto: '',
-          imagenesInsertadas: 0,
-        })),
-        impresion: '',
-        piezas: piezasPorDefecto(),
-      };
+      const contenido = contenidoVacio(folio, plantillaId);
+
       const [row] = await sql<{ id: string }[]>`
-        insert into lxp.reportes (id_medico, datos_paciente, contenido, estado)
-        values (${alumno.userId}, '{}'::jsonb, ${JSON.stringify(contenido)}::jsonb, 'borrador')
+        insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)
+        values (${alumno.userId}, ${plantillaId}, '{}'::jsonb, ${JSON.stringify(contenido)}::jsonb, 'borrador')
         returning id`;
       return row.id;
     });
     revalidatePath(REVALIDAR);
     return { ok: true, id };
   } catch {
-    return { ok: false, error: 'No se pudo crear el reporte. Inténtalo de nuevo.' };
+    return { ok: false, error: 'No se pudo crear el reporte. La plantilla no está disponible.' };
   }
 }
 
-/** Guarda el borrador: datos de paciente + cuerpo del reporte (jsonb). */
+/** Guarda el borrador: datos de paciente + cuerpo del reporte (valores jsonb). */
 export async function guardarBorrador(
   id: string,
   datosPaciente: DatosPaciente,
   contenido: ContenidoReporte,
 ): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
-  if (!alumno.accesoActivo) {
-    return { ok: false, error: 'Tu acceso está en pausa.' };
-  }
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       await sql`
@@ -94,7 +79,6 @@ export async function guardarBorrador(
   }
 }
 
-/** Cambia el estado del reporte (borrador → finalizado → enviado). */
 async function cambiarEstado(id: string, estado: EstadoReporte): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
@@ -122,27 +106,20 @@ export async function finalizarReporte(id: string): Promise<ResultadoAccion> {
  * (`apps/api`/`worker`) — PENDIENTE DE API. Aquí solo se refleja el estado.
  */
 export async function enviarReporte(id: string): Promise<ResultadoAccion> {
-  // PENDIENTE DE API: encolar correo al paciente con el PDF adjunto (§9).
   return cambiarEstado(id, 'enviado');
 }
 
-/**
- * STUB — genera el PDF del reporte. El servicio de PDF vive en `apps/api` (§6.5).
- * No se implementa en web; se deja el punto de enganche.
- */
+/** STUB — genera el PDF del reporte. El servicio de PDF vive en `apps/api` (§6.5). */
 export async function generarPdf(_id: string): Promise<ResultadoAccion> {
-  // PENDIENTE DE API: llamar al servicio de reportes (render → object storage → pdf_ref).
   return { ok: false, error: 'La generación de PDF se conecta con el servicio de dominio (pendiente).' };
 }
 
 /**
  * STUB — "Guardar como caso": deriva una versión ANONIMIZADA del estudio hacia
- * `lxp.bitacora_casos` (§6). La anonimización (quitar nombre/expediente/fechas) es
- * BLOQUEANTE y es dominio (worker, §8/§10): NO se hace en web. Contrato PENDIENTE DE API.
+ * `lxp.bitacora_casos` (§6). La anonimización (quitar PII) es BLOQUEANTE y es dominio
+ * (worker, §8/§10): NO se hace en web. Contrato PENDIENTE DE API.
  */
 export async function guardarComoCaso(_id: string): Promise<ResultadoAccion> {
-  // PENDIENTE DE API: enviar a `api` → anonimizar → insertar bitacora_casos →
-  // enlazar reportes.caso_generado_id. Nunca crear el caso con PII desde el cliente.
   return {
     ok: false,
     error: 'Guardar como caso anonimizado se conecta con el dominio de anonimización (pendiente).',

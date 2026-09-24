@@ -12,13 +12,7 @@ import Link from 'next/link';
 import { ChevronDown, FileText, MoreHorizontal, Plus, Search, X } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { crearReporte } from '../_acciones';
-import {
-  ETIQUETA_ESTADO,
-  PLANTILLAS,
-  type EstadoReporte,
-  type ReportesData,
-  type TipoEstudio,
-} from '../_contrato';
+import { ETIQUETA_ESTADO, type EstadoReporte, type ReportesData } from '../_contrato';
 
 const claseEstado: Record<EstadoReporte, string> = {
   borrador: 'border border-border bg-muted text-[color:var(--foreground-soft)]',
@@ -28,7 +22,7 @@ const claseEstado: Record<EstadoReporte, string> = {
 };
 
 export function ListadoReportes({ data }: { data: ReportesData }) {
-  const { resumen, conteos, items } = data;
+  const { resumen, conteos, items, plantillas } = data;
   const router = useRouter();
   const [estado, setEstado] = useState<'todos' | EstadoReporte>('todos');
   const [tipo, setTipo] = useState('Todos');
@@ -37,20 +31,26 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
   const [error, setError] = useState<string | null>(null);
   const [creando, iniciarCrear] = useTransition();
 
+  // Tipos de estudio para el filtro: los que traen las plantillas publicadas.
+  const tiposEstudio = useMemo(
+    () => Array.from(new Set(plantillas.map((p) => p.tipoEstudio).filter(Boolean))),
+    [plantillas],
+  );
+
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return items.filter((r) => {
       if (estado !== 'todos' && r.estado !== estado) return false;
-      if (tipo !== 'Todos' && r.tipo !== tipo) return false;
+      if (tipo !== 'Todos' && r.tipoEstudio !== tipo) return false;
       if (!q) return true;
-      return [r.folio, r.paciente, r.tipo].join(' ').toLowerCase().includes(q);
+      return [r.folio, r.paciente, r.plantilla, r.tipoEstudio].join(' ').toLowerCase().includes(q);
     });
   }, [items, estado, tipo, busqueda]);
 
-  function crear(tipoEstudio: TipoEstudio) {
+  function crear(plantillaId: string) {
     setError(null);
     iniciarCrear(async () => {
-      const res = await crearReporte(tipoEstudio);
+      const res = await crearReporte(plantillaId);
       if (res.ok) {
         setNuevoAbierto(false);
         router.push(`/herramientas/reportes/${res.id}`);
@@ -170,9 +170,9 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
             className="appearance-none bg-transparent text-[13.5px] font-semibold text-foreground outline-none"
           >
             <option value="Todos">Todos</option>
-            {PLANTILLAS.map((p) => (
-              <option key={p.tipo} value={p.tipo}>
-                {p.tipo}
+            {tiposEstudio.map((t) => (
+              <option key={t} value={t}>
+                {t}
               </option>
             ))}
           </select>
@@ -243,7 +243,12 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
                         {r.edadSexo}
                       </span>
                     </td>
-                    <td className={`px-4 py-3.5 text-[13.5px] ${softText}`}>{r.tipo}</td>
+                    <td className={`px-4 py-3.5 text-[13.5px] ${softText}`}>
+                      <span className="block font-semibold text-foreground">{r.plantilla}</span>
+                      {r.tipoEstudio && (
+                        <span className="mt-0.5 block text-[11.5px] text-muted-foreground">{r.tipoEstudio}</span>
+                      )}
+                    </td>
                     <td className={`${mono} px-4 py-3.5 text-[12.5px] text-muted-foreground`}>{r.fecha}</td>
                     <td className="px-4 py-3.5">
                       <span
@@ -310,7 +315,7 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
               <div className="min-w-0">
                 <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Nuevo reporte</h2>
                 <p className={`mt-1 text-[12.5px] ${softText}`}>
-                  Elija el tipo de estudio. La plantilla guía la redacción para no omitir nada.
+                  Elija una plantilla. Guía la redacción por secciones para no omitir nada.
                 </p>
               </div>
               <button
@@ -325,24 +330,31 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
             </div>
 
             <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              Plantillas · ejemplos genéricos (el detalle clínico se define con el equipo)
+              Plantillas publicadas
             </p>
-            <div className="mt-2 grid gap-2.5 sm:grid-cols-2">
-              {PLANTILLAS.map((p) => (
-                <button
-                  key={p.tipo}
-                  type="button"
-                  disabled={creando}
-                  onClick={() => crear(p.tipo)}
-                  className={`rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-secondary hover:bg-accent disabled:opacity-60 ${focusRing}`}
-                >
-                  <span className="block text-[14px] font-bold">{p.tipo}</span>
-                  <span className={`${mono} mt-1 block text-[11.5px] text-muted-foreground`}>
-                    {p.secciones.length} secciones
-                  </span>
-                </button>
-              ))}
-            </div>
+            {plantillas.length === 0 ? (
+              <p className="mt-2 rounded-xl border border-border bg-muted px-4 py-6 text-center text-[13px] text-muted-foreground">
+                No hay plantillas publicadas todavía. El diseñador las publica desde el Studio.
+              </p>
+            ) : (
+              <div className="mt-2 grid gap-2.5 sm:grid-cols-2">
+                {plantillas.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={creando}
+                    onClick={() => crear(p.id)}
+                    className={`rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-secondary hover:bg-accent disabled:opacity-60 ${focusRing}`}
+                  >
+                    <span className="block text-[14px] font-bold">{p.nombre}</span>
+                    <span className={`${mono} mt-1 block text-[11.5px] text-muted-foreground`}>
+                      {p.tipoEstudio ? `${p.tipoEstudio} · ` : ''}
+                      {p.secciones} secciones · {p.campos} campos
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {error && (
               <p className="mt-3 rounded-[10px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-2 text-[12.5px] text-[color:var(--warning-foreground)]">

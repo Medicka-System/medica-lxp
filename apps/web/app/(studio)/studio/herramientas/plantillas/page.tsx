@@ -10,5 +10,12 @@ export default async function PlantillasPage() {
     getHerramientas(staff.userId, 'plantillas'),
     getConteosHerramientas(staff.userId),
   ]);
-  return <HerramientasAdmin tipo="plantillas" items={items} conteos={conteos} />;
+  return (
+    <HerramientasAdmin
+      tipo="plantillas"
+      items={items}
+      conteos={conteos}
+      rutaEditar={(id) => `/studio/herramientas/plantillas/${id}`}
+    />
+  );
 }

@@ -2,72 +2,52 @@ import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { fechaCorta, haceCuanto } from '@/lib/format';
 import {
+  contarCampos,
+  leerRefDicom,
+  normalizarEstructura,
+  type ValoresReporte,
+} from '@/lib/reportes/estructura';
+import {
   datosPacienteVacios,
-  piezasPorDefecto,
-  plantillaDe,
-  PLANTILLAS,
+  type CasoDicomOpcion,
   type ContenidoReporte,
   type DatosPaciente,
   type EstadoReporte,
+  type PlantillaOpcion,
   type ReporteDetalle,
   type ReporteListItem,
   type ReportesData,
-  type TipoEstudio,
 } from './_contrato';
 
 /**
- * Lectura de reportes clínicos del médico CON RLS (§2/§10). CRUD simple
- * `web → Supabase` — NO pasa por NestJS (Regla de Oro §2). La policy `reportes_select`
- * (id_medico = auth.uid()) es el segundo candado. La generación de PDF y el envío por
- * correo SÍ son dominio y viven en `api` (PENDIENTE): aquí solo se leen los datos.
+ * Lectura de reportes clínicos del médico CON RLS (§2/§10). CRUD simple `web → Supabase`
+ * — NO pasa por NestJS (Regla de Oro §2). `reportes_select` (id_medico = auth.uid()) y
+ * `plantillas_reporte_select` (publicado) son los candados. La forma del reporte sale de
+ * la plantilla en BD (`plantillas_reporte.estructura`), no de un placeholder hardcodeado.
  */
-
-type FilaReporte = {
-  id: string;
-  estado: string;
-  datos_paciente: Partial<DatosPaciente> | null;
-  contenido: Partial<ContenidoReporte> | null;
-  caso_generado_id: string | null;
-  created_at: Date;
-  updated_at: Date;
-};
 
 function estadoValido(v: string): EstadoReporte {
   return v === 'finalizado' || v === 'enviado' ? v : 'borrador';
 }
 
-function tipoValido(v: unknown): TipoEstudio {
-  return PLANTILLAS.some((p) => p.tipo === v) ? (v as TipoEstudio) : 'Abdominal';
-}
-
-/** Normaliza el jsonb persistido a un contenido completo (tolera reportes viejos/parciales). */
-function normalizarContenido(
-  contenido: Partial<ContenidoReporte> | null,
-  fallbackFolio: string,
-): ContenidoReporte {
-  const tipo = tipoValido(contenido?.tipo);
-  const plantilla = plantillaDe(tipo);
-  const guardadas = contenido?.secciones ?? [];
-  const secciones = plantilla.secciones.map((titulo, i) => {
-    const previa = guardadas.find((s) => s.titulo === titulo) ?? guardadas[i];
-    return {
-      id: `s${i + 1}`,
-      titulo,
-      texto: previa?.texto ?? '',
-      imagenesInsertadas: previa?.imagenesInsertadas ?? 0,
-    };
-  });
+function normalizarContenido(raw: unknown, fallbackFolio: string): ContenidoReporte {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ContenidoReporte>;
+  const valores: ValoresReporte =
+    o.valores && typeof o.valores === 'object' ? (o.valores as ValoresReporte) : {};
   return {
-    folio: contenido?.folio ?? fallbackFolio,
-    tipo,
-    secciones,
-    impresion: contenido?.impresion ?? '',
-    piezas: contenido?.piezas ?? piezasPorDefecto(),
+    folio: typeof o.folio === 'string' ? o.folio : fallbackFolio,
+    plantillaId: typeof o.plantillaId === 'string' ? o.plantillaId : null,
+    valores,
+    impresion: typeof o.impresion === 'string' ? o.impresion : '',
   };
 }
 
 function normalizarPaciente(d: Partial<DatosPaciente> | null): DatosPaciente {
   return { ...datosPacienteVacios(), ...(d ?? {}) };
+}
+
+function contarImagenes(c: ContenidoReporte): number {
+  return Object.values(c.valores).filter((v) => leerRefDicom(v) !== null).length;
 }
 
 function nota(estado: EstadoReporte, paciente: DatosPaciente, contenido: ContenidoReporte): string {
@@ -78,71 +58,152 @@ function nota(estado: EstadoReporte, paciente: DatosPaciente, contenido: Conteni
   return 'Sin finalizar';
 }
 
-export async function getReportes(userId: string): Promise<ReportesData> {
-  const filas = await comoAlumno(userId, (sql) =>
-    sql<FilaReporte[]>`
-      select id, estado, datos_paciente, contenido, caso_generado_id, created_at, updated_at
-      from lxp.reportes
-      where id_medico = ${userId}
-      order by created_at desc`,
-  );
-
-  const ahora = Date.now();
-  const semana = 7 * 24 * 3600 * 1000;
-  const mes = 30 * 24 * 3600 * 1000;
-
-  const items: ReporteListItem[] = filas.map((f, idx) => {
-    const estado = estadoValido(f.estado);
-    const contenido = normalizarContenido(f.contenido, `RPT-${String(filas.length - idx).padStart(4, '0')}`);
-    const paciente = normalizarPaciente(f.datos_paciente);
+/** Plantillas publicadas para el diálogo "Nuevo reporte" (RLS: publicado). */
+async function getPlantillasPublicadas(
+  sql: Parameters<Parameters<typeof comoAlumno>[1]>[0],
+): Promise<PlantillaOpcion[]> {
+  const rows = await sql<{ id: string; nombre: string; tipo_estudio: string | null; estructura: unknown }[]>`
+    select id, nombre, tipo_estudio, estructura
+    from lxp.plantillas_reporte where publicado order by nombre`;
+  return rows.map((r) => {
+    const est = normalizarEstructura(r.estructura);
     return {
-      id: f.id,
-      folio: contenido.folio,
-      paciente: paciente.paciente.trim() || 'Sin nombre',
-      edadSexo: paciente.edadSexo.trim() || '—',
-      tipo: contenido.tipo,
-      fecha: fechaCorta(new Date(f.created_at)),
-      estado,
-      imagenes: contenido.piezas.filter((p) => p.insertada).length,
-      nota: nota(estado, paciente, contenido),
+      id: r.id,
+      nombre: r.nombre,
+      tipoEstudio: r.tipo_estudio ?? '',
+      secciones: est.secciones.length,
+      campos: contarCampos(est),
     };
   });
+}
 
-  const conteos = {
-    todos: items.length,
-    borradores: items.filter((i) => i.estado === 'borrador').length,
-    finalizados: items.filter((i) => i.estado === 'finalizado').length,
-    enviados: items.filter((i) => i.estado === 'enviado').length,
-  };
-  const resumen = {
-    borradores: conteos.borradores,
-    listos: conteos.finalizados,
-    enviadosSemana: filas.filter(
-      (f) => estadoValido(f.estado) === 'enviado' && ahora - new Date(f.updated_at).getTime() < semana,
-    ).length,
-    delMes: filas.filter((f) => ahora - new Date(f.created_at).getTime() < mes).length,
-  };
+type FilaReporte = {
+  id: string;
+  estado: string;
+  datos_paciente: Partial<DatosPaciente> | null;
+  contenido: unknown;
+  caso_generado_id: string | null;
+  plantilla_nombre: string | null;
+  plantilla_tipo: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
 
-  return { resumen, conteos, plantillas: PLANTILLAS, items };
+export async function getReportes(userId: string): Promise<ReportesData> {
+  return comoAlumno(userId, async (sql) => {
+    const filas = await sql<FilaReporte[]>`
+      select r.id, r.estado, r.datos_paciente, r.contenido, r.caso_generado_id,
+             r.created_at, r.updated_at,
+             p.nombre as plantilla_nombre, p.tipo_estudio as plantilla_tipo
+      from lxp.reportes r
+      left join lxp.plantillas_reporte p on p.id = r.plantilla_id
+      where r.id_medico = ${userId}
+      order by r.created_at desc`;
+
+    const plantillas = await getPlantillasPublicadas(sql);
+
+    const ahora = Date.now();
+    const semana = 7 * 24 * 3600 * 1000;
+    const mes = 30 * 24 * 3600 * 1000;
+
+    const items: ReporteListItem[] = filas.map((f, idx) => {
+      const estado = estadoValido(f.estado);
+      const contenido = normalizarContenido(
+        f.contenido,
+        `RPT-${String(filas.length - idx).padStart(4, '0')}`,
+      );
+      const paciente = normalizarPaciente(f.datos_paciente);
+      return {
+        id: f.id,
+        folio: contenido.folio,
+        paciente: paciente.paciente.trim() || 'Sin nombre',
+        edadSexo: paciente.edadSexo.trim() || '—',
+        plantilla: f.plantilla_nombre ?? '—',
+        tipoEstudio: f.plantilla_tipo ?? '',
+        fecha: fechaCorta(new Date(f.created_at)),
+        estado,
+        imagenes: contarImagenes(contenido),
+        nota: nota(estado, paciente, contenido),
+      };
+    });
+
+    const conteos = {
+      todos: items.length,
+      borradores: items.filter((i) => i.estado === 'borrador').length,
+      finalizados: items.filter((i) => i.estado === 'finalizado').length,
+      enviados: items.filter((i) => i.estado === 'enviado').length,
+    };
+    const resumen = {
+      borradores: conteos.borradores,
+      listos: conteos.finalizados,
+      enviadosSemana: filas.filter(
+        (f) =>
+          estadoValido(f.estado) === 'enviado' && ahora - new Date(f.updated_at).getTime() < semana,
+      ).length,
+      delMes: filas.filter((f) => ahora - new Date(f.created_at).getTime() < mes).length,
+    };
+
+    return { resumen, conteos, plantillas, items };
+  });
 }
 
 export async function getReporte(userId: string, id: string): Promise<ReporteDetalle | null> {
-  const filas = await comoAlumno(userId, (sql) =>
-    sql<FilaReporte[]>`
-      select id, estado, datos_paciente, contenido, caso_generado_id, created_at, updated_at
-      from lxp.reportes
-      where id = ${id} and id_medico = ${userId}
-      limit 1`,
-  );
-  const f = filas[0];
-  if (!f) return null;
-  const contenido = normalizarContenido(f.contenido, 'RPT-0000');
-  return {
-    id: f.id,
-    estado: estadoValido(f.estado),
-    guardado: haceCuanto(new Date(f.updated_at)),
-    datosPaciente: normalizarPaciente(f.datos_paciente),
-    contenido,
-    casoGeneradoId: f.caso_generado_id,
-  };
+  return comoAlumno(userId, async (sql) => {
+    const filas = await sql<
+      (FilaReporte & { plantilla_id: string | null; plantilla_estructura: unknown })[]
+    >`
+      select r.id, r.estado, r.datos_paciente, r.contenido, r.caso_generado_id,
+             r.created_at, r.updated_at, r.plantilla_id,
+             p.nombre as plantilla_nombre, p.tipo_estudio as plantilla_tipo,
+             p.estructura as plantilla_estructura
+      from lxp.reportes r
+      left join lxp.plantillas_reporte p on p.id = r.plantilla_id
+      where r.id = ${id} and r.id_medico = ${userId}
+      limit 1`;
+    const f = filas[0];
+    if (!f) return null;
+
+    const contenido = normalizarContenido(f.contenido, 'RPT-0000');
+    const plantilla =
+      f.plantilla_id && f.plantilla_nombre
+        ? {
+            id: f.plantilla_id,
+            nombre: f.plantilla_nombre,
+            tipoEstudio: f.plantilla_tipo ?? '',
+            estructura: normalizarEstructura(f.plantilla_estructura),
+          }
+        : null;
+
+    return {
+      id: f.id,
+      estado: estadoValido(f.estado),
+      guardado: haceCuanto(new Date(f.updated_at)),
+      datosPaciente: normalizarPaciente(f.datos_paciente),
+      contenido,
+      casoGeneradoId: f.caso_generado_id,
+      plantilla,
+    };
+  });
+}
+
+/** Casos de la bitácora del médico con estudio DICOM listo — para insertar en el reporte. */
+export async function getCasosDicomDelMedico(userId: string): Promise<CasoDicomOpcion[]> {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<
+      { id: string; organo: string | null; hallazgos: string | null; series: number; created_at: Date }[]
+    >`
+      select c.id, c.organo, c.hallazgos,
+             coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
+             c.created_at
+      from lxp.bitacora_casos c
+      where c.id_alumno = ${userId}
+        and coalesce(jsonb_array_length(c.estudio_series), 0) > 0
+      order by c.created_at desc`;
+    return rows.map((r) => ({
+      id: r.id,
+      titulo: (r.organo?.trim() || r.hallazgos?.trim()?.slice(0, 48) || 'Estudio sin título').slice(0, 60),
+      series: r.series,
+      fecha: fechaCorta(new Date(r.created_at)),
+    }));
+  });
 }

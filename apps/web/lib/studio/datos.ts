@@ -755,3 +755,36 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
   }
 }
 
+
+// ── Constructor de plantilla de reporte (§6.5) ──────────────────────────────────
+// La ESTRUCTURA (secciones/campos/guía) del reporte que el médico llena en el campus.
+// CRUD real bajo RLS es_autoria; la forma vive en el contrato compartido `reportes/estructura`.
+export type PlantillaConstructor = {
+  id: string;
+  nombre: string;
+  tipoEstudio: string;
+  publicado: boolean;
+  estructura: import('@/lib/reportes/estructura').EstructuraPlantilla;
+  actualizado: Date;
+};
+
+export async function getPlantilla(userId: string, id: string): Promise<PlantillaConstructor | null> {
+  const { normalizarEstructura } = await import('@/lib/reportes/estructura');
+  return comoStaff(userId, async (sql) => {
+    const rows = await sql<
+      { id: string; nombre: string; tipo_estudio: string | null; publicado: boolean; estructura: unknown; updated_at: Date }[]
+    >`
+      select id, nombre, tipo_estudio, publicado, estructura, updated_at
+      from lxp.plantillas_reporte where id = ${id} limit 1`;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      nombre: r.nombre,
+      tipoEstudio: r.tipo_estudio ?? '',
+      publicado: r.publicado,
+      estructura: normalizarEstructura(r.estructura),
+      actualizado: r.updated_at,
+    };
+  });
+}

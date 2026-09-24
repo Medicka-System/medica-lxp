@@ -1,48 +1,19 @@
 /**
  * Contrato del generador de reportes clínicos (§6/§6.5).
  *
- * ESTRUCTURA, no detalle clínico: los tipos describen la forma de un reporte y su
- * contenido persistido (`lxp.reportes.contenido` / `.datos_paciente` como jsonb). El
- * DETALLE CLÍNICO REAL —secciones por estudio, guía de redacción, fórmulas, membrete
- * y firma— se levanta con Manny al ejecutar este sprint (SPRINTS §6.5). Aquí las
- * plantillas son EJEMPLOS GENÉRICOS marcados como placeholder; no inventamos criterio.
+ * FASE 1 (motor cableado): la estructura del reporte YA NO es un placeholder hardcodeado.
+ * Cada reporte apunta a una `lxp.plantillas_reporte` (por `plantilla_id`) y su forma sale
+ * de `plantillas_reporte.estructura` (jsonb), el contrato COMPARTIDO con el constructor del
+ * Studio (`@/lib/reportes/estructura`). El médico llena los campos; los VALORES se guardan
+ * en `lxp.reportes.contenido.valores` (indexados por `campo.id`).
+ *
+ * DOMINIO (pendiente de API · §2/§8/§10): generar PDF, enviar por correo y "guardar como
+ * caso anonimizado". Aquí solo se persiste el cuerpo bajo RLS.
  */
+
+import type { EstructuraPlantilla, ValoresReporte } from '@/lib/reportes/estructura';
 
 export type EstadoReporte = 'borrador' | 'finalizado' | 'enviado';
-
-export type TipoEstudio = 'Abdominal' | 'Obstétrico' | 'Mama' | 'Doppler venoso';
-
-/** Plantilla = tipo de estudio + sus secciones. PLACEHOLDER genérico (ver arriba). */
-export type Plantilla = { tipo: TipoEstudio; secciones: string[] };
-
-/**
- * PLACEHOLDER GENÉRICO — la estructura fina (secciones reales, campos esperados,
- * guía, fórmulas) la define el docente/diseñador con Manny. No es contenido clínico
- * validado: solo da forma al editor para poder construir el flujo.
- */
-export const PLANTILLAS: Plantilla[] = [
-  {
-    tipo: 'Abdominal',
-    secciones: [
-      'Hígado y vía biliar',
-      'Riñones y vía urinaria',
-      'Bazo y páncreas',
-      'Grandes vasos',
-      'Vejiga',
-      'Otros hallazgos',
-    ],
-  },
-  { tipo: 'Obstétrico', secciones: ['Biometría', 'Anatomía', 'Placenta', 'Líquido', 'Doppler'] },
-  { tipo: 'Mama', secciones: ['Mama derecha', 'Mama izquierda', 'Axilas', 'Clasificación'] },
-  {
-    tipo: 'Doppler venoso',
-    secciones: ['Femoral', 'Poplítea', 'Tibiales', 'Superficial', 'Compresibilidad'],
-  },
-];
-
-export function plantillaDe(tipo: TipoEstudio): Plantilla {
-  return PLANTILLAS.find((p) => p.tipo === tipo) ?? PLANTILLAS[0];
-}
 
 /** Datos de paciente — viven SOLO en el reporte clínico, nunca en el caso educativo (§10). */
 export type DatosPaciente = {
@@ -55,27 +26,22 @@ export type DatosPaciente = {
   motivo: string;
 };
 
-export type SeccionContenido = {
-  id: string;
-  titulo: string;
-  texto: string;
-  imagenesInsertadas: number;
-};
-
-/**
- * Pieza = imagen/plano DICOM del estudio. PLACEHOLDER del visor: la ingesta y
- * anonimización DICOM real es el pipeline `procesar-dicom` (§8, Sprint 4.7). Aquí
- * solo se listan etiquetas de plano para el hueco del visor.
- */
-export type PiezaReporte = { etiqueta: string; insertada?: boolean };
-
 /** Cuerpo del reporte, persistido en `lxp.reportes.contenido` (jsonb). */
 export type ContenidoReporte = {
   folio: string;
-  tipo: TipoEstudio;
-  secciones: SeccionContenido[];
+  plantillaId: string | null;
+  /** Respuestas del médico por `campo.id` de la estructura de la plantilla. */
+  valores: ValoresReporte;
   impresion: string;
-  piezas: PiezaReporte[];
+};
+
+/** Plantilla publicada, resumida para el diálogo "Nuevo reporte". */
+export type PlantillaOpcion = {
+  id: string;
+  nombre: string;
+  tipoEstudio: string;
+  secciones: number;
+  campos: number;
 };
 
 /** Fila del listado "Mis reportes". */
@@ -84,7 +50,8 @@ export type ReporteListItem = {
   folio: string;
   paciente: string;
   edadSexo: string;
-  tipo: TipoEstudio;
+  plantilla: string;
+  tipoEstudio: string;
   fecha: string;
   estado: EstadoReporte;
   imagenes: number;
@@ -94,8 +61,24 @@ export type ReporteListItem = {
 export type ReportesData = {
   resumen: { borradores: number; listos: number; enviadosSemana: number; delMes: number };
   conteos: { todos: number; borradores: number; finalizados: number; enviados: number };
-  plantillas: Plantilla[];
+  plantillas: PlantillaOpcion[];
   items: ReporteListItem[];
+};
+
+/** Plantilla resuelta para el editor (nombre + estructura viva). */
+export type PlantillaReporte = {
+  id: string;
+  nombre: string;
+  tipoEstudio: string;
+  estructura: EstructuraPlantilla;
+};
+
+/** Caso de la bitácora del médico con estudio listo, para insertar en el visor. */
+export type CasoDicomOpcion = {
+  id: string;
+  titulo: string;
+  series: number;
+  fecha: string;
 };
 
 /** Reporte completo para el editor. */
@@ -106,6 +89,8 @@ export type ReporteDetalle = {
   datosPaciente: DatosPaciente;
   contenido: ContenidoReporte;
   casoGeneradoId: string | null;
+  /** null si la plantilla fue despublicada/eliminada (el editor avisa). */
+  plantilla: PlantillaReporte | null;
 };
 
 export const ETIQUETA_ESTADO: Record<EstadoReporte, string> = {
@@ -114,17 +99,6 @@ export const ETIQUETA_ESTADO: Record<EstadoReporte, string> = {
   enviado: 'Enviado',
 };
 
-/** Piezas placeholder por defecto para el hueco del visor (reemplaza pipeline 4.7). */
-export function piezasPorDefecto(): PiezaReporte[] {
-  return [
-    { etiqueta: 'long. der' },
-    { etiqueta: 'transv. der' },
-    { etiqueta: 'izquierdo' },
-    { etiqueta: 'vejiga' },
-  ];
-}
-
-/** Datos de paciente vacíos para un reporte recién creado. */
 export function datosPacienteVacios(): DatosPaciente {
   return {
     paciente: '',
@@ -135,4 +109,8 @@ export function datosPacienteVacios(): DatosPaciente {
     equipo: '',
     motivo: '',
   };
+}
+
+export function contenidoVacio(folio: string, plantillaId: string | null): ContenidoReporte {
+  return { folio, plantillaId, valores: {}, impresion: '' };
 }
