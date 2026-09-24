@@ -12,11 +12,15 @@ import type {
   DominioIaim,
   EntregaRevision,
   EstadoEntrega,
+  EstadoEstudio,
+  EstudioAlumno,
+  EstudiosAlumnoData,
   GrupoSeguimiento,
   MensajeConsulta,
   PostAteneoResumen,
   PropuestaEcoResumen,
   RecursoDocente,
+  ResumenAlumno,
   TipoActividad,
 } from './contrato';
 
@@ -241,6 +245,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       ({
         id: string;
         grupo_id: string | null;
+        alumno_id: string;
         organo: string | null;
         dominio_iaim: DominioIaim | null;
         hallazgos: string | null;
@@ -256,7 +261,8 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
         cine_loop: boolean;
       } & FilaEco)[]
     >`
-      select c.id, c.grupo_id, c.organo, c.dominio_iaim, c.hallazgos, c.diagnostico_presuntivo,
+      select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
+             c.diagnostico_presuntivo,
              c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
@@ -281,6 +287,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
     return rows.map((r) => ({
       id: r.id,
       grupoId: r.grupo_id,
+      alumnoId: r.alumno_id,
       alumno: r.alumno,
       iniciales: iniciales(r.alumno),
       organo: r.organo,
@@ -296,7 +303,208 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       cineLoop: r.cine_loop,
       estudio: mapearEstudio(r.id, r.estudio_series, r.estudio_estado),
       eco: mapearEco(r),
+      // La cola por validar es siempre `pendiente`; sin devolución asentada todavía.
+      estado: 'pendiente' as const,
+      notaValidacion: null,
     }));
+  });
+}
+
+// ── Estudios de UN alumno (rejilla de Validación · mock validacion/alumno) ───────
+/** Mapea el estado del dominio (`rechazado`) al de la rejilla (`devuelto`). */
+function estadoEstudioDe(estado: string): EstadoEstudio {
+  return estado === 'aprobado' ? 'aprobado' : estado === 'pendiente' ? 'pendiente' : 'devuelto';
+}
+
+/**
+ * Todos los estudios que un alumno ha enviado (pendiente/aprobado/devuelto) + su cabecera,
+ * para la rejilla de Validación. Corre con RLS `comoStaff` (el docente ve los casos de sus
+ * grupos, igual que la cola). Las cifras del card se calculan de esta lista; horas y
+ * competencia salen de la proyección `lxp.competencia_dominios` (fuente de verdad · §6).
+ *
+ * PENDIENTE (Sprint 11 · CORA): `grupo` y `leccionActual` no viven aún de forma canónica en
+ * el LXP; se derivan del caso más reciente (módulo/grupo) con fallback. `especialidad` sale
+ * de `lxp.perfiles` (mig 0032) si el alumno la definió.
+ */
+export async function getEstudiosAlumno(
+  userId: string,
+  alumnoId: string,
+): Promise<EstudiosAlumnoData | null> {
+  return comoStaff(userId, async (sql) => {
+    const perfil = (
+      await sql<{ nombre: string; especialidad: string | null }[]>`
+        select nombre, especialidad from lxp.perfiles
+        where user_id = ${alumnoId} and rol = 'alumno' limit 1`
+    )[0];
+    if (!perfil) return null;
+
+    const casos = await sql<
+      {
+        id: string;
+        diagnostico_presuntivo: string | null;
+        organo: string | null;
+        hallazgos: string | null;
+        modulo: string | null;
+        modulo_orden: number | null;
+        grupo: string | null;
+        created_at: Date;
+        estado_validacion: string;
+        horas: number;
+        frames: number;
+        imagenes: number;
+        feedback: string | null;
+      }[]
+    >`
+      select c.id, c.diagnostico_presuntivo, c.organo, c.hallazgos,
+             m.nombre as modulo, m.orden as modulo_orden, g.nombre as grupo,
+             c.created_at, c.estado_validacion::text as estado_validacion,
+             c.horas_estimadas::float8 as horas,
+             coalesce((select max((s->>'frames')::int) from jsonb_array_elements(c.estudio_series) s), 1) as frames,
+             coalesce(jsonb_array_length(c.estudio_series), 0)::int as imagenes,
+             v.feedback
+      from lxp.bitacora_casos c
+      left join lxp.modulos m on m.id = c.modulo_id
+      left join lxp.grupos g on g.id = c.grupo_id
+      left join lateral (
+        select feedback from lxp.validaciones
+        where caso_id = c.id order by created_at desc limit 1
+      ) v on true
+      where c.id_alumno = ${alumnoId}
+      order by c.created_at desc`;
+
+    // Horas acumuladas y competencia en interpretación = proyección de competencia (§6).
+    const comp = await sql<{ dominio_iaim: DominioIaim; horas: number; nivel: number }[]>`
+      select dominio_iaim, horas::float8 as horas, nivel::float8 as nivel
+      from lxp.competencia_dominios where id_alumno = ${alumnoId}`;
+    const horasCompetencia = comp.reduce((s, c) => s + c.horas, 0);
+    const interpretacion = comp.find((c) => c.dominio_iaim === 'interpretacion');
+
+    const ahora = Date.now();
+    const estudios: EstudioAlumno[] = casos.map((r) => {
+      const estado = estadoEstudioDe(r.estado_validacion);
+      return {
+        id: r.id,
+        titulo: r.diagnostico_presuntivo?.trim() || r.organo?.trim() || corto(r.hallazgos, 80) || 'Estudio sin diagnóstico',
+        modulo: r.modulo_orden != null ? `M${String(r.modulo_orden).padStart(2, '0')}` : '—',
+        organo: r.organo?.trim() || 'sin órgano',
+        fechaEnvio: r.created_at.toISOString(),
+        frames: r.frames,
+        imagenes: r.imagenes,
+        estado,
+        horas: r.horas,
+        ...(estado === 'pendiente'
+          ? { horasEsperando: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)) }
+          : {}),
+        ...(estado !== 'pendiente' && r.feedback ? { nota: r.feedback } : {}),
+      };
+    });
+
+    // Horas acumuladas: la proyección de competencia manda; si aún no la calculó el worker,
+    // caemos a la suma de horas de los casos aprobados (aproximación honesta).
+    const horasAprobados = estudios
+      .filter((e) => e.estado === 'aprobado')
+      .reduce((s, e) => s + e.horas, 0);
+
+    const alumno: ResumenAlumno = {
+      id: alumnoId,
+      ini: iniciales(perfil.nombre),
+      nombre: perfil.nombre,
+      especialidad: perfil.especialidad?.trim() || 'Médico',
+      grupo: casos.find((c) => c.grupo)?.grupo ?? 'Sin grupo',
+      leccionActual: casos.find((c) => c.modulo_orden != null)
+        ? `M${String(casos.find((c) => c.modulo_orden != null)!.modulo_orden).padStart(2, '0')}`
+        : '—',
+      horasAcumuladas: Math.round(horasCompetencia > 0 ? horasCompetencia : horasAprobados),
+      competenciaInterpretacion: Math.round(interpretacion?.nivel ?? 0),
+    };
+
+    return { alumno, estudios };
+  });
+}
+
+/**
+ * Un caso concreto para el detalle de Validación, en CUALQUIER estado (la cola solo trae
+ * pendientes). Sirve para abrir de solo lectura un estudio ya aprobado/devuelto desde la
+ * rejilla del alumno, con la devolución que el docente asentó. RLS `comoStaff`.
+ */
+export async function getCasoValidacion(
+  userId: string,
+  casoId: string,
+): Promise<CasoValidacion | null> {
+  return comoStaff(userId, async (sql) => {
+    const rows = await sql<
+      ({
+        id: string;
+        grupo_id: string | null;
+        alumno_id: string;
+        organo: string | null;
+        dominio_iaim: DominioIaim | null;
+        hallazgos: string | null;
+        diagnostico_presuntivo: string | null;
+        horas: number;
+        created_at: Date;
+        alumno: string;
+        modulo: string | null;
+        dicom_ref: string | null;
+        estudio_series: unknown;
+        estudio_estado: string | null;
+        series: number;
+        cine_loop: boolean;
+        estado_validacion: string;
+        feedback: string | null;
+      } & FilaEco)[]
+    >`
+      select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
+             c.diagnostico_presuntivo, c.horas_estimadas::float8 as horas, c.created_at,
+             a.nombre as alumno, m.nombre as modulo, c.estudio_dicom_ref as dicom_ref,
+             c.estudio_series, c.estudio_estado::text as estudio_estado,
+             coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
+             exists (
+               select 1 from jsonb_array_elements(c.estudio_series) s
+               where (s->>'frames')::int > 1
+             ) as cine_loop,
+             c.estado_validacion::text as estado_validacion,
+             v.feedback,
+             ep.id as eco_id, ep.nota_sugerida::float8 as eco_nota, ep.feedback_borrador as eco_feedback,
+             ep.confianza_score::float8 as eco_confianza, ep.clasificacion::text as eco_clasificacion,
+             ep.detalle as eco_detalle
+      from lxp.bitacora_casos c
+      join lxp.perfiles a on a.user_id = c.id_alumno
+      left join lxp.modulos m on m.id = c.modulo_id
+      left join lateral (
+        select feedback from lxp.validaciones
+        where caso_id = c.id order by created_at desc limit 1
+      ) v on true
+      left join lxp.eco_propuestas ep
+        on ep.objeto_tipo = 'caso' and ep.objeto_id = c.id and ep.estado = 'propuesta'
+      where c.id = ${casoId}
+      limit 1`;
+
+    const r = rows[0];
+    if (!r) return null;
+    const ahora = Date.now();
+    return {
+      id: r.id,
+      grupoId: r.grupo_id,
+      alumnoId: r.alumno_id,
+      alumno: r.alumno,
+      iniciales: iniciales(r.alumno),
+      organo: r.organo,
+      dominio: r.dominio_iaim,
+      modulo: r.modulo,
+      hallazgos: r.hallazgos,
+      presuntivo: r.diagnostico_presuntivo,
+      horas: r.horas,
+      creadoEn: r.created_at,
+      horasEnCola: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)),
+      tieneDicom: !!r.dicom_ref,
+      series: r.series,
+      cineLoop: r.cine_loop,
+      estudio: mapearEstudio(r.id, r.estudio_series, r.estudio_estado),
+      eco: mapearEco(r),
+      estado: r.estado_validacion === 'aprobado' ? 'aprobado' : r.estado_validacion === 'rechazado' ? 'rechazado' : 'pendiente',
+      notaValidacion: r.feedback,
+    };
   });
 }
 

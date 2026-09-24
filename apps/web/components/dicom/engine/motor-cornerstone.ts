@@ -413,3 +413,68 @@ export async function renderMiniaturas(imageIds: string[]): Promise<(string | nu
   }
   return salida;
 }
+
+/** Miniatura con su proporción NATIVA (px reales de la imagen), para encuadrar sin deformar. */
+export type MiniaturaDetalle = { url: string; ancho: number; alto: number };
+
+/**
+ * Como `renderMiniaturas`, pero además devuelve las dimensiones reales de la imagen
+ * (`Columns`/`Rows` del DICOM, no del canvas offscreen) para que el consumidor fije un
+ * `aspect-ratio` fiel a la proporción nativa del estudio (§5A · card de la rejilla del
+ * alumno). Devuelve `null` por imagen que no se pudo previsualizar. No lanza.
+ */
+export async function renderMiniaturasDetalle(
+  imageIds: string[],
+): Promise<(MiniaturaDetalle | null)[]> {
+  if (imageIds.length === 0) return [];
+  try {
+    await inicializarCornerstone();
+  } catch {
+    return imageIds.map(() => null);
+  }
+
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:-10000px;top:0;width:160px;height:120px;pointer-events:none;';
+  document.body.appendChild(el);
+
+  const engineId = `thumbd-engine-${++seq}`;
+  const viewportId = `thumbd-vp-${seq}`;
+  const engine = new RenderingEngine(engineId);
+  const salida: (MiniaturaDetalle | null)[] = [];
+
+  try {
+    engine.enableElement({
+      viewportId,
+      type: CoreEnums.ViewportType.STACK,
+      element: el as HTMLDivElement,
+    });
+    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+
+    for (const imageId of imageIds) {
+      try {
+        await viewport.setStack([imageId], 0);
+        viewport.render();
+        await esperarPintado();
+        const canvas = viewport.getCanvas();
+        const url = canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
+        // Dimensiones reales de la imagen (no del canvas 160×120): [cols, rows, 1].
+        const dims = viewport.getImageData()?.dimensions;
+        const ancho = Array.isArray(dims) ? dims[0] ?? 0 : 0;
+        const alto = Array.isArray(dims) ? dims[1] ?? 0 : 0;
+        salida.push(url && ancho > 0 && alto > 0 ? { url, ancho, alto } : url ? { url, ancho: 4, alto: 3 } : null);
+      } catch {
+        salida.push(null);
+      }
+    }
+  } catch {
+    while (salida.length < imageIds.length) salida.push(null);
+  } finally {
+    try {
+      engine.destroy();
+    } catch {
+      /* no-op */
+    }
+    el.remove();
+  }
+  return salida;
+}

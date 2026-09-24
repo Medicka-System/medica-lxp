@@ -103,10 +103,15 @@ export type DocenteDashboard = {
 };
 
 // ── Validación de casos (la cola clínica) ───────────────────────────────────────
+/** Estado clínico del caso (espejo de `lxp.estado_validacion`). */
+export type EstadoCasoValidacion = 'pendiente' | 'aprobado' | 'rechazado';
+
 export type CasoValidacion = {
   id: string;
   /** Grupo del caso (para disparar el análisis de Eco por grupo · §7A). */
   grupoId: string | null;
+  /** Alumno dueño del caso (para agrupar la bandeja y cargar sus estudios). */
+  alumnoId: string;
   alumno: string;
   iniciales: string;
   organo: string | null;
@@ -129,7 +134,67 @@ export type CasoValidacion = {
   estudio: EstudioDicom | null;
   /** Propuesta pre-analizada por Eco (bandeja · §7A); `null` si no se ha analizado. */
   eco: PropuestaEcoResumen | null;
+  /** Estado clínico. La cola por validar es siempre `pendiente`; al abrir un estudio ya
+   *  aprobado/devuelto desde la rejilla del alumno, el detalle se muestra de solo lectura. */
+  estado: EstadoCasoValidacion;
+  /** Devolución del docente ya asentada (aprobado/rechazado); `null` si sigue pendiente. */
+  notaValidacion: string | null;
 };
+
+// ── Estudios del alumno (rejilla de Validación · mock (studio-docente)/validacion/alumno) ──
+/** Estado del estudio en la rejilla del alumno. `devuelto` = `rechazado` del dominio. */
+export type EstadoEstudio = 'pendiente' | 'aprobado' | 'devuelto';
+
+/**
+ * Pre-análisis de Eco para un estudio pendiente. **PLACEHOLDER** en esta fase: Eco NO
+ * está conectado a la rejilla; el chip se alimenta de un stub del cliente. El día que se
+ * conecte, este objeto vendrá del pipeline (`lxp.eco_propuestas` · §7A). Eco propone, el
+ * docente firma.
+ */
+export type SugerenciaEco = { veredicto: 'confirmar' | 'criterio'; confianza: number };
+
+/**
+ * Un estudio de la bitácora del alumno visto por el docente (todos los estados). La imagen
+ * (primer frame) la RENDERIZA el cliente desde el DICOM anonimizado (no hay miniatura de
+ * servidor): el card monta `MiniaturaEstudio` por `id`, que mide la proporción nativa.
+ */
+export type EstudioAlumno = {
+  id: string;
+  /** Diagnóstico presuntivo del alumno (título del card). */
+  titulo: string;
+  /** Código corto del módulo, p. ej. "M04"; "—" si el caso no tiene módulo. */
+  modulo: string;
+  organo: string;
+  fechaEnvio: string; // ISO
+  /** 1 = imagen(es) fija(s); > 1 = cine loop (frames del `.dcm` multi-frame). */
+  frames: number;
+  /** Nº de imágenes/series del estudio. */
+  imagenes: number;
+  estado: EstadoEstudio;
+  /** Acreditables (pendiente/devuelto) o acreditadas (aprobado). */
+  horas: number;
+  /** Horas en cola; solo en pendientes. */
+  horasEsperando?: number;
+  /** Sugerencia de Eco (PLACEHOLDER · solo pendientes · la pone el cliente). */
+  eco?: SugerenciaEco;
+  /** aprobado: comentario del docente · devuelto: feedback con lo que debe corregir. */
+  nota?: string;
+};
+
+/** Cabecera del alumno en la rejilla de Validación (identidad + cifras). */
+export type ResumenAlumno = {
+  id: string;
+  ini: string;
+  nombre: string;
+  especialidad: string;
+  grupo: string;
+  leccionActual: string;
+  horasAcumuladas: number;
+  competenciaInterpretacion: number;
+};
+
+/** Payload que consume la rejilla: identidad del alumno + todos sus estudios. */
+export type EstudiosAlumnoData = { alumno: ResumenAlumno; estudios: EstudioAlumno[] };
 
 // ── Entregas por revisar ────────────────────────────────────────────────────────
 export type TipoActividad = 'tarea' | 'autoevaluacion' | 'foro';
