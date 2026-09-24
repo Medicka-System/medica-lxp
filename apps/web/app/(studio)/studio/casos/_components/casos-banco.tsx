@@ -4,10 +4,11 @@
  * Studio · Casos — curaduría del banco (§5B/§7A). Curar = catalogar + estructurar la
  * VERDAD del caso; solo después se publica a la Biblioteca. Datos reales por RLS
  * desde lxp.casos_biblioteca; bandejas derivadas de `publicado` (Por curar vs En
- * Biblioteca). "Subir caso" crea un caso de staff y abre el editor.
+ * Biblioteca). "Subir caso" crea un caso de staff y abre el editor. Los casos del
+ * alumno validados por un docente entran solos "por curar" (puente bitácora→banco,
+ * apps/api), con estudio anonimizado + contenido estructurado.
  *
- * PENDIENTE (ver lib/studio/casos-contrato.ts): puente bitácora→banco (origen
- * alumno/staff), estados Simulador/Archivado, y el DICOM (visor + anonimización, 4.7).
+ * PENDIENTE (ver lib/studio/casos-contrato.ts): estados Simulador/Archivado.
  */
 
 import { useMemo, useState, useTransition } from 'react';
@@ -134,15 +135,16 @@ export function CasosBanco({ casos }: { casos: CasoResumen[] }) {
         </label>
       </div>
 
-      {/* aviso: puente bitácora→banco pendiente */}
+      {/* aviso: cómo llegan los casos al banco */}
       <div className="mt-4 flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-3">
         <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
         <p className="text-[12px] leading-relaxed text-[color:var(--info-foreground)]">
-          El banco muestra los casos curados (lxp.casos_biblioteca). Abra un caso para ver su estudio
-          en el <span className="font-bold">visor DICOM</span>, subir series (varios .dcm o .zip,
-          anonimizadas al procesarse · §10) y estructurar su verdad. El puente que trae los casos del
-          alumno validados desde su bitácora y los estados Simulador/Archivado siguen
-          <span className="font-bold"> pendientes de DB/API</span>.
+          Los casos llegan de dos formas: los que <span className="font-bold">sube el staff</span> y
+          los de la bitácora del alumno que un <span className="font-bold">docente valida</span> —
+          entran automáticamente <span className="font-bold">"por curar"</span> con su estudio ya
+          anonimizado y su contenido estructurado. Abra un caso para verlo en el{' '}
+          <span className="font-bold">visor DICOM</span>, ajustar la ficha y estructurar su verdad
+          antes de publicarlo a la Biblioteca.
         </p>
       </div>
 

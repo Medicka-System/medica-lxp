@@ -15,10 +15,12 @@ import * as repo from './validacion.repositorio';
 jest.mock('./validacion.repositorio', () => ({
   cargarCasoValidacion: jest.fn(),
   registrarValidacion: jest.fn(),
+  promoverCasoABanco: jest.fn(),
 }));
 
 const cargar = repo.cargarCasoValidacion as jest.Mock;
 const registrar = repo.registrarValidacion as jest.Mock;
+const promover = repo.promoverCasoABanco as jest.Mock;
 
 describe('ValidacionService (flujo de validación del docente)', () => {
   const competencia = { recalcular: jest.fn() };
@@ -44,6 +46,7 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     xapi.encolar.mockResolvedValue('xapi-job');
     notif.encolar.mockResolvedValue('notif-job');
     registrar.mockResolvedValue({ validacionId: 'val-1' });
+    promover.mockResolvedValue({ casoBancoId: 'banco-1', creado: true });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -75,6 +78,9 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     // Al aprobar SÍ se recalcula competencia del alumno del caso (no del docente).
     expect(competencia.recalcular).toHaveBeenCalledWith('alumno-1');
     expect(res.competenciaJobId).toBe('comp-job-1');
+    // Puente bitácora→banco: el caso aprobado se promueve al banco curado (§5B).
+    expect(promover).toHaveBeenCalledWith(db.sql, 'caso-1');
+    expect(res.casoBancoId).toBe('banco-1');
     expect(res).toMatchObject({
       validacionId: 'val-1',
       casoId: 'caso-1',
@@ -124,6 +130,8 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     );
     expect(competencia.recalcular).not.toHaveBeenCalled();
     expect(res.competenciaJobId).toBeUndefined();
+    // Rechazar NO promueve al banco (solo los aprobados entran · §5B).
+    expect(promover).not.toHaveBeenCalled();
     const verbos = verbosEncolados();
     expect(verbos.some((v) => v.endsWith('/verbs/valido'))).toBe(true);
     expect(verbos.some((v) => v.endsWith('/verbs/failed'))).toBe(true);

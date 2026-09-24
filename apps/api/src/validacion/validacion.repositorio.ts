@@ -70,3 +70,44 @@ export async function registrarValidacion(
     return { validacionId: rows[0].id };
   }) as Promise<{ validacionId: string }>;
 }
+
+/**
+ * PUENTE bitácora→banco (§5B): al APROBAR, promueve el caso del alumno al banco curado
+ * (`casos_biblioteca`, "por curar" · `publicado=false`, sin curador asignado). Copia la
+ * ficha, la VERDAD ESTRUCTURADA (`contenido_estructurado`, verbatim · no se aplana) y el
+ * estudio YA anonimizado (series + traza §10) — el binario ya vive redactado en object
+ * storage; aquí solo se referencia (al publicar a Biblioteca se congela). El curador
+ * (docente) estructura los hallazgos_clave/puntos/errores y ajusta el catálogo antes de
+ * publicar. IDEMPOTENTE: `on conflict` sobre el índice único de `origen_caso_id` (0040)
+ * no duplica si se re-aprueba. Devuelve el id del caso curado (nuevo o existente).
+ */
+export async function promoverCasoABanco(
+  sql: Sql,
+  casoId: string,
+): Promise<{ casoBancoId: string; creado: boolean }> {
+  // Título por defecto: patología → órgano → primeras palabras de los hallazgos.
+  const insertadas = await sql<{ id: string }[]>`
+    insert into lxp.casos_biblioteca
+      (curador_id, titulo, organo, dominio_iaim, patologia, tecnica, equipo, vineta,
+       etiquetas, diagnostico_correcto, contenido_estructurado,
+       estudio_estado, estudio_series, anonimizacion, anonimizado_en,
+       origen_caso_id, publicado)
+    select
+      null,
+      coalesce(nullif(btrim(coalesce(b.patologia, b.organo, left(b.hallazgos, 60))), ''), 'Caso del alumno'),
+      b.organo, b.dominio_iaim, b.patologia, b.tecnica, b.equipo, b.vineta,
+      b.etiquetas, b.diagnostico_presuntivo, b.contenido_estructurado,
+      b.estudio_estado, b.estudio_series, b.anonimizacion, b.anonimizado_en,
+      b.id, false
+    from lxp.bitacora_casos b
+    where b.id = ${casoId}
+    on conflict (origen_caso_id) where origen_caso_id is not null do nothing
+    returning id`;
+
+  if (insertadas[0]) return { casoBancoId: insertadas[0].id, creado: true };
+
+  // Ya existía (re-aprobación): devuelve el caso curado ligado a este origen.
+  const existentes = await sql<{ id: string }[]>`
+    select id from lxp.casos_biblioteca where origen_caso_id = ${casoId} limit 1`;
+  return { casoBancoId: existentes[0]?.id ?? '', creado: false };
+}

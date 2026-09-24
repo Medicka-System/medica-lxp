@@ -1,9 +1,11 @@
 import {
   aplanarHallazgos,
+  dominioDe,
   estructurarContenido,
   imagenesDe,
   organoDe,
   scrubPII,
+  snapshotContenidoCaso,
 } from './reportes-caso.service';
 
 // Puente reporte→caso: las funciones de MAPEO son lógica pura y crítica (§10) — testeadas.
@@ -132,5 +134,64 @@ describe('puente reporte→caso · contenido ESTRUCTURADO (§7A)', () => {
 
   it('devuelve null cuando no hay nada estructurable (fallback a texto derivado)', () => {
     expect(estructurarContenido({ secciones: [] }, {}, '', [])).toBeNull();
+  });
+});
+
+describe('puente reporte→caso · SNAPSHOT para la columna contenido_estructurado (§7A · Opción B)', () => {
+  it('copia secciones de hallazgos VERBATIM (tabla/opción/sino) + valores, salta encabezado e imágenes', () => {
+    const s = snapshotContenidoCaso(estructura, valores, 'Sin hallazgos patológicos.', {}, {
+      tipo: 'reporte',
+      reporteId: 'rep-1',
+    });
+    // No incluye el encabezado (PII) ni la sección de galería (va al visor).
+    expect(s.secciones.find((x) => x.id === 's0')).toBeUndefined();
+    expect(s.secciones.find((x) => x.id === 's3')).toBeUndefined();
+    // La sección de mediciones conserva la TABLA como campo tipado (columnas/filas).
+    const med = s.secciones.find((x) => x.id === 's2')!;
+    const tabla = med.campos.find((c) => c.id === 'tab')!;
+    expect(tabla.tipo).toBe('tabla');
+    expect(tabla.columnas).toEqual(['PSV', 'IR']);
+    expect(tabla.filas).toEqual(['ACC', 'ACI']);
+    // Los valores viajan como matriz (NO aplanada a texto).
+    expect(s.valores.tab).toEqual([['80', '0.6'], ['', '']]);
+    expect(s.valores.dil).toBe(false);
+    expect(s.impresion).toBe('Sin hallazgos patológicos.');
+    expect(s.fuente).toEqual({ tipo: 'reporte', reporteId: 'rep-1' });
+  });
+
+  it('remueve PII de los valores de texto y de las celdas de tabla (§10)', () => {
+    const est = {
+      secciones: [
+        {
+          id: 's1',
+          tipo: 'hallazgos',
+          titulo: 'Nota',
+          columnas: 1,
+          campos: [
+            { id: 'n', tipo: 'multitexto', nombre: 'Nota' },
+            { id: 't', tipo: 'tabla', nombre: 'T', columnas: ['A'], filas: ['f1'] },
+          ],
+        },
+      ],
+    };
+    const s = snapshotContenidoCaso(
+      est,
+      { n: 'Paciente Juan Pérez, normal.', t: [['exp Juan Pérez']] },
+      '',
+      { paciente: 'Juan Pérez' },
+    );
+    expect(String(s.valores.n)).toContain('[dato removido]');
+    expect(String(s.valores.n)).not.toContain('Juan Pérez');
+    expect((s.valores.t as string[][])[0][0]).toContain('[dato removido]');
+  });
+
+  it('secciones vacías → snapshot sin secciones (el caller guarda null → fallback)', () => {
+    const s = snapshotContenidoCaso({ secciones: [] }, {}, '', {});
+    expect(s.secciones).toHaveLength(0);
+  });
+
+  it('dominioDe: un reporte es una interpretación por defecto (editable al curar)', () => {
+    expect(dominioDe('Renal', 'Riñón')).toBe('interpretacion');
+    expect(dominioDe(null, null)).toBe('interpretacion');
   });
 });
