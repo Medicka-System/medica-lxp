@@ -2,26 +2,35 @@ import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
+  ActividadRef,
+  AlumnoRef,
+  AuditoriaAutoeval,
   CabeceraDocente,
   CasoValidacion,
   ClaseAgenda,
   ClasificacionEco,
   ConsultaDetalle,
   ConsultaHilo,
+  CriterioRubricaVista,
   DocenteDashboard,
   DominioIaim,
   EntregaRevision,
+  EntregasVista,
+  EntregaVista,
   EstadoEntrega,
   EstadoEstudio,
+  EstadoVistaEntrega,
   EstudioAlumno,
   EstudiosAlumnoData,
   GrupoSeguimiento,
   MensajeConsulta,
   PostAteneoResumen,
+  PreguntaAcierto,
   PropuestaEcoResumen,
   RecursoDocente,
   ResumenAlumno,
   TipoActividad,
+  TipoVistaEntrega,
 } from './contrato';
 
 /**
@@ -598,6 +607,288 @@ export async function getEntregas(userId: string): Promise<EntregaRevision[]> {
         eco: mapearEco(r),
       };
     });
+  });
+}
+
+// ── Vista de Entregas (bandeja fiel al mock · §5B) ───────────────────────────────
+/** Rellena a 2 dígitos para las claves `M02 · L03`. */
+function pad2(n: number): string {
+  return String(Math.max(0, Math.floor(n))).padStart(2, '0');
+}
+
+/** Quita etiquetas HTML y colapsa espacios (los lineamientos de la tarea son HTML). */
+function textoPlano(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Consigna de la actividad: lineamientos de la tarea (texto) o descripción del autoeval. */
+function consignaDe(config: unknown, tipo: string): string | null {
+  const c = (config ?? {}) as Record<string, unknown>;
+  if (tipo === 'tarea') {
+    const l = typeof c.lineamientos === 'string' ? textoPlano(c.lineamientos) : '';
+    return l || null;
+  }
+  const d = typeof c.descripcion === 'string' ? c.descripcion.trim() : '';
+  return d || null;
+}
+
+/** `criterios` jsonb de `lxp.rubricas` → criterios para el detalle (peso 0..1 → %). */
+function mapearRubrica(criteriosJson: unknown): CriterioRubricaVista[] | null {
+  if (!Array.isArray(criteriosJson) || criteriosJson.length === 0) return null;
+  const crit = criteriosJson.map((raw, i): CriterioRubricaVista => {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const pesoRaw = typeof o.peso === 'number' ? o.peso : 0;
+    // Los pesos del catálogo se guardan como fracción (0..1); los mostramos en %.
+    const peso = pesoRaw <= 1 ? Math.round(pesoRaw * 100) : Math.round(pesoRaw);
+    return {
+      id: `c${i + 1}`,
+      texto: typeof o.criterio === 'string' ? o.criterio : `Criterio ${i + 1}`,
+      peso,
+      descripcion: typeof o.descripcion === 'string' && o.descripcion.trim() ? o.descripcion.trim() : null,
+    };
+  });
+  return crit;
+}
+
+/** Parte el texto del alumno en párrafos (por saltos de línea); [] si no hay texto. */
+function partirParrafos(texto: string | null): string[] {
+  if (!texto) return [];
+  return texto
+    .split(/\n{2,}|\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** Mapea (tipo de actividad, estado, nota) al vocabulario de estados de la vista. */
+function estadoVistaDe(esAuto: boolean, estado: EstadoEntrega, nota: number | null): EstadoVistaEntrega {
+  if (esAuto) return 'auto';
+  if (estado === 'calificada' || estado === 'devuelta' || nota != null) return 'calificada';
+  return 'requiere-lectura';
+}
+
+/** Estadísticas simples de un arreglo de notas (para la auditoría de autoeval). */
+function estadisticasNotas(
+  notas: number[],
+): { promedio: number; mediana: number; masBaja: number; masAlta: number } | null {
+  if (notas.length === 0) return null;
+  const ord = [...notas].sort((a, b) => a - b);
+  const mid = Math.floor(ord.length / 2);
+  const mediana = ord.length % 2 ? ord[mid]! : (ord[mid - 1]! + ord[mid]!) / 2;
+  return {
+    promedio: Math.round((notas.reduce((s, n) => s + n, 0) / notas.length) * 10) / 10,
+    mediana: Math.round(mediana * 10) / 10,
+    masBaja: ord[0]!,
+    masAlta: ord[ord.length - 1]!,
+  };
+}
+
+/**
+ * Lee todo lo que la pantalla `/docente/entregas` necesita para una selección de grupo
+ * × actividad, con BD REAL bajo RLS (`es_staff`) + roster de CORA (`cora_alumnos_de_grupo`,
+ * `SECURITY DEFINER` · mig 0037). La "actividad" es una lección de tipo `tarea` o
+ * `autoevaluacion` del programa del grupo. Las superficies de Eco (pre-análisis, lote,
+ * chat) NO se calculan aquí: son placeholder en la UI (§7A · se enchufa al final).
+ */
+export async function getEntregasVista(
+  userId: string,
+  sel: { grupoId?: string; actividadId?: string } = {},
+): Promise<EntregasVista> {
+  return comoStaff(userId, async (sql) => {
+    // 1 · Grupos del docente (para el selector).
+    const gruposRows = await sql<
+      { id: string; nombre: string; cora_grupo_id: string | null; programa_id: string }[]
+    >`
+      select g.id, g.nombre, g.cora_grupo_id, g.programa_id
+      from lxp.grupos g
+      where g.docente_id = ${userId}
+      order by g.fecha_inicio desc nulls last, g.created_at desc`;
+    const grupos = gruposRows.map((g) => ({ id: g.id, nombre: g.nombre }));
+
+    const vacio: EntregasVista = {
+      grupo: null,
+      grupos,
+      actividad: null,
+      actividades: [],
+      resumen: { entregadas: 0, delGrupo: 0, autoCalificadas: 0, porConfirmar: 0, promedio: null, sinEntregar: 0, vencio: '' },
+      entregas: [],
+      sinEntregar: [],
+      altaConfianza: 0,
+      auditoria: null,
+    };
+    if (gruposRows.length === 0) return vacio;
+    const grupoRow = gruposRows.find((g) => g.id === sel.grupoId) ?? gruposRows[0]!;
+    const grupo = { id: grupoRow.id, nombre: grupoRow.nombre };
+
+    // 2 · Actividades del grupo: lecciones tarea/autoeval del programa (con su config).
+    const actRows = await sql<
+      { id: string; nombre: string; tipo: string; l_orden: number; m_orden: number; config: unknown }[]
+    >`
+      select l.id, l.nombre, l.tipo::text as tipo, l.orden as l_orden, m.orden as m_orden, l.config
+      from lxp.lecciones l
+      join lxp.modulos m on m.id = l.modulo_id
+      where m.programa_id = ${grupoRow.programa_id}
+        and l.tipo in ('tarea', 'autoevaluacion')
+      order by m.orden, l.orden`;
+    const actividades: ActividadRef[] = actRows.map((a) => ({
+      id: a.id,
+      clave: `M${pad2(a.m_orden)} · L${pad2(a.l_orden)}`,
+      titulo: a.nombre,
+      tipo: (a.tipo === 'autoevaluacion' ? 'autoevaluacion' : 'abierta') as TipoVistaEntrega,
+      consigna: consignaDe(a.config, a.tipo),
+    }));
+    const actividad = actividades.find((a) => a.id === sel.actividadId) ?? actividades[0] ?? null;
+
+    // 3 · Roster del grupo (CORA · read-only). Base del "sin entregar" y de `delGrupo`.
+    let roster: AlumnoRef[] = [];
+    if (grupoRow.cora_grupo_id) {
+      const rr = await sql<{ supabase_auth_id: string; nombre: string }[]>`
+        select supabase_auth_id, nombre
+        from lxp.cora_alumnos_de_grupo(${grupoRow.cora_grupo_id})
+        order by nombre`;
+      roster = rr.map((r) => ({ id: r.supabase_auth_id, nombre: r.nombre, ini: iniciales(r.nombre) }));
+    }
+    const delGrupo = roster.length;
+
+    if (!actividad) {
+      return {
+        ...vacio,
+        grupo,
+        actividades,
+        sinEntregar: roster,
+        resumen: { ...vacio.resumen, delGrupo, sinEntregar: delGrupo },
+      };
+    }
+
+    // Config de la lección seleccionada (rúbrica del catálogo + actividad de respaldo).
+    const cfgRow = actRows.find((a) => a.id === actividad.id)!;
+    const cfg = (cfgRow.config ?? {}) as Record<string, unknown>;
+    const rubricaId = typeof cfg.rubricaId === 'string' && cfg.rubricaId ? cfg.rubricaId : null;
+    const actividadRespaldo = typeof cfg.actividadId === 'string' && cfg.actividadId ? cfg.actividadId : null;
+    const esAuto = actividad.tipo === 'autoevaluacion';
+
+    // Rúbrica del catálogo (solo para tareas abiertas).
+    let rubrica: CriterioRubricaVista[] | null = null;
+    if (!esAuto && rubricaId) {
+      const rb = await sql<{ criterios: unknown }[]>`
+        select criterios from lxp.rubricas where id = ${rubricaId} limit 1`;
+      rubrica = mapearRubrica(rb[0]?.criterios);
+    }
+
+    // 4 · Entregas de esta actividad (ancla por lección o por actividad de respaldo).
+    const filtro = actividadRespaldo
+      ? sql`(e.leccion_id = ${actividad.id} or e.actividad_id = ${actividadRespaldo})`
+      : sql`e.leccion_id = ${actividad.id}`;
+    const entRows = await sql<
+      {
+        id: string;
+        id_alumno: string;
+        estado: EstadoEntrega;
+        nota: number | null;
+        eco_sugerida: boolean;
+        contenido: unknown;
+        created_at: Date;
+        alumno: string;
+      }[]
+    >`
+      select e.id, e.id_alumno, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
+             al.nombre as alumno
+      from lxp.entregas e
+      join lxp.perfiles al on al.user_id = e.id_alumno
+      where ${filtro}
+      order by
+        case e.estado when 'enviada' then 0 when 'pendiente' then 1 else 2 end,
+        e.created_at asc`;
+
+    const entregas: EntregaVista[] = entRows.map((r) => ({
+      id: r.id,
+      alumno: { id: r.id_alumno, nombre: r.alumno, ini: iniciales(r.alumno) },
+      tipo: actividad.tipo,
+      estado: estadoVistaDe(esAuto, r.estado, r.nota),
+      creadoEn: r.created_at,
+      nota: r.nota,
+      respuesta: esAuto ? null : partirParrafos(notaAlumnoDe(r.contenido)),
+      rubrica: esAuto ? null : rubrica,
+      ecoSugerida: r.eco_sugerida,
+    }));
+
+    // 5 · Sin entregar = roster − quienes ya entregaron.
+    const conEntrega = new Set(entRows.map((r) => r.id_alumno));
+    const sinEntregar = roster.filter((a) => !conEntrega.has(a.id));
+
+    // 6 · Auditoría (solo autoevaluación): acierto por pregunta objetiva + estadísticas.
+    let auditoria: AuditoriaAutoeval | null = null;
+    if (esAuto) {
+      const reactivos = Array.isArray(cfg.reactivos) ? (cfg.reactivos as Record<string, unknown>[]) : [];
+      const acc = new Map<string, { correct: number; resp: number }>();
+      for (const r of entRows) {
+        const cont = (r.contenido ?? {}) as Record<string, unknown>;
+        const resultados = Array.isArray(cont.resultados) ? (cont.resultados as Record<string, unknown>[]) : [];
+        for (const res of resultados) {
+          if (res.tipo === 'abierta') continue;
+          const rid = typeof res.reactivoId === 'string' ? res.reactivoId : '';
+          if (!rid) continue;
+          const cur = acc.get(rid) ?? { correct: 0, resp: 0 };
+          cur.resp += 1;
+          if (res.veredicto === 'correcto') cur.correct += 1;
+          acc.set(rid, cur);
+        }
+      }
+      const preguntas: PreguntaAcierto[] = reactivos
+        .filter((rx) => rx.tipo !== 'abierta')
+        .map((rx, i) => {
+          const rid = typeof rx.id === 'string' ? rx.id : '';
+          const st = acc.get(rid) ?? { correct: 0, resp: 0 };
+          const pct = st.resp ? Math.round((st.correct / st.resp) * 100) : 0;
+          return {
+            n: pad2(i + 1),
+            texto: typeof rx.enunciado === 'string' ? rx.enunciado : `Pregunta ${i + 1}`,
+            aciertoPct: pct,
+            aciertos: `${st.correct} de ${st.resp}`,
+          };
+        });
+      const notasAuto = entregas.filter((e) => e.nota != null).map((e) => e.nota!);
+      auditoria = {
+        contestada: `${entregas.length} de ${delGrupo} la han contestado`,
+        estadisticas: estadisticasNotas(notasAuto),
+        preguntas,
+      };
+    }
+
+    // 7 · Resumen de la actividad.
+    const notasCal = entregas.filter((e) => e.nota != null).map((e) => e.nota!);
+    const promedio = notasCal.length
+      ? Math.round((notasCal.reduce((s, n) => s + n, 0) / notasCal.length) * 10) / 10
+      : null;
+    const autoCalificadas = entregas.filter((e) => e.estado === 'auto').length;
+    const porConfirmar = entregas.filter((e) => e.estado === 'requiere-lectura').length;
+
+    return {
+      grupo,
+      grupos,
+      actividad,
+      actividades,
+      resumen: {
+        entregadas: entregas.length,
+        delGrupo,
+        autoCalificadas,
+        porConfirmar,
+        promedio,
+        sinEntregar: sinEntregar.length,
+        vencio: '',
+      },
+      entregas,
+      sinEntregar,
+      // PLACEHOLDER (Eco no conectado · §7A): la UI muestra el lote de Eco con ejemplo.
+      altaConfianza: 0,
+      auditoria,
+    };
   });
 }
 
