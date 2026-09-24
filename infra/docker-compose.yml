@@ -171,6 +171,9 @@ services:
       # dispara el lote llamando al `api` (el juicio vive en api/src/ai · §4).
       EMBEDDINGS_URL: http://embeddings:8001
       API_URL: http://api:8000
+      # Redactor de PII quemada en píxeles (§10): `procesar-dicom` manda cada `.dcm`
+      # tag-limpio a Presidio para tapar el nombre del paciente antes de subir.
+      REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
       # Object storage (§3/§9): `procesar-dicom` LEE el crudo, ESCRIBE el anonimizado
       # y BORRA el crudo con las URLs firmadas que el `api` mete en el job (el worker
       # no firma). Necesita alcanzar MinIO por la red compose (http://minio:9000).
@@ -190,6 +193,8 @@ services:
         condition: service_healthy
       createbuckets:
         condition: service_completed_successfully
+      redactor-dicom:
+        condition: service_healthy
 
   embeddings:
     # BGE-M3 self-hosted (§3): embeddings multilingües LOCALES para el RAG de Eco
@@ -212,6 +217,27 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+
+  redactor-dicom:
+    # Redactor de PII QUEMADA en píxeles (§10): Presidio (OCR Tesseract + NER spaCy es)
+    # tapa SOLO la caja del nombre del paciente. ON-PREM (nunca a la nube). El worker
+    # `procesar-dicom` lo llama tras limpiar los tags (REDACTOR_URL).
+    build:
+      context: ../services/redactor-dicom
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      REDACTOR_SPACY_MODEL: ${REDACTOR_SPACY_MODEL:-es_core_news_lg}
+      REDACTOR_OCR_LANG: ${REDACTOR_OCR_LANG:-spa+eng}
+      REDACTOR_SCORE: ${REDACTOR_SCORE:-0.4}
+    ports:
+      - '${REDACTOR_PORT:-8002}:8002'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8002/health']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   web:
     build:

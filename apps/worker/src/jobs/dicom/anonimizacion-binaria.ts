@@ -24,7 +24,6 @@
  */
 import * as dcmjs from 'dcmjs';
 import { esPII, MOTOR_ANON, VERSION_ANON, type TrazaAnonimizacion } from './anonimizacion';
-import { redactarPixeles, type ResultadoRedaccion } from './redaccion-pixeles';
 
 const { DicomMessage, DicomMetaDictionary, DicomDict } = dcmjs.data;
 
@@ -42,13 +41,15 @@ export interface SerieAnonimizada {
   pixelSpacing: [number, number] | null;
 }
 
-/** Resultado de anonimizar el binario: el `.dcm` limpio + traza + series + redacción. */
+/**
+ * Resultado de anonimizar el binario: el `.dcm` con TAGS limpios + traza + series.
+ * La PII QUEMADA en píxeles (nombre sobre la imagen) NO se redacta aquí — la tapa el
+ * servicio `redactor-dicom` (Presidio · OCR+NER) que llama el worker con este buffer.
+ */
 export interface ResultadoAnonimizacionBinaria {
   buffer: Buffer;
   traza: TrazaAnonimizacion;
   series: SerieAnonimizada[];
-  /** Qué se redactó de la PII QUEMADA en píxeles (§10 · banner del equipo). */
-  redaccion: ResultadoRedaccion;
 }
 
 /** ¿El valor naturalizado tiene contenido real (para contar removidos)? */
@@ -164,12 +165,8 @@ export function anonimizarDicomBinario(entrada: ArrayBuffer): ResultadoAnonimiza
     },
   ];
 
-  // 4) Redactar la PII QUEMADA en los píxeles (§10 · banner del ecógrafo): ennegrece lo
-  //    exterior a la región de ultrasonido. Muta el pixel-data en el dataset naturalizado
-  //    ANTES de reescribir. Si no hay región, cae al fallback (banda + revision_manual).
-  const redaccion = redactarPixeles(dataset);
-
-  // 5) Reescribir el `.dcm` anonimizado (tags limpios + pixel-data redactado).
+  // 4) Reescribir el `.dcm` con los tags limpios (el pixel-data se redacta luego en el
+  //    servicio Presidio, con este buffer). Conserva meta y pixel-data.
   const dict = new DicomDict(leido.meta);
   dict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
   const buffer = Buffer.from(dict.write());
@@ -185,6 +182,5 @@ export function anonimizarDicomBinario(entrada: ArrayBuffer): ResultadoAnonimiza
       verificado: true,
     },
     series,
-    redaccion,
   };
 }

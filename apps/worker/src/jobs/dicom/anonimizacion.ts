@@ -58,8 +58,8 @@ export interface TrazaAnonimizacion {
  * futuro, no PII visible).
  *
  * OJO (§10): esta lista solo cubre PII en TAGS. La PII QUEMADA en los píxeles (banner del
- * ecógrafo con nombre/ID sobre la imagen) NO se quita aquí — la redacta el enmascarado de
- * pixel-data por región de ultrasonido (ver `redaccion-pixeles`).
+ * ecógrafo con el nombre sobre la imagen) NO se quita aquí — la tapa el servicio
+ * `redactor-dicom` (Presidio · OCR+NER) que llama el worker tras limpiar los tags.
  */
 export const PII_KEYWORDS: ReadonlySet<string> = new Set([
   // ── Paciente: nombres, IDs, contacto, demografía ──

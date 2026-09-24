@@ -26,6 +26,15 @@ type SeriePersistida = {
   pixel_spacing?: [number, number] | null;
 };
 
+/** Resultado de redactar la PII quemada de un `.dcm` con el servicio Presidio. */
+type RedaccionPresidio = {
+  buffer: Buffer;
+  /** Nº de cajas de NOMBRE ennegrecidas. */
+  redacciones: number;
+  /** El OCR vio texto pero NER no reconoció un nombre → cuarentena (revisión humana). */
+  revisionManual: boolean;
+};
+
 /** Traza auditable agregada del estudio (§10) — forma JSON serializable. */
 type TrazaEstudio = {
   motor: string;
@@ -34,12 +43,12 @@ type TrazaEstudio = {
   removidos_n: number;
   series_procesadas: number;
   verificado: boolean;
-  /** Método de redacción de PII quemada en píxeles (§10): región US o banda fallback. */
-  redaccion_pixel: 'region' | 'banda_superior' | 'ninguna' | 'mixto';
-  /** Alguna serie cayó al fallback → el estudio EXIGE revisión humana (PII no confiable). */
+  /** Redacción de PII quemada en píxeles (§10) por el servicio Presidio (OCR+NER). */
+  redaccion_pixel: 'presidio' | 'ninguna';
+  /** El OCR vio texto sin nombre confiable en alguna serie → el estudio EXIGE revisión. */
   revision_manual: boolean;
-  /** Píxeles ennegrecidos en todo el estudio. */
-  pixeles_redactados: number;
+  /** Cajas de NOMBRE ennegrecidas en todo el estudio. */
+  cajas_redactadas: number;
 };
 
 /** Índice de una serie a partir de su ref `.../{idx}.dcm` (para anexar sin pisar). */
@@ -109,12 +118,18 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         throw new Error('El `api` firmó menos destinos que series a persistir.');
       }
 
-      // 4) Subir cada `.dcm` anonimizado a su destino y armar las series NUEVAS.
+      // 4) Redactar la PII QUEMADA en píxeles (§10 · nombre del paciente sobre la imagen)
+      //    con el servicio Presidio (OCR+NER, ON-PREM) y subir el `.dcm` redactado. Si el
+      //    servicio falla, `redactarPixeles` lanza → el job reintenta y NADA se sube sin
+      //    redactar (nunca se persiste un posible leak · §10).
       const nuevas: SeriePersistida[] = [];
+      const redacciones: RedaccionPresidio[] = [];
       for (let i = 0; i < anonimizados.length; i++) {
         const anon = anonimizados[i]!;
         const destino = destinos[i]!;
-        await this.subirBinario(destino.urlSubida, anon.buffer);
+        const red = await this.redactarPixeles(anon.buffer);
+        await this.subirBinario(destino.urlSubida, red.buffer);
+        redacciones.push(red);
         const s = anon.series[0];
         nuevas.push({
           series_uid: s?.series_uid ?? '',
@@ -134,7 +149,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       // 6) Persistir. Al anexar, concatena a las existentes; al reemplazar, sólo las
       //    nuevas. La referencia del estudio se fija junto con anonimizado_en (CHECK 0014/0024).
       const series = anexar ? [...existentes, ...nuevas] : nuevas;
-      const traza = this.agregarTraza(anonimizados, destinos);
+      const traza = this.agregarTraza(anonimizados, destinos, redacciones);
       await this.guardarEstudio(tabla, casoId, series, traza);
 
       this.logger.log(
@@ -215,26 +230,21 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     return destinos;
   }
 
-  /** Agrega las trazas por serie en una sola traza auditable del estudio. */
+  /** Agrega las trazas por serie (tags + redacción Presidio) en una traza del estudio. */
   private agregarTraza(
     anonimizados: ResultadoAnonimizacionBinaria[],
     destinos: DestinoAnonimizado[],
+    redacciones: RedaccionPresidio[],
   ): TrazaEstudio {
     const campos = new Set<string>();
     let removidos_n = 0;
-    let pixeles_redactados = 0;
-    let revision_manual = false;
-    const metodos = new Set<string>();
     for (const a of anonimizados) {
       for (const c of a.traza.campos_removidos) campos.add(c);
       removidos_n += a.traza.removidos_n;
-      pixeles_redactados += a.redaccion.pixeles_redactados;
-      if (a.redaccion.revision_manual) revision_manual = true;
-      metodos.add(a.redaccion.metodo);
     }
+    const cajas_redactadas = redacciones.reduce((n, r) => n + r.redacciones, 0);
+    const revision_manual = redacciones.some((r) => r.revisionManual);
     const primera = anonimizados[0]!.traza;
-    const redaccion_pixel: TrazaEstudio['redaccion_pixel'] =
-      metodos.size > 1 ? 'mixto' : ((anonimizados[0]?.redaccion.metodo ?? 'ninguna') as TrazaEstudio['redaccion_pixel']);
     return {
       motor: primera.motor,
       version: primera.version,
@@ -242,9 +252,33 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       removidos_n,
       series_procesadas: destinos.length,
       verificado: true,
-      redaccion_pixel,
+      redaccion_pixel: 'presidio',
       revision_manual,
-      pixeles_redactados,
+      cajas_redactadas,
+    };
+  }
+
+  /**
+   * Redacta la PII quemada (nombre) del `.dcm` con el servicio Presidio (§10 · ON-PREM).
+   * Envía el binario tag-limpio y recibe el `.dcm` con la caja del nombre ennegrecida +
+   * metadata (`X-Redacciones`, `X-Revision-Manual`). Un fallo de red LANZA → el job
+   * reintenta y nada se sube sin redactar (nunca se persiste un posible leak).
+   */
+  private async redactarPixeles(buffer: Buffer): Promise<RedaccionPresidio> {
+    const base = process.env.REDACTOR_URL ?? 'http://localhost:8002';
+    const resp = await fetch(`${base}/redact`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/dicom' },
+      body: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
+    });
+    if (!resp.ok) {
+      throw new Error(`El servicio redactor-dicom respondió ${resp.status}.`);
+    }
+    const redactado = Buffer.from(await resp.arrayBuffer());
+    return {
+      buffer: redactado,
+      redacciones: Number(resp.headers.get('x-redacciones') ?? '0'),
+      revisionManual: resp.headers.get('x-revision-manual') === '1',
     };
   }
 

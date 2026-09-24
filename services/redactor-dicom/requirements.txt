@@ -1,0 +1,12 @@
+# Redactor de PII quemada en píxeles DICOM (§10) — Presidio (OCR Tesseract + NER spaCy).
+# ON-PREM: nunca sale a la nube. Modelo NER en ESPAÑOL (pacientes mexicanos). Versiones
+# fijadas para builds reproducibles (§3). CPU.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+presidio-analyzer==2.2.355
+presidio-image-redactor==0.0.53
+pytesseract==0.3.13
+pydicom==2.4.4
+Pillow==10.4.0
+numpy==1.26.4
