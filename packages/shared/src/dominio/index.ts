@@ -8,3 +8,4 @@ export * from './certificados';
 export * from './badges';
 export * from './colas';
 export * from './notificaciones';
+export * from './casos';
