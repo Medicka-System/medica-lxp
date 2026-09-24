@@ -1,16 +1,22 @@
 import { requireDocente } from '../../_lib/session';
-import { getEntregas } from '../../_lib/datos';
+import { getEntregasVista } from '../../_lib/datos';
 import { EntregasConsola } from './_components/entregas-consola';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Entregas (§5B). Lee las entregas con RLS (`es_staff`) y las entrega a la consola,
- * que asienta la nota con `calificarEntrega`. La pre-calificación de Eco contra la
- * rúbrica es placeholder (§7A · Sprint 5.3).
+ * Entregas (§5B) — bandeja de tareas por calificar, organizada por GRUPO × ACTIVIDAD,
+ * fiel al mock aprobado. Lee BD real con RLS (`es_staff`) + roster de CORA; la nota se
+ * asienta con `calificarEntrega`. Las superficies de Eco son placeholder (§7A). La
+ * selección de grupo/actividad viaja por la URL (?grupo=&actividad=) para ser enlazable.
  */
-export default async function EntregasPage() {
+export default async function EntregasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ grupo?: string; actividad?: string }>;
+}) {
   const { userId } = await requireDocente();
-  const entregas = await getEntregas(userId);
-  return <EntregasConsola entregas={entregas} />;
+  const { grupo, actividad } = await searchParams;
+  const data = await getEntregasVista(userId, { grupoId: grupo, actividadId: actividad });
+  return <EntregasConsola data={data} />;
 }
