@@ -104,6 +104,32 @@ export async function iniciarClase(
 }
 
 /**
+ * Firma una URL de reproducción de vida corta para ver la grabación (§3: el binario
+ * vive en object storage; el `api` es el único firmante · POST /media/videos/:id/
+ * reproducir). Devuelve la URL para abrir el reproductor en otra pestaña.
+ */
+export async function verGrabacion(
+  grabacionId: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  await requireDocente();
+  try {
+    const res = await fetch(`${apiBase()}/media/videos/${grabacionId}/reproducir`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return { ok: false, error: `No se pudo abrir la grabación (HTTP ${res.status}).` };
+    }
+    const data = (await res.json()) as { urlReproduccion: string };
+    return { ok: true, url: data.urlReproduccion };
+  } catch (e) {
+    console.error('[verGrabacion] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio de media (apps/api).' };
+  }
+}
+
+/**
  * Liga una grabación a una lección: cae en la videoteca del grupo/lección (la del
  * alumno se lee de `lxp.videoteca` · getGrabacionesClase). CRUD directo bajo RLS
  * (`videoteca_write` = `es_staff`). Verifica que la lección pertenezca a un grupo del
