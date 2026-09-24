@@ -57,8 +57,16 @@ export type Grabacion = {
   estado?: 'procesando' | 'listo' | 'error';
   /** Lección a la que está (o quedaría) ligada. */
   leccionId?: string | null;
+  /** Grupo de la grabación (para ofrecer las lecciones correctas al ligar). */
+  grupoId: string;
   poster?: string;
 };
+
+/** Un grupo del docente (para el diálogo de programar). */
+export type GrupoOpcion = { id: string; nombre: string; alumnos: number };
+
+/** Una lección elegible (programar o ligar): clave + nombre. */
+export type LeccionOpcion = { id: string; label: string };
 
 /** Respuesta de Eco (PLACEHOLDER · se conecta al final · §7A). */
 export type RespuestaEco = {
@@ -79,4 +87,8 @@ export type ClasesData = {
   totalGrabaciones: number;
   /** Mes actual en curso (título del rail "Su septiembre"). */
   mesActual: string;
+  /** Grupos del docente (para el diálogo de programar). */
+  gruposDocente: GrupoOpcion[];
+  /** Lecciones elegibles por grupo (para programar y para ligar grabaciones). */
+  leccionesPorGrupo: Record<string, LeccionOpcion[]>;
 };

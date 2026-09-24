@@ -1,6 +1,13 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
-import type { ClaseProgramada, ClasesData, Grabacion, TipoSesion } from '../_components/tipos';
+import type {
+  ClaseProgramada,
+  ClasesData,
+  Grabacion,
+  GrupoOpcion,
+  LeccionOpcion,
+  TipoSesion,
+} from '../_components/tipos';
 import { ECO_PLACEHOLDER } from '../_components/eco-placeholder';
 
 /**
@@ -114,6 +121,7 @@ type GrabacionRow = {
   plataforma: string | null;
   duracion_seg: number | null;
   leccion_id: string | null;
+  grupo_id: string;
   grupo: string;
   cora_grupo_id: string | null;
   fecha: Date;
@@ -151,7 +159,7 @@ export async function getClasesData(userId: string): Promise<ClasesData> {
     const grabRows = await sql<GrabacionRow[]>`
       select v.id, v.titulo, v.estado::text as estado, v.origen::text as origen,
              cl.plataforma::text as plataforma, v.duracion_seg, v.leccion_id,
-             g.nombre as grupo, g.cora_grupo_id,
+             g.id as grupo_id, g.nombre as grupo, g.cora_grupo_id,
              coalesce(cl.inicio_programado, v.created_at) as fecha,
              nullif(v.fuente_externa->>'asistieron', '')::int as asistieron,
              nullif(v.fuente_externa->>'total', '')::int as asistencia_total
@@ -161,6 +169,23 @@ export async function getClasesData(userId: string): Promise<ClasesData> {
       where g.docente_id = ${userId}
         and v.origen in ('zoom', 'stream')
       order by fecha desc nulls last, v.created_at desc`;
+
+    // Grupos del docente (para el diálogo de programar) + lecciones elegibles por grupo
+    // (para programar y para ligar grabaciones a la videoteca del grupo).
+    const gruposRows = await sql<{ id: string; nombre: string; cora_grupo_id: string | null }[]>`
+      select id, nombre, cora_grupo_id from lxp.grupos
+      where docente_id = ${userId}
+      order by fecha_inicio desc nulls last, created_at`;
+    const leccRows = await sql<
+      { grupo_id: string; leccion_id: string; leccion: string; m_orden: number; l_orden: number }[]
+    >`
+      select g.id as grupo_id, l.id as leccion_id, l.nombre as leccion,
+             m.orden as m_orden, l.orden as l_orden
+      from lxp.grupos g
+      join lxp.modulos   m on m.programa_id = g.programa_id
+      join lxp.lecciones l on l.modulo_id = m.id
+      where g.docente_id = ${userId}
+      order by g.id, m.orden, l.orden`;
 
     // ── Mapear agenda ────────────────────────────────────────────────────────────
     // "Hoy" = una sola clase (la más próxima de las de hoy) para no vaciar "próximas".
@@ -207,7 +232,22 @@ export async function getClasesData(userId: string): Promise<ClasesData> {
       ligada: r.leccion_id != null,
       estado: r.estado as Grabacion['estado'],
       leccionId: r.leccion_id,
+      grupoId: r.grupo_id,
     }));
+
+    // ── Grupos + lecciones para los diálogos (programar / ligar) ─────────────────
+    const gruposDocente: GrupoOpcion[] = gruposRows.map((g) => ({
+      id: g.id,
+      nombre: g.nombre,
+      alumnos: (g.cora_grupo_id && alumnosPorCora.get(g.cora_grupo_id)) || 0,
+    }));
+    const leccionesPorGrupo: Record<string, LeccionOpcion[]> = {};
+    for (const l of leccRows) {
+      (leccionesPorGrupo[l.grupo_id] ??= []).push({
+        id: l.leccion_id,
+        label: `${claveLeccion(l.m_orden, l.l_orden) ?? '—'} · ${l.leccion}`,
+      });
+    }
 
     // ── Filtro de grupos (para Grabaciones) ──────────────────────────────────────
     const gruposFiltro = ['Todas', ...new Set(grabaciones.map((g) => g.grupo))];
@@ -269,6 +309,8 @@ export async function getClasesData(userId: string): Promise<ClasesData> {
       eco: ECO_PLACEHOLDER,
       totalGrabaciones: grabaciones.length,
       mesActual,
+      gruposDocente,
+      leccionesPorGrupo,
     };
   });
 }
