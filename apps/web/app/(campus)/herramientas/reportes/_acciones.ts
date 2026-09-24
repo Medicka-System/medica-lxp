@@ -142,14 +142,39 @@ export async function generarPdf(_id: string): Promise<ResultadoAccion> {
   return { ok: false, error: 'La generación de PDF se conecta con el servicio de dominio (pendiente).' };
 }
 
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+export type ResultadoCaso =
+  | { ok: true; casoId: string; yaExistia: boolean; conEstudio: boolean }
+  | { ok: false; error: string };
+
 /**
- * STUB — "Guardar como caso": deriva una versión ANONIMIZADA del estudio hacia
- * `lxp.bitacora_casos` (§6). La anonimización (quitar PII) es BLOQUEANTE y es dominio
- * (worker, §8/§10): NO se hace en web. Contrato PENDIENTE DE API.
+ * "Guardar como caso": deriva del reporte un caso educativo ANONIMIZADO en la bitácora del
+ * médico (§6/§10). Es DOMINIO (§2 — NO web): el puente vive en `apps/api` (`reportes`), que
+ * aplana el contenido, infiere órgano/dominio y REUSA `procesar-dicom` para limpiar TAGS
+ * (dcmjs) + PÍXELES (Presidio) + escribir la traza §10. Aquí solo se gatea propiedad (RLS) y
+ * se dispara. El docente decide luego qué curar (bitácora→validación→biblioteca).
  */
-export async function guardarComoCaso(_id: string): Promise<ResultadoAccion> {
-  return {
-    ok: false,
-    error: 'Guardar como caso anonimizado se conecta con el dominio de anonimización (pendiente).',
-  };
+export async function guardarComoCaso(id: string): Promise<ResultadoCaso> {
+  const alumno = await getSesionAlumno();
+  const propio = await comoAlumno(alumno.userId, (sql) =>
+    sql<{ id: string }[]>`select id from lxp.reportes where id = ${id} and id_medico = ${alumno.userId} limit 1`,
+  );
+  if (propio.length === 0) return { ok: false, error: 'Ese reporte no es tuyo.' };
+  try {
+    const res = await fetch(`${apiBase()}/reportes/${encodeURIComponent(id)}/generar-caso`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo generar el caso (HTTP ${res.status}).` };
+    const d = (await res.json()) as { casoId: string; yaExistia: boolean; conEstudio: boolean };
+    revalidatePath(REVALIDAR);
+    revalidatePath('/bitacora');
+    return { ok: true, casoId: d.casoId, yaExistia: !!d.yaExistia, conEstudio: !!d.conEstudio };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar el servicio de dominio (apps/api).' };
+  }
 }

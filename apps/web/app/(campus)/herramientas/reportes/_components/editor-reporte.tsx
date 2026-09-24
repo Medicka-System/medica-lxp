@@ -93,6 +93,7 @@ export function EditorReporte({
   const [impresion, setImpresion] = useState(reporte.contenido.impresion);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pickerCampo, setPickerCampo] = useState<string | null>(null);
+  const [casoDialog, setCasoDialog] = useState(false);
   const [pendiente, iniciar] = useTransition();
 
   const estado = reporte.estado;
@@ -153,7 +154,10 @@ export function EditorReporte({
     conAccion(async () => {
       const g = await guardarBorrador(reporte.id, paciente, armarContenido());
       if (!g.ok) return g;
-      return finalizarReporte(reporte.id);
+      const f = await finalizarReporte(reporte.id);
+      // Al finalizar: pregunta si quiere derivar el caso educativo (no automático).
+      if (f.ok && !reporte.casoGeneradoId) setCasoDialog(true);
+      return f;
     }, 'Reporte finalizado.');
   const onEnviar = () =>
     conAccion(async () => {
@@ -162,7 +166,26 @@ export function EditorReporte({
       return enviarReporte(reporte.id);
     }, 'Reporte marcado como enviado al paciente.');
   const onPdf = () => conAccion(() => generarPdf(reporte.id), 'PDF generado.');
-  const onCaso = () => conAccion(() => guardarComoCaso(reporte.id), 'Caso anonimizado guardado en su bitácora.');
+  function onCaso() {
+    setMensaje(null);
+    iniciar(async () => {
+      const res = await guardarComoCaso(reporte.id);
+      setCasoDialog(false);
+      if (res.ok) {
+        setMensaje({
+          tipo: 'ok',
+          texto: res.yaExistia
+            ? 'Este reporte ya tenía un caso en tu bitácora.'
+            : res.conEstudio
+              ? 'Caso generado en tu bitácora — se están anonimizando las imágenes (tags + píxeles).'
+              : 'Caso generado en tu bitácora.',
+        });
+        router.refresh();
+      } else {
+        setMensaje({ tipo: 'error', texto: res.error });
+      }
+    });
+  }
   const onImprimir = () => {
     if (typeof window !== 'undefined') window.print();
   };
@@ -420,6 +443,52 @@ export function EditorReporte({
       {/* diálogo: elegir estudio DICOM de la bitácora */}
       {pickerCampo && (
         <PickerEstudio casos={casosDicom} onElegir={elegirEstudio} onCerrar={() => setPickerCampo(null)} />
+      )}
+
+      {/* diálogo: ¿guardar como caso? (al finalizar) */}
+      {casoDialog && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Guardar como caso"
+          onClick={() => !pendiente && setCasoDialog(false)}
+        >
+          <div className={`${card} w-full max-w-[460px] p-6`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
+                <NotebookText className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">¿Guardar como caso?</h2>
+                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+                  Deriva una copia ANONIMIZADA de este estudio a tu bitácora (sin datos del paciente;
+                  imágenes con tags e imagen redactados · §10). El docente decide luego cuáles curar. El
+                  reporte queda intacto en “Mis reportes”.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setCasoDialog(false)}
+                disabled={pendiente}
+                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
+              >
+                No, solo el reporte
+              </button>
+              <button
+                type="button"
+                onClick={onCaso}
+                disabled={pendiente}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+              >
+                <NotebookText aria-hidden className="h-4 w-4" strokeWidth={1.9} />
+                {pendiente ? 'Generando…' : 'Sí, guardar como caso'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
