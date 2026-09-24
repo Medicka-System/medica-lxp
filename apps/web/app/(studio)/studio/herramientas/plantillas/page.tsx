@@ -15,7 +15,7 @@ export default async function PlantillasPage() {
       tipo="plantillas"
       items={items}
       conteos={conteos}
-      rutaEditar={(id) => `/studio/herramientas/plantillas/${id}`}
+      rutaBase="/studio/herramientas/plantillas"
     />
   );
 }

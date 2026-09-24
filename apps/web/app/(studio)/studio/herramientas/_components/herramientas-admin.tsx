@@ -60,13 +60,15 @@ export function HerramientasAdmin({
   tipo,
   items,
   conteos,
-  rutaEditar,
+  rutaBase,
 }: {
   tipo: TipoHerramienta;
   items: HerramientaItem[];
   conteos: ConteosHerramientas;
-  /** Si se pasa, cada fila muestra "Editar" hacia el constructor de esa herramienta. */
-  rutaEditar?: (id: string) => string;
+  /** Ruta base del constructor (ej. "/studio/herramientas/plantillas"); si se pasa,
+   * cada fila muestra "Editar" hacia `${rutaBase}/${id}`. String (no función) porque
+   * el prop cruza de Server a Client Component. */
+  rutaBase?: string;
 }) {
   const meta = META[tipo];
   const Icono = meta.icono;
@@ -164,7 +166,7 @@ export function HerramientasAdmin({
                 item={it}
                 icono={Icono}
                 onPendiente={iniciar}
-                rutaEditar={rutaEditar}
+                rutaBase={rutaBase}
               />
             ))}
           </tbody>
@@ -193,13 +195,13 @@ function FilaHerramienta({
   item,
   icono: Icono,
   onPendiente,
-  rutaEditar,
+  rutaBase,
 }: {
   tipo: TipoHerramienta;
   item: HerramientaItem;
   icono: typeof Calculator;
   onPendiente: (fn: () => void) => void;
-  rutaEditar?: (id: string) => string;
+  rutaBase?: string;
 }) {
   const [nombre, setNombre] = useState(item.nombre);
   const [editando, setEditando] = useState(false);
@@ -255,7 +257,7 @@ function FilaHerramienta({
         <ChipEstado publicado={item.publicado} />
       </td>
       <td className="px-4 py-3">
-        {rutaEditar ? (
+        {rutaBase ? (
           <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full bg-accent px-2 text-[10px] font-bold text-accent-foreground">
             Se edita aquí
           </span>
@@ -267,9 +269,9 @@ function FilaHerramienta({
       </td>
       <td className="px-3 py-3 text-right">
         <div className="flex items-center justify-end gap-1.5">
-          {rutaEditar && (
+          {rutaBase && (
             <Link
-              href={rutaEditar(item.id)}
+              href={`${rutaBase}/${item.id}`}
               className={`inline-flex h-9 items-center whitespace-nowrap rounded-[9px] bg-primary px-3 text-[12.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
             >
               Editar
