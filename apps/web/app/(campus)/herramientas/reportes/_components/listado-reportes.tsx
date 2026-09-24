@@ -28,6 +28,7 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
   const [tipo, setTipo] = useState('Todos');
   const [busqueda, setBusqueda] = useState('');
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  const [buscaPlantilla, setBuscaPlantilla] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [creando, iniciarCrear] = useTransition();
 
@@ -36,6 +37,19 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
     () => Array.from(new Set(plantillas.map((p) => p.tipoEstudio).filter(Boolean))),
     [plantillas],
   );
+
+  // Filtro en vivo del modal "Nuevo reporte" por nombre o tipo de estudio (33 plantillas).
+  const plantillasFiltradas = useMemo(() => {
+    const q = buscaPlantilla.trim().toLowerCase();
+    if (!q) return plantillas;
+    return plantillas.filter((p) => `${p.nombre} ${p.tipoEstudio}`.toLowerCase().includes(q));
+  }, [plantillas, buscaPlantilla]);
+
+  function abrirNuevo() {
+    setError(null);
+    setBuscaPlantilla('');
+    setNuevoAbierto(true);
+  }
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -100,10 +114,7 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
         </div>
         <button
           type="button"
-          onClick={() => {
-            setError(null);
-            setNuevoAbierto(true);
-          }}
+          onClick={abrirNuevo}
           className={`ml-auto inline-flex h-12 items-center gap-2.5 rounded-[10px] bg-primary px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
         >
           <Plus aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
@@ -205,7 +216,7 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
           </p>
           <button
             type="button"
-            onClick={() => setNuevoAbierto(true)}
+            onClick={abrirNuevo}
             className={`mt-1 inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
           >
             <Plus aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
@@ -308,9 +319,10 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
           onClick={() => !creando && setNuevoAbierto(false)}
         >
           <div
-            className={`${card} w-full max-w-[520px] p-6`}
+            className={`${card} flex max-h-[70vh] w-full max-w-[760px] flex-col p-6`}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* cabecera fija */}
             <div className="flex items-start gap-3">
               <div className="min-w-0">
                 <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Nuevo reporte</h2>
@@ -329,40 +341,65 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
               </button>
             </div>
 
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              Plantillas publicadas
+            {/* buscador fijo */}
+            <label className="mt-4 flex h-11 shrink-0 items-center gap-2.5 rounded-[10px] border border-border bg-card px-3.5 transition-colors focus-within:border-secondary">
+              <Search aria-hidden className="h-[17px] w-[17px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <span className="sr-only">Buscar plantilla</span>
+              <input
+                type="search"
+                autoFocus
+                value={buscaPlantilla}
+                onChange={(e) => setBuscaPlantilla(e.target.value)}
+                placeholder="Buscar plantilla… (ej. renal, carótida, obstétrico)"
+                className="w-full min-w-0 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+
+            <p className="mt-3 shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+              {buscaPlantilla.trim()
+                ? `${plantillasFiltradas.length} de ${plantillas.length} plantillas`
+                : `${plantillas.length} plantillas publicadas`}
             </p>
+
+            {/* grid con SCROLL INTERNO (el modal no se desborda) */}
             {plantillas.length === 0 ? (
               <p className="mt-2 rounded-xl border border-border bg-muted px-4 py-6 text-center text-[13px] text-muted-foreground">
                 No hay plantillas publicadas todavía. El diseñador las publica desde el Studio.
               </p>
+            ) : plantillasFiltradas.length === 0 ? (
+              <p className="mt-2 rounded-xl border border-border bg-muted px-4 py-8 text-center text-[13px] text-muted-foreground">
+                Ninguna plantilla coincide con “{buscaPlantilla.trim()}”.
+              </p>
             ) : (
-              <div className="mt-2 grid gap-2.5 sm:grid-cols-2">
-                {plantillas.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    disabled={creando}
-                    onClick={() => crear(p.id)}
-                    className={`rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-secondary hover:bg-accent disabled:opacity-60 ${focusRing}`}
-                  >
-                    <span className="block text-[14px] font-bold">{p.nombre}</span>
-                    <span className={`${mono} mt-1 block text-[11.5px] text-muted-foreground`}>
-                      {p.tipoEstudio ? `${p.tipoEstudio} · ` : ''}
-                      {p.secciones} secciones · {p.campos} campos
-                    </span>
-                  </button>
-                ))}
+              <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {plantillasFiltradas.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      disabled={creando}
+                      onClick={() => crear(p.id)}
+                      className={`rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-secondary hover:bg-accent disabled:opacity-60 ${focusRing}`}
+                    >
+                      <span className="block text-[14px] font-bold leading-snug">{p.nombre}</span>
+                      <span className={`${mono} mt-1 block text-[11.5px] text-muted-foreground`}>
+                        {p.tipoEstudio ? `${p.tipoEstudio} · ` : ''}
+                        {p.secciones} secciones · {p.campos} campos
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
+            {/* pie fijo */}
             {error && (
-              <p className="mt-3 rounded-[10px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-2 text-[12.5px] text-[color:var(--warning-foreground)]">
+              <p className="mt-3 shrink-0 rounded-[10px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-2 text-[12.5px] text-[color:var(--warning-foreground)]">
                 {error}
               </p>
             )}
             {creando && (
-              <p className="mt-3 text-[12.5px] text-muted-foreground">Creando el reporte…</p>
+              <p className="mt-3 shrink-0 text-[12.5px] text-muted-foreground">Creando el reporte…</p>
             )}
           </div>
         </div>
