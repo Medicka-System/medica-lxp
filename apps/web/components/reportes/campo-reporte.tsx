@@ -10,11 +10,11 @@
  *   · `modo="previa"` (constructor): misma apariencia, inputs deshabilitados; el
  *     `imagen/dicom` muestra el hueco (no monta el visor pesado).
  *
- * El visor DICOM se carga en diferido (`next/dynamic`) → no arrastra el WASM de
- * Cornerstone al bundle del Studio.
+ * El visor DICOM NO se importa aquí (mantiene el WASM de Cornerstone fuera del bundle
+ * del Studio): en modo llenar, el editor del médico lo inyecta por `renderVisorDicom`.
  */
 
-import dynamic from 'next/dynamic';
+import type { ReactNode } from 'react';
 import { Images, ImageOff, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import {
@@ -26,11 +26,6 @@ import {
   type CampoPlantilla,
   type RefDicom,
 } from '@/lib/reportes/estructura';
-
-const VisorEstudio = dynamic(
-  () => import('@/components/casos/visor-estudio').then((m) => m.VisorEstudio),
-  { ssr: false, loading: () => <div className="grid h-[280px] place-items-center rounded-xl border border-border bg-muted text-[12px] text-muted-foreground">Abriendo estudio…</div> },
-);
 
 export type ModoCampo = 'llenar' | 'previa';
 
@@ -54,6 +49,7 @@ export function CampoReporte({
   onCambio,
   onElegirEstudio,
   onQuitarEstudio,
+  renderVisorDicom,
 }: {
   campo: CampoPlantilla;
   valor: unknown;
@@ -62,6 +58,8 @@ export function CampoReporte({
   /** `imagen/dicom`, modo llenar: abre el selector de estudios del médico. */
   onElegirEstudio?: () => void;
   onQuitarEstudio?: () => void;
+  /** `imagen/dicom`, modo llenar: el editor del médico inyecta el visor real. */
+  renderVisorDicom?: (ref: RefDicom) => ReactNode;
 }) {
   const deshabilitado = modo === 'previa';
   const cambia = (v: unknown) => onCambio?.(v);
@@ -189,6 +187,7 @@ export function CampoReporte({
           modo={modo}
           onElegirEstudio={onElegirEstudio}
           onQuitarEstudio={onQuitarEstudio}
+          renderVisorDicom={renderVisorDicom}
         />
       )}
 
@@ -269,12 +268,14 @@ function CampoImagen({
   modo,
   onElegirEstudio,
   onQuitarEstudio,
+  renderVisorDicom,
 }: {
   campo: CampoPlantilla;
   valor: unknown;
   modo: ModoCampo;
   onElegirEstudio?: () => void;
   onQuitarEstudio?: () => void;
+  renderVisorDicom?: (ref: RefDicom) => ReactNode;
 }) {
   // Referencia: imagen FIJA de la plantilla (igual en previa y en el reporte).
   if (campo.origen === 'referencia') {
@@ -311,7 +312,13 @@ function CampoImagen({
   if (ref) {
     return (
       <div className="mt-1.5">
-        <VisorEstudio casoId={ref.casoId} tabla={ref.tabla} soloLectura className="h-[300px] min-h-[300px]" />
+        {renderVisorDicom ? (
+          renderVisorDicom(ref)
+        ) : (
+          <div className="grid h-[280px] place-items-center rounded-xl border border-border bg-muted text-[12px] text-muted-foreground">
+            Estudio {ref.casoId.slice(0, 8)} · visor no disponible aquí
+          </div>
+        )}
         <div className="mt-2 flex gap-2">
           <button
             type="button"

@@ -28,11 +28,13 @@ import {
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
+import { VisorEstudio } from '@/components/casos/visor-estudio';
 import {
   campoCompleto,
   CAMPOS_PACIENTE_CATALOGO,
   esCampoEstatico,
   type CampoPlantilla,
+  type RefDicom,
   type SeccionPlantilla,
 } from '@/lib/reportes/estructura';
 import {
@@ -173,6 +175,12 @@ export function EditorReporte({
     if (pickerCampo) setValor(pickerCampo, { casoId, tabla: 'bitacora_casos' });
     setPickerCampo(null);
   }
+
+  // El editor (campus) inyecta el visor real; la pieza compartida no lo importa (así el
+  // bundle del Studio no arrastra el WASM de Cornerstone).
+  const renderVisorDicom = (ref: RefDicom) => (
+    <VisorEstudio casoId={ref.casoId} tabla={ref.tabla} soloLectura className="h-[300px] min-h-[300px]" />
+  );
 
   const tituloReporte = reporte.plantilla?.nombre ?? 'Reporte clínico';
 
@@ -317,7 +325,14 @@ export function EditorReporte({
           )}
 
           {secciones.map((s) => (
-            <SeccionCard key={s.id} seccion={s} valores={valores} onValor={setValor} onPicker={setPickerCampo} />
+            <SeccionCard
+              key={s.id}
+              seccion={s}
+              valores={valores}
+              onValor={setValor}
+              onPicker={setPickerCampo}
+              renderVisorDicom={renderVisorDicom}
+            />
           ))}
 
           {/* impresión diagnóstica (fija) */}
@@ -419,11 +434,13 @@ function SeccionCard({
   valores,
   onValor,
   onPicker,
+  renderVisorDicom,
 }: {
   seccion: SeccionPlantilla;
   valores: Record<string, unknown>;
   onValor: (campoId: string, v: unknown) => void;
   onPicker: (campoId: string) => void;
+  renderVisorDicom: (ref: RefDicom) => React.ReactNode;
 }) {
   return (
     <section className={`${card} p-5`}>
@@ -438,6 +455,7 @@ function SeccionCard({
               onCambio={(v) => onValor(c.id, v)}
               onElegirEstudio={() => onPicker(c.id)}
               onQuitarEstudio={() => onValor(c.id, null)}
+              renderVisorDicom={renderVisorDicom}
             />
           </div>
         ))}
