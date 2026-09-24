@@ -203,7 +203,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
       <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
@@ -355,7 +355,10 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
         </aside>
 
         {/* ════════ Lienzo: la lección y sus bloques ════════ */}
-        <div className="min-w-0 flex-1 overflow-y-auto px-7 py-6">
+        {/* `relative`: es el bloque contenedor de los absolutos internos (p.ej. los
+            <input class="sr-only"> de las zonas de subida). Sin esto se anclan al <html>
+            y estiran el documento → segundo scrollbar de ventana + espacio muerto. */}
+        <div className="relative min-w-0 flex-1 overflow-y-auto px-7 py-6">
           {leccion && modulo ? (
             <>
               <p className={`${kicker} text-secondary`}>
