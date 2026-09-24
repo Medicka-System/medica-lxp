@@ -70,10 +70,12 @@ async function main(): Promise<void> {
     const a1 = idPor('a1@seed.local');
     const a2 = idPor('a2@seed.local');
     const a4 = idPor('a4@seed.local'); // suspendido (pago vencido)
+    const a5 = idPor('a5@seed.local'); // cohorte B (aislamiento por grupo)
 
     const claimsA1: Claims = { sub: a1, role: 'authenticated' };
     const claimsA2: Claims = { sub: a2, role: 'authenticated' };
     const claimsA4: Claims = { sub: a4, role: 'authenticated' };
+    const claimsA5: Claims = { sub: a5, role: 'authenticated' };
     const claimsAnon: Claims = { sub: null, role: 'anon' };
 
     // ── 1) Aislamiento de bitácora ─────────────────────────────────────
@@ -291,6 +293,35 @@ async function main(): Promise<void> {
       (await fueRechazada(() =>
         como(sql, claimsA1, (tx) => tx`select 1 from lxp.foro_reacciones limit 1`),
       )) === false,
+    );
+
+    // ── INSCRIPCIÓN AL GRUPO (mig 0036): aislamiento por cohorte real ──
+    // a1 pertenece a la cohorte A (donde vive el foro); a5 pertenece a la B.
+    const a1Miembro = await como(sql, claimsA1, (tx) =>
+      tx<{ ok: boolean }[]>`select lxp.es_miembro_grupo(${foro.grp}) as ok`,
+    );
+    check('a1 ES miembro del grupo del foro (cohorte A)', a1Miembro[0]?.ok === true);
+
+    const a5Miembro = await como(sql, claimsA5, (tx) =>
+      tx<{ ok: boolean }[]>`select lxp.es_miembro_grupo(${foro.grp}) as ok`,
+    );
+    check('a5 NO es miembro del grupo A (está en la cohorte B)', a5Miembro[0]?.ok === false);
+
+    // a5 (otra cohorte) NO ve NINGÚN post del foro de A, aunque quisiera publicar.
+    const a5VeForoA = await como(sql, claimsA5, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.foro_mensajes where actividad_id = ${foro.act}`,
+    );
+    check('a5 (cohorte B) NO ve el foro de la cohorte A', num(a5VeForoA) === 0, `vio ${num(a5VeForoA)}`);
+
+    // a5 NO puede publicar en el grupo A (no es su cohorte · foro_insert · mig 0036).
+    check(
+      'a5 NO puede publicar en el foro de un grupo ajeno (A)',
+      await fueRechazada(() =>
+        como(sql, claimsA5, (tx) =>
+          tx`insert into lxp.foro_mensajes (actividad_id, leccion_id, grupo_id, autor_id, titulo, cuerpo)
+             values (${foro.act}, ${foro.lec}, ${foro.grp}, ${a5}, 'Intruso', '<p>hola</p>')`,
+        ),
+      ),
     );
 
     // ── ATENEO (0032): reacciones, votos de encuesta y colegas ──

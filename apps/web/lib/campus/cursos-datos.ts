@@ -1,6 +1,7 @@
 import 'server-only';
 import type postgres from 'postgres';
 import { comoAlumno } from '@/lib/db.server';
+import { programasDelAlumno } from './inscripcion';
 import type {
   CursoResumen,
   ModuloCatalogo,
@@ -49,28 +50,6 @@ async function programasPublicados(
     order by pr.nombre`;
 }
 
-/** Ids de programas donde el alumno tiene actividad (heurística de inscripción). */
-async function programasConActividad(
-  sql: Sql,
-  userId: string,
-): Promise<Set<string>> {
-  const rows = await sql<{ programa_id: string }[]>`
-    select distinct programa_id from (
-      select m.programa_id
-      from lxp.bitacora_casos c
-      join lxp.modulos m on m.id = c.modulo_id
-      where c.id_alumno = ${userId} and c.modulo_id is not null
-      union
-      select m.programa_id
-      from lxp.reproduccion_progreso rp
-      join lxp.contenidos co on co.id = rp.contenido_id
-      join lxp.lecciones l on l.id = co.leccion_id
-      join lxp.modulos m on m.id = l.modulo_id
-      where rp.alumno_id = ${userId}
-    ) t`;
-  return new Set(rows.map((r) => r.programa_id));
-}
-
 /** Contenidos completados por programa (reproduccion_progreso del alumno). */
 async function completadosPorPrograma(
   sql: Sql,
@@ -107,21 +86,22 @@ async function primeraLeccionPorPrograma(
 }
 
 /**
- * Mis cursos: programas en los que el alumno participa (heurística de actividad).
- * Si no hay señal de actividad todavía, devuelve el catálogo publicado para poder
- * arrancar (documentado en el contrato · PENDIENTE integración CORA · Sprint 11).
+ * Mis cursos: programas en los que el alumno está INSCRITO (vía su grupo · inscripción
+ * CORA, §10). Fallback de resiliencia: si el alumno aún no tiene ninguna inscripción
+ * mapeada (usuario en transición), devuelve el catálogo publicado para poder arrancar
+ * y no dejar una pantalla vacía (documentado en el contrato · Sprint 11 endurece).
  */
 export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
   return comoAlumno(userId, async (sql) => {
-    const [programas, conActividad, completados, primeras] = await Promise.all([
+    const [programas, inscritos, completados, primeras] = await Promise.all([
       programasPublicados(sql),
-      programasConActividad(sql, userId),
+      programasDelAlumno(sql, userId),
       completadosPorPrograma(sql, userId),
       primeraLeccionPorPrograma(sql),
     ]);
 
-    const mios = conActividad.size > 0
-      ? programas.filter((p) => conActividad.has(p.id))
+    const mios = inscritos.size > 0
+      ? programas.filter((p) => inscritos.has(p.id))
       : programas;
 
     return mios.map((p): CursoResumen => {
@@ -144,13 +124,13 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
 
 /**
  * Catálogo (Explorar): todos los programas publicados con su desglose de módulos
- * (upsell modular). Marca `inscrito` los que el alumno ya cursa (heurística).
+ * (upsell modular). Marca `inscrito` los que el alumno ya cursa (inscripción real · §10).
  */
 export async function getCatalogo(userId: string): Promise<ProgramaCatalogo[]> {
   return comoAlumno(userId, async (sql) => {
-    const [programas, conActividad, modulos] = await Promise.all([
+    const [programas, inscritos, modulos] = await Promise.all([
       programasPublicados(sql),
-      programasConActividad(sql, userId),
+      programasDelAlumno(sql, userId),
       sql<
         {
           programa_id: string;
@@ -190,7 +170,7 @@ export async function getCatalogo(userId: string): Promise<ProgramaCatalogo[]> {
       horas: p.horas,
       lecciones: p.lecciones,
       modulosLista: modsPorPrograma.get(p.id) ?? [],
-      inscrito: conActividad.has(p.id),
+      inscrito: inscritos.has(p.id),
     }));
   });
 }

@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { comoTareaConfig } from '@/lib/studio/tarea-contrato';
+import { grupoDelAlumnoEnPrograma } from './inscripcion';
 
 /**
  * Datos de la TAREA de una lección (lección tipo `tarea` · §5C) — lado del alumno.
@@ -14,9 +15,9 @@ import { comoTareaConfig } from '@/lib/studio/tarea-contrato';
  * config (`guardarTarea` lo puentea) o, en su defecto, leyendo la actividad `tarea` de
  * respaldo de la lección — así funciona tanto para tareas nuevas como legacy/seed.
  *
- * NOTA (§10, Sprint 9): la membresía real alumno↔grupo vive en CORA. Aquí el `grupoId`
- * se resuelve al grupo que instancia el programa de la lección (mock local · igual que
- * el foro); endurecerlo a la inscripción real es trabajo del sprint de seguridad.
+ * El `grupoId` destino es la COHORTE REAL del alumno (su inscripción CORA, vía
+ * `grupoDelAlumnoEnPrograma` · §10); la RLS de `entregas` (mig 0036) refuerza que no se
+ * entregue en un grupo ajeno. En el Sprint 11 solo cambia la fuente (CORA real).
  */
 
 export type EstadoEntregaTarea = 'pendiente' | 'enviada' | 'calificada' | 'devuelta';
@@ -145,13 +146,9 @@ export async function getTareaAlumno(
         )[0]?.id ?? null;
     }
 
-    // Grupo destino: el que instancia este programa (mock · ver nota de cabecera).
+    // Grupo destino: la COHORTE REAL del alumno en este programa (inscripción CORA · §10).
     const grupoId =
-      (
-        await sql<{ id: string }[]>`
-          select id from lxp.grupos where programa_id = ${cab.programa_id}
-          order by created_at limit 1`
-      )[0]?.id ?? null;
+      (await grupoDelAlumnoEnPrograma(sql, userId, cab.programa_id))?.id ?? null;
 
     // Entrega vigente del alumno (anclada por lección · única por actividad×alumno).
     const ent = (
