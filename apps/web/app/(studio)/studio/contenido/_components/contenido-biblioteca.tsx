@@ -146,14 +146,11 @@ export function ContenidoBiblioteca({
       </div>
 
       {pendienteDb && (
-        <div className="flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-3.5">
-          <Info aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-          <p className="text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
-            La biblioteca de contenido necesita la tabla <span className={mono}>lxp.recursos</span> y
-            el pipeline de ingesta (subida, Cloudflare Stream, SCORM/xAPI) —{' '}
-            <span className="font-bold">pendiente de DB/API</span>. La vista y las lecturas ya están
-            listas: se poblarán solas cuando el dominio exista. Contrato en{' '}
-            <span className={mono}>lib/studio/contenido-contrato.ts</span>.
+        <div className="flex items-start gap-3 rounded-xl border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-4 py-3.5">
+          <TriangleAlert aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={1.75} />
+          <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
+            No se pudo leer la biblioteca ahora mismo. Revisa que la base de datos esté disponible y
+            recarga.
           </p>
         </div>
       )}
@@ -225,9 +222,7 @@ export function ContenidoBiblioteca({
           <span aria-hidden className="inline-grid h-14 w-14 place-items-center rounded-full bg-accent text-accent-foreground">
             <Upload className="h-[26px] w-[26px]" strokeWidth={2} />
           </span>
-          <h2 className="mt-4 text-[19px] font-extrabold tracking-[-0.015em]">
-            {pendienteDb ? 'La biblioteca aún no está disponible' : 'Sube el primer recurso'}
-          </h2>
+          <h2 className="mt-4 text-[19px] font-extrabold tracking-[-0.015em]">Sube el primer recurso</h2>
           <p className={`mx-auto mt-2.5 max-w-[52ch] text-[13.5px] leading-relaxed ${softText}`}>
             Video, H5P, paquete SCORM o xAPI, PDF, Word, PowerPoint o imagen. Se guarda una sola vez
             y desde ahí lo referencia cualquier lección de cualquier programa.
@@ -336,14 +331,87 @@ export function ContenidoBiblioteca({
         </p>
       </div>
 
-      {subir && <DialogoSubir onCerrar={() => setSubir(false)} />}
+      {subir && (
+        <DialogoSubir
+          onCerrar={() => setSubir(false)}
+          onSubido={() => {
+            setSubir(false);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/* ───────────────────────── Diálogo: subir (ingesta = API) ───────────────────────── */
+/* ───────────────────────── Diálogo: subir (ingesta real · api + CRUD) ───────────────────────── */
 
-function DialogoSubir({ onCerrar }: { onCerrar: () => void }) {
+/** Extensión → tipo de recurso. `.zip` es SCORM/xAPI (el api decide cuál por manifiesto). */
+function tipoPorExtension(nombre: string): TipoRecurso | 'zip' | null {
+  const ext = nombre.split('.').pop()?.toLowerCase() ?? '';
+  if (['mp4', 'mov', 'webm', 'm4v', 'mkv'].includes(ext)) return 'video';
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return 'imagen';
+  if (ext === 'pdf') return 'pdf';
+  if (['doc', 'docx'].includes(ext)) return 'word';
+  if (['ppt', 'pptx'].includes(ext)) return 'ppt';
+  if (ext === 'h5p') return 'h5p';
+  if (ext === 'zip') return 'zip';
+  return null;
+}
+
+const ACEPTA = '.mp4,.mov,.webm,.m4v,.mkv,.jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.ppt,.pptx,.h5p,.zip';
+
+function DialogoSubir({ onCerrar, onSubido }: { onCerrar: () => void; onSubido: () => void }) {
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [nombre, setNombre] = useState('');
+  const [tags, setTags] = useState('');
+  const [fase, setFase] = useState<'elige' | 'sube' | 'error'>('elige');
+  const [mensaje, setMensaje] = useState('');
+
+  const tipoDetectado = archivo ? tipoPorExtension(archivo.name) : null;
+
+  function elegir(f: File | null) {
+    if (!f) return;
+    setArchivo(f);
+    setNombre((n) => n || f.name.replace(/\.[^.]+$/, ''));
+    setFase('elige');
+    setMensaje('');
+  }
+
+  async function subir() {
+    if (!archivo) return;
+    const tipo = tipoPorExtension(archivo.name);
+    if (!tipo) {
+      setFase('error');
+      setMensaje('Tipo de archivo no soportado. Usa video, imagen, PDF, Word, PowerPoint, .h5p o .zip (SCORM/xAPI).');
+      return;
+    }
+    const etiquetas = tags
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    const nom = nombre.trim() || archivo.name;
+    setFase('sube');
+    setMensaje('Subiendo…');
+
+    try {
+      const { subirRecursoFlujo } = await import('./subir-flujo');
+      const r = await subirRecursoFlujo(archivo, tipo, nom, etiquetas, setMensaje);
+      if (!r.ok) {
+        setFase('error');
+        setMensaje(r.error);
+        return;
+      }
+      onSubido();
+    } catch (e) {
+      console.error('[DialogoSubir] fallo inesperado:', e);
+      setFase('error');
+      setMensaje('Ocurrió un error inesperado al subir el recurso.');
+    }
+  }
+
+  const subiendo = fase === 'sube';
+
   return (
     <div
       role="dialog"
@@ -364,47 +432,106 @@ function DialogoSubir({ onCerrar }: { onCerrar: () => void }) {
             type="button"
             onClick={onCerrar}
             aria-label="Cerrar"
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+            disabled={subiendo}
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted disabled:opacity-40 ${focusRing}`}
           >
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
         </div>
+
         <div className="px-6">
-          <div className="rounded-xl border-[1.5px] border-dashed border-[color:var(--track)] bg-muted p-6 text-center">
+          <label
+            className={`block cursor-pointer rounded-xl border-[1.5px] border-dashed p-6 text-center transition-colors ${
+              archivo ? 'border-primary bg-accent' : 'border-[color:var(--track)] bg-muted hover:border-secondary'
+            } ${subiendo ? 'pointer-events-none opacity-60' : ''}`}
+          >
+            <input
+              type="file"
+              accept={ACEPTA}
+              className="sr-only"
+              disabled={subiendo}
+              onChange={(e) => elegir(e.target.files?.[0] ?? null)}
+            />
             <span aria-hidden className="inline-grid h-[42px] w-[42px] place-items-center rounded-full bg-card text-secondary">
               <Upload className="h-5 w-5" strokeWidth={2} />
             </span>
-            <p className="mt-2.5 text-[13.5px] font-bold">Video · H5P · SCORM/xAPI · PDF · Word · PPT · Imagen</p>
-            <p className={`${mono} mt-1 text-[11.5px] text-muted-foreground`}>
-              video → Cloudflare Stream · SCORM/xAPI → paquete .zip
-            </p>
-          </div>
-          <div className="mt-4 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3">
-            <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={1.75} />
-            <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
-              La subida (URL firmada a object storage, transcodificación en Stream, descompresión de
-              SCORM/xAPI) es un pipeline de dominio —{' '}
-              <span className="font-bold">pendiente de API</span>. Contrato en{' '}
-              <span className={mono}>lib/studio/contenido-contrato.ts</span>.
-            </p>
-          </div>
+            {archivo ? (
+              <>
+                <p className="mt-2.5 text-[13.5px] font-bold" style={{ textWrap: 'pretty' }}>{archivo.name}</p>
+                <p className={`${mono} mt-1 text-[11.5px] text-muted-foreground`}>
+                  {(archivo.size / 1024 / 1024).toFixed(1)} MB
+                  {tipoDetectado ? ` · ${tipoDetectado === 'zip' ? 'SCORM/xAPI' : TIPO[tipoDetectado].etiqueta}` : ' · tipo no soportado'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2.5 text-[13.5px] font-bold">Video · H5P · SCORM/xAPI · PDF · Word · PPT · Imagen</p>
+                <p className={`${mono} mt-1 text-[11.5px] text-muted-foreground`}>
+                  Haz clic para elegir un archivo · SCORM/xAPI → .zip
+                </p>
+              </>
+            )}
+          </label>
+
+          {archivo && (
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1.5">
+                <span className={`${kicker} text-muted-foreground`}>Nombre</span>
+                <input
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  disabled={subiendo}
+                  className={`h-10 rounded-[9px] border border-border bg-card px-3 text-[13px] outline-none focus:border-secondary ${focusRing}`}
+                />
+              </label>
+              <label className="grid gap-1.5">
+                <span className={`${kicker} text-muted-foreground`}>Etiquetas (separadas por coma)</span>
+                <input
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  disabled={subiendo}
+                  placeholder="pocus, abdomen, fast"
+                  className={`h-10 rounded-[9px] border border-border bg-card px-3 text-[13px] outline-none focus:border-secondary placeholder:text-muted-foreground ${focusRing}`}
+                />
+              </label>
+            </div>
+          )}
+
+          {mensaje && (
+            <div
+              className={`mt-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 ${
+                fase === 'error'
+                  ? 'border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] text-destructive'
+                  : 'border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+              }`}
+            >
+              {fase === 'error' ? (
+                <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+              ) : (
+                <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+              )}
+              <p className="text-[12.5px] leading-relaxed">{mensaje}</p>
+            </div>
+          )}
         </div>
+
         <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
           <button
             type="button"
             onClick={onCerrar}
-            className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            disabled={subiendo}
+            className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
           >
-            Cerrar
+            Cancelar
           </button>
           <button
             type="button"
-            disabled
-            title="Pendiente de API (pipeline de ingesta)"
-            className="inline-flex h-12 cursor-not-allowed items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] opacity-50"
+            onClick={subir}
+            disabled={!archivo || !tipoDetectado || subiendo}
+            className="inline-flex h-12 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Upload aria-hidden className="h-4 w-4" strokeWidth={2} />
-            Elegir archivo
+            {subiendo ? 'Subiendo…' : 'Subir a la biblioteca'}
           </button>
         </div>
       </div>
