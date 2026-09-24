@@ -33,7 +33,7 @@ import { EditorRico } from '@/components/editor-rico/editor-rico';
 import { EditorVideoAutoria } from '@/components/bloques/video/editor-video-autoria';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
-import { VisorDicom, type EstudioDicom } from '@/components/dicom';
+import { VisorEstudio } from '@/components/casos/visor-estudio';
 import type { FuenteVideoConfig, PaqueteContenido } from '@/components/bloques/contratos';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
 import {
@@ -646,13 +646,8 @@ function EditorPdf({ config, onCambio }: { config: ConfigPdf; onCambio: (c: Reco
   );
 }
 
-/* ── Caso DICOM (VisorDicom) ── */
+/* ── Caso DICOM (VisorEstudio real · el mismo de bitácora/biblioteca · §4.7) ── */
 function EditorCaso({ config }: { config: ConfigCaso }) {
-  // El estudio anonimizado del caso lo deja el worker `procesar-dicom` (PENDIENTE 4.7);
-  // hasta entonces no hay estudio que montar y se muestra la catalogación + el aviso.
-  // Cuando exista, esta rama monta el visor real sin tocar el resto del bloque.
-  const estudio: EstudioDicom | null = null;
-
   if (!config.casoId) {
     return (
       <AvisoContrato>
@@ -675,14 +670,16 @@ function EditorCaso({ config }: { config: ConfigCaso }) {
           </p>
         </div>
       </div>
-      {estudio ? (
-        <VisorDicom estudio={estudio} soloLectura className="h-[360px] w-full rounded-[10px] border border-border" />
-      ) : (
-        <AvisoContrato>
-          El visor DICOM (Cornerstone3D) se monta cuando el worker <span className="font-bold">procesar-dicom</span>{' '}
-          deja el estudio anonimizado del caso — <span className="font-bold">pendiente (Sprint 4.7)</span>.
-        </AvisoContrato>
-      )}
+      {/* Visor Cornerstone3D real del estudio anonimizado del caso curado (tabla
+          casos_biblioteca). Se monta bajo demanda; si el caso no tiene estudio DICOM,
+          VisorEstudio degrada con dignidad ("No se pudo abrir el estudio"). soloLectura:
+          en el constructor solo se previsualiza el caso, no se anota. */}
+      <VisorEstudio
+        casoId={config.casoId}
+        tabla="casos_biblioteca"
+        soloLectura
+        className="h-[60vh] min-h-[440px] w-full"
+      />
     </div>
   );
 }
