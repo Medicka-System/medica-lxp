@@ -12,18 +12,26 @@
  * escribió el staff de autoría (RLS es_autoria) → contenido de confianza.
  */
 
+import { useEffect, useState } from 'react';
 import { Link as LinkIcon, ScanLine } from 'lucide-react';
 import { ContenidoRico } from '@/components/editor-rico';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
-import type { HitoVideo, PaqueteContenido } from '@/components/bloques/contratos';
+import type { CueTranscripcion, HitoVideo, PaqueteContenido } from '@/components/bloques/contratos';
 import type { BloqueTeoriaVista } from '@/lib/campus/leccion-contrato';
+import { firmarReproduccionAlumno } from '@/lib/campus/leccion-video-acciones';
+import { firmarLecturaImagenAlumno } from '@/lib/campus/leccion-media-acciones';
 
 /** Lectura defensiva de un string del config crudo. */
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
+
+/** Prefijo del H5P server (§7 · api) para reproducir el interactivo del alumno. */
+const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
+  : null;
 
 export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
   const c = bloque.config;
@@ -46,15 +54,7 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
       );
 
     case 'imagen':
-      return str(c.src) ? (
-        <figure className="overflow-hidden rounded-[12px] border border-border bg-muted">
-          {/* <img> a propósito: URL arbitraria (externa / firmada), no asset local de next/image. */}
-          <img src={str(c.src)} alt={str(c.alt)} className="max-h-[480px] w-full object-contain" />
-          {str(c.pie) && (
-            <figcaption className="px-3.5 py-2 text-[12px] text-muted-foreground">{str(c.pie)}</figcaption>
-          )}
-        </figure>
-      ) : null;
+      return <ImagenBloqueLector c={c} />;
 
     case 'galeria': {
       const imgs = (Array.isArray(c.imagenes) ? c.imagenes : []) as { src?: unknown; alt?: unknown }[];
@@ -74,14 +74,7 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
     }
 
     case 'video':
-      return (
-        <BloqueVideo
-          modo="ver"
-          src={str(c.src) || null}
-          titulo={str(c.titulo) || undefined}
-          hitos={(Array.isArray(c.hitos) ? c.hitos : []) as HitoVideo[]}
-        />
-      );
+      return <VideoBloqueLector c={c} />;
 
     case 'link':
       return str(c.url) ? (
@@ -145,22 +138,43 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
         </div>
       );
 
-    case 'h5p':
+    case 'h5p': {
+      const url = str(c.url);
+      // Enlace externo: embebe el H5P alojado en otro host por su URL de incrustación.
+      if (url) {
+        return (
+          <div className="overflow-hidden rounded-[12px] border border-border bg-[color:var(--sidebar)]">
+            <iframe
+              src={url}
+              title={str(c.titulo) || 'Interactivo H5P'}
+              className="aspect-video w-full border-0"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              allow="fullscreen"
+            />
+          </div>
+        );
+      }
       return (
         <BloqueH5P
           modo="ver"
           contentId={str(c.contentId) || undefined}
-          servidorBase={null}
+          servidorBase={H5P_BASE}
           titulo={str(c.titulo) || undefined}
         />
       );
+    }
 
     case 'xapi': {
+      const url = str(c.url);
+      const id = str(c.contenidoId) || str(c.paqueteId);
       const paquete: PaqueteContenido = {
-        id: str(c.paqueteId) || undefined,
+        id: id || undefined,
         titulo: str(c.titulo) || undefined,
-        tipo: 'xapi',
-        estado: str(c.paqueteId) ? 'listo' : 'sin_subir',
+        tipo: str(c.tipo) === 'scorm' ? 'scorm12' : 'xapi',
+        // Enlace externo → lanzador embebible directo; paquete ingerido → estado listo
+        // (el lanzador servido por el dominio queda pendiente, como en la lección xAPI).
+        estado: url || id ? 'listo' : 'sin_subir',
+        lanzadorUrl: url || null,
       };
       return <BloquePaquete modo="ver" paquete={paquete} titulo={str(c.titulo) || undefined} />;
     }
@@ -168,4 +182,96 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
     default:
       return null;
   }
+}
+
+/**
+ * Bloque de IMAGEN del alumno — enlace directo (`src`) tal cual, o firma la lectura de la
+ * imagen SUBIDA y anonimizada (`ref` → `media/imagenes/…`) con vida corta (§2/§10).
+ */
+function ImagenBloqueLector({ c }: { c: Record<string, unknown> }) {
+  const src = str(c.src);
+  const ref = str(c.ref);
+  const alt = str(c.alt);
+  const pie = str(c.pie);
+  const [url, setUrl] = useState<string | null>(src || null);
+
+  useEffect(() => {
+    let vivo = true;
+    if (src) {
+      setUrl(src);
+      return;
+    }
+    if (!ref) {
+      setUrl(null);
+      return;
+    }
+    firmarLecturaImagenAlumno(ref).then((r) => {
+      if (vivo) setUrl(r.ok ? r.url : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [src, ref]);
+
+  if (!url) return null;
+  return (
+    <figure className="overflow-hidden rounded-[12px] border border-border bg-muted">
+      {/* <img> a propósito: URL arbitraria (externa / firmada), no asset local de next/image. */}
+      <img src={url} alt={alt} className="max-h-[480px] w-full object-contain" />
+      {pie && <figcaption className="px-3.5 py-2 text-[12px] text-muted-foreground">{pie}</figcaption>}
+    </figure>
+  );
+}
+
+/**
+ * Bloque de VIDEO del alumno — mismo player, transcripción e hitos que la LECCIÓN de
+ * video. Deriva la fuente: enlace directo (`url`, o `src` de bloques viejos) tal cual, o
+ * firma la lectura de la subida a videoteca (`videotecaId`) con vida corta (§2/§6).
+ */
+function VideoBloqueLector({ c }: { c: Record<string, unknown> }) {
+  const url = str(c.url) || str(c.src);
+  const videotecaId = str(c.videotecaId);
+  const titulo = str(c.titulo) || undefined;
+  const hitos = (Array.isArray(c.hitos) ? c.hitos : []) as HitoVideo[];
+  const transcripcion = (Array.isArray(c.transcripcion) ? c.transcripcion : []) as CueTranscripcion[];
+
+  const [src, setSrc] = useState<string | null>(url || null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    if (url) {
+      setSrc(url);
+      return;
+    }
+    if (!videotecaId) {
+      setSrc(null);
+      return;
+    }
+    firmarReproduccionAlumno(videotecaId).then((r) => {
+      if (!vivo) return;
+      if (r.ok) setSrc(r.url);
+      else {
+        setSrc(null);
+        setAviso(r.error);
+      }
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [url, videotecaId]);
+
+  return (
+    <>
+      <BloqueVideo
+        modo="ver"
+        src={src}
+        titulo={titulo}
+        hitos={hitos}
+        transcripcion={transcripcion}
+        cargando={!src && !!videotecaId && !url && !aviso}
+      />
+      {aviso && !src && <p className="mt-2 text-[12px] text-muted-foreground">{aviso}</p>}
+    </>
+  );
 }

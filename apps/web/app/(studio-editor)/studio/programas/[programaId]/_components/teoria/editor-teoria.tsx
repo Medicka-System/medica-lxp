@@ -187,6 +187,7 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
                 <BloqueItem
                   key={b.id}
                   programaId={programaId}
+                  leccionId={leccionId}
                   bloque={b}
                   indice={i}
                   total={ordenadas.length}
@@ -313,6 +314,7 @@ function igual(a: unknown, b: unknown): boolean {
 
 function BloqueItem({
   programaId,
+  leccionId,
   bloque,
   indice,
   total,
@@ -320,6 +322,7 @@ function BloqueItem({
   onMover,
 }: {
   programaId: string;
+  leccionId: string;
   bloque: BloqueTeoria;
   indice: number;
   total: number;
@@ -466,7 +469,7 @@ function BloqueItem({
       {/* Cuerpo: editor del sub-tipo (controlado). Se oculta al plegar el bloque. */}
       {!plegado && (
         <div className="p-3.5">
-          <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} />
+          <EditorBloque tipo={tipo} config={draft} onCambio={setDraft} leccionId={leccionId} />
         </div>
       )}
     </div>

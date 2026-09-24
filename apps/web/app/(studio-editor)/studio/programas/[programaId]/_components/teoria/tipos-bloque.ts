@@ -17,7 +17,7 @@
  * ingesta de paquetes son PENDIENTE DE API (ver `components/bloques/contratos.ts`).
  */
 
-import type { HitoVideo } from '@/components/bloques/contratos';
+import type { FuenteVideoConfig } from '@/components/bloques/contratos';
 
 /** Los 10 sub-tipos de bloque que ofrece el editor de teoría. */
 export type TipoBloqueTeoria =
@@ -51,18 +51,33 @@ export const TIPOS_BLOQUE_TEORIA: readonly TipoBloqueTeoria[] = [
 /** Bloque de texto/teoría: HTML del editor rico (TipTap · KaTeX · tablas · Word). */
 export type ConfigTexto = { html: string };
 
-/** Imagen única: fuente (URL firmada / externa), texto alternativo y pie. */
-export type ConfigImagen = { src: string; alt: string; pie: string };
+/**
+ * Imagen única: por ENLACE (`src`) o SUBIDA (`ref` = clave de storage redactada §10, que
+ * se firma para leer). Texto alternativo y pie. `revisionManual` marca que la imagen
+ * subida quedó en revisión (el redactor no estuvo seguro de tapar la PII quemada · §10).
+ */
+export type ConfigImagen = {
+  src: string;
+  ref?: string;
+  revisionManual?: boolean;
+  alt: string;
+  pie: string;
+};
 
 /** Galería: varias imágenes con su alt; el visor las muestra en rejilla. */
 export type ConfigGaleria = { imagenes: { src: string; alt: string }[] };
 
-/** Video embebido (reusa BloqueVideo): fuente + hitos de consulta rápida. */
-export type ConfigVideo = {
-  src: string;
-  poster: string;
+/**
+ * Video embebido — usa el MISMO contrato de fuente que la lección de video
+ * (`FuenteVideoConfig`: subir a videoteca o enlace directo + hitos + transcripción), más
+ * el título del bloque. El editor de autoría (`EditorVideoAutoria`) es el mismo en ambos.
+ * `src`/`poster` se conservan por COMPATIBILIDAD con bloques viejos (fuente directa).
+ */
+export type ConfigVideo = FuenteVideoConfig & {
   titulo: string;
-  hitos: HitoVideo[];
+  poster?: string;
+  /** Compat: bloques viejos guardaban la fuente directa aquí (se trata como enlace). */
+  src?: string;
   /** Recurso de la Biblioteca del que se insertó (si vino del selector). */
   recursoId?: string;
 };
@@ -85,11 +100,27 @@ export type ConfigCaso = {
   dominio?: string;
 };
 
-/** H5P embebido (reusa BloqueH5P): id de contenido servido por la API (§7). */
-export type ConfigH5p = { contentId: string; titulo: string; recursoId?: string };
+/**
+ * H5P embebido (reusa BloqueH5P): interactivo AUTORADO en el H5P server (`contentId`) o
+ * embebido por ENLACE externo (`url` → iframe). El diseñador elige una vía u otra.
+ */
+export type ConfigH5p = { contentId: string; titulo: string; url?: string; recursoId?: string };
 
-/** Paquete xAPI embebido (reusa BloquePaquete): id de paquete servido por la API. */
-export type ConfigXapi = { paqueteId: string; titulo: string; recursoId?: string };
+/**
+ * Paquete xAPI/SCORM embebido (reusa BloquePaquete): paquete INGERIDO en el dominio
+ * (`contenidoId` + `tipo` + `entryPoint`, misma forma que la lección xAPI) o lanzador por
+ * ENLACE externo (`url` → iframe). `paqueteId` se conserva por compat con bloques viejos.
+ */
+export type ConfigXapi = {
+  titulo: string;
+  contenidoId?: string;
+  tipo?: string;
+  entryPoint?: string | null;
+  url?: string;
+  /** Compat: bloques viejos guardaban el id del paquete aquí. */
+  paqueteId?: string;
+  recursoId?: string;
+};
 
 /** Mapa tipo → forma de su `config` (contrato interno del editor de teoría). */
 export type ConfigBloque = {
@@ -211,13 +242,13 @@ const INICIALES: { [K in TipoBloqueTeoria]: () => ConfigBloque[K] } = {
   texto: () => ({ html: '' }),
   imagen: () => ({ src: '', alt: '', pie: '' }),
   galeria: () => ({ imagenes: [] }),
-  video: () => ({ src: '', poster: '', titulo: '', hitos: [] }),
+  video: () => ({ titulo: '', hitos: [] }),
   html: () => ({ html: '' }),
   link: () => ({ url: '', titulo: '', descripcion: '' }),
   pdf: () => ({ src: '', titulo: '' }),
   caso: () => ({ casoId: '', titulo: '' }),
   h5p: () => ({ contentId: '', titulo: '' }),
-  xapi: () => ({ paqueteId: '', titulo: '' }),
+  xapi: () => ({ titulo: '' }),
 };
 
 /** `config` con el que nace un bloque de cada tipo (cuerpo vacío, listo para editar). */

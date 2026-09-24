@@ -98,6 +98,67 @@ export async function urlReproduccionVideo(
   }
 }
 
+/* ─────────────────────────── Imágenes de contenido (§5C · §10) ─────────────────────────── */
+
+export type SubidaImagen = { id: string; ext: string; urlSubida: string };
+export type ImagenProcesada = { ref: string; ext: string; revisionManual: boolean; urlLectura: string };
+
+/** Paso 1: firma la subida del CRUDO de una imagen de bloque (el navegador la sube directo). */
+export async function firmarSubidaImagenContenido(ext: string): Promise<ResultadoVideo<SubidaImagen>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `El servicio de imágenes rechazó la solicitud (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as SubidaImagen };
+  } catch (e) {
+    console.error('[firmarSubidaImagenContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio de imágenes (apps/api).' };
+  }
+}
+
+/** Paso 2: redacta la PII quemada (§10) y deja la imagen final. Devuelve su ref + URL de lectura. */
+export async function procesarImagenContenido(id: string, ext: string): Promise<ResultadoVideo<ImagenProcesada>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/procesar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo procesar la imagen (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as ImagenProcesada };
+  } catch (e) {
+    console.error('[procesarImagenContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo procesar la imagen (apps/api).' };
+  }
+}
+
+/** Firma la lectura de imágenes de contenido (preview del Studio). */
+export async function firmarLecturaImagenContenido(
+  refs: string[],
+): Promise<ResultadoVideo<{ urls: Record<string, string> }>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-lectura`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refs }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo firmar la lectura (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as { urls: Record<string, string> } };
+  } catch (e) {
+    console.error('[firmarLecturaImagenContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo firmar la lectura de imágenes (apps/api).' };
+  }
+}
+
 export type IngestaPaquete = {
   contenidoId: string;
   tipo: string;
