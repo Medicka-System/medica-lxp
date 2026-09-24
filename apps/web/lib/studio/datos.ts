@@ -755,13 +755,17 @@ export async function getRecursos(userId: string): Promise<BibliotecaContenido> 
       >`
         select r.id, r.tipo::text as tipo, r.nombre, r.meta, r.reproduccion, r.etiquetas,
                r.procesando, r.progreso, r.created_at,
-               coalesce((select count(*) from lxp.contenidos c where c.recurso_id = r.id), 0)::int as usos,
+               coalesce((
+                 select count(distinct b.leccion_id)
+                 from lxp.bloques b
+                 where b.config->>'recursoId' = r.id::text
+               ), 0)::int as usos,
                coalesce((
                  select count(distinct m.programa_id)
-                 from lxp.contenidos c
-                 join lxp.lecciones l on l.id = c.leccion_id
+                 from lxp.bloques b
+                 join lxp.lecciones l on l.id = b.leccion_id
                  join lxp.modulos m on m.id = l.modulo_id
-                 where c.recurso_id = r.id
+                 where b.config->>'recursoId' = r.id::text
                ), 0)::int as programas
         from lxp.recursos r
         order by usos desc, r.created_at desc`;
@@ -813,6 +817,9 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
       )[0];
       if (!r) return null;
 
+      // La referencia real de una lección al recurso vive en lxp.bloques.config.recursoId
+      // (el "Insertar recurso" del constructor de teoría). Una lección puede tener varios
+      // bloques que lo referencian → se cuenta DISTINCT por lección.
       const usos = await sql<
         {
           id: string;
@@ -823,14 +830,15 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
           leccion: string;
         }[]
       >`
-        select c.id, p.nombre as programa, p.version, p.publicado,
+        select distinct on (l.id)
+               l.id, p.nombre as programa, p.version, p.publicado,
                m.nombre as modulo, l.nombre as leccion
-        from lxp.contenidos c
-        join lxp.lecciones l on l.id = c.leccion_id
+        from lxp.bloques b
+        join lxp.lecciones l on l.id = b.leccion_id
         join lxp.modulos m on m.id = l.modulo_id
         join lxp.programas p on p.id = m.programa_id
-        where c.recurso_id = ${recursoId}
-        order by p.nombre, m.orden, l.orden`;
+        where b.config->>'recursoId' = ${recursoId}
+        order by l.id, p.nombre, m.orden, l.orden`;
 
       const m = r.meta ?? {};
       const metadatos = [

@@ -73,6 +73,24 @@ export class H5pController {
     return this.h5p.guardarContenido({ ...parsed.data, usuario: this.usuario(userId) });
   }
 
+  /** Sube un PAQUETE .h5p a la Biblioteca de Contenido (§5C) y devuelve su contentId. */
+  @Post('paquete')
+  @UseInterceptors(FileInterceptor('archivo'))
+  subirPaquete(
+    @UploadedFile() archivo: Express.Multer.File | undefined,
+    @Body() body: unknown,
+    @Headers('x-user-id') userId: string,
+  ): Promise<{ contentId: string; titulo: string }> {
+    if (!archivo?.buffer) {
+      throw new BadRequestException('Falta el archivo .h5p (campo multipart "archivo").');
+    }
+    const titulo =
+      body && typeof (body as { titulo?: unknown }).titulo === 'string'
+        ? ((body as { titulo: string }).titulo)
+        : undefined;
+    return this.h5p.subirPaquete({ archivo: archivo.buffer, usuario: this.usuario(userId), titulo });
+  }
+
   /** Modelo del editor para crear un contenido nuevo. */
   @Get('editar')
   nuevo(@Headers('x-user-id') userId: string): Promise<unknown> {

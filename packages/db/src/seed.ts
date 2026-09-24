@@ -35,7 +35,7 @@ async function clean(sql: Sql): Promise<void> {
   await sql.unsafe(`
     truncate
       lxp.perfiles, lxp.programas, lxp.modulos, lxp.lecciones, lxp.contenidos,
-      lxp.bloques, lxp.reproduccion_progreso,
+      lxp.bloques, lxp.recursos, lxp.reproduccion_progreso,
       lxp.grupos, lxp.grupo_overrides, lxp.actividades, lxp.rubricas, lxp.entregas,
       lxp.foro_mensajes, lxp.bitacora_casos, lxp.validaciones, lxp.reportes,
       lxp.posts_ateneo, lxp.comentarios_ateneo, lxp.casos_biblioteca, lxp.simuladores,
@@ -243,6 +243,55 @@ async function seed(sql: Sql): Promise<void> {
         url: 'https://www.pocus101.com/', titulo: 'POCUS 101 — recurso externo',
         descripcion: 'Guía externa de POCUS para ampliar.',
       })})`;
+
+  // ── BIBLIOTECA DE CONTENIDO (mig 0041) — acervo reutilizable ────────────
+  // Recursos que se suben UNA vez y las lecciones REFERENCIAN. Uno de cada tipo para
+  // probar las pestañas del Studio; `created_by` = diseñador (autoría · §5B). Dos de
+  // ellos se referencian desde bloques de la lección de teoría de arriba → "dónde se
+  // usa" > 0; el resto queda "sin usar" (también un estado real que la vista muestra).
+  const recVideo = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.recursos (tipo, nombre, reproduccion, meta, etiquetas, created_by)
+      values ('video', 'Barrido FAST — demostración', 'Cloudflare Stream',
+              ${sql.json({ duracion: '8:24', resolucion: '1080p', peso: '112 MB' })},
+              ${sql.array(['fast', 'abdomen'])}, ${disenador})
+      returning id`,
+  );
+  const recImagen = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.recursos (tipo, nombre, meta, etiquetas, created_by)
+      values ('imagen', 'Esquema de planos abdominales',
+              ${sql.json({ dimensiones: '1600×900', peso: '240 KB' })},
+              ${sql.array(['anatomia'])}, ${disenador})
+      returning id`,
+  );
+  const recPdf = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.recursos (tipo, nombre, meta, etiquetas, created_by)
+      values ('pdf', 'Guía rápida POCUS abdominal',
+              ${sql.json({ paginas: 12, peso: '1.4 MB' })},
+              ${sql.array(['pocus', 'referencia'])}, ${disenador})
+      returning id`,
+  );
+  await sql`
+    insert into lxp.recursos (tipo, nombre, reproduccion, meta, etiquetas, created_by) values
+      ('h5p', 'Interactivo: identifica el artefacto', 'Reporta progreso',
+       ${sql.json({ items: 6 })}, ${sql.array(['interactivo'])}, ${disenador}),
+      ('scorm', 'Módulo SCORM: seguridad del paciente', 'Reporta progreso',
+       ${sql.json({ version_scorm: '1.2', peso: '8.2 MB' })}, ${sql.array(['seguridad'])}, ${disenador}),
+      ('xapi', 'xAPI: checklist de adquisición', 'Reporta progreso',
+       ${sql.json({ fuente: 'Articulate', peso: '5.1 MB' })}, ${sql.array(['adquisicion'])}, ${disenador})`;
+
+  // Referencias reales desde la lección de teoría (recursoId en config del bloque):
+  await sql`
+    insert into lxp.bloques (leccion_id, orden, tipo_bloque, config) values
+      (${lTeoria}, 5, 'video', ${sql.json({
+        titulo: 'Barrido FAST — demostración', src: '', poster: '', hitos: [], recursoId: recVideo.id,
+      })}),
+      (${lTeoria}, 6, 'pdf', ${sql.json({
+        titulo: 'Guía rápida POCUS abdominal', src: '', recursoId: recPdf.id,
+      })})`;
+  void recImagen; // sembrado como recurso "sin usar" (estado válido de la biblioteca)
 
   // ── (2) VIDEO → config (ref + transcripción + highlights) ───────────────
   const lVideo = await crearLeccion({

@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Boxes,
   ChevronLeft,
@@ -21,6 +22,7 @@ import {
   Image as ImageIcon,
   Layers,
   Link2,
+  Loader2,
   Play,
   Presentation,
   Repeat2,
@@ -33,6 +35,7 @@ import {
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import type { RecursoDetalle, TipoRecurso } from '@/lib/studio/contenido-contrato';
+import { eliminarRecurso } from '@/lib/studio/contenido-acciones';
 
 const ICONO: Record<TipoRecurso, typeof Play> = {
   video: Play,
@@ -46,7 +49,8 @@ const ICONO: Record<TipoRecurso, typeof Play> = {
 };
 
 export function DetalleRecurso({ recurso }: { recurso: RecursoDetalle }) {
-  const { nombre, tipo, duracion, reproduccion, metadatos, etiquetas, usos, versiones } = recurso;
+  const { id, nombre, tipo, duracion, reproduccion, metadatos, etiquetas, usos, versiones } = recurso;
+  const router = useRouter();
   const [dialogo, setDialogo] = useState<null | 'reemplazar' | 'eliminar'>(null);
   const Icono = ICONO[tipo];
   const programas = [...new Set(usos.map((u) => u.programa))];
@@ -213,24 +217,92 @@ export function DetalleRecurso({ recurso }: { recurso: RecursoDetalle }) {
               ))}
             </ul>
             <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-              El historial de versiones del archivo y "reemplazar en todas" son pipeline de dominio —
-              pendiente de API.
+              Al reemplazar el archivo, todas las lecciones que lo referencian sirven el nuevo (no se
+              copia). El historial detallado de versiones llegará con el versionado del programa.
             </p>
           </section>
         </aside>
       </div>
 
       {dialogo === 'reemplazar' && (
-        <DialogoReemplazar usos={usos.length} programas={programas.length} onCerrar={() => setDialogo(null)} />
+        <DialogoReemplazar
+          recursoId={id}
+          tipo={tipo}
+          nombre={nombre}
+          usos={usos.length}
+          programas={programas.length}
+          onCerrar={() => setDialogo(null)}
+          onHecho={() => {
+            setDialogo(null);
+            router.refresh();
+          }}
+        />
       )}
       {dialogo === 'eliminar' && (
-        <DialogoEliminar usos={usos.length} onCerrar={() => setDialogo(null)} />
+        <DialogoEliminar
+          recursoId={id}
+          usos={usos.length}
+          onCerrar={() => setDialogo(null)}
+          onEliminado={() => router.push('/studio/contenido')}
+        />
       )}
     </div>
   );
 }
 
-function DialogoReemplazar({ usos, programas, onCerrar }: { usos: number; programas: number; onCerrar: () => void }) {
+/** accept del <input file> según el tipo del recurso (se reemplaza por uno del MISMO tipo). */
+const ACEPTA_POR_TIPO: Record<TipoRecurso, string> = {
+  video: '.mp4,.mov,.webm,.m4v,.mkv',
+  imagen: '.jpg,.jpeg,.png,.webp,.gif',
+  pdf: '.pdf',
+  word: '.doc,.docx',
+  ppt: '.ppt,.pptx',
+  scorm: '.zip',
+  xapi: '.zip',
+  h5p: '.h5p',
+};
+
+function DialogoReemplazar({
+  recursoId,
+  tipo,
+  nombre,
+  usos,
+  programas,
+  onCerrar,
+  onHecho,
+}: {
+  recursoId: string;
+  tipo: TipoRecurso;
+  nombre: string;
+  usos: number;
+  programas: number;
+  onCerrar: () => void;
+  onHecho: () => void;
+}) {
+  const [fase, setFase] = useState<'elige' | 'sube' | 'error'>('elige');
+  const [mensaje, setMensaje] = useState('');
+  const subiendo = fase === 'sube';
+
+  async function elegir(f: File | null) {
+    if (!f) return;
+    setFase('sube');
+    setMensaje('Subiendo…');
+    try {
+      const { reemplazarRecursoFlujo } = await import('../../_components/subir-flujo');
+      const r = await reemplazarRecursoFlujo(f, tipo, recursoId, nombre, setMensaje);
+      if (!r.ok) {
+        setFase('error');
+        setMensaje(r.error);
+        return;
+      }
+      onHecho();
+    } catch (e) {
+      console.error('[DialogoReemplazar] fallo:', e);
+      setFase('error');
+      setMensaje('Ocurrió un error inesperado al reemplazar el archivo.');
+    }
+  }
+
   return (
     <div role="dialog" aria-modal="true" aria-label="Reemplazar archivo" className="fixed inset-0 z-50 grid place-items-center p-9" style={{ background: 'rgba(15,45,82,.52)' }}>
       <div className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-card shadow-2xl">
@@ -238,61 +310,115 @@ function DialogoReemplazar({ usos, programas, onCerrar }: { usos: number; progra
           <div className="min-w-0 flex-1">
             <p className={`${kicker} text-secondary`}>Reemplazar archivo</p>
             <h2 className="mt-2 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
-              El nuevo archivo entrará en {usos} {usos === 1 ? 'lección' : 'lecciones'} de {programas} programas
+              {usos > 0
+                ? `El nuevo archivo entrará en ${usos} ${usos === 1 ? 'lección' : 'lecciones'} de ${programas} ${programas === 1 ? 'programa' : 'programas'}`
+                : 'Este recurso aún no se usa en ninguna lección'}
             </h2>
           </div>
-          <button type="button" onClick={onCerrar} aria-label="Cerrar" className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" disabled={subiendo} className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted disabled:opacity-40 ${focusRing}`}>
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
         </div>
         <div className="px-6">
           <p className={`text-[13.5px] leading-relaxed ${softText}`}>
-            El recurso vive una sola vez: al reemplazarlo, todas las lecciones que lo referencian sirven el archivo nuevo. No se crean copias.
+            El recurso vive una sola vez: al reemplazarlo, todas las lecciones que lo referencian sirven el archivo nuevo. No se crean copias. Sube un archivo del mismo tipo ({tipo.toUpperCase()}).
           </p>
-          <div className="mt-4 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={2} />
-            <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
-              El versionado del archivo y su distribución a todas las lecciones es pipeline de dominio —{' '}
-              <span className="font-bold">pendiente de API</span> (POST /studio/recursos/:id/reemplazar).
-            </p>
-          </div>
+          {mensaje && (
+            <div
+              className={`mt-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 ${
+                fase === 'error'
+                  ? 'border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] text-destructive'
+                  : 'border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+              }`}
+            >
+              {fase === 'error' ? (
+                <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+              ) : (
+                <Loader2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 animate-spin" strokeWidth={2} />
+              )}
+              <p className="text-[12.5px] leading-relaxed">{mensaje}</p>
+            </div>
+          )}
         </div>
         <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
-          <button type="button" onClick={onCerrar} className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}>
+          <button type="button" onClick={onCerrar} disabled={subiendo} className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}>
             Cancelar
           </button>
-          <button type="button" disabled title="Pendiente de API" className="inline-flex h-12 cursor-not-allowed items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] opacity-50">
+          <label className={`inline-flex h-12 cursor-pointer items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${subiendo ? 'pointer-events-none opacity-50' : ''}`}>
+            <input type="file" accept={ACEPTA_POR_TIPO[tipo]} className="sr-only" disabled={subiendo} onChange={(e) => elegir(e.target.files?.[0] ?? null)} />
             <Upload aria-hidden className="h-4 w-4" strokeWidth={2} />
-            Elegir archivo nuevo
-          </button>
+            {subiendo ? 'Subiendo…' : 'Elegir archivo nuevo'}
+          </label>
         </div>
       </div>
     </div>
   );
 }
 
-function DialogoEliminar({ usos, onCerrar }: { usos: number; onCerrar: () => void }) {
+function DialogoEliminar({
+  recursoId,
+  usos,
+  onCerrar,
+  onEliminado,
+}: {
+  recursoId: string;
+  usos: number;
+  onCerrar: () => void;
+  onEliminado: () => void;
+}) {
+  const [trabajando, setTrabajando] = useState(false);
+  const [error, setError] = useState('');
+  const bloqueado = usos > 0;
+
+  async function borrar(forzar: boolean) {
+    setTrabajando(true);
+    setError('');
+    const r = await eliminarRecurso(recursoId, { forzar });
+    if (!r.ok) {
+      setTrabajando(false);
+      setError(r.error);
+      return;
+    }
+    if (r.datos.eliminado) {
+      onEliminado();
+      return;
+    }
+    // No se eliminó porque sigue en uso (se ofrece forzar).
+    setTrabajando(false);
+  }
+
   return (
     <div role="dialog" aria-modal="true" aria-label="Eliminar recurso" className="fixed inset-0 z-50 grid place-items-center p-9" style={{ background: 'rgba(15,45,82,.52)' }}>
       <div className="w-full max-w-[520px] overflow-hidden rounded-2xl bg-card shadow-2xl">
         <div className="px-6 pb-5 pt-6">
           <p className={`${kicker} text-destructive`}>Eliminar recurso</p>
           <h2 className="mt-2 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
-            {usos > 0 ? `Está en uso en ${usos} ${usos === 1 ? 'lección' : 'lecciones'}` : 'Este recurso no está en uso'}
+            {bloqueado ? `Está en uso en ${usos} ${usos === 1 ? 'lección' : 'lecciones'}` : 'Este recurso no está en uso'}
           </h2>
           <p className={`mt-2.5 text-[13.5px] leading-relaxed ${softText}`}>
-            {usos > 0
-              ? 'Si lo eliminas, esas lecciones se quedan sin el recurso y el alumno verá un hueco. Primero quítalo de las lecciones o reemplázalo.'
-              : 'Puedes eliminarlo sin afectar ninguna lección.'}{' '}
-            El borrado (con el object storage asociado) es pipeline de dominio — pendiente de API.
+            {bloqueado
+              ? 'Si lo eliminas, esas lecciones se quedan sin el recurso y el alumno verá un hueco. Quítalo de las lecciones o reemplázalo primero — o elimínalo de todos modos.'
+              : 'Puedes eliminarlo sin afectar ninguna lección.'}
           </p>
+          {error && (
+            <div className="mt-4 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-3 text-destructive">
+              <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+              <p className="text-[12.5px] leading-relaxed">{error}</p>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
-          <button type="button" onClick={onCerrar} className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}>
+          <button type="button" onClick={onCerrar} disabled={trabajando} className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}>
             Cancelar
           </button>
-          <button type="button" disabled title="Pendiente de API" className="inline-flex h-11 cursor-not-allowed items-center gap-2 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-4 text-[13.5px] font-bold text-destructive opacity-50">
-            Eliminar
+          <button
+            type="button"
+            onClick={() => borrar(bloqueado)}
+            disabled={trabajando}
+            className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-[color:var(--destructive-border)] bg-destructive px-4 text-[13.5px] font-bold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {trabajando && <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />}
+            {bloqueado ? 'Eliminar de todos modos' : 'Eliminar'}
           </button>
         </div>
       </div>

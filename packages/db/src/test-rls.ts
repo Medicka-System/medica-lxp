@@ -464,6 +464,30 @@ async function main(): Promise<void> {
       await sql`delete from lxp.anotaciones_dicom where id in (${ANOT_A1}::uuid, ${ANOT_BIB}::uuid)`;
     }
 
+    // ── BIBLIOTECA DE CONTENIDO (mig 0041): lectura authenticated, escritura autoría ──
+    // El alumno LEE recursos (para renderizar el que la lección referencia) pero NO
+    // sube/edita (eso es es_autoria · diseñador/admin). anon no lee nada.
+    check(
+      'a1 SÍ puede SELECT recursos (grant + read policy presentes)',
+      (await fueRechazada(() =>
+        como(sql, claimsA1, (tx) => tx`select 1 from lxp.recursos limit 1`),
+      )) === false,
+    );
+    check(
+      'a1 (alumno) NO puede INSERT en recursos (no es autoría)',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.recursos (tipo, nombre) values ('pdf', 'intruso')`,
+        ),
+      ),
+    );
+    check(
+      'anon NO puede SELECT recursos',
+      await fueRechazada(() =>
+        como(sql, claimsAnon, (tx) => tx`select 1 from lxp.recursos limit 1`),
+      ),
+    );
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

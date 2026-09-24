@@ -16,13 +16,17 @@ export interface IngestaResultado {
   tipo: string;
   titulo: string;
   entryPoint: string | null;
+  /** Clave del .zip en object storage (para que el web guarde el lxp.recursos · §5C). */
+  recursoRef: string;
 }
 
 /**
- * Ingesta de paquetes SCORM/xAPI (§7 · course builder). Flujo de DOMINIO (no proxy
- * de CRUD · §2): descomprime → VALIDA el manifiesto → sube el .zip a object storage
- * → registra una fila `lxp.contenidos` (tipo scorm|xapi) que el player del Sprint 6
- * ya sabe reproducir. El binario nunca vive en Postgres (§3): solo su referencia.
+ * Ingesta de paquetes SCORM/xAPI (§7 · course builder + biblioteca §5C). Flujo de
+ * DOMINIO (no proxy de CRUD · §2): descomprime → VALIDA el manifiesto → sube el .zip a
+ * object storage. Si viene `leccionId`, además registra la fila `lxp.contenidos` (tipo
+ * scorm|xapi) que el player del Sprint 6 sabe reproducir; si NO (modo Biblioteca), solo
+ * valida+guarda y devuelve la ref para que el web cree el lxp.recursos. El binario nunca
+ * vive en Postgres (§3): solo su referencia.
  */
 @Injectable()
 export class PaquetesService {
@@ -35,7 +39,7 @@ export class PaquetesService {
 
   async ingestar(
     archivo: Buffer,
-    datos: { leccionId: string; orden?: number; titulo?: string },
+    datos: { leccionId?: string; orden?: number; titulo?: string },
   ): Promise<IngestaResultado> {
     if (!archivo || archivo.length === 0) {
       throw new BadRequestException('El paquete llegó vacío.');
@@ -59,12 +63,20 @@ export class PaquetesService {
     const contenidoId = randomUUID();
     const recursoRef = clavePaquete(contenidoId);
     await this.subirPaquete(recursoRef, archivo);
+    const titulo = datos.titulo?.trim() || info.titulo;
+
+    // Modo Biblioteca (§5C): sin lección → solo validar + guardar. El web crea el
+    // lxp.recursos (CRUD directo web→Supabase bajo RLS · Regla de Oro §2).
+    if (!datos.leccionId) {
+      this.logger.log(`Paquete ${info.tipo} para Biblioteca: ${contenidoId} ("${titulo}") → ${recursoRef}.`);
+      return { contenidoId, tipo: info.tipo, titulo, entryPoint: info.entryPoint, recursoRef };
+    }
 
     const fila = await insertarContenidoPaquete(this.db.sql, {
       id: contenidoId,
       leccionId: datos.leccionId,
       tipo: info.tipo,
-      titulo: datos.titulo?.trim() || info.titulo,
+      titulo,
       recursoRef,
       orden: datos.orden ?? 0,
     });
@@ -77,6 +89,7 @@ export class PaquetesService {
       tipo: fila.tipo,
       titulo: fila.titulo,
       entryPoint: info.entryPoint,
+      recursoRef,
     };
   }
 

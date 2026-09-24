@@ -28,9 +28,11 @@ export type SolicitudVideo = { videotecaId: string; recursoRef: string; urlSubid
 
 export type ResultadoVideo<T> = { ok: true; datos: T } | { ok: false; error: string };
 
-/** Firma la subida de un video y pre-registra su fila en la videoteca (paso 1). */
+/** Firma la subida de un video y pre-registra su fila en la videoteca (paso 1).
+ *  `leccionId` es opcional: sin él (modo Biblioteca · §5C) el video se pre-registra
+ *  en la videoteca sin lección, y el web crea el lxp.recursos que lo referencia. */
 export async function solicitarSubidaVideo(input: {
-  leccionId: string;
+  leccionId?: string;
   titulo: string;
 }): Promise<ResultadoVideo<SolicitudVideo>> {
   const { userId } = await requireAutoria();
@@ -40,7 +42,7 @@ export async function solicitarSubidaVideo(input: {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         titulo: input.titulo,
-        leccionId: input.leccionId,
+        ...(input.leccionId ? { leccionId: input.leccionId } : {}),
         creadoPor: userId,
       }),
       cache: 'no-store',
