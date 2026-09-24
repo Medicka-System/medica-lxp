@@ -36,6 +36,7 @@ async function clean(sql: Sql): Promise<void> {
     truncate
       lxp.perfiles, lxp.programas, lxp.modulos, lxp.lecciones, lxp.contenidos,
       lxp.bloques, lxp.recursos, lxp.reproduccion_progreso,
+      lxp.clases, lxp.videoteca,
       lxp.grupos, lxp.grupo_overrides, lxp.actividades, lxp.rubricas, lxp.entregas,
       lxp.foro_mensajes, lxp.bitacora_casos, lxp.validaciones, lxp.reportes,
       lxp.posts_ateneo, lxp.comentarios_ateneo, lxp.casos_biblioteca, lxp.simuladores,
@@ -489,9 +490,83 @@ async function seed(sql: Sql): Promise<void> {
       values (${programa.id}, 'Demo 2026-A (síncrono)', ${'sincrono'}::lxp.modalidad, '2026-02-01', ${docente}, ${gCoraA.id})
       returning id`,
   );
-  await sql`
-    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id, cora_grupo_id)
-    values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente}, ${gCoraB.id})`;
+  const grupoAsync = first(
+    await sql<{ id: string }[]>`
+      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id, cora_grupo_id)
+      values (${programa.id}, 'Demo 2026-B (asíncrono)', ${'asincrono'}::lxp.modalidad, '2026-03-01', ${docente}, ${gCoraB.id})
+      returning id`,
+  );
+
+  // ── Clases en vivo (§9 · mig 0017) + grabaciones que alimentan la videoteca ──────
+  // La agenda del docente y las grabaciones pasadas son datos REALES para /docente/clases.
+  // Las grabaciones (lxp.videoteca origen 'zoom') son las MISMAS que ve el alumno en
+  // «Mis clases grabadas». La asistencia va en `fuente_externa` (el reporte de Zoom aún
+  // no se ingesta · §9); el `recurso_ref` es un stub (la reproducción firma URL en el api).
+  const crearClaseSeed = async (p: {
+    grupo: string;
+    plataforma: 'zoom' | 'mico_plus';
+    titulo: string;
+    leccion?: string;
+    inicio: string; // expresión SQL relativa a now()
+    duracionMin: number;
+    estado: 'agendada' | 'finalizada';
+  }): Promise<string> =>
+    first(
+      await sql<{ id: string }[]>`
+        insert into lxp.clases
+          (grupo_id, leccion_id, docente_id, plataforma, titulo, inicio_programado,
+           duracion_min, estado, reunion_externa_id, enlace_union, enlace_inicio)
+        values (
+          ${p.grupo}, ${p.leccion ?? null}, ${docente},
+          ${p.plataforma}::lxp.clase_plataforma, ${p.titulo}, ${sql.unsafe(p.inicio)},
+          ${p.duracionMin}, ${p.estado}::lxp.clase_estado,
+          ${p.plataforma === 'zoom' ? 'seed-' + p.titulo.slice(0, 8) : null},
+          ${p.plataforma === 'mico_plus' ? 'https://mico.mindray.com/s/seed-sesion' : 'https://zoom.us/j/seed-union'},
+          ${p.plataforma === 'zoom' ? 'https://zoom.us/s/seed-host-start' : null}
+        )
+        returning id`,
+    ).id;
+
+  const crearGrabacionSeed = async (p: {
+    clase: string;
+    grupo: string;
+    leccion?: string; // ligada si viene
+    titulo: string;
+    duracionSeg: number;
+    asistieron: number;
+    total: number;
+    haceDias: number;
+  }): Promise<void> => {
+    await sql`
+      insert into lxp.videoteca
+        (titulo, origen, estado, recurso_ref, duracion_seg, grupo_id, leccion_id,
+         clase_id, fuente_externa, created_by, created_at)
+      values (
+        ${'Grabación · ' + p.titulo}, 'zoom', 'listo',
+        ${'grabaciones/seed-' + p.clase + '.mp4'}, ${p.duracionSeg},
+        ${p.grupo}, ${p.leccion ?? null}, ${p.clase},
+        ${sql.json({ asistieron: p.asistieron, total: p.total })},
+        ${docente}, ${sql.unsafe(`now() - interval '${p.haceDias} days'`)}
+      )`;
+  };
+
+  // Próximas (agendada): una es HOY (contador + "Iniciar"), el resto en días siguientes.
+  await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Hidronefrosis: casos difíciles del módulo 4', leccion: lVideo, inicio: `now() + interval '3 hours'`, duracionMin: 90, estado: 'agendada' });
+  await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Doppler renal: cuándo sí aporta', leccion: lTeoria, inicio: `now() + interval '2 days'`, duracionMin: 90, estado: 'agendada' });
+  await crearClaseSeed({ grupo: grupoAsync.id, plataforma: 'mico_plus', titulo: 'Barrido renal en vivo con el equipo', leccion: lAutoeval, inicio: `now() + interval '3 days'`, duracionMin: 60, estado: 'agendada' });
+  await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Informe estructurado: cómo dictarlo', leccion: lTarea, inicio: `now() + interval '5 days'`, duracionMin: 75, estado: 'agendada' });
+  await crearClaseSeed({ grupo: grupoAsync.id, plataforma: 'mico_plus', titulo: 'Doppler color paso a paso (manos a la sonda)', inicio: `now() + interval '6 days'`, duracionMin: 90, estado: 'agendada' });
+
+  // Pasadas (finalizada) + su grabación. Algunas ligadas a lección (caen en la videoteca
+  // del grupo), otra SIN ligar (para el CTA "Ligar a una lección").
+  const clPasada1 = await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Gradación de hidronefrosis I a IV', leccion: lVideo, inicio: `now() - interval '13 days'`, duracionMin: 90, estado: 'finalizada' });
+  await crearGrabacionSeed({ clase: clPasada1, grupo: grupoSync.id, leccion: lVideo, titulo: 'Gradación de hidronefrosis I a IV', duracionSeg: 5050, asistieron: 26, total: 28, haceDias: 13 });
+  const clPasada2 = await crearClaseSeed({ grupo: grupoAsync.id, plataforma: 'mico_plus', titulo: 'Barrido hepático con el equipo', leccion: lTeoria, inicio: `now() - interval '15 days'`, duracionMin: 60, estado: 'finalizada' });
+  await crearGrabacionSeed({ clase: clPasada2, grupo: grupoAsync.id, leccion: lTeoria, titulo: 'Barrido hepático con el equipo', duracionSeg: 3512, asistieron: 21, total: 24, haceDias: 15 });
+  const clPasada3 = await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Vía biliar: signos que no se pierden', leccion: lTarea, inicio: `now() - interval '20 days'`, duracionMin: 75, estado: 'finalizada' });
+  await crearGrabacionSeed({ clase: clPasada3, grupo: grupoSync.id, leccion: lTarea, titulo: 'Vía biliar: signos que no se pierden', duracionSeg: 4365, asistieron: 24, total: 28, haceDias: 20 });
+  const clPasada4 = await crearClaseSeed({ grupo: grupoSync.id, plataforma: 'zoom', titulo: 'Introducción al Doppler color', inicio: `now() - interval '22 days'`, duracionMin: 90, estado: 'finalizada' });
+  await crearGrabacionSeed({ clase: clPasada4, grupo: grupoSync.id, titulo: 'Introducción al Doppler color', duracionSeg: 5462, asistieron: 19, total: 24, haceDias: 22 });
 
   // ── Foro: a2/a3/docente ya publicaron; a1 NO (para ver el muro velado → publicar
   //    lo desbloquea · gate por RLS 0030). Posts raíz con título + cuerpo rico, hilo
