@@ -27,9 +27,10 @@ type Campo = {
   columnas?: string[];
   filas?: string[];
 };
-type Seccion = { tipo?: string; titulo?: string; campos?: Campo[] };
+type Seccion = { id?: string; tipo?: string; titulo?: string; campos?: Campo[] };
 type Estructura = { secciones?: Seccion[] };
-type ImagenGaleria = { ref: string; ext: string; pie?: string };
+/** Imagen de galería del reporte + la sección de la que salió (fidelidad reporte↔caso). */
+type ImagenGaleria = { ref: string; ext: string; pie?: string; seccionId: string };
 
 /* ───────────────────────── funciones puras (testeables) ───────────────────────── */
 
@@ -51,10 +52,14 @@ export function organoDe(tipoEstudio: string | null, plantillaNombre: string | n
   return mapa[t] ?? (tipoEstudio || plantillaNombre || 'Estudio general');
 }
 
-/** Lee la galería de un mapa de valores según la estructura (campos tipo `galeria`). */
+/**
+ * Lee la galería de un mapa de valores según la estructura (campos tipo `galeria`),
+ * conservando la SECCIÓN de origen de cada imagen (`seccionId`) — fidelidad reporte↔caso.
+ */
 export function imagenesDe(estructura: Estructura, valores: Record<string, unknown>): ImagenGaleria[] {
   const out: ImagenGaleria[] = [];
   for (const s of estructura.secciones ?? []) {
+    const seccionId = typeof s.id === 'string' ? s.id : '';
     for (const c of s.campos ?? []) {
       if (c.tipo !== 'galeria') continue;
       const v = valores[c.id];
@@ -63,7 +68,12 @@ export function imagenesDe(estructura: Estructura, valores: Record<string, unkno
       for (const x of arr) {
         if (x && typeof x === 'object' && typeof (x as ImagenGaleria).ref === 'string') {
           const o = x as ImagenGaleria;
-          out.push({ ref: o.ref, ext: typeof o.ext === 'string' ? o.ext : 'jpg', pie: typeof o.pie === 'string' ? o.pie : undefined });
+          out.push({
+            ref: o.ref,
+            ext: typeof o.ext === 'string' ? o.ext : 'jpg',
+            pie: typeof o.pie === 'string' ? o.pie : undefined,
+            seccionId,
+          });
         }
       }
     }
@@ -125,6 +135,102 @@ export function aplanarHallazgos(
   const pies = imagenes.map((im, i) => ({ i, pie: (im.pie ?? '').trim() })).filter((x) => x.pie);
   if (pies.length) partes.push(`IMÁGENES\n${pies.map((x) => `  ${x.i + 1}. ${x.pie}`).join('\n')}`);
   return partes.join('\n\n').trim();
+}
+
+/* ───────────────────── contenido ESTRUCTURADO (verdad para Eco · §7A) ─────────────────────
+ * El caso ADOPTA la estructura del reporte (fuente de verdad): secciones → campos tipados,
+ * conservando la TABLA como matriz (no aplanada), el sí/no como booleano y la medida con
+ * unidad. `aplanarHallazgos` se mantiene como TEXTO DERIVADO para búsqueda y fallback de
+ * casos viejos. Esto es lo que habilita a Eco a comparar CAMPO-POR-CAMPO (§7A), en vez de
+ * diff de texto libre. PII nunca cruza: se aplica `scrubPII` a los valores de texto.
+ */
+export type CampoEstructurado =
+  | { id: string; tipo: 'texto' | 'multitexto' | 'numero' | 'medida' | 'fecha' | 'opcion'; nombre: string; valor: string; unidad?: string }
+  | { id: string; tipo: 'sino'; nombre: string; valor: boolean }
+  | { id: string; tipo: 'tabla'; nombre: string; columnas: string[]; filas: string[]; celdas: string[][] };
+
+export type SeccionEstructurada = { id: string; titulo: string; campos: CampoEstructurado[] };
+
+export type ImagenEstructurada = { ref: string; ext: string; pie?: string; seccionId: string };
+
+/** Contenido estructurado del caso, derivado del reporte (fuente de verdad · §7A). */
+export type ContenidoEstructurado = {
+  version: 1;
+  secciones: SeccionEstructurada[];
+  impresion: string;
+  imagenes: ImagenEstructurada[];
+};
+
+/**
+ * Estructura el contenido del reporte SIN aplanar: preserva secciones/campos tipados
+ * (tabla como matriz, sino como bool, medida con unidad). Salta encabezado (PII),
+ * `guia`/`titulo` (presentación), `galeria`/`imagen` (van en `imagenes`) y campos vacíos.
+ * Aplica `scrubPII` a todo texto (§10). Devuelve `null` si no hay nada estructurable
+ * (el consumidor cae al texto derivado · fallback).
+ */
+export function estructurarContenido(
+  estructura: Estructura,
+  valores: Record<string, unknown>,
+  impresion: string,
+  imagenes: ImagenGaleria[],
+  datosPaciente: Record<string, unknown> = {},
+): ContenidoEstructurado | null {
+  const limpia = (t: string): string => scrubPII(t, datosPaciente);
+  const secciones: SeccionEstructurada[] = [];
+
+  for (const s of estructura.secciones ?? []) {
+    if (s.tipo === 'encabezado') continue;
+    const campos: CampoEstructurado[] = [];
+    for (const c of s.campos ?? []) {
+      const nombre = (c.nombre ?? '').trim();
+      const v = valores[c.id];
+      if (c.tipo === 'galeria' || c.tipo === 'guia' || c.tipo === 'titulo' || c.tipo === 'imagen') continue;
+
+      if (c.tipo === 'sino') {
+        if (typeof v === 'boolean') campos.push({ id: c.id, tipo: 'sino', nombre, valor: v });
+        continue;
+      }
+
+      if (c.tipo === 'tabla') {
+        const columnas = c.columnas ?? [];
+        const filas = c.filas ?? [];
+        const datos = Array.isArray(v) ? (v as unknown[][]) : [];
+        const celdas = filas.map((_, r) =>
+          columnas.map((_, ci) => limpia(valorTexto(datos[r]?.[ci]))),
+        );
+        // Conserva la tabla si tiene al menos una celda con dato (matriz completa · §Fase 4).
+        if (celdas.some((fila) => fila.some((x) => x !== ''))) {
+          campos.push({ id: c.id, tipo: 'tabla', nombre, columnas: [...columnas], filas: [...filas], celdas });
+        }
+        continue;
+      }
+
+      const txt = limpia(valorTexto(v));
+      if (!txt) continue;
+      if (c.tipo === 'medida') {
+        campos.push({ id: c.id, tipo: 'medida', nombre, valor: txt, unidad: c.unidad?.trim() || undefined });
+      } else {
+        const tipo = c.tipo === 'texto' || c.tipo === 'multitexto' || c.tipo === 'numero' || c.tipo === 'fecha' || c.tipo === 'opcion'
+          ? c.tipo
+          : 'texto';
+        campos.push({ id: c.id, tipo, nombre, valor: txt });
+      }
+    }
+    if (campos.length) {
+      secciones.push({ id: typeof s.id === 'string' ? s.id : '', titulo: (s.titulo ?? '').trim(), campos });
+    }
+  }
+
+  const imp = limpia(valorTexto(impresion));
+  const imgs: ImagenEstructurada[] = imagenes.map((im) => ({
+    ref: im.ref,
+    ext: im.ext,
+    pie: im.pie ? limpia(im.pie) : undefined,
+    seccionId: im.seccionId,
+  }));
+
+  if (!secciones.length && !imp && !imgs.length) return null;
+  return { version: 1, secciones, impresion: imp, imagenes: imgs };
 }
 
 /** Scrub de PII conocida (nombre/expediente/solicitante del paciente) en texto libre (§10). */
