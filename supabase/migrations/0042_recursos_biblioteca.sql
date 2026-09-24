@@ -1,6 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0041 · BIBLIOTECA DE CONTENIDO reutilizable (lxp.recursos · §5B/§5C)
--- (numerada 0041 para no chocar con la 0040 de la rama casos-funcional)
+-- 0042 · BIBLIOTECA DE CONTENIDO reutilizable (lxp.recursos · §5B/§5C)
+-- (renumerada 0041→0042 al consolidar: casos-funcional tomó la 0041
+--  [0041_caso_modulo_curacion]; se mantiene numeración secuencial)
 --
 -- El acervo de recursos que se suben UNA vez y N lecciones REFERENCIAN (no copian):
 -- video, H5P, SCORM, xAPI, PDF, Word, PowerPoint, imagen. DICOM y casos clínicos NO
