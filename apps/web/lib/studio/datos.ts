@@ -643,11 +643,13 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
           estudio_estado: import('./casos-contrato').EstudioEstadoCaso;
           series: number;
           curador: string | null;
+          contenido_estructurado: import('@campus/shared').ContenidoEstructuradoCaso | null;
         }[]
       >`
         select id, titulo, organo, patologia, dominio_iaim, tecnica, equipo, vineta,
                etiquetas, diagnostico_correcto,
                hallazgos_clave, puntos_aprendizaje, errores_comunes,
+               contenido_estructurado,
                publicado, estudio_estado::text as estudio_estado,
                coalesce(jsonb_array_length(estudio_series), 0)::int as series,
                lxp.nombre_de(curador_id) as curador
@@ -673,6 +675,7 @@ export async function getCasoEditor(userId: string, casoId: string): Promise<Cas
       estudioEstado: r.estudio_estado,
       series: r.series,
       curador: r.curador,
+      contenidoEstructurado: r.contenido_estructurado ?? null,
     };
   });
 }

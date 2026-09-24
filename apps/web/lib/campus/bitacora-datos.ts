@@ -70,6 +70,7 @@ export async function getCasoBitacora(
           series: number;
           cine_loop: boolean;
           feedback: string | null;
+          contenido_estructurado: import('@campus/shared').ContenidoEstructuradoCaso | null;
         }[]
       >`
         select
@@ -77,6 +78,7 @@ export async function getCasoBitacora(
           m.nombre as modulo, c.organo, c.patologia, c.dominio_iaim,
           c.tecnica, c.equipo, c.vineta, c.etiquetas,
           c.docente_id, lxp.nombre_de(c.docente_id) as docente,
+          c.contenido_estructurado,
           c.created_at, c.estado_validacion, c.estudio_estado,
           coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
           exists (
@@ -115,6 +117,7 @@ export async function getCasoBitacora(
       series: r.series,
       cineLoop: r.cine_loop,
       feedback: r.feedback,
+      contenidoEstructurado: r.contenido_estructurado ?? null,
     };
   });
 }

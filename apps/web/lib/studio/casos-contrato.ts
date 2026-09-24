@@ -23,6 +23,8 @@
  *     Endpoint esperado cuando exista: POST /studio/casos/:id/simulador { activo }.
  */
 
+import type { ContenidoEstructuradoCaso } from '@campus/shared';
+
 export type DominioIaim = 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
 
 export const DOMINIO_LABEL: Record<DominioIaim, string> = {
@@ -76,4 +78,7 @@ export type CasoEditor = {
   /** Nº de series anonimizadas del estudio. */
   series: number;
   curador: string | null;
+  /** Verdad ESTRUCTURADA heredada del reporte/caso de origen (§7A). null = sin estructura.
+   *  El curador la ajusta (tablas/mediciones) antes de publicar. Coincide con el reporte. */
+  contenidoEstructurado: ContenidoEstructuradoCaso | null;
 };

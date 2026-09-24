@@ -212,6 +212,26 @@ export async function guardarCaso(
   refrescarCaso(casoId);
 }
 
+/**
+ * Guarda la VERDAD ESTRUCTURADA del estudio (§7A · contenido_estructurado) que el curador
+ * ajustó: mismas secciones/tablas del reporte, con los valores editados. CRUD directo bajo
+ * RLS es_staff. Renderizada/editada con la MISMA pieza CampoReporte (coincide con el
+ * reporte). `null` limpia la estructura (raro; el caller manda el snapshot completo).
+ */
+export async function guardarContenidoEstructuradoCaso(
+  casoId: string,
+  contenido: import('@campus/shared').ContenidoEstructuradoCaso | null,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`
+      update lxp.casos_biblioteca
+      set contenido_estructurado = ${contenido === null ? null : sql.json(contenido as never)}
+      where id = ${casoId}`;
+  });
+  refrescarCaso(casoId);
+}
+
 /** Publica el caso a la Biblioteca (o lo regresa a "por curar"). */
 export async function publicarCaso(casoId: string, publicado: boolean): Promise<void> {
   const { userId } = await requireAutoria();

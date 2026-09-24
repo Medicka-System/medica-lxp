@@ -17,6 +17,8 @@ import { VisorEstudio } from '@/components/casos/visor-estudio';
 import { VisorDicomPlaceholder } from '../../../_components/visor-dicom';
 import { VistaCasoEstudio } from '@/components/casos/vista-caso-estudio';
 import { FichaCasoCampos } from '@/components/casos/ficha-campos';
+import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
+import { tieneContenidoEstructurado } from '@campus/shared';
 import {
   SelectorArchivosDicom,
   ejecutarSubidaMulti,
@@ -202,6 +204,7 @@ export function CasoDetalleBitacoraCliente({
   ) : null;
 
   /* ── Lecturas read-only de la clínica (modo vista) ── */
+  const estructurado = tieneContenidoEstructurado(caso.contenidoEstructurado);
   const clinicaLectura = (
     <>
       {caso.vineta && (
@@ -212,12 +215,18 @@ export function CasoDetalleBitacoraCliente({
           </p>
         </section>
       )}
-      <section className={`${card} p-6`}>
-        <p className={`${kicker} text-muted-foreground`}>Mis hallazgos</p>
-        <p className={`mt-3 max-w-[70ch] whitespace-pre-line text-[15px] leading-[1.75] ${softText}`}>
-          {caso.hallazgos?.trim() || 'Sin hallazgos capturados.'}
-        </p>
-      </section>
+      {/* Hallazgos: si el caso trae la VERDAD ESTRUCTURADA (del reporte), se muestra
+          COINCIDIBLE con el reporte (tablas/mediciones tipadas); si no, el texto plano. */}
+      {estructurado ? (
+        <ContenidoEstructuradoCasoVista contenido={caso.contenidoEstructurado!} modo="previa" />
+      ) : (
+        <section className={`${card} p-6`}>
+          <p className={`${kicker} text-muted-foreground`}>Mis hallazgos</p>
+          <p className={`mt-3 max-w-[70ch] whitespace-pre-line text-[15px] leading-[1.75] ${softText}`}>
+            {caso.hallazgos?.trim() || 'Sin hallazgos capturados.'}
+          </p>
+        </section>
+      )}
       {caso.presuntivo && (
         <section className={`${card} p-6`}>
           <p className={`${kicker} text-muted-foreground`}>Diagnóstico presuntivo</p>

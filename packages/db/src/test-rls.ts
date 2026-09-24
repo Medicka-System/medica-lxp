@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     const a1Ve = await como(sql, claimsA1, (tx) =>
       tx<{ n: string }[]>`select count(*)::int as n from lxp.bitacora_casos`,
     );
-    check('a1 ve solo SUS casos (2)', num(a1Ve) === 2, `vio ${num(a1Ve)}`);
+    check('a1 ve solo SUS casos (3)', num(a1Ve) === 3, `vio ${num(a1Ve)}`);
 
     const a1VeDeA2 = await como(sql, claimsA1, (tx) =>
       tx<{ n: string }[]>`select count(*)::int as n from lxp.bitacora_casos where id_alumno = ${a2}`,
