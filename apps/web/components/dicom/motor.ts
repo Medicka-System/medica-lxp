@@ -39,8 +39,16 @@ export interface MotorVisor {
   /**
    * Carga la serie como un stack de frames y muestra `indiceInicial`.
    * Reemplaza la serie anterior si ya había una montada.
+   *
+   * `regionUS` (opcional) = caja `[x0,y0,x1,y1]` px de la región de ultrasonido: si viene,
+   * el motor AUTO-ENCUADRA a ella al cargar (la imagen clínica llena el viewport, sin las
+   * bandas negras del chrome del ecógrafo · §5A). El usuario puede seguir haciendo zoom/pan.
    */
-  cargarSerie(imageIds: string[], indiceInicial?: number): Promise<void>;
+  cargarSerie(
+    imageIds: string[],
+    indiceInicial?: number,
+    regionUS?: [number, number, number, number],
+  ): Promise<void>;
 
   /** Muestra el frame en `indice` (base del cine-loop y del scroll manual). */
   mostrarFrame(indice: number): void;

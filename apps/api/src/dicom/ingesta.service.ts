@@ -40,6 +40,8 @@ export interface SerieLectura {
   urlLectura: string;
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
   pixelSpacing: [number, number] | null;
+  /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null` si no hay. */
+  region: [number, number, number, number] | null;
 }
 
 /** Respuesta al pedir la lectura del estudio anonimizado (para el visor). */
@@ -99,6 +101,7 @@ export class IngestaService {
       // `ref` por serie (multi-serie); compat con estudios viejos de una sola ref.
       urlLectura: this.storage.firmarLectura(s.ref ?? caso.estudio_dicom_ref ?? this.storage.claveAnonimizado(casoId, i)),
       pixelSpacing: s.pixel_spacing ?? null,
+      region: s.region ?? null,
     }));
     return {
       casoId,

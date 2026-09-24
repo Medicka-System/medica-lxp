@@ -39,6 +39,13 @@ export interface SerieAnonimizada {
    * El visor lo usa para no deformar estructuras redondas.
    */
   pixelSpacing: [number, number] | null;
+  /**
+   * Caja envolvente `[x0, y0, x1, y1]` (px de la imagen) de la Sequence of Ultrasound
+   * Regions (0018,6011) — la zona clínica de la imagen, sin las bandas negras del chrome
+   * del ecógrafo. `null` si no hay regiones calibradas. El visor la usa para AUTO-ENCUADRAR
+   * (que la imagen clínica llene el viewport, §5A).
+   */
+  region: [number, number, number, number] | null;
 }
 
 /**
@@ -117,6 +124,45 @@ export function espaciadoDeDataset(ds: Record<string, unknown>): [number, number
   return null;
 }
 
+/** Entero ≥ 0 finito o null (los límites de región vienen como number o string numérica). */
+function entNoNeg(v: unknown): number | null {
+  const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
+/**
+ * Caja envolvente `[x0, y0, x1, y1]` (px) de la Sequence of Ultrasound Regions (0018,6011):
+ * la UNIÓN de RegionLocation Min/Max X0/Y0/X1/Y1 de todas las regiones calibradas. Es la
+ * zona de imagen clínica dentro del frame completo del ecógrafo (que trae bandas negras y
+ * texto alrededor). `null` si no hay regiones con límites válidos. PURO y testeable.
+ */
+export function regionUltrasonidoDataset(
+  ds: Record<string, unknown>,
+): [number, number, number, number] | null {
+  const regs = ds.SequenceOfUltrasoundRegions;
+  const items = Array.isArray(regs) ? regs : regs ? [regs] : [];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    const r = it as Record<string, unknown>;
+    const minX = entNoNeg(r.RegionLocationMinX0);
+    const minY = entNoNeg(r.RegionLocationMinY0);
+    const maxX = entNoNeg(r.RegionLocationMaxX1);
+    const maxY = entNoNeg(r.RegionLocationMaxY1);
+    if (minX === null || minY === null || maxX === null || maxY === null) continue;
+    if (maxX <= minX || maxY <= minY) continue;
+    x0 = Math.min(x0, minX);
+    y0 = Math.min(y0, minY);
+    x1 = Math.max(x1, maxX);
+    y1 = Math.max(y1, maxY);
+  }
+  if (!Number.isFinite(x0) || !Number.isFinite(y0) || x1 <= x0 || y1 <= y0) return null;
+  return [x0, y0, x1, y1];
+}
+
 /**
  * Anonimiza un estudio DICOM P10 (un archivo `.dcm`, mono- o multi-frame). Puro
  * respecto a I/O: recibe el binario crudo y devuelve el binario anonimizado; el
@@ -162,6 +208,7 @@ export function anonimizarDicomBinario(entrada: ArrayBuffer): ResultadoAnonimiza
       frames,
       instancias: 1,
       pixelSpacing: espaciadoDeDataset(dataset),
+      region: regionUltrasonidoDataset(dataset),
     },
   ];
 

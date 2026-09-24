@@ -19,6 +19,8 @@ export type SerieEstudio = {
   ref?: string;
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null`/ausente = píxel cuadrado. */
   pixel_spacing?: [number, number] | null;
+  /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null`/ausente = sin región. */
+  region?: [number, number, number, number] | null;
 };
 
 export interface CasoEstudio {

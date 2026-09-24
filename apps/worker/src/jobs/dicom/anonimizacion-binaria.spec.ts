@@ -1,5 +1,9 @@
 import * as dcmjs from 'dcmjs';
-import { anonimizarDicomBinario, espaciadoDeDataset } from './anonimizacion-binaria';
+import {
+  anonimizarDicomBinario,
+  espaciadoDeDataset,
+  regionUltrasonidoDataset,
+} from './anonimizacion-binaria';
 
 const { DicomMessage, DicomMetaDictionary, DicomDict } = dcmjs.data;
 
@@ -144,5 +148,54 @@ describe('espaciadoDeDataset (aspect ratio de USG)', () => {
   it('1:1 o sin datos → null', () => {
     expect(espaciadoDeDataset({ PixelAspectRatio: [1, 1] })).toBeNull();
     expect(espaciadoDeDataset({})).toBeNull();
+  });
+});
+
+describe('regionUltrasonidoDataset (auto-encuadre)', () => {
+  it('devuelve la caja [x0,y0,x1,y1] de una sola región', () => {
+    const ds = {
+      SequenceOfUltrasoundRegions: [
+        { RegionLocationMinX0: 120, RegionLocationMinY0: 60, RegionLocationMaxX1: 900, RegionLocationMaxY1: 700 },
+      ],
+    };
+    expect(regionUltrasonidoDataset(ds)).toEqual([120, 60, 900, 700]);
+  });
+
+  it('une (bounding box) varias regiones', () => {
+    const ds = {
+      SequenceOfUltrasoundRegions: [
+        { RegionLocationMinX0: 120, RegionLocationMinY0: 60, RegionLocationMaxX1: 500, RegionLocationMaxY1: 400 },
+        { RegionLocationMinX0: 80, RegionLocationMinY0: 100, RegionLocationMaxX1: 900, RegionLocationMaxY1: 700 },
+      ],
+    };
+    expect(regionUltrasonidoDataset(ds)).toEqual([80, 60, 900, 700]);
+  });
+
+  it('acepta valores en string y redondea', () => {
+    const ds = {
+      SequenceOfUltrasoundRegions: [
+        { RegionLocationMinX0: '120', RegionLocationMinY0: '60', RegionLocationMaxX1: '900.4', RegionLocationMaxY1: '700' },
+      ],
+    };
+    expect(regionUltrasonidoDataset(ds)).toEqual([120, 60, 900, 700]);
+  });
+
+  it('ignora regiones con límites incompletos o degenerados', () => {
+    expect(
+      regionUltrasonidoDataset({
+        SequenceOfUltrasoundRegions: [{ RegionLocationMinX0: 10, RegionLocationMinY0: 10 }],
+      }),
+    ).toBeNull();
+    expect(
+      regionUltrasonidoDataset({
+        SequenceOfUltrasoundRegions: [
+          { RegionLocationMinX0: 100, RegionLocationMinY0: 100, RegionLocationMaxX1: 100, RegionLocationMaxY1: 200 },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it('sin regiones → null', () => {
+    expect(regionUltrasonidoDataset({})).toBeNull();
   });
 });

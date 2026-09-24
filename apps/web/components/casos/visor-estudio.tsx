@@ -62,6 +62,9 @@ function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
         descripcion: `Serie ${i + 1}`,
         modalidad: s.modalidad || 'US',
         ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
+        // Región de ultrasonido (0018,6011) que extrajo la ingesta: el visor la usa para
+        // auto-encuadrar y que la imagen clínica llene el viewport (sin bandas negras · §5A).
+        ...(s.region && s.region.length === 4 ? { regionUS: s.region } : {}),
         // Cine loop SOLO si este único `.dcm` es multi-frame (frames > 1).
         frames: framesDeDcm(s.urlLectura, s.frames ?? 1, 0),
       };
@@ -74,7 +77,7 @@ export function VisorEstudio({
   tabla = 'bitacora_casos',
   soloLectura = false,
   // El visor manda: alto generoso por defecto (la herramienta de trabajo del médico).
-  className = 'h-[72vh] min-h-[520px]',
+  className = 'h-[72vh] min-h-[570px]',
 }: {
   casoId: string;
   tabla?: TablaEstudioDicom;

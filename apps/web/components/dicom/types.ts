@@ -44,6 +44,12 @@ export interface SerieDicom {
   miniaturaUrl?: string;
   /** Metadatos anonimizados opcionales para overlays (ancho ventana, etc.). */
   metadatos?: Record<string, string | number | undefined>;
+  /**
+   * Caja `[x0, y0, x1, y1]` (px de la imagen) de la región de ultrasonido — la zona
+   * clínica, sin las bandas negras del chrome del ecógrafo. Si está, el visor AUTO-ENCUADRA
+   * a ella al cargar la serie para que la imagen clínica llene el viewport (§5A).
+   */
+  regionUS?: [number, number, number, number];
 }
 
 /** Estudio = conjunto de series de un mismo caso. */

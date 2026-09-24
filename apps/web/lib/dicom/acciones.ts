@@ -61,6 +61,8 @@ export interface SerieLectura {
   urlLectura: string;
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
   pixelSpacing?: [number, number] | null;
+  /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null` si no hay. */
+  region?: [number, number, number, number] | null;
 }
 
 /** Comprueba que el caso existe y es accesible bajo RLS con la sesión de la tabla. */

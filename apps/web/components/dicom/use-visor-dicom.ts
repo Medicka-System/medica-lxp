@@ -147,7 +147,7 @@ export function useVisorDicom({
     if (!motor || !motorListo || imageIds.length === 0) return;
     setListo(false);
     motor
-      .cargarSerie(imageIds, 0)
+      .cargarSerie(imageIds, 0, serieActiva?.regionUS)
       .then(() => {
         if (vivo) setListo(true);
       })

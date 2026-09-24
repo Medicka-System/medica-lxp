@@ -24,6 +24,8 @@ type SeriePersistida = {
   ref: string;
   /** Espaciado físico `[row, col]` mm (aspect ratio USG); `null` si píxel cuadrado. */
   pixel_spacing?: [number, number] | null;
+  /** Caja `[x0,y0,x1,y1]` px de la región de ultrasonido (auto-encuadre); `null` si no hay. */
+  region?: [number, number, number, number] | null;
 };
 
 /** Resultado de redactar la PII quemada de un `.dcm` con el servicio Presidio. */
@@ -138,6 +140,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
           instancias: s?.instancias ?? 1,
           ref: destino.ref,
           pixel_spacing: s?.pixelSpacing ?? null,
+          region: s?.region ?? null,
         });
       }
 

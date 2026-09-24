@@ -185,13 +185,53 @@ export class MotorCornerstone implements MotorVisor {
     this.toolGroup = toolGroup;
   }
 
-  async cargarSerie(imageIds: string[], indiceInicial = 0): Promise<void> {
+  async cargarSerie(
+    imageIds: string[],
+    indiceInicial = 0,
+    regionUS?: [number, number, number, number],
+  ): Promise<void> {
     const viewport = this.stackViewport();
     try {
       await viewport.setStack(imageIds, indiceInicial);
+      if (regionUS) this.encuadrarRegion(viewport, regionUS);
       viewport.render();
     } catch (e) {
       throw new MotorVisorError('No se pudo cargar la serie DICOM', e);
+    }
+  }
+
+  /**
+   * AUTO-ENCUADRE a la región de ultrasonido (0018,6011 · §5A): hace zoom+centro para que
+   * la caja clínica `[x0,y0,x1,y1]` (px de la imagen) llene el viewport, dejando fuera las
+   * bandas negras del chrome del ecógrafo. Usa `setDisplayArea`:
+   *   · `imageArea = [anchoRegión/anchoImg, altoRegión/altoImg]` → fracción de imagen a caber
+   *     (Cornerstone calcula el zoom para que quepa; si la región excede el viewport, hace fit).
+   *   · `imageCanvasPoint` → alinea el CENTRO de la región con el centro del canvas.
+   * `storeAsInitialCamera: true` para que "reencuadrar" vuelva aquí. El zoom/pan manual sigue
+   * disponible (esto solo fija la cámara inicial). Tolerante: cualquier fallo se ignora (el
+   * visor cae al encuadre por defecto — la imagen completa).
+   */
+  private encuadrarRegion(
+    viewport: Types.IStackViewport,
+    [x0, y0, x1, y1]: [number, number, number, number],
+  ): void {
+    try {
+      const img = viewport.getImageData();
+      if (!img) return;
+      const [cols, rows] = img.dimensions; // [ancho, alto] en px de la imagen
+      if (!cols || !rows) return;
+      const anchoReg = x1 - x0;
+      const altoReg = y1 - y0;
+      if (anchoReg <= 0 || altoReg <= 0) return;
+      const centroX = (x0 + x1) / 2 / cols;
+      const centroY = (y0 + y1) / 2 / rows;
+      viewport.setDisplayArea({
+        imageArea: [Math.min(1, anchoReg / cols), Math.min(1, altoReg / rows)],
+        imageCanvasPoint: { imagePoint: [centroX, centroY], canvasPoint: [0.5, 0.5] },
+        storeAsInitialCamera: true,
+      });
+    } catch {
+      /* el auto-encuadre es una mejora, no un requisito: si falla, encuadre por defecto */
     }
   }
 
