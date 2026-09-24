@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import { firmarLecturaImagenes, firmarLecturaImagen } from '@/lib/media/firmar-imagenes.server';
 import type {
   Recurso,
   RecursoDetalle,
@@ -248,6 +249,8 @@ export type GrupoResumen = {
   /** Alumnos inscritos (CORA, vía puente `cora_conteo_alumnos` · §10). */
   alumnos: number;
   estado: EstadoGrupo;
+  /** URL firmada de la portada del grupo (null → placeholder). */
+  portadaUrl: string | null;
 };
 
 /** Estado del grupo a partir de sus fechas (asíncrono = siempre en curso). */
@@ -273,12 +276,13 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
           docente: string | null;
           overrides: number;
           cora_grupo_id: string | null;
+          imagen_portada: string | null;
         }[]
       >`
         select
           g.id, g.nombre, g.modalidad, g.fecha_inicio, g.fecha_fin,
           g.programa_id, p.nombre as programa_nombre, p.version as programa_version,
-          lxp.nombre_de(g.docente_id) as docente, g.cora_grupo_id,
+          lxp.nombre_de(g.docente_id) as docente, g.cora_grupo_id, g.imagen_portada,
           coalesce((select count(*) from lxp.grupo_overrides o where o.grupo_id = g.id), 0)::int as overrides
         from lxp.grupos g
         join lxp.programas p on p.id = g.programa_id
@@ -289,6 +293,8 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
     ]);
 
     const alumnosPorCora = new Map(conteos.map((c) => [c.cora_grupo_id, c.alumnos]));
+    // Firma las portadas en un solo lote (ref → url); las que no tienen quedan sin URL.
+    const portadas = await firmarLecturaImagenes(rows.map((r) => r.imagen_portada));
     const hoy = new Date();
     return rows.map((r) => ({
       id: r.id,
@@ -303,6 +309,7 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
       overrides: r.overrides,
       alumnos: r.cora_grupo_id ? (alumnosPorCora.get(r.cora_grupo_id) ?? 0) : 0,
       estado: estadoDeGrupo(r.fecha_inicio, r.fecha_fin, hoy),
+      portadaUrl: r.imagen_portada ? (portadas[r.imagen_portada] ?? null) : null,
     }));
   });
 }
@@ -346,6 +353,10 @@ export type GrupoDetalle = {
   totales: { modulos: number; horas: number; lecciones: number };
   temario: NodoModuloGrupo[];
   overrides: OverrideCrudo[];
+  /** Ref de storage de la portada del grupo (para saber si hay una). */
+  imagenPortadaRef: string | null;
+  /** URL firmada de la portada (preview en el editor · null si no hay). */
+  portadaUrl: string | null;
 };
 
 export async function getGrupoDetalle(
@@ -366,9 +377,11 @@ export async function getGrupoDetalle(
           programa_nombre: string;
           programa_version: number;
           programa_publicado: boolean;
+          imagen_portada: string | null;
         }[]
       >`
         select g.id, g.nombre, g.modalidad, g.fecha_inicio, g.fecha_fin, g.docente_id,
+               g.imagen_portada,
                p.id as programa_id, p.nombre as programa_nombre,
                p.version as programa_version, p.publicado as programa_publicado
         from lxp.grupos g
@@ -436,6 +449,8 @@ export async function getGrupoDetalle(
         entidadId: o.entidad_id,
         creadoEn: o.created_at,
       })),
+      imagenPortadaRef: g.imagen_portada,
+      portadaUrl: await firmarLecturaImagen(g.imagen_portada),
     };
   });
 }

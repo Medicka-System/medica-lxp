@@ -259,6 +259,8 @@ export async function actualizarGrupo(
     fechaInicio?: string | null;
     fechaFin?: string | null;
     docenteId?: string | null;
+    /** Ref de storage de la portada (media/imagenes/…); '' o null la quita. */
+    imagenPortada?: string | null;
   },
 ): Promise<void> {
   const { userId } = await requireAutoria();
@@ -278,6 +280,9 @@ export async function actualizarGrupo(
     }
     if (datos.docenteId !== undefined) {
       await sql`update lxp.grupos set docente_id = ${datos.docenteId || null} where id = ${grupoId}`;
+    }
+    if (datos.imagenPortada !== undefined) {
+      await sql`update lxp.grupos set imagen_portada = ${datos.imagenPortada || null} where id = ${grupoId}`;
     }
   });
   refrescarGrupo(grupoId);

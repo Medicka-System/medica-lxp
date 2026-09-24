@@ -10,8 +10,13 @@ export function TarjetaCurso({ curso }: { curso: CursoResumen }) {
 
   return (
     <article className={`${card} flex flex-col overflow-hidden`}>
-      {/* Franja de marca (sin gradientes salvo hero · §5A) */}
-      <div className="h-1.5 w-full bg-primary" aria-hidden />
+      {curso.portadaUrl ? (
+        // Portada propia de la cohorte (grupo) del alumno. <img>: URL firmada de storage.
+        <img src={curso.portadaUrl} alt="" className="aspect-[16/9] w-full object-cover" />
+      ) : (
+        /* Franja de marca (sin gradientes salvo hero · §5A) */
+        <div className="h-1.5 w-full bg-primary" aria-hidden />
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col p-[18px]">
         <div className="flex items-start gap-3">

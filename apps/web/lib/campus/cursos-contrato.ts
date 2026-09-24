@@ -36,6 +36,8 @@ export type CursoResumen = {
   nombre: string;
   /** Cohorte del alumno en este programa (su grupo · inscripción CORA). null si no mapeado. */
   grupo: { id: string; nombre: string } | null;
+  /** URL firmada de la portada del grupo (su cohorte), si tiene una. Cae al placeholder si null. */
+  portadaUrl: string | null;
   descripcion: string | null;
   modulos: number;
   lecciones: number;

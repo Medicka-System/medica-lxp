@@ -225,13 +225,18 @@ export function GruposTabla({
                       className="relative w-14 shrink-0 overflow-hidden rounded-[7px] bg-sidebar"
                       style={{ aspectRatio: '16 / 9' }}
                     >
-                      <span
-                        className="absolute inset-0"
-                        style={{
-                          background:
-                            'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)',
-                        }}
-                      />
+                      {g.portadaUrl ? (
+                        // <img>: URL firmada de object storage (portada del grupo), no asset local.
+                        <img src={g.portadaUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                      ) : (
+                        <span
+                          className="absolute inset-0"
+                          style={{
+                            background:
+                              'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)',
+                          }}
+                        />
+                      )}
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[14px] font-bold leading-snug">{g.nombre}</span>
