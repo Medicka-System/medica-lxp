@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { comoStaff } from '@/lib/db.server';
 import { encolarNotificacion } from '@/lib/campus/notificaciones-cliente';
 import { requireDocente } from './session';
+import { getCasoValidacion, getEstudiosAlumno } from './datos';
+import type { CasoValidacion, EstudiosAlumnoData } from './contrato';
 
 /**
  * Server actions de la consola del DOCENTE (§5B). CRUD simple `web → Supabase` bajo
@@ -61,6 +63,25 @@ export async function validarCaso(input: {
   revalidatePath('/docente/validacion');
   revalidatePath('/docente');
   return { ok: true };
+}
+
+/**
+ * Carga bajo demanda todos los estudios de un alumno (rejilla de Validación) con RLS
+ * `comoStaff`. Lectura simple para el cliente: no muta nada. `null` si el alumno no existe
+ * o el docente no puede verlo.
+ */
+export async function cargarEstudiosAlumno(alumnoId: string): Promise<EstudiosAlumnoData | null> {
+  const { userId } = await requireDocente();
+  return getEstudiosAlumno(userId, alumnoId);
+}
+
+/**
+ * Carga un caso concreto para el detalle (cualquier estado). Se usa al abrir desde la
+ * rejilla un estudio ya aprobado/devuelto (la cola solo trae pendientes). Solo lectura.
+ */
+export async function cargarCasoValidacion(casoId: string): Promise<CasoValidacion | null> {
+  const { userId } = await requireDocente();
+  return getCasoValidacion(userId, casoId);
 }
 
 // ── Calificación de entregas ────────────────────────────────────────────────────
