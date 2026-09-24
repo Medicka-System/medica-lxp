@@ -11,6 +11,7 @@ import { XapiService } from '../xapi/xapi.service';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import {
   cargarCasoValidacion,
+  promoverCasoABanco,
   registrarValidacion,
   type DecisionValidacion,
 } from './validacion.repositorio';
@@ -23,6 +24,8 @@ export interface ResultadoValidacion {
   decision: DecisionValidacion;
   /** Id del job de recálculo de competencia (solo al aprobar). */
   competenciaJobId?: string;
+  /** Caso curado creado/ligado en el banco "por curar" (solo al aprobar · §5B puente). */
+  casoBancoId?: string;
 }
 
 /**
@@ -107,6 +110,19 @@ export class ValidacionService {
       );
       // Dominio: recalcula la competencia del alumno (motor Sprint 3, vía cola).
       const competenciaJobId = await this.competencia.recalcular(caso.id_alumno);
+      // Puente bitácora→banco (§5B): el caso aprobado entra al banco curado "por curar",
+      // arrastrando su verdad estructurada + estudio anonimizado. No debe tumbar la
+      // validación si falla (el caso ya quedó aprobado): se registra y se sigue.
+      let casoBancoId: string | undefined;
+      try {
+        const banco = await promoverCasoABanco(this.db.sql, casoId);
+        casoBancoId = banco.casoBancoId || undefined;
+        this.logger.log(
+          `Caso ${casoId} promovido al banco (${casoBancoId ?? 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
+        );
+      } catch (e) {
+        this.logger.error(`No se pudo promover el caso ${casoId} al banco: ${String(e)}`);
+      }
       // Notifica al alumno que su caso fue aprobado (§8 job #12).
       await this.notif.encolar({
         userId: caso.id_alumno,
@@ -123,6 +139,7 @@ export class ValidacionService {
         alumnoId: caso.id_alumno,
         decision,
         competenciaJobId,
+        casoBancoId,
       };
     }
 

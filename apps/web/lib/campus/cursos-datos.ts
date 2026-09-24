@@ -1,6 +1,7 @@
 import 'server-only';
 import type postgres from 'postgres';
 import { comoAlumno } from '@/lib/db.server';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { gruposDelAlumno, programasDelAlumno } from './inscripcion';
 import type {
   CursoResumen,
@@ -102,9 +103,11 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
 
     // Grupo (cohorte) del alumno por programa + set de programas inscritos.
     const grupoPorPrograma = new Map(
-      grupos.map((g) => [g.programaId, { id: g.grupoId, nombre: g.grupoNombre }]),
+      grupos.map((g) => [g.programaId, { id: g.grupoId, nombre: g.grupoNombre, imagenPortada: g.imagenPortada }]),
     );
     const inscritos = new Set(grupoPorPrograma.keys());
+    // Firma las portadas de las cohortes del alumno en un solo lote (ref → url).
+    const portadas = await firmarLecturaImagenes(grupos.map((g) => g.imagenPortada));
 
     const mios = inscritos.size > 0
       ? programas.filter((p) => inscritos.has(p.id))
@@ -112,10 +115,12 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
 
     return mios.map((p): CursoResumen => {
       const hechos = completados.get(p.id) ?? 0;
+      const g = grupoPorPrograma.get(p.id) ?? null;
       return {
         programaId: p.id,
         nombre: p.nombre,
-        grupo: grupoPorPrograma.get(p.id) ?? null,
+        grupo: g ? { id: g.id, nombre: g.nombre } : null,
+        portadaUrl: g?.imagenPortada ? (portadas[g.imagenPortada] ?? null) : null,
         descripcion: p.descripcion,
         modulos: p.modulos,
         lecciones: p.lecciones,

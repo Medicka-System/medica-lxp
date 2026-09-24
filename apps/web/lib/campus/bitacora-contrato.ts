@@ -34,6 +34,8 @@
  *       { actor: userId, verbo: 'subió', objeto: { tipo: 'caso', id } }.
  */
 
+import type { ContenidoEstructuradoCaso } from '@campus/shared';
+
 export type DominioIaim = 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
 
 export const DOMINIO_LABEL: Record<DominioIaim, string> = {
@@ -130,6 +132,10 @@ export type CasoDetalleBitacora = {
   series: number;
   cineLoop: boolean;
   feedback: string | null;
+  /** Verdad ESTRUCTURADA del estudio (§7A · del reporte de origen). null = caso viejo/sin
+   *  estructura → se muestra el texto `hallazgos`. Renderizada con CampoReporte (coincide
+   *  con el reporte: tabla como tabla, medida con unidad). */
+  contenidoEstructurado: ContenidoEstructuradoCaso | null;
 };
 
 export type BitacoraData = {

@@ -61,11 +61,11 @@ export async function programasDelAlumno(
 export async function gruposDelAlumno(
   sql: Sql,
   userId: string,
-): Promise<{ programaId: string; grupoId: string; grupoNombre: string }[]> {
+): Promise<{ programaId: string; grupoId: string; grupoNombre: string; imagenPortada: string | null }[]> {
   const rows = await sql<
-    { programa_id: string; grupo_id: string; grupo_nombre: string }[]
+    { programa_id: string; grupo_id: string; grupo_nombre: string; imagen_portada: string | null }[]
   >`
-    select g.programa_id, g.id as grupo_id, g.nombre as grupo_nombre
+    select g.programa_id, g.id as grupo_id, g.nombre as grupo_nombre, g.imagen_portada
     from lxp.grupos g
     join lxp.cora_grupos_de(${userId}) cg on cg.grupo_id = g.cora_grupo_id
     order by g.created_at`;
@@ -73,5 +73,6 @@ export async function gruposDelAlumno(
     programaId: r.programa_id,
     grupoId: r.grupo_id,
     grupoNombre: r.grupo_nombre,
+    imagenPortada: r.imagen_portada,
   }));
 }

@@ -595,6 +595,62 @@ async function seed(sql: Sql): Promise<void> {
       (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
     values (${alumnos.a2}, ${m1.id}, 'Riñón', ${'indicacion'}::lxp.dominio_iaim,
        'Hidronefrosis leve', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+
+  // Caso OBSTÉTRICO con VERDAD ESTRUCTURADA (§7A · Opción B): como si viniera de un reporte
+  // con tabla de biometría. Sirve para demostrar el puente bitácora→banco y el render
+  // coincidible (la tabla se muestra como TABLA, no aplanada). El texto `hallazgos` es el
+  // índice derivado; `contenido_estructurado` es la fuente de verdad.
+  const contenidoObstetrico = {
+    secciones: [
+      {
+        id: 'biometria',
+        tipo: 'hallazgos',
+        titulo: 'Biometría fetal',
+        columnas: 1,
+        campos: [
+          {
+            id: 'tab_bio',
+            tipo: 'tabla',
+            nombre: 'Mediciones',
+            columnas: ['Medida (mm)', 'Percentil'],
+            filas: ['DBP', 'CC', 'CA', 'LF'],
+          },
+          { id: 'peso', tipo: 'medida', nombre: 'Peso fetal estimado', unidad: 'g' },
+          { id: 'previa', tipo: 'sino', nombre: 'Placenta previa' },
+        ],
+      },
+      {
+        id: 'anexos',
+        tipo: 'hallazgos',
+        titulo: 'Líquido y presentación',
+        columnas: 2,
+        campos: [
+          { id: 'ila', tipo: 'medida', nombre: 'Índice de líquido amniótico', unidad: 'cm' },
+          { id: 'fcf', tipo: 'medida', nombre: 'Frecuencia cardiaca fetal', unidad: 'lpm' },
+          { id: 'presentacion', tipo: 'opcion', nombre: 'Presentación', opciones: ['Cefálica', 'Pélvica', 'Transversa'] },
+        ],
+      },
+    ],
+    valores: {
+      tab_bio: [['82', '55'], ['295', '60'], ['320', '58'], ['64', '52']],
+      peso: '2450',
+      previa: false,
+      ila: '12.5',
+      fcf: '148',
+      presentacion: 'Cefálica',
+    },
+    impresion:
+      'Embarazo único, viable, de 31.4 semanas por biometría. Crecimiento y líquido amniótico dentro de percentiles normales.',
+    fuente: { tipo: 'reporte', plantillaNombre: 'Obstétrico · segundo trimestre', tipoEstudio: 'Obstétrico' },
+  };
+  await sql`
+    insert into lxp.bitacora_casos
+      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, contenido_estructurado,
+       horas_estimadas, estado_validacion, origen, anonimizado_en)
+    values (${alumnos.a1}, ${m1.id}, 'Obstétrico', ${'interpretacion'}::lxp.dominio_iaim,
+       'Biometría fetal acorde a 31.4 semanas; ILA normal.', ${sql.json(contenidoObstetrico)},
+       1.5, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+
   // Caso del alumno suspendido: ni siquiera él debe verlo (acceso_activo=false).
   await sql`
     insert into lxp.bitacora_casos

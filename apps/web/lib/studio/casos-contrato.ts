@@ -11,18 +11,19 @@
  *   • publicar a Biblioteca (publicado bool).
  *   Bandejas derivadas de `publicado`: "Por curar" (false) vs "En Biblioteca" (true).
  *
+ * REAL (puente bitácora→banco · apps/api · §5B): al aprobar un caso de la bitácora, el
+ *   dominio (ValidacionService) lo promueve a `casos_biblioteca` "por curar" con
+ *   `origen_caso_id` (0024), copiando ficha + `contenido_estructurado` + el estudio ya
+ *   anonimizado (series + traza §10). El visor DICOM (Cornerstone3D) es transversal y ya
+ *   muestra ese estudio en la curaduría.
+ *
  * PENDIENTE DE API / DB (fuera de apps/web):
- *   • DICOM: visor Cornerstone3D, series/anotaciones, y la ANONIMIZACIÓN bloqueante
- *     en ingesta (worker `procesar-dicom`) — es el Sprint 4.7. Aquí el visor es un
- *     placeholder y "anclar hallazgo a anotación" queda sin cablear.
- *   • Puente bitácora→banco: el caso del alumno validado por un docente debería entrar
- *     al banco "por curar". Hoy no hay enlace `bitacora_casos`→`casos_biblioteca` ni
- *     campo `origen`/`estado_curaduria` en casos_biblioteca (PENDIENTE DE DB). Por eso
- *     el origen (alumno/staff) y las bandejas "de alumno vs staff" no se distinguen.
+ *   • "Anclar hallazgo a anotación": requiere anotaciones sobre el visor (sin cablear).
  *   • "Marcar para simulador" y "Archivado": no hay flag en el esquema (PENDIENTE DE DB).
  *     Endpoint esperado cuando exista: POST /studio/casos/:id/simulador { activo }.
- *   • "Piezas / loops" del estudio: metadatos del DICOM (PENDIENTE 4.7) → hoy 0.
  */
+
+import type { ContenidoEstructuradoCaso } from '@campus/shared';
 
 export type DominioIaim = 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
 
@@ -77,4 +78,17 @@ export type CasoEditor = {
   /** Nº de series anonimizadas del estudio. */
   series: number;
   curador: string | null;
+  /** Verdad ESTRUCTURADA heredada del reporte/caso de origen (§7A). null = sin estructura.
+   *  El curador la ajusta (tablas/mediciones) antes de publicar. Coincide con el reporte. */
+  contenidoEstructurado: ContenidoEstructuradoCaso | null;
+  /** Módulo al que el DOCENTE asigna el caso al curar (§5B). Auto-heredado del origen si
+   *  lo tenía; NO se adivina por palabra clave. null = sin asignar. */
+  moduloId: string | null;
+};
+
+/** Opción de módulo para el dropdown de curaduría (agrupado por programa). */
+export type ModuloOpcionCaso = {
+  id: string;
+  nombre: string;
+  programa: string;
 };

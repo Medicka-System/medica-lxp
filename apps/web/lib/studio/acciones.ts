@@ -154,6 +154,7 @@ export async function guardarCaso(
     organo?: string;
     patologia?: string;
     dominio?: DominioIaim | null;
+    moduloId?: string | null;
     tecnica?: string;
     equipo?: string;
     vineta?: string;
@@ -196,6 +197,9 @@ export async function guardarCaso(
         await sql`update lxp.casos_biblioteca set dominio_iaim = null where id = ${casoId}`;
       }
     }
+    if (datos.moduloId !== undefined) {
+      await sql`update lxp.casos_biblioteca set modulo_id = ${datos.moduloId || null} where id = ${casoId}`;
+    }
     if (datos.diagnostico !== undefined) {
       await sql`update lxp.casos_biblioteca set diagnostico_correcto = ${datos.diagnostico || null} where id = ${casoId}`;
     }
@@ -208,6 +212,26 @@ export async function guardarCaso(
     if (datos.erroresComunes !== undefined) {
       await sql`update lxp.casos_biblioteca set errores_comunes = ${sql.json(datos.erroresComunes)} where id = ${casoId}`;
     }
+  });
+  refrescarCaso(casoId);
+}
+
+/**
+ * Guarda la VERDAD ESTRUCTURADA del estudio (§7A · contenido_estructurado) que el curador
+ * ajustó: mismas secciones/tablas del reporte, con los valores editados. CRUD directo bajo
+ * RLS es_staff. Renderizada/editada con la MISMA pieza CampoReporte (coincide con el
+ * reporte). `null` limpia la estructura (raro; el caller manda el snapshot completo).
+ */
+export async function guardarContenidoEstructuradoCaso(
+  casoId: string,
+  contenido: import('@campus/shared').ContenidoEstructuradoCaso | null,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`
+      update lxp.casos_biblioteca
+      set contenido_estructurado = ${contenido === null ? null : sql.json(contenido as never)}
+      where id = ${casoId}`;
   });
   refrescarCaso(casoId);
 }
@@ -259,6 +283,8 @@ export async function actualizarGrupo(
     fechaInicio?: string | null;
     fechaFin?: string | null;
     docenteId?: string | null;
+    /** Ref de storage de la portada (media/imagenes/…); '' o null la quita. */
+    imagenPortada?: string | null;
   },
 ): Promise<void> {
   const { userId } = await requireAutoria();
@@ -278,6 +304,9 @@ export async function actualizarGrupo(
     }
     if (datos.docenteId !== undefined) {
       await sql`update lxp.grupos set docente_id = ${datos.docenteId || null} where id = ${grupoId}`;
+    }
+    if (datos.imagenPortada !== undefined) {
+      await sql`update lxp.grupos set imagen_portada = ${datos.imagenPortada || null} where id = ${grupoId}`;
     }
   });
   refrescarGrupo(grupoId);
