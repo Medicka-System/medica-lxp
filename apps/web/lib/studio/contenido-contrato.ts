@@ -1,46 +1,32 @@
 /**
  * ══════════════════════════════════════════════════════════════════════════════
- * PENDIENTE DE DB + PENDIENTE DE API — Biblioteca de Contenido reutilizable (§5B)
+ * Biblioteca de Contenido reutilizable (§5B/§5C) — CONTRATO
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * El esquema actual NO tiene tabla de biblioteca reutilizable. Hay:
- *   • lxp.contenidos      → bloques POR LECCIÓN (leccion_id NOT NULL), no un acervo.
- *   • lxp.recursos_docente→ almacén PERSONAL del docente (otro concepto, RLS propia).
- * La biblioteca de Contenido (un recurso se sube UNA vez y N lecciones lo REFERENCIAN,
- * con "dónde se usa", versiones y transcodificación) necesita infraestructura nueva:
+ * El acervo: un recurso se sube UNA vez y N lecciones lo REFERENCIAN (no lo copian),
+ * con "dónde se usa" real y versionado del archivo. Ya construido:
  *
- * ── PENDIENTE DE DB (migración, fuera de apps/web) ──
- *   create table lxp.recursos (
- *     id           uuid pk default gen_random_uuid(),
- *     tipo         lxp.recurso_tipo not null,   -- video|h5p|scorm|xapi|pdf|word|ppt|imagen
- *     nombre       text not null,
- *     storage_key  text,                          -- object storage / Stream uid / paquete
- *     meta         jsonb not null default '{}',   -- {peso, duracion, resolucion, paginas, ...}
- *     reproduccion text,                           -- 'Cloudflare Stream'|'Reporta progreso'|...
- *     etiquetas    text[] not null default '{}',
- *     version      integer not null default 1,
- *     procesando   boolean not null default false, -- video transcodificando en Stream
- *     progreso     integer,                          -- % de transcodificación
- *     created_by   uuid references lxp.perfiles(user_id),
- *     created_at   timestamptz not null default now(),
- *     updated_at   timestamptz not null default now()
- *   );
- *   -- Enlace de referencia (lo que da "dónde se usa" y "reemplazar en todas"):
- *   alter table lxp.contenidos add column recurso_id uuid references lxp.recursos(id);
- *   -- RLS: select authenticated · write lxp.es_autoria() (igual que contenidos).
+ * ── DB (mig 0040 · lxp.recursos) ──
+ *   tipo (enum recurso_tipo: video|h5p|scorm|xapi|pdf|word|ppt|imagen), nombre,
+ *   storage_key, meta jsonb, reproduccion, etiquetas text[], version, procesando,
+ *   progreso, created_by. RLS: select authenticated · write lxp.es_autoria().
+ *   "Dónde se usa" = lecciones que referencian el recurso desde
+ *   `lxp.bloques.config->>'recursoId'` (el "Insertar recurso" del constructor de
+ *   teoría · selector-recurso.tsx). El conteo lo calcula el reader (datos.ts).
  *
- * ── PENDIENTE DE API (dominio/worker; el pipeline no cabe en el cliente · §2/§8) ──
- *   POST   /studio/recursos            → URL firmada de subida; video→Cloudflare Stream
- *                                        (estado procesando), scorm/xapi→descomprime y
- *                                        registra, ofimático→visor. Devuelve Recurso.
- *   POST   /studio/recursos/:id/reemplazar → nueva VERSIÓN del archivo; se sirve en TODAS
- *                                        las lecciones que lo referencian (sin copiar).
- *   DELETE /studio/recursos/:id        → bloquea/avisa si usos>0.
- *   PATCH  /studio/recursos/:id        → renombrar/etiquetar (simple; será server action
- *                                        directa web→Supabase cuando exista lxp.recursos).
+ * ── Subida/ingesta (dominio · apps/api; el binario nunca pasa por el api · §2) ──
+ *   video   → /media/videos/solicitar (leccionId opcional) + PUT firmado + confirmar
+ *   imagen  → /media/imagenes/firmar-subida + PUT firmado
+ *   pdf/word/ppt → /media/archivos/firmar-subida + PUT firmado
+ *   scorm/xapi   → /paquetes (sin leccionId: valida manifiesto + guarda .zip)
+ *   h5p     → /h5p/paquete (uploadPackage + saveOrUpdateContent)
  *
- * Mientras no exista la tabla, `getRecursos`/`getRecursoDetalle` degradan con
- * `pendienteDb: true` (la relación no existe → 42P01) y la UI muestra el aviso.
+ * ── Fila lxp.recursos (CRUD directo web→Supabase bajo RLS · §2) ──
+ *   contenido-acciones.ts: crearRecurso / actualizarRecurso /
+ *   reemplazarArchivoRecurso (version+1) / eliminarRecurso (bloquea si usos>0).
+ *
+ * `getRecursos`/`getRecursoDetalle` degradan con `pendienteDb: true` solo si la BD no
+ * responde (defensivo); en operación normal la tabla existe y se poblan con datos reales.
  */
 
 export type TipoRecurso = 'video' | 'h5p' | 'scorm' | 'xapi' | 'pdf' | 'word' | 'ppt' | 'imagen';
