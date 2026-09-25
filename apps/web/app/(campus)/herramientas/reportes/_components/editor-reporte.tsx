@@ -44,7 +44,10 @@ import {
   generarPdf,
   guardarBorrador,
   guardarComoCaso,
+  type ImagenDicomReporte,
+  type ResultadoPdf,
 } from '../_acciones';
+import { rasterizarDicomDelReporte } from '../_rasterizar-dicom';
 import {
   ETIQUETA_ESTADO,
   type CasoDicomOpcion,
@@ -73,6 +76,14 @@ function encabezadoPorDefecto(): CampoPlantilla[] {
   return CAMPOS_PACIENTE_CATALOGO.map(campoPacienteDesdeCatalogo);
 }
 
+/** Decodifica el PDF (base64 del server action) a un Blob descargable/imprimible. */
+function base64ABlob(b64: string, tipo: string): Blob {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: tipo });
+}
+
 export function EditorReporte({
   reporte,
   casosDicom,
@@ -94,6 +105,7 @@ export function EditorReporte({
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pickerCampo, setPickerCampo] = useState<string | null>(null);
   const [casoDialog, setCasoDialog] = useState(false);
+  const [pdfOcupado, setPdfOcupado] = useState(false);
   const [pendiente, iniciar] = useTransition();
 
   const estado = reporte.estado;
@@ -165,7 +177,49 @@ export function EditorReporte({
       if (!g.ok) return g;
       return enviarReporte(reporte.id);
     }, 'Reporte marcado como enviado al paciente.');
-  const onPdf = () => conAccion(() => generarPdf(reporte.id), 'PDF generado.');
+  // ── PDF / Imprimir: un solo documento (§6.5). Guarda el estado actual, rasteriza en el
+  //    cliente las imágenes DICOM (visor Cornerstone → PNG) y pide el PDF al `api`; el mismo
+  //    blob se descarga o se abre en pestaña nueva para imprimir desde el visor del navegador.
+  async function construirPdf(): Promise<ResultadoPdf> {
+    await guardarBorrador(reporte.id, paciente, armarContenido());
+    let imagenesDicom: ImagenDicomReporte[] = [];
+    try {
+      imagenesDicom = await rasterizarDicomDelReporte(estructura, valores);
+    } catch {
+      /* si el visor no pudo rasterizar, el PDF sale con el resto del contenido */
+    }
+    return generarPdf(reporte.id, imagenesDicom);
+  }
+  function usarPdf(modo: 'descargar' | 'imprimir') {
+    setMensaje(null);
+    setPdfOcupado(true);
+    void (async () => {
+      try {
+        const res = await construirPdf();
+        if (!res.ok) {
+          setMensaje({ tipo: 'error', texto: res.error });
+          return;
+        }
+        const url = URL.createObjectURL(base64ABlob(res.pdfBase64, 'application/pdf'));
+        if (modo === 'descargar') {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = res.filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setMensaje({ tipo: 'ok', texto: 'PDF descargado.' });
+        } else {
+          window.open(url, '_blank', 'noopener,noreferrer');
+          setMensaje({ tipo: 'ok', texto: 'PDF abierto en una pestaña nueva para imprimir.' });
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } finally {
+        setPdfOcupado(false);
+      }
+    })();
+  }
+  const onPdf = () => usarPdf('descargar');
   function onCaso() {
     setMensaje(null);
     iniciar(async () => {
@@ -186,9 +240,7 @@ export function EditorReporte({
       }
     });
   }
-  const onImprimir = () => {
-    if (typeof window !== 'undefined') window.print();
-  };
+  const onImprimir = () => usarPdf('imprimir');
 
   function elegirEstudio(casoId: string) {
     if (pickerCampo) setValor(pickerCampo, { casoId, tabla: 'bitacora_casos' });
@@ -242,19 +294,20 @@ export function EditorReporte({
           <button
             type="button"
             onClick={onImprimir}
+            disabled={pdfOcupado}
             aria-label="Imprimir"
-            className={`grid h-11 w-11 place-items-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            className={`grid h-11 w-11 place-items-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
           >
             <Printer aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
           </button>
           <button
             type="button"
             onClick={onPdf}
-            disabled={pendiente}
+            disabled={pdfOcupado}
             className={`inline-flex h-11 items-center gap-2 rounded-full border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
           >
             <Download aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-            PDF
+            {pdfOcupado ? 'Generando…' : 'Exportar PDF'}
           </button>
           {estado === 'borrador' ? (
             <button

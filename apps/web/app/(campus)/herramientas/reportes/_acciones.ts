@@ -137,9 +137,43 @@ export async function enviarReporte(id: string): Promise<ResultadoAccion> {
   return cambiarEstado(id, 'enviado');
 }
 
-/** STUB — genera el PDF del reporte. El servicio de PDF vive en `apps/api` (§6.5). */
-export async function generarPdf(_id: string): Promise<ResultadoAccion> {
-  return { ok: false, error: 'La generación de PDF se conecta con el servicio de dominio (pendiente).' };
+export type ImagenDicomReporte = { campoId: string; pngBase64: string };
+export type ResultadoPdf =
+  | { ok: true; pdfBase64: string; filename: string }
+  | { ok: false; error: string };
+
+/**
+ * Genera el PDF del reporte (DOMINIO §2 — el servicio de PDF vive en `apps/api`). Gatea la
+ * propiedad bajo RLS (`comoAlumno`, id_medico = auth.uid()) ANTES de llamar y pasa el userId
+ * como candado que el `api` revalida (mismo filtro que `getReporte`). Las imágenes DICOM las
+ * rasteriza el cliente (visor Cornerstone) y viajan en el body. Devuelve el PDF en base64 para
+ * que el navegador lo descargue/imprima como blob.
+ */
+export async function generarPdf(
+  id: string,
+  imagenesDicom: ImagenDicomReporte[] = [],
+): Promise<ResultadoPdf> {
+  const alumno = await getSesionAlumno();
+  const propio = await comoAlumno(alumno.userId, (sql) =>
+    sql<{ folio: string | null }[]>`
+      select contenido->>'folio' as folio
+      from lxp.reportes where id = ${id} and id_medico = ${alumno.userId} limit 1`,
+  );
+  if (propio.length === 0) return { ok: false, error: 'Ese reporte no es tuyo.' };
+  try {
+    const res = await fetch(`${apiBase()}/reportes/${encodeURIComponent(id)}/pdf`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: alumno.userId, imagenesDicom }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo generar el PDF (HTTP ${res.status}).` };
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const folio = (propio[0]?.folio ?? 'reporte').replace(/[^a-zA-Z0-9._-]/g, '') || 'reporte';
+    return { ok: true, pdfBase64: bytes.toString('base64'), filename: `${folio}.pdf` };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar el servicio de PDF (apps/api).' };
+  }
 }
 
 function apiBase(): string {

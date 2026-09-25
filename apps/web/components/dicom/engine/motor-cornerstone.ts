@@ -414,6 +414,58 @@ export async function renderMiniaturas(imageIds: string[]): Promise<(string | nu
   return salida;
 }
 
+/**
+ * Rasteriza imágenes a PNG (data URL) en un viewport OFFSCREEN de alta resolución — para
+ * el PDF del reporte (§6.5): las imágenes DICOM no tienen raster server-side, así que el
+ * cliente las renderiza aquí (mismo path que `renderMiniaturas`, sin auto-encuadre) y las
+ * manda al `api`. `lado` fija el ancho del canvas oculto → nitidez del PNG. Devuelve `null`
+ * por imagen que no se pudo pintar. No lanza.
+ */
+export async function renderImagenesPng(imageIds: string[], lado = 1100): Promise<(string | null)[]> {
+  if (imageIds.length === 0) return [];
+  try {
+    await inicializarCornerstone();
+  } catch {
+    return imageIds.map(() => null);
+  }
+
+  const el = document.createElement('div');
+  const alto = Math.round(lado * 0.75);
+  el.style.cssText = `position:fixed;left:-10000px;top:0;width:${lado}px;height:${alto}px;pointer-events:none;`;
+  document.body.appendChild(el);
+
+  const engineId = `pdf-engine-${++seq}`;
+  const viewportId = `pdf-vp-${seq}`;
+  const engine = new RenderingEngine(engineId);
+  const salida: (string | null)[] = [];
+
+  try {
+    engine.enableElement({ viewportId, type: CoreEnums.ViewportType.STACK, element: el as HTMLDivElement });
+    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+    for (const imageId of imageIds) {
+      try {
+        await viewport.setStack([imageId], 0);
+        viewport.render();
+        await esperarPintado();
+        const canvas = viewport.getCanvas();
+        salida.push(canvas ? canvas.toDataURL('image/png') : null);
+      } catch {
+        salida.push(null);
+      }
+    }
+  } catch {
+    while (salida.length < imageIds.length) salida.push(null);
+  } finally {
+    try {
+      engine.destroy();
+    } catch {
+      /* no-op */
+    }
+    el.remove();
+  }
+  return salida;
+}
+
 /** Miniatura con su proporción NATIVA (px reales de la imagen), para encuadrar sin deformar. */
 export type MiniaturaDetalle = { url: string; ancho: number; alto: number };
 
