@@ -25,32 +25,38 @@
  * sin rojo — pedir corrección no es una falta (§5A).
  */
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
+  BarChart3,
+  BookCopy,
   BookOpen,
   Check,
   ChevronDown,
   Clock,
+  ListTree,
+  Minus,
+  Pencil,
+  Plus,
   ScanLine,
   Search,
   Sparkles,
   TriangleAlert,
-  Wand2,
   X,
 } from 'lucide-react';
-import { VisorDicom } from '@/components/dicom';
+import { tieneContenidoEstructurado } from '@campus/shared';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
-import { haceCuanto } from '@/lib/format';
-import { DOMINIO_LABEL, type CasoValidacion, type EstudiosAlumnoData } from '../../../_lib/contrato';
+import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
+import { VisorEstudio } from '@/components/casos/visor-estudio';
+import { DOMINIO_LABEL, type CasoValidacion, type CifrasAprobacion, type EstudiosAlumnoData } from '../../../_lib/contrato';
 import {
+  aprobarCaso,
   aprobarCasosLote,
   cargarCasoValidacion,
   cargarEstudiosAlumno,
   validarCaso,
 } from '../../../_lib/acciones';
-import { analizarConEco, confirmarPropuestaEco } from '../../../_lib/eco.server';
 import { EcoRailValidacion } from './eco-rail';
 import { EstudiosAlumno } from './estudios-alumno/estudios-alumno';
 
@@ -206,11 +212,12 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   const [avisoAlumno, setAvisoAlumno] = useState<string | null>(null);
 
   const [feedback, setFeedback] = useState('');
+  const [nota, setNota] = useState('');
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [ecoAviso, setEcoAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [ecoAbierta, setEcoAbierta] = useState(false);
   const [enviando, startTransition] = useTransition();
-  const [analizando, startAnalisis] = useTransition();
+  // Modal de confirmación al aprobar UN caso: el impacto se confirma con cifras reales.
+  const [aprobacion, setAprobacion] = useState<{ caso: CasoValidacion; cifras: CifrasAprobacion } | null>(null);
 
   // Sincroniza la lista si el servidor revalida (aprobar/rechazar/analizar → revalidatePath).
   useEffect(() => {
@@ -256,12 +263,14 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
     : null;
   const soloLectura = casoSel?.soloLectura ?? false;
 
-  // Al cambiar de caso, prellena el feedback con el BORRADOR de Eco (si lo dejó · §7A).
+  // Al cambiar de caso, prellena el feedback y la nota con el BORRADOR de Eco (PLACEHOLDER · §7A).
   useEffect(() => {
-    setFeedback(casoActivo?.eco?.feedbackBorrador ?? '');
+    if (!casoActivo) return;
+    const eco = preAnalisisEco(casoActivo);
+    setFeedback(eco.borradorFeedback);
+    setNota(eco.notaSugerida);
     setResultado(null);
-    setEcoAviso(null);
-  }, [casoActivo?.id, casoActivo?.eco?.feedbackBorrador]);
+  }, [casoActivo?.id]);
 
   // Filtra por grupo (server-side conceptual · aquí sobre el set ya cargado con RLS) y por
   // texto (alumno o diagnóstico presuntivo), en el cliente.
@@ -339,49 +348,66 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
     });
   }
 
-  function analizar() {
-    if (!casoActivo) return;
-    const grupoId = casoActivo.grupoId;
-    startAnalisis(async () => {
-      const r = await analizarConEco({ grupoId, modo: 'casos' });
-      if (!r.ok) {
-        setEcoAviso({ ok: false, texto: r.error });
-        return;
-      }
-      setEcoAviso({
-        ok: true,
-        texto: `Eco pre-analizó ${r.resumen?.total ?? 0} caso(s): ${r.resumen?.listos ?? 0} listos · ${r.resumen?.requierenCriterio ?? 0} requieren tu criterio.`,
-      });
-      router.refresh();
-    });
-  }
+  // Cola PLANA en el orden de la bandeja (listos → criterio) para "Caso anterior / Siguiente".
+  const colaFlat = useMemo(() => [...listos, ...criterio].map((x) => x.c), [listos, criterio]);
+  const idxActivo = casoActivo ? colaFlat.findIndex((c) => c.id === casoActivo.id) : -1;
+  const hayAnterior = idxActivo > 0;
+  const haySiguiente = idxActivo >= 0 && idxActivo < colaFlat.length - 1;
+  const irAOtroCaso = (delta: number) => {
+    if (idxActivo < 0) return;
+    const sig = colaFlat[idxActivo + delta];
+    if (sig) abrirCaso(sig.id, false);
+  };
 
-  function decidir(decision: 'aprobado' | 'rechazado') {
+  /** APROBAR un caso: flujo real (firma + acredita horas) y modal con las cifras del backend. */
+  function aprobar() {
     if (!casoActivo) return;
-    const casoId = casoActivo.id;
-    const horas = casoActivo.horas;
-    const propuestaId = casoActivo.eco?.propuestaId ?? null;
+    const caso = casoActivo;
     startTransition(async () => {
-      const r = await validarCaso({ casoId, decision, feedback });
+      const r = await aprobarCaso({ casoId: caso.id, feedback });
       if (!r.ok) {
         setResultado({ ok: false, texto: r.error });
         return;
       }
-      // Cierre humano de la propuesta de Eco (loop de mejora · §7A). Best-effort.
-      if (propuestaId) {
-        await confirmarPropuestaEco({ propuestaId, feedback });
+      // Sale de la cola local; el modal muestra el impacto con cifras reales.
+      setPendientes((prev) => prev.filter((c) => c.id !== caso.id));
+      setResultado(null);
+      if (r.cifras) setAprobacion({ caso, cifras: r.cifras });
+      else setCasoSel(null);
+      router.refresh();
+    });
+  }
+
+  /** RECHAZAR un caso: devuelve al alumno con feedback obligatorio, NO acredita horas. */
+  function rechazar() {
+    if (!casoActivo) return;
+    const casoId = casoActivo.id;
+    startTransition(async () => {
+      const r = await validarCaso({ casoId, decision: 'rechazado', feedback });
+      if (!r.ok) {
+        setResultado({ ok: false, texto: r.error });
+        return;
       }
-      setResultado({
-        ok: true,
-        texto:
-          decision === 'aprobado'
-            ? `Caso aprobado y firmado. +${horas} h acreditadas · su competencia I-AIM se recalcula en segundo plano.`
-            : 'Caso devuelto al alumno con su feedback para corrección.',
-      });
-      // Quita el caso de la cola local y vuelve a la vista previa (rejilla o bandeja).
+      setResultado({ ok: true, texto: 'Caso devuelto al alumno con su feedback para corrección.' });
       setPendientes((prev) => prev.filter((c) => c.id !== casoId));
       setCasoSel(null);
       router.refresh();
+    });
+  }
+
+  /** Cierra el modal de aprobación y navega (a la bandeja o al siguiente caso de la cola). */
+  function cerrarAprobacion(siguiente: boolean) {
+    const sig = siguiente ? colaFlat.find((c) => c.id !== aprobacion?.caso.id) : null;
+    setAprobacion(null);
+    if (sig) abrirCaso(sig.id, false);
+    else setCasoSel(null);
+  }
+
+  /** Curaduría (PLACEHOLDER): el editor de la verdad del caso se conecta con Eco más adelante. */
+  function avisoCuraduria() {
+    setResultado({
+      ok: true,
+      texto: 'El editor de la verdad del caso (curaduría clínica) se conecta con Eco en una fase posterior.',
     });
   }
 
@@ -579,14 +605,20 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
             urge={urgeActivo}
             feedback={feedback}
             setFeedback={setFeedback}
+            nota={nota}
+            setNota={setNota}
             resultado={resultado}
-            ecoAviso={ecoAviso}
-            analizando={analizando}
             enviando={enviando}
             volverEtiqueta={alumnoParam ? 'Volver a sus estudios' : 'Volver a la bandeja'}
             onVolver={volverAlAlumno}
-            onAnalizar={analizar}
-            onDecidir={decidir}
+            hayAnterior={hayAnterior}
+            haySiguiente={haySiguiente}
+            onAnterior={() => irAOtroCaso(-1)}
+            onSiguiente={() => irAOtroCaso(1)}
+            onAprobar={aprobar}
+            onRechazar={rechazar}
+            onBiblioteca={avisoCuraduria}
+            onEstructurar={avisoCuraduria}
           />
         ) : (
           <MainCargando />
@@ -731,40 +763,228 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
           </button>
         </div>
       )}
+
+      {/* Modal de confirmación al aprobar UN caso: el impacto con CIFRAS reales del backend. */}
+      {aprobacion && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Caso aprobado"
+          className="fixed inset-0 z-50 grid place-items-center p-9"
+          style={{ background: 'rgba(15,45,82,.52)' }}
+        >
+          <div className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-card shadow-[0_24px_60px_rgba(17,24,39,0.28)]">
+            <div className="px-6 pb-[22px] pt-6">
+              <span aria-hidden className="inline-grid h-12 w-12 place-items-center rounded-full bg-accent text-accent-foreground">
+                <Check className="h-[26px] w-[26px]" strokeWidth={2.4} />
+              </span>
+              <h2 className="mt-3.5 text-[20px] font-extrabold leading-snug tracking-[-0.02em]">
+                Caso aprobado y firmado por usted
+              </h2>
+              <p className={`mt-2 text-[13.5px] leading-relaxed ${softText}`}>
+                {aprobacion.caso.alumno} · {metaCaso(aprobacion.caso) || 'Sin módulo'}. Ya puede verlo en su
+                bitácora con su feedback.
+              </p>
+
+              <div className="mt-[18px] grid gap-2.5 sm:grid-cols-2">
+                <div className="rounded-[11px] border border-border bg-muted p-3.5">
+                  <Clock aria-hidden className="h-[18px] w-[18px] text-secondary" strokeWidth={1.75} />
+                  <p className={`${mono} mt-2 text-[22px] font-extrabold leading-none`}>
+                    +{aprobacion.cifras.horasAcreditadas} h
+                  </p>
+                  <p className="mt-1.5 text-[11.5px] leading-snug text-muted-foreground">
+                    acreditadas · lleva{' '}
+                    <span className={`${mono} font-bold text-foreground`}>
+                      {aprobacion.cifras.horasTotales} / {aprobacion.cifras.horasPrograma} h
+                    </span>
+                  </p>
+                </div>
+                <div className="rounded-[11px] border border-border bg-muted p-3.5">
+                  <BarChart3 aria-hidden className="h-[18px] w-[18px] text-secondary" strokeWidth={1.75} />
+                  <p className={`${mono} mt-2 text-[15px] font-extrabold leading-tight`}>
+                    {aprobacion.cifras.dominioLabel ?? 'Competencia'}
+                  </p>
+                  <p className="mt-1.5 text-[11.5px] leading-snug text-muted-foreground">
+                    I-AIM · se recalcula en segundo plano
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 border-t border-border bg-muted px-6 py-4">
+              <span className={`${mono} min-w-0 flex-1 text-[11.5px] text-muted-foreground`}>
+                quedan {aprobacion.cifras.casosRestantes} caso{aprobacion.cifras.casosRestantes === 1 ? '' : 's'} en su bandeja
+              </span>
+              <button
+                type="button"
+                onClick={() => cerrarAprobacion(false)}
+                className={`h-11 shrink-0 whitespace-nowrap rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+              >
+                Volver a la bandeja
+              </button>
+              <button
+                type="button"
+                onClick={() => cerrarAprobacion(true)}
+                disabled={aprobacion.cifras.casosRestantes === 0}
+                className={`h-12 shrink-0 whitespace-nowrap rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-50 ${focusRing}`}
+              >
+                Siguiente caso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Detalle del caso (reusa el visor + validación existentes) ─────────────────────
+// ── Pre-análisis de Eco del detalle (PLACEHOLDER · §7A) ───────────────────────────
+type HallazgoClaveEco = { texto: string; ancla?: string; medidoPorEco?: boolean };
+type PreAnalisisEco = {
+  escalado: boolean;
+  confianza: 'alta' | 'media' | 'baja';
+  acerto: string[];
+  omitio: string[];
+  confundio: string[];
+  veredicto: string;
+  porque: string;
+  notaSugerida: string;
+  borradorFeedback: string;
+  verdad: { hallazgosClave: HallazgoClaveEco[]; puntosAprendizaje: number; erroresComunes: number };
+};
+
+/**
+ * Pre-análisis del detalle. **PLACEHOLDER determinista** por id (Eco NO conectado · §7A):
+ * acertó/omitió/confundió, veredicto, nota y borrador son MOCK, con la estructura lista para
+ * enchufar el pipeline real (`lxp.eco_propuestas`) al final. Eco propone; el docente firma.
+ */
+function preAnalisisEco(caso: CasoValidacion): PreAnalisisEco {
+  const v = veredictoBandeja(caso);
+  const organo = caso.organo ?? 'el estudio';
+  const dx = caso.presuntivo ?? 'el diagnóstico propuesto';
+  const escalado = v.grupo === 'criterio';
+  const notaBase = v.confianza === 'alta' ? 8.8 : v.confianza === 'media' ? 8.0 : 7.0;
+  return {
+    escalado,
+    confianza: v.confianza,
+    acerto: [
+      `Identificó ${organo} y describió el hallazgo principal`,
+      'La técnica de adquisición es adecuada para el corte',
+    ],
+    omitio: [
+      'No consignó una medición clave para sostener el grado',
+      'Falta documentar la segunda proyección',
+    ],
+    confundio: escalado ? [`Sostiene ${dx} sin el dato que lo respalda`] : [],
+    veredicto: escalado ? 'Rechazar y pedir corrección' : 'Aprobar con observaciones',
+    porque: escalado
+      ? 'El diagnóstico no se sostiene sin la medición faltante'
+      : 'Cumple la rúbrica; quedan detalles menores',
+    notaSugerida: notaBase.toFixed(1),
+    borradorFeedback:
+      caso.eco?.feedbackBorrador ??
+      `Doctor(a): el reconocimiento de ${organo} es correcto y la descripción es clara. Antes de cerrar el caso, agregue la medición que falta y documente la segunda proyección; eso sostiene su diagnóstico. Corrija esos puntos y vuelva a subir el estudio.`,
+    verdad: {
+      hallazgosClave: [
+        { texto: `Hallazgo principal en ${organo}`, ancla: 'Hallazgo clave' },
+        { texto: 'Medición de referencia dentro de rango', ancla: 'Medida', medidoPorEco: true },
+      ],
+      puntosAprendizaje: 2,
+      erroresComunes: 3,
+    },
+  };
+}
+
+/** Fecha corta "13 nov" para el pie del reporte del alumno. */
+function fechaCorta(d: Date): string {
+  return new Date(d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+/** Un corte del pre-análisis (Acertó / Omitió / Confundió) — MOCK de Eco. */
+function BloqueAnalisis({
+  clase,
+  titulo,
+  items,
+}: {
+  clase: 'ok' | 'omitio' | 'confundio';
+  titulo: string;
+  items: string[];
+}) {
+  if (items.length === 0) return null;
+  const color =
+    clase === 'ok'
+      ? 'text-secondary'
+      : clase === 'omitio'
+        ? 'text-[color:var(--warning-foreground)]'
+        : 'text-[color:var(--info-foreground)]';
+  const Icono = clase === 'ok' ? Check : clase === 'omitio' ? Minus : TriangleAlert;
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <Icono aria-hidden className={`h-3.5 w-3.5 shrink-0 ${color}`} strokeWidth={2.4} />
+        <p className={`text-[11px] font-bold uppercase tracking-[0.08em] ${color}`}>{titulo}</p>
+      </div>
+      <ul className="mt-2 flex list-disc flex-col gap-1.5 pl-[21px]">
+        {items.map((t) => (
+          <li key={t} className={`text-[12.5px] leading-relaxed ${softText}`}>
+            {t}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── Detalle del caso — interior EXACTO a la spec (frames 24a/24b/24c del mock) ─────
+// REUSA: VisorEstudio (Cornerstone3D + herramientas Fase 2 anotar/medir) para el estudio;
+// ContenidoEstructuradoCasoVista/CampoReporte para "lo que reportó el alumno"; el flujo real
+// de aprobar/rechazar. ECO = PLACEHOLDER (pre-análisis, veredicto, nota, borrador, verdad).
 function DetalleCaso({
   caso,
   soloLectura,
   urge,
   feedback,
   setFeedback,
+  nota,
+  setNota,
   resultado,
-  ecoAviso,
-  analizando,
   enviando,
   volverEtiqueta,
   onVolver,
-  onAnalizar,
-  onDecidir,
+  hayAnterior,
+  haySiguiente,
+  onAnterior,
+  onSiguiente,
+  onAprobar,
+  onRechazar,
+  onBiblioteca,
+  onEstructurar,
 }: {
   caso: CasoValidacion;
   soloLectura: boolean;
   urge: boolean;
   feedback: string;
   setFeedback: (v: string) => void;
+  nota: string;
+  setNota: (v: string) => void;
   resultado: { ok: boolean; texto: string } | null;
-  ecoAviso: { ok: boolean; texto: string } | null;
-  analizando: boolean;
   enviando: boolean;
   volverEtiqueta: string;
   onVolver: () => void;
-  onAnalizar: () => void;
-  onDecidir: (d: 'aprobado' | 'rechazado') => void;
+  hayAnterior: boolean;
+  haySiguiente: boolean;
+  onAnterior: () => void;
+  onSiguiente: () => void;
+  onAprobar: () => void;
+  onRechazar: () => void;
+  onBiblioteca: () => void;
+  onEstructurar: () => void;
 }) {
+  const eco = preAnalisisEco(caso);
+  const estructurado = tieneContenidoEstructurado(caso.contenidoEstructurado);
+  const verdadRef = useRef<HTMLDivElement>(null);
+  const irAVerdad = () => verdadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   const estadoBadge =
     caso.estado === 'aprobado'
       ? { texto: 'Aprobado', clase: 'border-[#a8e0dc] bg-accent text-accent-foreground' }
@@ -774,6 +994,7 @@ function DetalleCaso({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      {/* 1 · CABECERA (fija) */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3.5">
         <button
           type="button"
@@ -791,7 +1012,11 @@ function DetalleCaso({
         </span>
         <div className="min-w-0">
           <p className="text-[14.5px] font-bold leading-tight">{caso.alumno}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">{metaCaso(caso) || 'Sin módulo'}</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">
+            {[caso.grupo, caso.modulo, caso.dominio ? DOMINIO_LABEL[caso.dominio] : null]
+              .filter(Boolean)
+              .join(' · ') || 'Sin módulo'}
+          </p>
         </div>
         {estadoBadge && (
           <span className={`inline-flex h-[26px] items-center rounded-full border px-2.5 text-[11.5px] font-bold ${estadoBadge.clase}`}>
@@ -801,61 +1026,50 @@ function DetalleCaso({
         {urge && (
           <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[11.5px] font-bold text-[color:var(--warning-foreground)]">
             <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2} />
-            {Math.floor(caso.horasEnCola / 24)} días esperando
+            {esperaCorta(caso.horasEnCola)} esperando
           </span>
         )}
-        {!soloLectura && (
-          <button
-            type="button"
-            onClick={onAnalizar}
-            disabled={analizando || !caso.grupoId}
-            title={caso.grupoId ? undefined : 'El caso no tiene grupo asociado'}
-            className={`ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white disabled:opacity-50 ${focusRing}`}
-          >
-            {analizando ? (
-              <Clock aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-            ) : (
-              <Wand2 aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-            )}
-            {caso.eco ? 'Re-analizar con Eco' : 'Analizar con Eco'}
-          </button>
+        {!soloLectura && eco.escalado && (
+          <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11.5px] font-bold text-[color:var(--info-foreground)]">
+            <Sparkles aria-hidden className="h-3 w-3" strokeWidth={1.75} />
+            Escalado por Eco · confianza {eco.confianza}
+          </span>
+        )}
+        {!soloLectura && (hayAnterior || haySiguiente) && (
+          <span className="ml-auto flex shrink-0 gap-1.5">
+            <button
+              type="button"
+              onClick={onAnterior}
+              disabled={!hayAnterior}
+              className={`h-9 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+            >
+              Caso anterior
+            </button>
+            <button
+              type="button"
+              onClick={onSiguiente}
+              disabled={!haySiguiente}
+              className={`h-9 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+            >
+              Siguiente
+            </button>
+          </span>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-        {ecoAviso && (
-          <div
-            role="status"
-            className={`mb-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 text-[12.5px] font-medium ${
-              ecoAviso.ok
-                ? 'border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
-                : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
-            }`}
-          >
-            <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
-            <span>{ecoAviso.texto}</span>
-          </div>
-        )}
-
-        {/* ── VISOR DICOM real (Cornerstone3D · §4.7) ─────────────────────── */}
-        <section className="overflow-hidden rounded-xl border border-border" style={{ background: 'var(--sidebar)' }}>
-          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
-            <span className={`${kicker} text-white/55`}>Estudio DICOM</span>
-            <span className="ml-auto flex items-center gap-2.5">
-              <span className={`${mono} text-[11px] text-white/60`}>
-                {caso.series} {caso.series === 1 ? 'pieza' : 'piezas'}
-                {caso.cineLoop ? ' · cine-loop' : ''}
-              </span>
-              <span className="inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary/[0.16] px-2.5 text-[10.5px] font-bold text-primary">
-                <Check aria-hidden className="h-2.5 w-2.5" strokeWidth={2.6} />
-                Anonimizado
-              </span>
-            </span>
-          </div>
-          {caso.estudio ? (
-            <VisorDicom estudio={caso.estudio} className="h-[360px] w-full" />
-          ) : (
-            <div className="relative grid h-[260px] place-items-center" style={{ background: '#0a2140' }}>
+      {/* 2 · CUERPO con scroll: visor → dos columnas → feedback */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-[18px]">
+        {/* VISOR real (Cornerstone3D · Fase 2: anotar/medir) — se monta bajo demanda */}
+        {caso.estudio ? (
+          <VisorEstudio
+            casoId={caso.id}
+            tabla="bitacora_casos"
+            soloLectura={soloLectura}
+            className="h-[58vh] min-h-[480px] w-full rounded-xl"
+          />
+        ) : (
+          <section className="overflow-hidden rounded-xl" style={{ background: 'var(--sidebar)' }}>
+            <div className="relative grid h-[300px] place-items-center" style={{ background: '#0a2140' }}>
               <span
                 aria-hidden
                 className="absolute inset-0"
@@ -872,94 +1086,178 @@ function DetalleCaso({
                 </p>
               </div>
             </div>
-          )}
-        </section>
-
-        {/* ── Pre-análisis de Eco (real · §7A) ────────────────────────────── */}
-        {caso.eco && (
-          <section
-            className="mt-4 rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest"
-            style={{ background: '#fbfbff' }}
-          >
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
-                <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
-              </span>
-              <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-análisis de Eco</p>
-              <span
-                className={`inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[10.5px] font-bold ${
-                  caso.eco.clasificacion === 'listo'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
-                }`}
-              >
-                {caso.eco.clasificacion === 'listo' ? 'Listo para confirmar' : 'Requiere tu criterio'}
-              </span>
-              <span className={`ml-auto ${mono} text-[11.5px] text-muted-foreground`}>
-                confianza {Math.round(caso.eco.confianza * 100)}%
-                {caso.eco.notaSugerida != null
-                  ? ` · coincide ${Math.round(caso.eco.notaSugerida)}/100`
-                  : ''}
-              </span>
-            </div>
-
-            {caso.eco.criterios.length > 0 && (
-              <ul className="mt-3 space-y-1.5">
-                {caso.eco.criterios.map((cr, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12.5px]">
-                    <span className={`${mono} mt-0.5 shrink-0 font-bold text-secondary`}>{Math.round(cr.puntaje)}</span>
-                    <span className={softText}>
-                      <span className="font-semibold text-foreground">{cr.criterio}</span>
-                      {cr.comentario ? ` — ${cr.comentario}` : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {caso.eco.omisiones.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {caso.eco.omisiones.map((o, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--warning-foreground)]"
-                  >
-                    Omisión: {o}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <p className={`mt-3 text-[11.5px] leading-snug text-muted-foreground`}>
-              <Sparkles aria-hidden className="mr-1 inline h-3 w-3 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-              Eco propone contra la verdad del caso; usted firma.
-            </p>
           </section>
         )}
 
-        {/* lo que reportó el alumno */}
-        <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">
-          <p className={`${kicker} text-muted-foreground`}>Lo que reportó el alumno</p>
-          {(
-            [
-              ['Hallazgos', caso.hallazgos],
-              ['Diagnóstico presuntivo', caso.presuntivo],
-            ] as const
-          ).map(([t, v]) => (
-            <div key={t} className="mt-3.5">
-              <p className="text-[11px] font-bold">{t}</p>
-              <p className={`mt-1.5 text-[13px] leading-relaxed ${softText}`}>
-                {v || <span className="italic text-muted-foreground">Sin capturar</span>}
-              </p>
-            </div>
-          ))}
-          <p className={`${mono} mt-4 border-t border-border pt-3 text-[11.5px] text-muted-foreground`}>
-            en cola desde {haceCuanto(caso.creadoEn)} · acredita {caso.horas} h
-          </p>
-        </section>
+        {/* 3 · DOS COLUMNAS: alumno (1fr) · Eco (1.1fr) */}
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          {/* a) LO QUE REPORTÓ EL ALUMNO (solo lectura · verdad estructurada / texto) */}
+          <section className="rounded-xl border border-border bg-card p-[18px] shadow-rest">
+            <p className={`${kicker} text-muted-foreground`}>Lo que reportó el alumno</p>
+            {estructurado ? (
+              <ContenidoEstructuradoCasoVista
+                contenido={caso.contenidoEstructurado!}
+                modo="previa"
+                className="mt-3.5"
+              />
+            ) : (
+              (
+                [
+                  ['Hallazgos', caso.hallazgos],
+                  ['Diagnóstico presuntivo', caso.presuntivo],
+                ] as const
+              ).map(([t, v]) => (
+                <div key={t} className="mt-3.5">
+                  <p className="text-[11px] font-bold">{t}</p>
+                  <p className={`mt-1.5 text-[13px] leading-relaxed ${softText}`}>
+                    {v || <span className="italic text-muted-foreground">Sin capturar</span>}
+                  </p>
+                </div>
+              ))
+            )}
+            <p className={`${mono} mt-4 border-t border-border pt-3 text-[11.5px] text-muted-foreground`}>
+              subido el {fechaCorta(caso.creadoEn)} · {caso.series} {caso.series === 1 ? 'pieza' : 'piezas'}
+              {caso.cineLoop ? ' · 1 loop' : ''}
+            </p>
+          </section>
 
+          {/* b) PRE-ANÁLISIS DE ECO (PLACEHOLDER) */}
+          <section
+            className="rounded-xl border border-[color:var(--info-border)] p-[18px] shadow-rest"
+            style={{ background: '#fbfbff' }}
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
+              >
+                <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+              </span>
+              <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-análisis de Eco</p>
+              <span className="ml-auto inline-flex h-[22px] items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)]">
+                Contra la verdad del caso
+              </span>
+            </div>
+
+            <div className="mt-3.5 flex flex-col gap-3.5">
+              <BloqueAnalisis clase="ok" titulo="Acertó" items={eco.acerto} />
+              <BloqueAnalisis clase="omitio" titulo="Omitió" items={eco.omitio} />
+              <BloqueAnalisis clase="confundio" titulo="Confundió" items={eco.confundio} />
+            </div>
+
+            {/* Veredicto sugerido */}
+            <div className="mt-4 flex items-center gap-3 rounded-[11px] border border-border bg-card px-3.5 py-3">
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                  Veredicto sugerido
+                </span>
+                <span className="mt-1 block text-[13.5px] font-bold">{eco.veredicto}</span>
+                <span className="mt-0.5 block text-[11.5px] text-muted-foreground">{eco.porque}</span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className={`${mono} block text-[26px] font-extrabold leading-none`}>{eco.notaSugerida}</span>
+                <span className={`${mono} mt-1 block text-[10.5px] text-muted-foreground`}>nota sugerida</span>
+              </span>
+            </div>
+
+            {/* Verdad del caso (la usa el simulador) */}
+            <div ref={verdadRef} className="mt-4 scroll-mt-4 border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em]">Verdad del caso</p>
+                <span className="inline-flex h-[21px] items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
+                  La usa el simulador
+                </span>
+                {!soloLectura && (
+                  <button
+                    type="button"
+                    onClick={onEstructurar}
+                    className={`ml-auto inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+                  >
+                    <ListTree aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    Estructurar
+                  </button>
+                )}
+              </div>
+              <p className={`mt-2 text-[11.5px] leading-relaxed ${softText}`}>
+                Usted es quien tiene el criterio: confirme lo que midió Eco o corríjalo. Esto es contra lo
+                que se juzgan los próximos casos y lo que entrena al simulador.
+              </p>
+
+              <p className="mt-3.5 text-[11px] font-bold">Hallazgos clave</p>
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {eco.verdad.hallazgosClave.map((hc, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2.5 rounded-[10px] border border-border bg-card px-2.5 py-2.5"
+                  >
+                    <span aria-hidden className="mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full bg-primary" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-medium leading-relaxed">{hc.texto}</span>
+                      {hc.ancla && (
+                        <span
+                          className={`mt-1.5 inline-flex h-5 items-center gap-1.5 rounded-full px-1.5 text-[10px] font-bold ${
+                            hc.medidoPorEco
+                              ? 'bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+                              : 'bg-accent text-accent-foreground'
+                          }`}
+                        >
+                          {hc.medidoPorEco && <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={1.75} />}
+                          {hc.ancla}
+                          {hc.medidoPorEco && ' · medida por Eco'}
+                        </span>
+                      )}
+                    </span>
+                    {!soloLectura && (
+                      <button
+                        type="button"
+                        aria-label={`Editar: ${hc.texto}`}
+                        onClick={onEstructurar}
+                        className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
+                      >
+                        <Pencil aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+                {!soloLectura && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={onEstructurar}
+                      className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-[color:var(--track)] bg-card text-[12px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
+                    >
+                      <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
+                      Agregar hallazgo clave
+                    </button>
+                  </li>
+                )}
+              </ul>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onEstructurar}
+                  disabled={soloLectura}
+                  className={`inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
+                >
+                  {eco.verdad.puntosAprendizaje} puntos de aprendizaje
+                </button>
+                <button
+                  type="button"
+                  onClick={onEstructurar}
+                  disabled={soloLectura}
+                  className={`inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-2.5 text-[12px] font-semibold text-[color:var(--warning-foreground)] disabled:opacity-60 ${focusRing}`}
+                >
+                  <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2} />
+                  {eco.verdad.erroresComunes} errores comunes
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* 4 · FEEDBACK PARA EL ALUMNO */}
         {soloLectura ? (
-          /* Devolución YA asentada (estudio aprobado/devuelto): solo lectura. */
           <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">
             <p className={`${kicker} text-muted-foreground`}>
               {caso.estado === 'aprobado' ? 'Comentario al validar' : 'Feedback para el alumno'}
@@ -973,30 +1271,36 @@ function DetalleCaso({
             </p>
           </section>
         ) : (
-          /* feedback editable */
           <section className="mt-4 rounded-xl border border-border bg-card p-[18px] shadow-rest">
             <div className="flex flex-wrap items-center gap-2.5">
               <p className={`${kicker} text-muted-foreground`}>Feedback para el alumno</p>
-              {caso.eco?.feedbackBorrador && (
-                <button
-                  type="button"
-                  onClick={() => setFeedback(caso.eco!.feedbackBorrador ?? '')}
-                  className={`inline-flex h-[22px] items-center gap-1.5 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white ${focusRing}`}
-                >
-                  <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={1.75} />
-                  Usar borrador de Eco
-                </button>
-              )}
+              <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10.5px] font-bold text-[color:var(--info-foreground)]">
+                <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={1.75} />
+                Borrador de Eco
+              </span>
+              {/* PLACEHOLDER: reescribir con Eco (pendiente de conectar el pipeline · §7A). */}
+              <span className="ml-auto flex gap-1.5">
+                {(['Más breve', 'Más exigente'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setFeedback(reescribirBorrador(feedback, t))}
+                    className={`h-8 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </span>
             </div>
             <textarea
               rows={4}
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
               placeholder="Escriba su devolución. Al rechazar es obligatoria: dígale al alumno qué corregir."
-              className="mt-3 w-full resize-none rounded-[11px] border border-border bg-muted px-3.5 py-3 text-[13px] leading-relaxed text-foreground outline-none transition-colors focus:border-secondary"
+              className="mt-3 w-full resize-none rounded-[11px] border border-border bg-muted px-3.5 py-3 text-[13px] leading-[1.65] text-foreground outline-none transition-colors focus:border-secondary"
             />
             <p className="mt-2.5 text-[11.5px] text-muted-foreground">
-              El alumno recibe exactamente lo que usted firme.
+              Puede editarlo libremente: el alumno recibe exactamente lo que usted firme.
             </p>
           </section>
         )}
@@ -1020,19 +1324,49 @@ function DetalleCaso({
         )}
       </div>
 
-      {/* barra de firma (solo si el estudio sigue pendiente) */}
+      {/* 5 · BARRA DE FIRMA (fija) */}
       {!soloLectura && (
         <div className="flex shrink-0 flex-wrap items-center gap-3.5 border-t border-border bg-card px-5 py-3.5">
-          <p className="min-w-[200px] flex-1 text-[11.5px] leading-snug text-muted-foreground">
+          <label className="flex shrink-0 items-center gap-2.5">
+            <span className="text-[11.5px] font-bold">Nota</span>
+            <input
+              type="text"
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+              aria-label="Nota del caso"
+              className={`${mono} h-11 w-[74px] rounded-[10px] border border-border bg-card px-3 text-center text-[15px] font-bold text-foreground outline-none transition-colors focus:border-secondary`}
+            />
+          </label>
+          <p className="min-w-[180px] flex-1 text-[11.5px] leading-snug text-muted-foreground">
             <Sparkles aria-hidden className="mr-1 inline h-3 w-3 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-            Eco propone; <span className="font-bold text-foreground">usted firma</span>. Al aprobar
-            se acreditan <span className={`${mono} font-bold text-foreground`}>{caso.horas} h</span> y se
-            recalcula su competencia I-AIM.
+            Eco propone; <span className="font-bold text-foreground">usted firma</span>. Al aprobar se
+            acreditan <span className={`${mono} font-bold text-foreground`}>{caso.horas} h</span> y se
+            actualiza su competencia I-AIM.
           </p>
+          {/* Curaduría (agrupada; nunca entre la nota y la decisión) */}
+          <span className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={irAVerdad}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            >
+              <ListTree aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Verdad del caso
+            </button>
+            <button
+              type="button"
+              onClick={onBiblioteca}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            >
+              <BookCopy aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Agregar a Biblioteca
+            </button>
+          </span>
+          {/* Decisión (siempre a la derecha) */}
           <span className="ml-auto flex shrink-0 items-center gap-2.5">
             <button
               type="button"
-              onClick={() => onDecidir('rechazado')}
+              onClick={onRechazar}
               disabled={enviando}
               className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-bold text-foreground transition-colors hover:bg-muted disabled:opacity-50 ${focusRing}`}
             >
@@ -1041,7 +1375,7 @@ function DetalleCaso({
             </button>
             <button
               type="button"
-              onClick={() => onDecidir('aprobado')}
+              onClick={onAprobar}
               disabled={enviando}
               className={`inline-flex h-12 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-50 ${focusRing}`}
             >
@@ -1057,6 +1391,21 @@ function DetalleCaso({
       )}
     </div>
   );
+}
+
+/**
+ * Reescritura del borrador (PLACEHOLDER de "Más breve / Más exigente"): un ajuste local del
+ * texto, sin llamar a Eco. Cuando Eco se conecte (§7A), esto pasará por el pipeline real.
+ */
+function reescribirBorrador(texto: string, modo: 'Más breve' | 'Más exigente'): string {
+  const base = texto.trim();
+  if (modo === 'Más breve') {
+    const primera = base.split(/(?<=\.)\s+/)[0] ?? base;
+    return primera;
+  }
+  return base
+    ? `${base}\n\nSea riguroso: no cierre el caso hasta corregir cada punto señalado y volver a subir el estudio.`
+    : base;
 }
 
 // ── Estados del área principal ────────────────────────────────────────────────────
