@@ -1,5 +1,7 @@
 import 'server-only';
 import { comoAlumno } from './db.server';
+import { gruposDelAlumno } from './campus/inscripcion';
+import { firmarLecturaImagen } from './media/firmar-imagenes.server';
 
 /**
  * Consultas del Campus del alumno. TODAS corren con RLS (rol authenticated) vía
@@ -50,10 +52,11 @@ export async function getHomeData(userId: string) {
       tipo: string;
       modulo: string;
       programa: string;
+      programa_id: string;
       imagen: string | null;
     };
 
-    const ultima = await sql<(LecCont & { mo: number; lo: number; completado: boolean; programa_id: string })[]>`
+    const ultima = await sql<(LecCont & { mo: number; lo: number; completado: boolean })[]>`
       select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
              pr.nombre as programa, pr.imagen_url as imagen,
              m.orden as mo, l.orden as lo, rp.completado, pr.id as programa_id
@@ -69,11 +72,11 @@ export async function getHomeData(userId: string) {
     if (ultima[0]) {
       const u = ultima[0];
       if (!u.completado) {
-        continuar = { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, imagen: u.imagen };
+        continuar = { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, programa_id: u.programa_id, imagen: u.imagen };
       } else {
         const sig = await sql<LecCont[]>`
           select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
-                 pr.nombre as programa, pr.imagen_url as imagen
+                 pr.nombre as programa, pr.id as programa_id, pr.imagen_url as imagen
           from lxp.lecciones l
           join lxp.modulos m on m.id = l.modulo_id
           join lxp.programas pr on pr.id = m.programa_id
@@ -84,12 +87,12 @@ export async function getHomeData(userId: string) {
               where rp2.leccion_id = l.id and rp2.alumno_id = ${userId} and rp2.completado)
           order by m.orden, l.orden
           limit 1`;
-        continuar = sig[0] ?? { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, imagen: u.imagen };
+        continuar = sig[0] ?? { id: u.id, leccion: u.leccion, tipo: u.tipo, modulo: u.modulo, programa: u.programa, programa_id: u.programa_id, imagen: u.imagen };
       }
     } else {
       const primera = await sql<LecCont[]>`
         select l.id, l.nombre as leccion, l.tipo::text as tipo, m.nombre as modulo,
-               pr.nombre as programa, pr.imagen_url as imagen
+               pr.nombre as programa, pr.id as programa_id, pr.imagen_url as imagen
         from lxp.programas pr
         join lxp.modulos m on m.programa_id = pr.id
         join lxp.lecciones l on l.modulo_id = m.id
@@ -97,6 +100,15 @@ export async function getHomeData(userId: string) {
         order by m.orden, l.orden
         limit 1`;
       continuar = primera[0] ?? null;
+    }
+
+    // Portada: preferir la `imagen_portada` del GRUPO del alumno (mig 0036) sobre la del
+    // programa. Es una ref de storage → URL firmada (best-effort, no rompe el home).
+    if (continuar) {
+      const grupos = await gruposDelAlumno(sql, userId);
+      const refGrupo = grupos.find((g) => g.programaId === continuar!.programa_id)?.imagenPortada ?? null;
+      const portadaGrupo = await firmarLecturaImagen(refGrupo);
+      if (portadaGrupo) continuar.imagen = portadaGrupo;
     }
 
     const competencia = await sql<
