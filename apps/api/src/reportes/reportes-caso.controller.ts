@@ -1,7 +1,11 @@
 import { Body, Controller, Header, Param, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ReportesCasoService } from './reportes-caso.service';
-import { ReportesPdfService, type ImagenDicomReporte } from './reportes-pdf.service';
+import {
+  ReportesPdfService,
+  type ImagenDicomReporte,
+  type ImagenGaleriaDicomReporte,
+} from './reportes-pdf.service';
 
 /**
  * Puente reporte → caso educativo (§6/§10) + generación del PDF del reporte (§6.5). El web
@@ -28,10 +32,20 @@ export class ReportesCasoController {
   @Header('content-type', 'application/pdf')
   async generarPdf(
     @Param('id') id: string,
-    @Body() body: { userId?: string; imagenesDicom?: ImagenDicomReporte[] },
+    @Body()
+    body: {
+      userId?: string;
+      imagenesDicom?: ImagenDicomReporte[];
+      imagenesGaleriaDicom?: ImagenGaleriaDicomReporte[];
+    },
     @Res() res: Response,
   ) {
-    const bytes = await this.pdf.generar(id, body.userId ?? '', body.imagenesDicom ?? []);
+    const bytes = await this.pdf.generar(
+      id,
+      body.userId ?? '',
+      body.imagenesDicom ?? [],
+      body.imagenesGaleriaDicom ?? [],
+    );
     res.setHeader('content-type', 'application/pdf');
     res.setHeader('content-disposition', 'inline');
     res.end(Buffer.from(bytes));

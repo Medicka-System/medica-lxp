@@ -69,10 +69,13 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
       const expediente = await expedienteUnico(sql);
       const datosPaciente = { ...iniciales.datosPaciente, expediente, solicitante: alumno.nombre ?? '' };
 
+      // jsonb: pasar el OBJETO vía `sql.json` — NO `JSON.stringify(x)::jsonb` (postgres.js
+      // vuelve a serializar el string y lo guarda DOBLE-CODIFICADO como texto JSON, dejando
+      // `valores`/`impresion` inalcanzables → el PDF salía vacío).
       const [row] = await sql<{ id: string }[]>`
         insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)
-        values (${alumno.userId}, ${plantillaId}, ${JSON.stringify(datosPaciente)}::jsonb,
-                ${JSON.stringify(contenido)}::jsonb, 'borrador')
+        values (${alumno.userId}, ${plantillaId}, ${sql.json(datosPaciente)},
+                ${sql.json(contenido as Parameters<typeof sql.json>[0])}, 'borrador')
         returning id`;
       return row.id;
     });
@@ -93,10 +96,11 @@ export async function guardarBorrador(
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
     await comoAlumno(alumno.userId, async (sql) => {
+      // jsonb vía `sql.json` (objeto), no `JSON.stringify(x)::jsonb` — ver crearReporte.
       await sql`
         update lxp.reportes
-        set datos_paciente = ${JSON.stringify(datosPaciente)}::jsonb,
-            contenido = ${JSON.stringify(contenido)}::jsonb
+        set datos_paciente = ${sql.json(datosPaciente)},
+            contenido = ${sql.json(contenido as Parameters<typeof sql.json>[0])}
         where id = ${id} and id_medico = ${alumno.userId}`;
     });
     revalidatePath(REVALIDAR);
@@ -138,6 +142,8 @@ export async function enviarReporte(id: string): Promise<ResultadoAccion> {
 }
 
 export type ImagenDicomReporte = { campoId: string; pngBase64: string };
+/** Imagen `.dcm` de una GALERÍA, rasterizada en el cliente (PNG) e indexada por su `ref`. */
+export type ImagenGaleriaDicomReporte = { ref: string; pngBase64: string };
 export type ResultadoPdf =
   | { ok: true; pdfBase64: string; filename: string }
   | { ok: false; error: string };
@@ -152,6 +158,7 @@ export type ResultadoPdf =
 export async function generarPdf(
   id: string,
   imagenesDicom: ImagenDicomReporte[] = [],
+  imagenesGaleriaDicom: ImagenGaleriaDicomReporte[] = [],
 ): Promise<ResultadoPdf> {
   const alumno = await getSesionAlumno();
   const propio = await comoAlumno(alumno.userId, (sql) =>
@@ -164,7 +171,7 @@ export async function generarPdf(
     const res = await fetch(`${apiBase()}/reportes/${encodeURIComponent(id)}/pdf`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: alumno.userId, imagenesDicom }),
+      body: JSON.stringify({ userId: alumno.userId, imagenesDicom, imagenesGaleriaDicom }),
       cache: 'no-store',
     });
     if (!res.ok) return { ok: false, error: `No se pudo generar el PDF (HTTP ${res.status}).` };

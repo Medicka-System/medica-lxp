@@ -51,6 +51,43 @@ export interface ImagenDicomReporte {
   pngBase64: string;
 }
 
+/** Imagen `.dcm` de una GALERÍA rasterizada en el cliente (PNG), indexada por su `ref`. */
+export interface ImagenGaleriaDicomReporte {
+  ref: string;
+  pngBase64: string;
+}
+
+/**
+ * Coacciona un valor jsonb a objeto. postgres.js ya parsea jsonb, pero filas viejas quedaron
+ * DOBLE-CODIFICADAS (string JSON dentro del jsonb, por un `JSON.stringify(x)::jsonb` previo);
+ * aquí se re-parsea hasta 3 niveles para que el PDF nunca salga vacío por la forma del dato.
+ */
+function comoObj<T>(v: unknown): T | null {
+  let x: unknown = v;
+  for (let i = 0; i < 3 && typeof x === 'string'; i++) {
+    try {
+      x = JSON.parse(x);
+    } catch {
+      return null;
+    }
+  }
+  return x && typeof x === 'object' ? (x as T) : null;
+}
+
+/** Representación LEGIBLE genérica de un valor de tipo desconocido (fallback data-driven). */
+function valorGenerico(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? 'Sí' : 'No';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+  if (typeof v === 'string') return v.trim();
+  try {
+    const s = JSON.stringify(v);
+    return s && s !== '{}' && s !== '[]' && s !== 'null' ? s : '';
+  } catch {
+    return '';
+  }
+}
+
 /* ───────────────────────── lectores de valores (autocontenidos) ───────────────────────── */
 function leerTexto(v: unknown): string {
   if (typeof v === 'string') return v;
@@ -199,7 +236,12 @@ export class ReportesPdfService {
     private readonly storage: StorageService,
   ) {}
 
-  async generar(reporteId: string, userId: string, imagenesDicom: ImagenDicomReporte[]): Promise<Uint8Array> {
+  async generar(
+    reporteId: string,
+    userId: string,
+    imagenesDicom: ImagenDicomReporte[],
+    imagenesGaleria: ImagenGaleriaDicomReporte[] = [],
+  ): Promise<Uint8Array> {
     const sql = this.db.sql;
     // Candado de propiedad: id_medico = usuario (mismo filtro que getReporte). Si no es suyo
     // (o no existe) → 404, sin revelar existencia.
@@ -212,12 +254,15 @@ export class ReportesPdfService {
       limit 1`;
     if (!r) throw new NotFoundException('Reporte no encontrado.');
 
-    const estructura: Estructura = r.estructura ?? { secciones: [] };
-    const valores = r.contenido?.valores ?? {};
-    const impresion = r.contenido?.impresion ?? '';
-    const paciente = r.datos_paciente ?? {};
-    const folio = typeof r.contenido?.folio === 'string' ? r.contenido.folio : 'RPT-0000';
+    // Parse defensivo (tolera filas viejas doble-codificadas · ver `comoObj`).
+    const estructura: Estructura = comoObj<Estructura>(r.estructura) ?? { secciones: [] };
+    const contenido = comoObj<Exclude<Contenido, null>>(r.contenido);
+    const valores = contenido?.valores ?? {};
+    const impresion = contenido?.impresion ?? '';
+    const paciente = comoObj<Record<string, unknown>>(r.datos_paciente) ?? {};
+    const folio = typeof contenido?.folio === 'string' ? contenido.folio : 'RPT-0000';
     const dicomPorCampo = new Map(imagenesDicom.map((i) => [i.campoId, i.pngBase64]));
+    const galeriaPorRef = new Map(imagenesGaleria.map((i) => [i.ref, i.pngBase64]));
 
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -226,7 +271,7 @@ export class ReportesPdfService {
 
     await this.membrete(doc, r, folio);
     this.datosEstudio(doc, estructura, paciente);
-    await this.hallazgos(doc, estructura, valores, dicomPorCampo);
+    await this.hallazgos(doc, estructura, valores, dicomPorCampo, galeriaPorRef);
     this.impresionDiagnostica(doc, impresion);
     this.firma(doc, paciente);
     this.pieDePagina(doc);
@@ -328,6 +373,7 @@ export class ReportesPdfService {
     estructura: Estructura,
     valores: Record<string, unknown>,
     dicomPorCampo: Map<string, string>,
+    galeriaPorRef: Map<string, string>,
   ) {
     const secciones = (estructura.secciones ?? []).filter((s) => s.tipo !== 'encabezado');
     if (secciones.length === 0) return;
@@ -347,7 +393,7 @@ export class ReportesPdfService {
           continue;
         }
         if (c.tipo === 'galeria') {
-          for (const img of leerGaleria(valores[c.id])) await this.dibujarGaleria(doc, img);
+          for (const img of leerGaleria(valores[c.id])) await this.dibujarGaleria(doc, img, galeriaPorRef);
           continue;
         }
         this.campoTexto(doc, c, valores[c.id]);
@@ -375,7 +421,13 @@ export class ReportesPdfService {
       return;
     }
     const txt = leerTexto(valor).trim();
-    if (!txt) return;
+    if (!txt) {
+      // Fallback GENÉRICO (data-driven §BUG2): un tipo que el motor no conoce, o un valor no
+      // textual, se rinde como "etiqueta: valor" en vez de romper u omitirse en silencio.
+      const generico = valorGenerico(valor);
+      if (generico) doc.texto(etiqueta ? `${etiqueta}: ${generico}` : generico, { size: 10.5, gap: 2 });
+      return;
+    }
     const unidad = c.tipo === 'medida' && c.unidad ? ` ${c.unidad}` : '';
     if (etiqueta) {
       // Etiqueta en negrita + valor en la misma corrida cuando es corto; párrafo si es largo.
@@ -421,8 +473,17 @@ export class ReportesPdfService {
     }
   }
 
-  private async dibujarGaleria(doc: Doc, img: ImgGaleria) {
-    if (img.ext === 'dcm') return; // .dcm no es embebible server-side (sin raster)
+  private async dibujarGaleria(doc: Doc, img: ImgGaleria, galeriaPorRef: Map<string, string>) {
+    if (img.ext === 'dcm') {
+      // .dcm no tiene raster server-side: el cliente lo rasterizó (Cornerstone → PNG) y lo
+      // mandó indexado por `ref` (§ Opción 1). Si no llegó, se omite antes que romper el PDF.
+      const b64 = galeriaPorRef.get(img.ref);
+      if (b64) {
+        const bytes = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        await this.embeber(doc, bytes, 'png', img.pie);
+      }
+      return;
+    }
     const url = this.storage.firmarLectura(img.ref);
     const bytes = await this.fetchBytes(url);
     if (bytes) await this.embeber(doc, bytes, img.ext, img.pie);

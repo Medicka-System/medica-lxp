@@ -14,9 +14,11 @@ import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
 import { imageIdWeb } from '@/components/dicom/engine/web-image-loader';
 import { registrarEspaciadoImagen } from '@/components/dicom/engine/espaciado-ultrasonido';
 import { renderImagenesPng } from '@/components/dicom/engine/motor-cornerstone';
-import { leerRefDicom, type EstructuraPlantilla } from '@/lib/reportes/estructura';
+import { leerGaleria, leerRefDicom, type EstructuraPlantilla } from '@/lib/reportes/estructura';
+import { firmarLecturaImagenes } from '@/lib/reportes/imagenes-acciones';
 
 export type ImagenDicomRasterizada = { campoId: string; pngBase64: string };
+export type ImagenGaleriaRasterizada = { ref: string; pngBase64: string };
 
 export async function rasterizarDicomDelReporte(
   estructura: EstructuraPlantilla,
@@ -66,6 +68,48 @@ export async function rasterizarDicomDelReporte(
   entradas.forEach((e, i) => {
     const url = pngs[i];
     if (url) salida.push({ campoId: e.campoId, pngBase64: url.replace(/^data:image\/\w+;base64,/, '') });
+  });
+  return salida;
+}
+
+/**
+ * Rasteriza las imágenes `.dcm` de las GALERÍAS del reporte para el PDF (mismo principio que
+ * arriba · § Opción 1). Un `.dcm` de galería vive en object storage (no en un caso), así que
+ * se firma su lectura (`firmarLecturaImagenes`), se arma el `imageId` wadouri y se rasteriza a
+ * PNG. Las imágenes JPG/PNG de galería NO pasan por aquí: el `api` las embebe server-side.
+ */
+export async function rasterizarGaleriaDicomDelReporte(
+  reporteId: string,
+  estructura: EstructuraPlantilla,
+  valores: Record<string, unknown>,
+): Promise<ImagenGaleriaRasterizada[]> {
+  // 1) refs .dcm de todos los campos galeria con imágenes.
+  const refs: string[] = [];
+  for (const s of estructura.secciones) {
+    if (s.tipo === 'encabezado') continue;
+    for (const c of s.campos) {
+      if (c.tipo !== 'galeria') continue;
+      for (const img of leerGaleria(valores[c.id])) {
+        if (img.ext === 'dcm' && img.ref) refs.push(img.ref);
+      }
+    }
+  }
+  if (refs.length === 0) return [];
+
+  // 2) Firmar la lectura (candado de propiedad en el server action) y armar imageIds wadouri.
+  const firma = await firmarLecturaImagenes(reporteId, refs);
+  if (!firma.ok) return [];
+  const pares = refs
+    .map((ref) => ({ ref, url: firma.datos.urls[ref] }))
+    .filter((p): p is { ref: string; url: string } => typeof p.url === 'string' && p.url.length > 0);
+  if (pares.length === 0) return [];
+
+  // 3) Rasterizar y mapear por ref.
+  const pngs = await renderImagenesPng(pares.map((p) => `wadouri:${p.url}`));
+  const salida: ImagenGaleriaRasterizada[] = [];
+  pares.forEach((p, i) => {
+    const url = pngs[i];
+    if (url) salida.push({ ref: p.ref, pngBase64: url.replace(/^data:image\/\w+;base64,/, '') });
   });
   return salida;
 }

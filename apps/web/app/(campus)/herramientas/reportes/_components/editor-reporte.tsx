@@ -47,7 +47,11 @@ import {
   type ImagenDicomReporte,
   type ResultadoPdf,
 } from '../_acciones';
-import { rasterizarDicomDelReporte } from '../_rasterizar-dicom';
+import {
+  rasterizarDicomDelReporte,
+  rasterizarGaleriaDicomDelReporte,
+  type ImagenGaleriaRasterizada,
+} from '../_rasterizar-dicom';
 import {
   ETIQUETA_ESTADO,
   type CasoDicomOpcion,
@@ -84,6 +88,47 @@ function base64ABlob(b64: string, tipo: string): Blob {
   return new Blob([bytes], { type: tipo });
 }
 
+/**
+ * Dispara el diálogo de impresión sobre un PDF (blob same-origin) usando un iframe oculto.
+ * Devuelve `true` si logró llamar a `print()`, `false` si el navegador no lo permite (el
+ * llamador cae entonces a abrir el PDF en una pestaña). El iframe se limpia tras un rato para
+ * no cortar el diálogo de impresión abierto.
+ */
+function imprimirDesdeUrl(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      let resuelto = false;
+      const done = (ok: boolean) => {
+        if (!resuelto) {
+          resuelto = true;
+          resolve(ok);
+        }
+      };
+      iframe.onload = () => {
+        try {
+          const w = iframe.contentWindow;
+          if (!w) return done(false);
+          w.focus();
+          w.print();
+          done(true);
+          setTimeout(() => iframe.remove(), 60_000);
+        } catch {
+          iframe.remove();
+          done(false);
+        }
+      };
+      // Si `onload` nunca dispara (algunos navegadores con PDF), cae al fallback.
+      setTimeout(() => done(false), 8000);
+      iframe.src = url;
+      document.body.appendChild(iframe);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 export function EditorReporte({
   reporte,
   casosDicom,
@@ -105,6 +150,11 @@ export function EditorReporte({
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pickerCampo, setPickerCampo] = useState<string | null>(null);
   const [casoDialog, setCasoDialog] = useState(false);
+  const [finalizarDialog, setFinalizarDialog] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [mailDialog, setMailDialog] = useState(false);
+  const [mailTo, setMailTo] = useState('');
+  const [mailAsunto, setMailAsunto] = useState('');
   const [pdfOcupado, setPdfOcupado] = useState(false);
   const [pendiente, iniciar] = useTransition();
 
@@ -171,26 +221,53 @@ export function EditorReporte({
       if (f.ok && !reporte.casoGeneradoId) setCasoDialog(true);
       return f;
     }, 'Reporte finalizado.');
-  const onEnviar = () =>
-    conAccion(async () => {
+  // Enviar por correo (menú de 3 puntos · BUG 4): captura correo + asunto. El ENVÍO real por
+  // mail es dominio PENDIENTE (§8/§9); por ahora se guarda, se marca como enviado y se confirma
+  // la captura — nunca se fuerza el correo desde el botón principal.
+  function onEnviarMail() {
+    const correo = mailTo.trim();
+    if (!correo) return;
+    setMensaje(null);
+    iniciar(async () => {
       const g = await guardarBorrador(reporte.id, paciente, armarContenido());
-      if (!g.ok) return g;
-      return enviarReporte(reporte.id);
-    }, 'Reporte marcado como enviado al paciente.');
+      if (!g.ok) {
+        setMensaje({ tipo: 'error', texto: g.error ?? 'No se pudo guardar el reporte.' });
+        return;
+      }
+      const res = await enviarReporte(reporte.id);
+      setMailDialog(false);
+      if (res.ok) {
+        setMensaje({
+          tipo: 'ok',
+          texto: `Reporte marcado como enviado a ${correo} (envío por correo pendiente de conectar).`,
+        });
+        router.refresh();
+      } else {
+        setMensaje({ tipo: 'error', texto: res.error ?? 'No se pudo completar la acción.' });
+      }
+    });
+  }
   // ── PDF / Imprimir: un solo documento (§6.5). Guarda el estado actual, rasteriza en el
-  //    cliente las imágenes DICOM (visor Cornerstone → PNG) y pide el PDF al `api`; el mismo
-  //    blob se descarga o se abre en pestaña nueva para imprimir desde el visor del navegador.
+  //    cliente las imágenes DICOM (campos imagen/dicom Y .dcm de galería · visor Cornerstone →
+  //    PNG) y pide el PDF al `api`; el mismo blob se descarga o se imprime.
   async function construirPdf(): Promise<ResultadoPdf> {
     await guardarBorrador(reporte.id, paciente, armarContenido());
     let imagenesDicom: ImagenDicomReporte[] = [];
+    let imagenesGaleriaDicom: ImagenGaleriaRasterizada[] = [];
     try {
       imagenesDicom = await rasterizarDicomDelReporte(estructura, valores);
     } catch {
       /* si el visor no pudo rasterizar, el PDF sale con el resto del contenido */
     }
-    return generarPdf(reporte.id, imagenesDicom);
+    try {
+      imagenesGaleriaDicom = await rasterizarGaleriaDicomDelReporte(reporte.id, estructura, valores);
+    } catch {
+      /* idem para las imágenes .dcm de galería */
+    }
+    return generarPdf(reporte.id, imagenesDicom, imagenesGaleriaDicom);
   }
-  function usarPdf(modo: 'descargar' | 'imprimir') {
+
+  function descargarPdf() {
     setMensaje(null);
     setPdfOcupado(true);
     void (async () => {
@@ -201,14 +278,38 @@ export function EditorReporte({
           return;
         }
         const url = URL.createObjectURL(base64ABlob(res.pdfBase64, 'application/pdf'));
-        if (modo === 'descargar') {
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = res.filename;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setMensaje({ tipo: 'ok', texto: 'PDF descargado.' });
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setMensaje({ tipo: 'ok', texto: 'PDF descargado.' });
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } finally {
+        setPdfOcupado(false);
+      }
+    })();
+  }
+
+  // Imprimir (BUG 4): abre el diálogo de impresión DIRECTO sobre el PDF vía un iframe oculto
+  // same-origin (blob). En navegadores Chromium (Chrome/Edge) imprime el formato del PDF sin
+  // pasos extra; si el navegador no deja disparar print() sobre el PDF (p. ej. Firefox), cae a
+  // abrir el PDF en una pestaña para imprimir desde ahí.
+  function imprimirPdf() {
+    setMensaje(null);
+    setPdfOcupado(true);
+    void (async () => {
+      try {
+        const res = await construirPdf();
+        if (!res.ok) {
+          setMensaje({ tipo: 'error', texto: res.error });
+          return;
+        }
+        const url = URL.createObjectURL(base64ABlob(res.pdfBase64, 'application/pdf'));
+        const impreso = await imprimirDesdeUrl(url);
+        if (impreso) {
+          setMensaje({ tipo: 'ok', texto: 'Se abrió el diálogo de impresión.' });
         } else {
           window.open(url, '_blank', 'noopener,noreferrer');
           setMensaje({ tipo: 'ok', texto: 'PDF abierto en una pestaña nueva para imprimir.' });
@@ -219,7 +320,7 @@ export function EditorReporte({
       }
     })();
   }
-  const onPdf = () => usarPdf('descargar');
+  const onPdf = descargarPdf;
   function onCaso() {
     setMensaje(null);
     iniciar(async () => {
@@ -240,7 +341,7 @@ export function EditorReporte({
       }
     });
   }
-  const onImprimir = () => usarPdf('imprimir');
+  const onImprimir = imprimirPdf;
 
   function elegirEstudio(casoId: string) {
     if (pickerCampo) setValor(pickerCampo, { casoId, tabla: 'bitacora_casos' });
@@ -309,33 +410,57 @@ export function EditorReporte({
             <Download aria-hidden className="h-4 w-4" strokeWidth={1.75} />
             {pdfOcupado ? 'Generando…' : 'Exportar PDF'}
           </button>
-          {estado === 'borrador' ? (
-            <button
-              type="button"
-              onClick={onFinalizar}
-              disabled={pendiente}
-              className={`inline-flex h-12 items-center gap-2.5 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
-            >
-              Finalizar
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onEnviar}
-              disabled={pendiente || estado === 'enviado'}
-              className={`inline-flex h-12 items-center gap-2.5 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
-            >
-              <Mail aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
-              {estado === 'enviado' ? 'Enviado' : 'Enviar al paciente'}
-            </button>
-          )}
+          {/* Verde: SIEMPRE "Finalizar" (BUG 3) — abre el modal de confirmación; nunca fuerza
+              correo. Ya finalizado/enviado queda como "Finalizado" (deshabilitado). */}
           <button
             type="button"
-            aria-label="Más acciones"
-            className={`grid h-11 w-11 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            onClick={() => {
+              setMensaje(null);
+              setFinalizarDialog(true);
+            }}
+            disabled={pendiente || estado !== 'borrador'}
+            className={`inline-flex h-12 items-center gap-2.5 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
           >
-            <MoreHorizontal aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+            {estado === 'borrador' ? 'Finalizar' : 'Finalizado'}
           </button>
+          {/* Menú de 3 puntos: "Enviar por mail" (BUG 4) → modal de captura correo + asunto. */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Más acciones"
+              aria-haspopup="menu"
+              aria-expanded={menuAbierto}
+              onClick={() => setMenuAbierto((o) => !o)}
+              className={`grid h-11 w-11 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            >
+              <MoreHorizontal aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+            </button>
+            {menuAbierto && (
+              <>
+                <div className="fixed inset-0 z-20" aria-hidden onClick={() => setMenuAbierto(false)} />
+                <div
+                  role="menu"
+                  className={`absolute right-0 top-12 z-30 w-56 rounded-[12px] border border-border bg-card p-1.5 shadow-[0_8px_24px_rgba(17,24,39,.12)]`}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuAbierto(false);
+                      setMensaje(null);
+                      setMailTo('');
+                      setMailAsunto(`Reporte ${reporte.contenido.folio}`);
+                      setMailDialog(true);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-[9px] px-3 py-2.5 text-left text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+                  >
+                    <Mail aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                    Enviar por mail
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -538,6 +663,121 @@ export function EditorReporte({
               >
                 <NotebookText aria-hidden className="h-4 w-4" strokeWidth={1.9} />
                 {pendiente ? 'Generando…' : 'Sí, guardar como caso'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* diálogo: confirmar finalizar (BUG 3) — el verde abre esto; nunca finaliza directo */}
+      {finalizarDialog && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Finalizar reporte"
+          onClick={() => !pendiente && setFinalizarDialog(false)}
+        >
+          <div className={`${card} w-full max-w-[460px] p-6`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
+                <NotebookText className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">¿Finalizar el reporte?</h2>
+                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+                  Se guardan los cambios y el reporte pasa a <strong>finalizado</strong>. Podrás
+                  exportarlo en PDF, imprimirlo o enviarlo por correo. Podrás derivarlo como caso
+                  anonimizado a tu bitácora.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setFinalizarDialog(false)}
+                disabled={pendiente}
+                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFinalizarDialog(false);
+                  onFinalizar();
+                }}
+                disabled={pendiente}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+              >
+                {pendiente ? 'Finalizando…' : 'Sí, finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* diálogo: enviar por mail (BUG 4) — captura correo + asunto; envío real = stub (§8/§9) */}
+      {mailDialog && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enviar por correo"
+          onClick={() => !pendiente && setMailDialog(false)}
+        >
+          <div className={`${card} w-full max-w-[460px] p-6`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
+                <Mail className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Enviar por correo</h2>
+                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+                  Captura el correo del destinatario y el asunto. El envío real por correo está
+                  pendiente de conectar (dominio de correo · §8/§9).
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="block">
+                <span className="text-[11.5px] font-semibold text-foreground">Correo del destinatario</span>
+                <input
+                  type="email"
+                  value={mailTo}
+                  onChange={(e) => setMailTo(e.target.value)}
+                  placeholder="paciente@correo.com"
+                  className={`mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${focusRing}`}
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11.5px] font-semibold text-foreground">Asunto</span>
+                <input
+                  type="text"
+                  value={mailAsunto}
+                  onChange={(e) => setMailAsunto(e.target.value)}
+                  placeholder="Asunto del correo"
+                  className={`mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${focusRing}`}
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setMailDialog(false)}
+                disabled={pendiente}
+                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onEnviarMail}
+                disabled={pendiente || !mailTo.trim()}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+              >
+                <Mail aria-hidden className="h-4 w-4" strokeWidth={1.9} />
+                {pendiente ? 'Enviando…' : 'Enviar'}
               </button>
             </div>
           </div>

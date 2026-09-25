@@ -51,6 +51,9 @@ export function GaleriaReporte({
 }) {
   const imagenes = leerGaleria(valor);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  // Miniaturas rasterizadas de los .dcm (BUG 1): un .dcm no se muestra como <img>; se pinta
+  // con Cornerstone (wadouri) a un PNG. Los JPG/PNG siguen mostrándose con su URL firmada.
+  const [rasters, setRasters] = useState<Record<string, string>>({});
   const [subiendo, setSubiendo] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [revisar, setRevisar] = useState(false);
@@ -71,6 +74,34 @@ export function GaleriaReporte({
       vivo = false;
     };
   }, [refsKey, reporteId]);
+
+  // Rasteriza a miniatura los .dcm cuya URL firmada ya llegó (BUG 1). La key cambia cuando
+  // aparece un .dcm nuevo con URL, disparando solo entonces el render de Cornerstone.
+  const dcmPendientesKey = imagenes
+    .filter((i) => i.ext === 'dcm' && urls[i.ref] && !rasters[i.ref])
+    .map((i) => i.ref)
+    .join(',');
+  useEffect(() => {
+    const pend = dcmPendientesKey ? dcmPendientesKey.split(',') : [];
+    if (pend.length === 0) return;
+    let vivo = true;
+    (async () => {
+      // Dinámico: mantiene el WASM de Cornerstone FUERA del bundle del Studio (esta pieza la
+      // comparte `campo-reporte`); solo se carga al rasterizar un .dcm en el editor del campus.
+      const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
+      const pngs = await renderMiniaturas(pend.map((ref) => `wadouri:${urls[ref]}`));
+      if (!vivo) return;
+      const add: Record<string, string> = {};
+      pend.forEach((ref, i) => {
+        const u = pngs[i];
+        if (u) add[ref] = u;
+      });
+      if (Object.keys(add).length) setRasters((r) => ({ ...r, ...add }));
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [dcmPendientesKey]);
 
   // Acumulador local sembrado del valor comprometido: evita perder imágenes al subir
   // varias a la vez (el estado de React va desfasado entre awaits del loop).
@@ -195,7 +226,7 @@ export function GaleriaReporte({
                   key={img.ref}
                   img={img}
                   indice={i + 1}
-                  url={urls[img.ref]}
+                  url={img.ext === 'dcm' ? rasters[img.ref] : urls[img.ref]}
                   onPie={(pie) => setPie(img.ref, pie)}
                   onQuitar={() => quitar(img.ref)}
                 />
