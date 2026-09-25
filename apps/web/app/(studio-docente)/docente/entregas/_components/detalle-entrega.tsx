@@ -64,7 +64,7 @@ export function DetalleEntrega({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1240px] px-6 pb-8 pt-5">
+    <div className="mx-auto w-full max-w-[1400px] px-6 pb-8 pt-5">
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"

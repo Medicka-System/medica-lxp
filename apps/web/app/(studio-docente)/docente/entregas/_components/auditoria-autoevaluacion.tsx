@@ -24,7 +24,7 @@ export function AuditoriaAutoevaluacion({
   const reprobadas = auditoria.preguntas.filter((p) => p.aciertoPct < 60);
 
   return (
-    <div className="mx-auto w-full max-w-[1240px] px-6 pb-8 pt-5">
+    <div className="mx-auto w-full max-w-[1400px] px-6 pb-8 pt-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
           <p className="text-[15px] font-bold leading-tight">Autoevaluación · {actividad.clave}</p>

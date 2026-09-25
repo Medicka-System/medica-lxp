@@ -3,17 +3,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 /** Skeleton de Entregas: selectores + resumen + lista, con el riel de Eco a la derecha. */
 export default function CargandoEntregas() {
   return (
-    <div className="mx-auto flex w-full max-w-[1240px] gap-4 px-6 pb-8 pt-5">
+    <div className="mx-auto flex w-full max-w-[1400px] gap-4 px-6 pb-6 pt-5">
       <div className="min-w-0 flex-1 space-y-4">
         <div className="flex flex-wrap items-center gap-2.5">
           <Skeleton className="h-10 w-[200px] rounded-[10px]" />
-          <Skeleton className="h-10 w-[240px] rounded-[10px]" />
+          <Skeleton className="h-10 w-[300px] rounded-[10px]" />
           <Skeleton className="h-10 w-[220px] rounded-[10px]" />
           <Skeleton className="ml-auto h-11 w-[220px] rounded-[10px]" />
         </div>
-        <div className="flex flex-wrap gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[92px] min-w-[170px] flex-1 rounded-[11px]" />
+        <div className="flex gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-[92px] min-w-0 flex-1 rounded-[11px]" />
           ))}
         </div>
         <Skeleton className="h-11 w-full rounded-[11px]" />
