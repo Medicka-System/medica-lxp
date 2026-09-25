@@ -264,6 +264,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
         dominio_iaim: DominioIaim | null;
         hallazgos: string | null;
         diagnostico_presuntivo: string | null;
+        contenido_estructurado: import('@campus/shared').ContenidoEstructuradoCaso | null;
         horas: number;
         created_at: Date;
         alumno: string;
@@ -276,7 +277,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       } & FilaEco)[]
     >`
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
-             c.diagnostico_presuntivo,
+             c.diagnostico_presuntivo, c.contenido_estructurado,
              c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
@@ -311,6 +312,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       modulo: r.modulo,
       hallazgos: r.hallazgos,
       presuntivo: r.diagnostico_presuntivo,
+      contenidoEstructurado: r.contenido_estructurado ?? null,
       horas: r.horas,
       creadoEn: r.created_at,
       horasEnCola: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)),
@@ -458,6 +460,7 @@ export async function getCasoValidacion(
         dominio_iaim: DominioIaim | null;
         hallazgos: string | null;
         diagnostico_presuntivo: string | null;
+        contenido_estructurado: import('@campus/shared').ContenidoEstructuradoCaso | null;
         horas: number;
         created_at: Date;
         alumno: string;
@@ -472,7 +475,7 @@ export async function getCasoValidacion(
       } & FilaEco)[]
     >`
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
-             c.diagnostico_presuntivo, c.horas_estimadas::float8 as horas, c.created_at,
+             c.diagnostico_presuntivo, c.contenido_estructurado, c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
@@ -513,6 +516,7 @@ export async function getCasoValidacion(
       modulo: r.modulo,
       hallazgos: r.hallazgos,
       presuntivo: r.diagnostico_presuntivo,
+      contenidoEstructurado: r.contenido_estructurado ?? null,
       horas: r.horas,
       creadoEn: r.created_at,
       horasEnCola: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)),
