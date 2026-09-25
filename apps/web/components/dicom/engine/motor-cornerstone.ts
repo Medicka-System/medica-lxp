@@ -369,113 +369,99 @@ function conTiempoLimite<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+/** Imágenes rasterizadas EN PARALELO por lote (pool de lanes). Sube si el equipo aguanta. */
+const RASTER_CONCURRENCIA = 4;
+
 /**
- * Renderiza MINIATURAS reales (data URL JPEG) del primer frame de cada serie, con
- * un único RenderingEngine offscreen (§4.7 · tira de series del detalle). Reusa el
- * loader DICOM ya registrado; carga cada `imageId` en un viewport oculto, deja pintar
- * y captura el canvas. Devuelve `null` por serie que no se pudo previsualizar (el
- * selector cae entonces a su ícono). No lanza: las miniaturas son un adorno, no un
- * requisito para ver el estudio.
+ * Rasteriza un LOTE de imageIds en PARALELO con límite de concurrencia. Cornerstone NO rinde N
+ * imágenes en un mismo viewport (setStack reemplaza la pila), así que cada "lane" abre su PROPIO
+ * RenderingEngine + viewport offscreen y va tomando índices de una cola compartida. El resultado
+ * se escribe por ÍNDICE (`salida[i]`), de modo que conserva el ORDEN original aunque las lanes
+ * terminen desordenadas. Mantiene el timeout por imagen (una imagen lenta cae a `null` y la lane
+ * sigue con la siguiente). No lanza: el rasterizado es best-effort.
  */
-export async function renderMiniaturas(imageIds: string[]): Promise<(string | null)[]> {
-  if (imageIds.length === 0) return [];
+async function renderLotePool<T>(
+  imageIds: string[],
+  opts: { ancho: number; alto: number; timeoutMs: number },
+  capturar: (viewport: Types.IStackViewport) => T | null,
+): Promise<(T | null)[]> {
+  const salida: (T | null)[] = new Array(imageIds.length).fill(null);
+  if (imageIds.length === 0) return salida;
   try {
     await inicializarCornerstone();
   } catch {
-    return imageIds.map(() => null);
+    return salida;
   }
 
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;left:-10000px;top:0;width:160px;height:120px;pointer-events:none;';
-  document.body.appendChild(el);
+  let cursor = 0;
+  const lanes = Math.max(1, Math.min(RASTER_CONCURRENCIA, imageIds.length));
 
-  const engineId = `thumb-engine-${++seq}`;
-  const viewportId = `thumb-vp-${seq}`;
-  const engine = new RenderingEngine(engineId);
-  const salida: (string | null)[] = [];
-
-  try {
-    engine.enableElement({
-      viewportId,
-      type: CoreEnums.ViewportType.STACK,
-      element: el as HTMLDivElement,
-    });
-    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
-
-    for (const imageId of imageIds) {
-      try {
-        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
-        viewport.render();
-        await esperarPintado();
-        const canvas = viewport.getCanvas();
-        salida.push(canvas ? canvas.toDataURL('image/jpeg', 0.6) : null);
-      } catch {
-        salida.push(null);
-      }
-    }
-  } catch {
-    while (salida.length < imageIds.length) salida.push(null);
-  } finally {
+  const correrLane = async (): Promise<void> => {
+    // Cada lane es independiente: su propio engine + viewport + elemento offscreen.
+    const el = document.createElement('div');
+    el.style.cssText = `position:fixed;left:-10000px;top:0;width:${opts.ancho}px;height:${opts.alto}px;pointer-events:none;`;
+    document.body.appendChild(el);
+    const engineId = `raster-engine-${++seq}`;
+    const viewportId = `raster-vp-${seq}`;
+    const engine = new RenderingEngine(engineId);
     try {
-      engine.destroy();
+      engine.enableElement({ viewportId, type: CoreEnums.ViewportType.STACK, element: el as HTMLDivElement });
+      const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+      for (;;) {
+        const i = cursor++; // sincrónico → cada lane toma un índice distinto (JS mono-hilo)
+        if (i >= imageIds.length) break;
+        try {
+          await conTiempoLimite(viewport.setStack([imageIds[i]!], 0), opts.timeoutMs);
+          viewport.render();
+          await esperarPintado();
+          salida[i] = capturar(viewport);
+        } catch {
+          salida[i] = null;
+        }
+      }
     } catch {
-      /* no-op */
+      /* si la lane no pudo montar, sus índices quedan en null */
+    } finally {
+      try {
+        engine.destroy();
+      } catch {
+        /* no-op */
+      }
+      el.remove();
     }
-    el.remove();
-  }
+  };
+
+  await Promise.all(Array.from({ length: lanes }, () => correrLane()));
   return salida;
 }
 
 /**
- * Rasteriza imágenes a PNG (data URL) en un viewport OFFSCREEN de alta resolución — para
- * el PDF del reporte (§6.5): las imágenes DICOM no tienen raster server-side, así que el
- * cliente las renderiza aquí (mismo path que `renderMiniaturas`, sin auto-encuadre) y las
- * manda al `api`. `lado` fija el ancho del canvas oculto → nitidez del PNG. Devuelve `null`
- * por imagen que no se pudo pintar. No lanza.
+ * Renderiza MINIATURAS reales (data URL JPEG) del primer frame de cada serie (§4.7 · tira de
+ * series del detalle · miniaturas .dcm de la galería del reporte). Rasteriza EN PARALELO con
+ * límite de concurrencia (pool) conservando el orden; devuelve `null` por serie que no se pudo
+ * previsualizar (el selector cae a su ícono). No lanza: las miniaturas son un adorno.
+ */
+export async function renderMiniaturas(imageIds: string[]): Promise<(string | null)[]> {
+  return renderLotePool(imageIds, { ancho: 160, alto: 120, timeoutMs: 8000 }, (viewport) => {
+    const canvas = viewport.getCanvas();
+    return canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
+  });
+}
+
+/**
+ * Rasteriza imágenes a PNG (data URL) en viewports OFFSCREEN de alta resolución — para el PDF
+ * del reporte (§6.5): las imágenes DICOM no tienen raster server-side, así que el cliente las
+ * renderiza aquí (sin auto-encuadre) y las manda al `api`. Rasteriza EN PARALELO con límite de
+ * concurrencia (pool) conservando el ORDEN — con ~18 DICOM el PDF sale en pocos segundos en vez
+ * de en serie. `lado` fija el ancho del canvas oculto → nitidez del PNG. `null` por imagen que
+ * no se pudo pintar (o que superó el timeout). No lanza.
  */
 export async function renderImagenesPng(imageIds: string[], lado = 1100): Promise<(string | null)[]> {
-  if (imageIds.length === 0) return [];
-  try {
-    await inicializarCornerstone();
-  } catch {
-    return imageIds.map(() => null);
-  }
-
-  const el = document.createElement('div');
   const alto = Math.round(lado * 0.75);
-  el.style.cssText = `position:fixed;left:-10000px;top:0;width:${lado}px;height:${alto}px;pointer-events:none;`;
-  document.body.appendChild(el);
-
-  const engineId = `pdf-engine-${++seq}`;
-  const viewportId = `pdf-vp-${seq}`;
-  const engine = new RenderingEngine(engineId);
-  const salida: (string | null)[] = [];
-
-  try {
-    engine.enableElement({ viewportId, type: CoreEnums.ViewportType.STACK, element: el as HTMLDivElement });
-    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
-    for (const imageId of imageIds) {
-      try {
-        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
-        viewport.render();
-        await esperarPintado();
-        const canvas = viewport.getCanvas();
-        salida.push(canvas ? canvas.toDataURL('image/png') : null);
-      } catch {
-        salida.push(null);
-      }
-    }
-  } catch {
-    while (salida.length < imageIds.length) salida.push(null);
-  } finally {
-    try {
-      engine.destroy();
-    } catch {
-      /* no-op */
-    }
-    el.remove();
-  }
-  return salida;
+  return renderLotePool(imageIds, { ancho: lado, alto, timeoutMs: 8000 }, (viewport) => {
+    const canvas = viewport.getCanvas();
+    return canvas ? canvas.toDataURL('image/png') : null;
+  });
 }
 
 /** Miniatura con su proporción NATIVA (px reales de la imagen), para encuadrar sin deformar. */
