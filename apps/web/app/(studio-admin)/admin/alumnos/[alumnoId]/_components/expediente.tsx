@@ -13,10 +13,12 @@ import {
   ChevronLeft,
   Clock,
   ExternalLink,
+  History,
   Lock,
   MessageCircle,
   NotebookText,
   ScanLine,
+  Send,
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
@@ -64,15 +66,35 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
           </p>
         </div>
 
-        <button
-          type="button"
-          disabled
-          title="Contactar — próximamente"
-          className={`mt-1.5 inline-flex h-11 shrink-0 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] opacity-70 ${focusRing}`}
-        >
-          <MessageCircle aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-          Contactarlo
-        </button>
+        <div className="mt-1.5 flex shrink-0 gap-2.5">
+          <button
+            type="button"
+            disabled
+            title="Ver su bitácora — próximamente"
+            className={`inline-flex h-11 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
+          >
+            <NotebookText aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            Ver su bitácora
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Historial — próximamente"
+            className={`inline-flex h-11 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
+          >
+            <History aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            Historial
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Contactar — próximamente"
+            className={`inline-flex h-11 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] opacity-70 ${focusRing}`}
+          >
+            <MessageCircle aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            Contactarlo
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -80,7 +102,28 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
           {/* cifras del campus */}
           <section className={`${card} p-[18px]`}>
             <p className={`${kicker} text-muted-foreground`}>Avance en el campus</p>
-            <div className="mt-3.5 flex flex-wrap gap-2.5">
+
+            {/* Avance del curso vs. lo esperado + posición: depende de la inscripción al
+                grupo (CORA · §11). Layout listo; se cablea con la integración del ERP. */}
+            <div className="mt-3.5">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[13.5px] font-bold text-muted-foreground">Avance del curso</span>
+                <span className="ml-auto inline-flex h-[21px] items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2 text-[10px] font-bold text-muted-foreground">
+                  <Lock aria-hidden className="h-[11px] w-[11px]" strokeWidth={2} />
+                  Requiere inscripción · CORA
+                </span>
+              </div>
+              <div
+                aria-hidden
+                className="mt-2 h-2 rounded-full border border-dashed border-border bg-[color:var(--track)]"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                El avance contra lo esperado y la posición (módulo · lección) se calculan con la
+                inscripción del alumno al grupo; se conectan con la integración del ERP (§11).
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2.5">
               {(
                 [
                   [Clock, e.cifras.horas, 'horas acreditadas', false],
@@ -227,13 +270,44 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
               <EcoMark size={32} invertido />
               <div className="min-w-0 flex-1">
                 <p className="text-[13.5px] font-bold leading-tight">Eco</p>
-                <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">Sobre este alumno · placeholder</p>
+                <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">Sobre este alumno</p>
               </div>
+              <span className="inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-2 text-[10px] font-bold text-muted-foreground">
+                <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-muted-foreground/60" />
+                Sin API
+              </span>
             </div>
             <div className="px-4 py-3.5">
               <p className={`text-[12.5px] leading-relaxed ${softText}`}>
                 Cuando la API de Eco esté cableada, aquí cruzará las señales del alumno (última conexión, casos rechazados, dominio más bajo) y sugerirá una acción. Por ahora, el dato duro vive en las tarjetas de la izquierda.
               </p>
+            </div>
+            <div className="border-t border-border px-4 pb-3.5 pt-3">
+              <div className="flex gap-1.5 overflow-x-auto">
+                {['¿Por qué está en riesgo?', 'Compáralo con su grupo'].map((s) => (
+                  <span
+                    key={s}
+                    className={`inline-flex h-[30px] shrink-0 items-center whitespace-nowrap rounded-full border border-border bg-card px-2.5 text-[11px] font-semibold ${softText}`}
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+              <form
+                className="mt-2.5 flex h-10 items-center gap-2.5 rounded-full border border-border bg-muted px-3.5 opacity-70"
+                onSubmit={(ev) => ev.preventDefault()}
+              >
+                <span className="sr-only">Chat de Eco (pendiente de API)</span>
+                <input
+                  type="text"
+                  disabled
+                  placeholder="Eco conversacional llega con su API…"
+                  className="w-full min-w-0 cursor-not-allowed bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
+                />
+                <span aria-hidden className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-[color:var(--info-foreground)] text-white">
+                  <Send className="h-3 w-3" strokeWidth={1.75} />
+                </span>
+              </form>
             </div>
           </section>
         </div>

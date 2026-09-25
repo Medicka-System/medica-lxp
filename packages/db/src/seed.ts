@@ -1126,6 +1126,58 @@ async function seed(sql: Sql): Promise<void> {
     values (${alumnos.a3}, 'caso'::lxp.post_ateneo_tipo, 'Caso para el Ateneo (en revisión)',
             'Propongo este caso para la discusión del grupo.', 'pendiente'::lxp.estado_validacion, 'inscritos')`;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALUMNOS (admin) — competencia I-AIM AMPLIA + reconocimiento de a1.
+  // La proyección I-AIM la escribe el worker en prod; aquí es seed para que la columna
+  // I-AIM de la lista y "Competencia media" rindan (no solo a1) y el expediente sea rico.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const DOMS_IAIM = ['indicacion', 'adquisicion', 'interpretacion', 'decision_medica'] as const;
+  /** Siembra los 4 dominios I-AIM de un alumno con niveles dados (decaimiento derivado). */
+  async function sembrarCompetencia(alumno: string, niveles: [number, number, number, number]): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+      const nivel = niveles[i]!;
+      const decaimiento = nivel < 55 ? 8 + (nivel % 12) : 0;
+      const horas = 20 + (nivel % 30);
+      await sql`
+        insert into lxp.competencia_dominios (id_alumno, dominio_iaim, horas, nivel, decaimiento, proximo_repaso)
+        values (${alumno}, ${DOMS_IAIM[i]}::lxp.dominio_iaim, ${horas}, ${nivel}, ${decaimiento},
+                ${nivel < 55 ? sql`(now() + interval '3 days')::date` : sql`null`})
+        on conflict (id_alumno, dominio_iaim) do nothing`;
+    }
+  }
+
+  // a2/a3/a5 (a1 ya la tiene arriba, con Adquisición en caída).
+  await sembrarCompetencia(alumnos.a2, [68, 60, 72, 64]);
+  await sembrarCompetencia(alumnos.a3, [55, 48, 61, 58]);
+  await sembrarCompetencia(alumnos.a5, [80, 72, 78, 75]);
+
+  // ~2/3 de los alumnos históricos con I-AIM (niveles variados); el resto queda "sin
+  // proyección aún" (estado real que la vista también muestra).
+  const historicos = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email`;
+  for (let i = 0; i < historicos.length; i++) {
+    if (i % 3 === 0) continue; // ~1/3 sin competencia
+    const base = 50 + ((i * 7) % 45); // 50..94, pseudo-variado
+    await sembrarCompetencia(historicos[i]!.user_id, [
+      Math.min(100, base + 5),
+      Math.max(30, base - 10),
+      base,
+      Math.max(35, base - 4),
+    ]);
+  }
+
+  // Expediente rico de a1: 1 certificado (ligado a su hito de 100 h) + 1 insignia.
+  await sql`
+    insert into lxp.certificados (id_alumno, hito_id, folio, titulo)
+    values (${alumnos.a1},
+            (select id from lxp.hitos where id_alumno = ${alumnos.a1} and tipo = 'horas_100' limit 1),
+            'CERT-A1-100H', 'Certificado · 100 horas acreditadas')
+    on conflict (folio) do nothing`;
+  await sql`
+    insert into lxp.badges_otorgados (badge_id, id_perfil, otorgado_por)
+    values ((select id from lxp.badges where clave = 'primer_caso' limit 1), ${alumnos.a1}, null)
+    on conflict (badge_id, id_perfil) do nothing`;
+
   // ── Plantillas de reporte (constructor Studio ↔ generador médico · §6.5) ──
   // Las "plantillas de prueba" ahora viven en la BD (no hardcodeadas): el constructor
   // las abre/edita y el médico las usa. Estructura = contrato `reportes/estructura`.

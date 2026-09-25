@@ -10,10 +10,17 @@
  */
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Download, Lock, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Download, Lock, Search, Sparkles } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
-import type { AlumnosData, EstadoAlumno } from './contrato';
+import type { AlumnoFila, AlumnosData, EstadoAlumno } from './contrato';
+
+type EstadoFiltro = 'todos' | EstadoAlumno;
+
+/** Escapa un campo para CSV (comillas dobles RFC-4180). */
+function campoCSV(v: string): string {
+  return `"${v.replace(/"/g, '""')}"`;
+}
 
 const ESTADO: Record<EstadoAlumno, { etiqueta: string; clase: string }> = {
   corriente: { etiqueta: 'Al corriente', clase: 'bg-accent text-accent-foreground' },
@@ -39,14 +46,49 @@ function Barra({ pct }: { pct: number }) {
 export function AlumnosLista({ data }: { data: AlumnosData }) {
   const { totales, alumnos } = data;
   const [soloRiesgo, setSoloRiesgo] = useState(false);
+  const [estadoFiltro, setEstadoFiltro] = useState<EstadoFiltro>('todos');
   const [busca, setBusca] = useState('');
 
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return alumnos.filter(
-      (a) => (!q || a.nombre.toLowerCase().includes(q)) && (!soloRiesgo || a.estado === 'riesgo'),
+      (a) =>
+        (!q || a.nombre.toLowerCase().includes(q)) &&
+        (!soloRiesgo || a.estado === 'riesgo') &&
+        (estadoFiltro === 'todos' || a.estado === estadoFiltro),
     );
-  }, [alumnos, busca, soloRiesgo]);
+  }, [alumnos, busca, soloRiesgo, estadoFiltro]);
+
+  /** Exporta la vista actual (ya filtrada) a CSV real, en el navegador. */
+  function exportarCSV(): void {
+    const encabezados = [
+      'Nombre',
+      'Casos aprobados',
+      'Casos totales',
+      'Competencia I-AIM',
+      'Estado',
+      'Señal',
+      'Última actividad',
+    ];
+    const cuerpo = visibles.map((a: AlumnoFila) => [
+      a.nombre,
+      String(a.casosAprobados),
+      String(a.casosTotal),
+      a.competencia === null ? '' : String(a.competencia),
+      ESTADO[a.estado].etiqueta,
+      a.senal ?? '',
+      a.ultimaActividad,
+    ]);
+    const csv = [encabezados, ...cuerpo].map((f) => f.map(campoCSV).join(',')).join('\r\n');
+    // BOM para que Excel abra UTF-8 correctamente.
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = `alumnos-${new Date().toISOString().slice(0, 10)}.csv`;
+    enlace.click();
+    URL.revokeObjectURL(url);
+  }
 
   const tarjetas: [string, string, string, boolean][] = [
     ['Alumnos activos', String(totales.activos), 'con acceso al día', false],
@@ -87,9 +129,10 @@ export function AlumnosLista({ data }: { data: AlumnosData }) {
           </button>
           <button
             type="button"
-            disabled
-            title="Exportar — próximamente"
-            className={`inline-flex h-10 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted-foreground ${focusRing}`}
+            onClick={exportarCSV}
+            disabled={visibles.length === 0}
+            title="Descargar la lista visible en CSV"
+            className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
           >
             <Download aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Exportar
@@ -128,6 +171,43 @@ export function AlumnosLista({ data }: { data: AlumnosData }) {
             className="w-full min-w-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
+
+        {/* Programa / grupo / generación dependen de la inscripción del ERP (CORA): placeholder. */}
+        {['Cualquier programa', 'Cualquier grupo', 'Generación'].map((t) => (
+          <button
+            key={t}
+            type="button"
+            disabled
+            title={`${t} — filtro por inscripción (CORA), próximamente`}
+            className={`inline-flex h-10 cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted-foreground opacity-60 ${focusRing}`}
+          >
+            {t}
+            <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        ))}
+
+        {/* Estado: filtro real (client-side sobre el dato del campus). */}
+        <div className="relative">
+          <label className="sr-only" htmlFor="filtro-estado">Filtrar por estado</label>
+          <select
+            id="filtro-estado"
+            value={estadoFiltro}
+            onChange={(e) => setEstadoFiltro(e.target.value as EstadoFiltro)}
+            className={`h-10 cursor-pointer appearance-none rounded-[10px] border bg-card pl-3.5 pr-9 text-[12.5px] font-semibold transition-colors ${focusRing} ${
+              estadoFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
+            }`}
+          >
+            <option value="todos">Estado: todos</option>
+            <option value="corriente">Al corriente</option>
+            <option value="riesgo">En riesgo</option>
+            <option value="suspendido">Suspendido</option>
+          </select>
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            strokeWidth={2}
+          />
+        </div>
 
         <button
           type="button"
