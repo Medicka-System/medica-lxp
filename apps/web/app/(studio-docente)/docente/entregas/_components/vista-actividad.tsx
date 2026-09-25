@@ -86,7 +86,7 @@ export function VistaActividad({
   }, [entregas, soloAbiertas, busca]);
 
   return (
-    <div className="flex w-full gap-4 px-6 pb-6 pt-5">
+    <div className="mx-auto flex w-full max-w-[1240px] gap-4 px-6 pb-6 pt-5">
       <div className="min-w-0 flex-1">
         {/* 1 · BARRA DE CONTROLES: selectores + buscador + confirmar en lote */}
         <div className="flex flex-wrap items-center gap-2.5">
