@@ -90,7 +90,9 @@ export function StudioShell({
                 href={s.href}
                 aria-current={on ? 'page' : undefined}
                 className={`relative flex h-[60px] items-center px-3.5 text-[13.5px] transition-colors ${focusRingDark} ${
-                  on ? 'font-bold text-sidebar-foreground' : 'font-medium text-white/70 hover:text-white'
+                  on
+                    ? 'font-bold text-sidebar-foreground hover:text-sidebar-foreground'
+                    : 'font-medium text-white/70 hover:text-white'
                 }`}
               >
                 {s.etiqueta}

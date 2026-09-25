@@ -72,7 +72,9 @@ export function ShellDocente({
                 href={s.href}
                 aria-current={on ? 'page' : undefined}
                 className={`relative inline-flex h-[60px] items-center gap-1.5 whitespace-nowrap px-2.5 text-[13px] transition-colors ${focusRingDark} ${
-                  on ? 'font-bold text-sidebar-foreground' : 'font-medium text-white/70 hover:text-white'
+                  on
+                    ? 'font-bold text-sidebar-foreground hover:text-sidebar-foreground'
+                    : 'font-medium text-white/70 hover:text-white'
                 }`}
               >
                 {s.etiqueta}
