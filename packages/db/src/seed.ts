@@ -1045,6 +1045,87 @@ async function seed(sql: Sql): Promise<void> {
     values ('primer_caso', 'Primer caso', 'Subió su primer caso a la bitácora',
       ${sql.json({ tipo: 'casos', umbral: 1 })})`;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PANORAMA DEL ADMIN (Inicio · centro de control) — datos REALISTAS que el SQL lee.
+  // Puebla las métricas de DOMINIO del dashboard (tendencia 6m/12m, avance, riesgo,
+  // actividad de staff, decisiones y alertas) sin números inventados del mock.
+  //
+  //   • Casos históricos → grupo_id/modulo_id NULL + estado 'aprobado': NUNCA aparecen
+  //     en la bandeja del docente (filtra 'pendiente') ni en vistas por grupo; solo
+  //     cuentan en los agregados globales (es_staff ve todo · bitacora_select 0010).
+  //   • No tocan a1..a5 (los tests de RLS cuentan sus casos exactos: a1=7, a2=1).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // (1) Dos docentes más → la "Actividad del staff" muestra varios miembros (como el mock).
+  const docSandoval = await altaCora(sql, { email: `sandoval${SEED_EMAIL_DOMINIO}`, nombre: 'Dr. Sandoval', coraRol: 'docente' });
+  await crearPerfil(sql, docSandoval, { lxpRol: 'docente', acceso: true });
+  const docLugo = await altaCora(sql, { email: `lugo${SEED_EMAIL_DOMINIO}`, nombre: 'Dra. Lugo', coraRol: 'docente' });
+  await crearPerfil(sql, docLugo, { lxpRol: 'docente', acceso: true });
+
+  // (2) Cohortes históricas: altas repartidas en 12 meses (curva de crecimiento) para
+  //     que la tendencia (6m y 12m) rinda poblada. acceso_activo=true, SIN inscripción
+  //     CORA (no entran a rosters). ~80% con un caso aprobado reciente (→ "al día"); el
+  //     resto sin actividad reciente (→ "en riesgo", realista ~20%).
+  const altasPorMes = [4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 6]; // meses 11→0 (el actual, parcial)
+  let hist = 0;
+  for (let mIdx = 0; mIdx < altasPorMes.length; mIdx++) {
+    const mesesAtras = altasPorMes.length - 1 - mIdx;
+    for (let i = 0; i < altasPorMes[mIdx]!; i++) {
+      hist++;
+      const uid = await altaCora(sql, {
+        email: `hist${hist}${SEED_EMAIL_DOMINIO}`,
+        nombre: `Alumno Histórico ${hist}`,
+        coraRol: 'alumno',
+      });
+      await crearPerfil(sql, uid, { lxpRol: 'alumno', acceso: true });
+      // created_at backdateado al mes correspondiente (día variado; nunca en el futuro).
+      const dia = 3 + (i % 22);
+      await sql`
+        update lxp.perfiles
+        set created_at = least(
+          now() - interval '1 hour',
+          date_trunc('month', now()) - (${mesesAtras} || ' months')::interval + (${dia} || ' days')::interval
+        )
+        where user_id = ${uid}`;
+      // 80% con un caso aprobado reciente (dentro de 14 días) → "al día". grupo/modulo NULL.
+      if (hist % 5 !== 0) {
+        const dias = 1 + (hist % 13);
+        const horas = 1 + (hist % 3) * 0.5;
+        const casoHist = first(
+          await sql<{ id: string }[]>`
+            insert into lxp.bitacora_casos
+              (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+               estado_validacion, origen, anonimizado_en, created_at)
+            values (${uid}, null, null, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
+               'Estudio histórico acreditado', ${horas}, ${'aprobado'}::lxp.estado_validacion,
+               ${'alumno'}::lxp.origen_caso, now(), now() - (${dias} || ' days')::interval)
+            returning id`,
+        );
+        // Un tercio de esos casos lleva validación de Sandoval/Lugo (dentro de 3 días) →
+        // la actividad del staff muestra 3 docentes distintos.
+        if (hist % 3 === 0) {
+          const quien = hist % 2 === 0 ? docSandoval : docLugo;
+          await sql`
+            insert into lxp.validaciones (caso_id, id_docente, decision, feedback, created_at)
+            values (${casoHist.id}, ${quien}, ${'aprobado'}::lxp.decision_validacion,
+                    'Estudio correcto.', now() - ((${hist % 3}) || ' hours')::interval - interval '10 minutes')`;
+        }
+      }
+    }
+  }
+
+  // (3) Un programa en BORRADOR → decisión "programas en borrador" (defaults: estado 'borrador').
+  await sql`
+    insert into lxp.programas (nombre, descripcion, publicado, version)
+    values ('POCUS Avanzado — Borrador', 'En construcción por el equipo de diseño.', false, 1)`;
+
+  // (4) Un post del Ateneo PENDIENTE → decisión "posts del Ateneo por moderar" (visible
+  //     solo a su autor y al staff · posts_ateneo_select 0010; no aparece en el feed).
+  await sql`
+    insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
+    values (${alumnos.a3}, 'caso'::lxp.post_ateneo_tipo, 'Caso para el Ateneo (en revisión)',
+            'Propongo este caso para la discusión del grupo.', 'pendiente'::lxp.estado_validacion, 'inscritos')`;
+
   // ── Plantillas de reporte (constructor Studio ↔ generador médico · §6.5) ──
   // Las "plantillas de prueba" ahora viven en la BD (no hardcodeadas): el constructor
   // las abre/edita y el médico las usa. Estructura = contrato `reportes/estructura`.

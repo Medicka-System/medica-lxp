@@ -53,6 +53,8 @@ export type Alerta = {
   titulo: string;
   detalle: string;
   gravedad: 'critica' | 'media';
+  /** Ruta admin real a la que navega la alerta (si existe hoy). Sin ruta = no navegable. */
+  href?: string;
 };
 
 export type Decision = {
@@ -62,6 +64,8 @@ export type Decision = {
   detalle: string;
   cta: string;
   icono: 'certificados' | 'accesos' | 'escaladas';
+  /** Ruta admin real del CTA (si existe hoy). Sin ruta = control visible pero deshabilitado. */
+  href?: string;
 };
 
 export type ActividadStaff = {
@@ -101,7 +105,12 @@ export type CentroControlData = {
   esSuper: boolean;
   fecha: string;
   kpis: Kpi[];
-  tendencia: { puntos: PuntoTendencia[]; resumen: { valor: string; etiqueta: string }[] };
+  /** Crecimiento de altas por mes en dos rangos reales (el toggle 6m/12m del cliente). */
+  tendencia: {
+    puntos6m: PuntoTendencia[];
+    puntos12m: PuntoTendencia[];
+    resumen: { valor: string; etiqueta: string }[];
+  };
   avance: Avance[];
   riesgo: { n: number; detalle: string };
   /** Cartera de CORA. `disponible=false` en local: el agregado no se lee sin la integración (§11). */
