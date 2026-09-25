@@ -187,10 +187,10 @@ export function PanelEco() {
         </button>
         <span
           aria-hidden
-          className={`${kicker} text-[color:var(--info-foreground)]`}
+          className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[color:var(--info-foreground)]"
           style={{ writingMode: 'vertical-rl' }}
         >
-          Asistente
+          Eco
         </span>
       </aside>
     );

@@ -8,13 +8,52 @@
  */
 
 import { useMemo, useState } from 'react';
-import { BellRing, ChevronRight, Search, Sparkles, TriangleAlert } from 'lucide-react';
+import { BellRing, Check, ChevronRight, Search, Sparkles, TriangleAlert } from 'lucide-react';
 import { mono, kicker, card, focusRing } from '@/lib/studio/estilos';
 import { Avatar } from '@/components/avatar';
 import { haceCuanto } from '@/lib/format';
-import type { ActividadRef, EntregasVista } from '../../../_lib/contrato';
+import type { EntregaVista, EstadoVistaEntrega, ActividadRef, EntregasVista } from '../../../_lib/contrato';
 import { ChipEstado, Selector } from './ui';
 import { PanelEco, ECO_LOTE_EJEMPLO } from './eco-placeholder';
+
+/**
+ * Confianza de la nota sugerida por Eco — PLACEHOLDER determinista por id (Eco NO conectado
+ * · §7A). Solo aplica a filas `sugerida`; los datos reales llegarán de `lxp.eco_propuestas`.
+ */
+function confianzaEco(id: string): 'alta' | 'media' {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 3 === 0 ? 'media' : 'alta';
+}
+
+/** Rango de orden: primero lo que requiere la LECTURA del docente (spec · §4). */
+function rangoEntrega(e: EntregaVista): number {
+  if (e.estado === 'sugerida') return confianzaEco(e.id) === 'alta' ? 0 : 1;
+  if (e.estado === 'requiere-lectura') return 2;
+  if (e.estado === 'auto') return 3;
+  return 4; // calificada
+}
+
+/** Texto de la columna "detalle" de una fila (Eco = PLACEHOLDER donde aplique). */
+function detalleFila(e: EntregaVista): { texto: string; alerta: boolean } {
+  switch (e.estado) {
+    case 'sugerida':
+      return confianzaEco(e.id) === 'alta'
+        ? { texto: 'confianza alta', alerta: false }
+        : { texto: 'confianza media · revísela', alerta: false };
+    case 'requiere-lectura':
+      return { texto: 'Pendiente de su lectura', alerta: true };
+    case 'auto':
+      return { texto: 'autocalificada por el sistema', alerta: false };
+    case 'calificada':
+      return { texto: 'Ya calificada', alerta: false };
+    default:
+      return { texto: '', alerta: false };
+  }
+}
+
+/** Estados que cuentan como "tarea abierta pendiente" para el filtro "Solo abiertas". */
+const PENDIENTE_ABIERTA: EstadoVistaEntrega[] = ['sugerida', 'requiere-lectura'];
 
 export function VistaActividad({
   data,
@@ -31,35 +70,39 @@ export function VistaActividad({
 }) {
   const { grupo, grupos, actividades, resumen, entregas, sinEntregar } = data;
   const [busca, setBusca] = useState('');
-  const [soloPorCalificar, setSoloPorCalificar] = useState(false);
+  const [soloAbiertas, setSoloAbiertas] = useState(false);
   const [avisoEco, setAvisoEco] = useState(false);
   const [avisoRecordar, setAvisoRecordar] = useState(false);
 
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return entregas.filter(
-      (e) =>
-        (!soloPorCalificar || e.estado === 'requiere-lectura') &&
-        (!q || e.alumno.nombre.toLowerCase().includes(q)),
-    );
-  }, [entregas, soloPorCalificar, busca]);
+    return entregas
+      .filter(
+        (e) =>
+          (!soloAbiertas || (e.tipo === 'abierta' && PENDIENTE_ABIERTA.includes(e.estado))) &&
+          (!q || e.alumno.nombre.toLowerCase().includes(q)),
+      )
+      .sort((a, b) => rangoEntrega(a) - rangoEntrega(b) || b.creadoEn.getTime() - a.creadoEn.getTime());
+  }, [entregas, soloAbiertas, busca]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1240px] gap-4 px-6 pb-8 pt-5">
+    <div className="flex w-full gap-4 px-6 pb-6 pt-5">
       <div className="min-w-0 flex-1">
-        {/* selectores + buscador + lote de Eco */}
+        {/* 1 · BARRA DE CONTROLES: selectores + buscador + confirmar en lote */}
         <div className="flex flex-wrap items-center gap-2.5">
           <Selector
             rotulo="Grupo"
             valor={grupo?.nombre ?? '—'}
             opciones={grupos.map((g) => ({ id: g.id, etiqueta: g.nombre }))}
             onSelect={onElegirGrupo}
+            anchoMin={200}
           />
           <Selector
             rotulo="Actividad"
             valor={`${actividad.clave} · ${actividad.titulo}`}
             opciones={actividades.map((a) => ({ id: a.id, etiqueta: `${a.clave} · ${a.titulo}` }))}
             onSelect={onElegirActividad}
+            anchoMin={300}
           />
           <label className="flex h-10 w-[220px] items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 transition-colors focus-within:border-secondary">
             <Search aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
@@ -72,13 +115,15 @@ export function VistaActividad({
               className="w-full min-w-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
+          {/* Confirmar en lote (teal · spec): solo las notas que Eco sugirió con confianza ALTA.
+              PLACEHOLDER: abre un aviso; el resumen/asiento del lote llega con Eco (§7A). */}
           <button
             type="button"
             onClick={() => setAvisoEco(true)}
             title="Eco aún no está conectado"
-            className={`ml-auto inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 text-[13.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-[color:var(--info-foreground)] hover:text-white ${focusRing}`}
+            className={`ml-auto inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
           >
-            <Sparkles aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />
             Confirmar {ECO_LOTE_EJEMPLO} de alta confianza
           </button>
         </div>
@@ -93,56 +138,59 @@ export function VistaActividad({
           </div>
         )}
 
-        {/* resumen de la actividad (real) */}
-        <div className="mt-4 flex flex-wrap items-stretch gap-3">
+        {/* 2 · KPIs (5): teal = listo · ámbar = requiere al docente · gris = informativo */}
+        <div className="mt-4 flex items-stretch gap-3">
           {(
             [
               ['Entregadas', `${resumen.entregadas} / ${resumen.delGrupo}`, `de ${resumen.delGrupo} alumnos del grupo`, 'plano'],
-              ['Por confirmar', String(resumen.porConfirmar), 'tareas abiertas por calificar', resumen.porConfirmar > 0 ? 'warn' : 'plano'],
+              ['Auto-calificadas', String(resumen.autoCalificadas), 'autoevaluaciones · listas', 'ok'],
+              ['Por confirmar', String(resumen.porConfirmar), 'tareas abiertas con nota sugerida', 'warn'],
               ['Promedio del grupo', resumen.promedio == null ? '—' : resumen.promedio.toFixed(1), 'sobre lo ya calificado', 'plano'],
-              ['Sin entregar', String(resumen.sinEntregar), resumen.vencio || 'del grupo', resumen.sinEntregar > 0 ? 'warn' : 'plano'],
+              ['Sin entregar', String(resumen.sinEntregar), resumen.vencio || 'del grupo', 'warn'],
             ] as const
-          ).map(([rot, val, sub, tono]) => (
-            <div
-              key={rot}
-              className={`min-w-[170px] flex-1 rounded-[11px] px-4 py-3.5 ${
-                tono === 'warn'
-                  ? 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]'
-                  : 'border border-border bg-muted'
-              }`}
-            >
-              <p
-                className={`${kicker} text-[9.5px] tracking-[0.12em] ${
-                  tono === 'warn' ? 'text-[color:var(--warning-foreground)]' : 'text-muted-foreground'
+          ).map(([rot, val, sub, tono]) => {
+            const texto =
+              tono === 'ok'
+                ? 'text-accent-foreground'
+                : tono === 'warn'
+                  ? 'text-[color:var(--warning-foreground)]'
+                  : 'text-muted-foreground';
+            return (
+              <div
+                key={rot}
+                className={`min-w-0 flex-1 rounded-[11px] px-4 py-3.5 ${
+                  tono === 'ok'
+                    ? 'bg-accent'
+                    : tono === 'warn'
+                      ? 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]'
+                      : 'border border-border bg-muted'
                 }`}
               >
-                {rot}
-              </p>
-              <p
-                className={`${mono} mt-1.5 text-[24px] font-extrabold leading-none tracking-[-0.02em] ${
-                  tono === 'warn' ? 'text-[color:var(--warning-foreground)]' : 'text-foreground'
-                }`}
-              >
-                {val}
-              </p>
-              <p
-                className={`mt-1 text-[11px] leading-snug ${
-                  tono === 'warn' ? 'text-[color:var(--warning-foreground)]' : 'text-muted-foreground'
-                }`}
-              >
-                {sub}
-              </p>
-            </div>
-          ))}
+                <p className={`${kicker} text-[9.5px] tracking-[0.12em] ${texto}`}>{rot}</p>
+                <p
+                  className={`${mono} mt-1.5 text-[24px] font-extrabold leading-none tracking-[-0.02em] ${
+                    tono === 'ok'
+                      ? 'text-accent-foreground'
+                      : tono === 'warn'
+                        ? 'text-[color:var(--warning-foreground)]'
+                        : 'text-foreground'
+                  }`}
+                >
+                  {val}
+                </p>
+                <p className={`mt-1 text-[11px] leading-snug ${texto}`}>{sub}</p>
+              </div>
+            );
+          })}
         </div>
 
-        {/* la regla del reparto, dicha una vez */}
-        <div className="mt-4 flex items-center gap-2.5 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 py-2.5">
+        {/* 3 · AVISO DE REGLAS (violeta · una sola vez) */}
+        <div className="mt-4 flex items-center gap-[9px] rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 py-[11px]">
           <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-          <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
-            <span className="font-bold">Las autoevaluaciones se califican solas</span> (opción múltiple, sin Eco)
-            y las tareas abiertas las califica usted. Eco propondrá nota y comentario contra la rúbrica — usted
-            confirma; ninguna nota se asienta sola.
+          <p className="min-w-0 flex-1 text-[12.5px] leading-[1.5] text-[color:var(--info-foreground)]">
+            <span className="font-bold">Las autoevaluaciones se califican solas</span> (opción múltiple, sin Eco:
+            lógica del sistema) y las tareas abiertas ya traen nota sugerida contra la rúbrica. Eco propone; usted
+            confirma — ninguna nota se asienta sola.
           </p>
         </div>
 
@@ -155,15 +203,15 @@ export function VistaActividad({
             </span>
             <button
               type="button"
-              onClick={() => setSoloPorCalificar((v) => !v)}
-              aria-pressed={soloPorCalificar}
+              onClick={() => setSoloAbiertas((v) => !v)}
+              aria-pressed={soloAbiertas}
               className={`ml-auto h-8 rounded-lg border px-2.5 text-[11.5px] font-semibold transition-colors ${focusRing} ${
-                soloPorCalificar
+                soloAbiertas
                   ? 'border-secondary bg-accent text-accent-foreground'
                   : 'border-border bg-card hover:bg-accent hover:text-accent-foreground'
               }`}
             >
-              Solo por calificar
+              Solo abiertas
             </button>
           </div>
 
@@ -172,40 +220,43 @@ export function VistaActividad({
               {entregas.length === 0 ? 'Aún no hay entregas de esta actividad.' : 'Sin coincidencias.'}
             </p>
           ) : (
-            visibles.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                onClick={() => onAbrir(e.id)}
-                className={`flex w-full items-center gap-3.5 border-t border-border px-[18px] py-3 text-left transition-colors hover:bg-muted ${focusRing}`}
-              >
-                <Avatar ini={e.alumno.ini} />
-                <span className="min-w-0 flex-[1.3]">
-                  <span className="block text-[13.5px] font-bold leading-snug">{e.alumno.nombre}</span>
-                  <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
-                    Tarea abierta · entregó {haceCuanto(e.creadoEn)}
+            visibles.map((e) => {
+              const detalle = detalleFila(e);
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => onAbrir(e.id)}
+                  className={`flex w-full items-center gap-3.5 border-t border-border px-[18px] py-3 text-left transition-colors hover:bg-muted ${focusRing}`}
+                >
+                  <Avatar ini={e.alumno.ini} />
+                  <span className="min-w-0 flex-[1.3]">
+                    <span className="block text-[13.5px] font-bold leading-snug">{e.alumno.nombre}</span>
+                    <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                      {e.tipo === 'abierta' ? 'Tarea abierta' : 'Autoevaluación'} · entregó {haceCuanto(e.creadoEn)}
+                    </span>
                   </span>
-                </span>
-                <span className="w-[170px] shrink-0">
-                  <ChipEstado estado={e.estado} />
-                </span>
-                <span
-                  className={`min-w-0 flex-1 text-[11.5px] leading-snug ${
-                    e.estado === 'requiere-lectura' ? 'text-[color:var(--warning-foreground)]' : 'text-muted-foreground'
-                  }`}
-                >
-                  {e.estado === 'requiere-lectura' ? 'Pendiente de su lectura' : e.estado === 'calificada' ? 'Ya calificada' : ''}
-                </span>
-                <span
-                  className={`${mono} w-16 shrink-0 text-right text-[17px] font-extrabold ${
-                    e.nota == null ? 'text-muted-foreground' : 'text-foreground'
-                  }`}
-                >
-                  {e.nota == null ? '—' : e.nota.toFixed(e.nota % 1 ? 1 : 0)}
-                </span>
-                <ChevronRight aria-hidden className="h-[17px] w-[17px] shrink-0 text-muted-foreground" strokeWidth={2} />
-              </button>
-            ))
+                  <span className="w-[170px] shrink-0">
+                    <ChipEstado estado={e.estado} />
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 text-[11.5px] leading-[1.45] ${
+                      detalle.alerta ? 'text-[color:var(--warning-foreground)]' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {detalle.texto}
+                  </span>
+                  <span
+                    className={`${mono} w-16 shrink-0 text-right text-[17px] font-extrabold ${
+                      e.nota == null ? 'text-muted-foreground' : 'text-foreground'
+                    }`}
+                  >
+                    {e.nota == null ? '—' : e.nota.toFixed(e.nota % 1 ? 1 : 0)}
+                  </span>
+                  <ChevronRight aria-hidden className="h-[17px] w-[17px] shrink-0 text-muted-foreground" strokeWidth={2} />
+                </button>
+              );
+            })
           )}
 
           {/* quién no entregó (roster real de CORA) */}
@@ -217,12 +268,13 @@ export function VistaActividad({
               >
                 <TriangleAlert className="h-4 w-4" strokeWidth={2} />
               </span>
-              <p className="min-w-[280px] flex-1 text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
+              <p className="min-w-[280px] flex-1 text-[12.5px] leading-[1.5] text-[color:var(--warning-foreground)]">
                 <span className="font-bold">
                   {sinEntregar.length} alumno{sinEntregar.length === 1 ? '' : 's'} no{' '}
                   {sinEntregar.length === 1 ? 'ha' : 'han'} entregado
                 </span>{' '}
-                — {sinEntregar.map((a) => a.nombre).join(', ')}.
+                — {resumen.vencio ? `${resumen.vencio}: ` : ''}
+                {sinEntregar.map((a) => a.nombre).join(', ')}.
               </p>
               <button
                 type="button"

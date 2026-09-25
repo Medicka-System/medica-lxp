@@ -17,7 +17,7 @@ type EstadoInfo = { texto: string; clase: string; icono?: typeof Check };
 export const ESTADO: Record<EstadoVistaEntrega, EstadoInfo> = {
   auto: { texto: 'Auto-calificada', clase: 'bg-accent text-accent-foreground', icono: MonitorCheck },
   sugerida: {
-    texto: 'Nota sugerida',
+    texto: 'Nota sugerida (Eco)',
     clase:
       'border border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
     icono: Sparkles,
@@ -37,7 +37,7 @@ export function ChipEstado({ estado }: { estado: EstadoVistaEntrega }) {
   const Icono = e.icono;
   return (
     <span
-      className={`inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[11px] font-bold ${e.clase}`}
+      className={`inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-[9px] text-[11px] font-bold ${e.clase}`}
     >
       {Icono && <Icono aria-hidden className="h-3 w-3" strokeWidth={1.75} />}
       {e.texto}
@@ -54,11 +54,14 @@ export function Selector({
   valor,
   opciones,
   onSelect,
+  anchoMin,
 }: {
   rotulo: string;
   valor: string;
   opciones: { id: string; etiqueta: string }[];
   onSelect: (id: string) => void;
+  /** Ancho mínimo del botón (spec: Grupo 200px · Actividad 300px). */
+  anchoMin?: number;
 }) {
   const [abierto, setAbierto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -84,11 +87,12 @@ export function Selector({
         onClick={() => setAbierto((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={abierto}
+        style={anchoMin ? { minWidth: anchoMin } : undefined}
         className={`inline-flex h-10 items-center gap-2.5 rounded-[10px] border border-border bg-card px-3.5 text-left transition-colors hover:border-primary ${focusRing}`}
       >
         <span className="flex min-w-0 flex-col leading-tight">
           <span className={`${kicker} text-[9.5px] tracking-[0.12em] text-muted-foreground`}>{rotulo}</span>
-          <span className="mt-0.5 max-w-[240px] truncate text-[12.5px] font-bold">{valor}</span>
+          <span className="mt-0.5 truncate text-[12.5px] font-bold">{valor}</span>
         </span>
         <ChevronDown aria-hidden className="ml-auto h-[15px] w-[15px] text-muted-foreground" strokeWidth={2} />
       </button>
