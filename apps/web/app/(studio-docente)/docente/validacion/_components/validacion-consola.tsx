@@ -994,8 +994,9 @@ function DetalleCaso({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      {/* 1 · CABECERA (fija) */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3.5">
+      {/* 1 · CABECERA (fija) — barra full-bleed, contenido pineado a 1240 */}
+      <div className="shrink-0 border-b border-border bg-card px-5 py-3.5">
+        <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={onVolver}
@@ -1055,10 +1056,12 @@ function DetalleCaso({
             </button>
           </span>
         )}
+        </div>
       </div>
 
-      {/* 2 · CUERPO con scroll: visor → dos columnas → feedback */}
+      {/* 2 · CUERPO con scroll: visor → dos columnas → feedback — pineado a 1240 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-[18px]">
+        <div className="mx-auto w-full max-w-[1240px]">
         {/* VISOR real (Cornerstone3D · Fase 2: anotar/medir) — se monta bajo demanda */}
         {caso.estudio ? (
           <VisorEstudio
@@ -1322,11 +1325,13 @@ function DetalleCaso({
             <span>{resultado.texto}</span>
           </div>
         )}
+        </div>
       </div>
 
-      {/* 5 · BARRA DE FIRMA (fija) */}
+      {/* 5 · BARRA DE FIRMA (fija) — barra full-bleed, contenido pineado a 1240 */}
       {!soloLectura && (
-        <div className="flex shrink-0 flex-wrap items-center gap-3.5 border-t border-border bg-card px-5 py-3.5">
+        <div className="shrink-0 border-t border-border bg-card px-5 py-3.5">
+        <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-3.5">
           <label className="flex shrink-0 items-center gap-2.5">
             <span className="text-[11.5px] font-bold">Nota</span>
             <input
@@ -1387,6 +1392,7 @@ function DetalleCaso({
               Aprobar y acreditar
             </button>
           </span>
+        </div>
         </div>
       )}
     </div>
