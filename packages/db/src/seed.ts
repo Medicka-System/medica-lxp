@@ -794,6 +794,37 @@ async function seed(sql: Sql): Promise<void> {
     insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
     values (${casoAprobado.id}, ${docente}, ${'aprobado'}::lxp.decision_validacion, 'Buen reconocimiento del espacio de Morrison.')`;
 
+  // Estudios ya resueltos (aprobado/devuelto) de a1 → llenan la rejilla "Estudios del alumno"
+  // para ver el grid RESPONSIVO con varias columnas en pantallas anchas (no tocan la cola).
+  const estudiosResueltos: {
+    organo: string;
+    dominio: 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
+    hallazgos: string;
+    estado: 'aprobado' | 'rechazado';
+    dias: number;
+    feedback: string;
+  }[] = [
+    { organo: 'Hígado', dominio: 'interpretacion', hallazgos: 'Esteatosis leve, ecoestructura homogénea', estado: 'aprobado', dias: 5, feedback: 'Buen barrido, mediciones correctas.' },
+    { organo: 'Aorta', dominio: 'adquisicion', hallazgos: 'Diámetro 1.8 cm, sin aneurisma', estado: 'aprobado', dias: 8, feedback: 'Cortes adecuados en los tres niveles.' },
+    { organo: 'Vía biliar', dominio: 'interpretacion', hallazgos: 'Colédoco 5 mm, sin dilatación', estado: 'aprobado', dias: 11, feedback: 'Bien documentado.' },
+    { organo: 'Bazo', dominio: 'adquisicion', hallazgos: 'Esplenomegalia leve 13 cm', estado: 'rechazado', dias: 14, feedback: 'Falta medir el eje largo en el corte correcto; vuelve a subirlo.' },
+  ];
+  for (const e of estudiosResueltos) {
+    const caso = first(
+      await sql<{ id: string }[]>`
+        insert into lxp.bitacora_casos
+          (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+           estado_validacion, origen, anonimizado_en, created_at)
+        values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, ${e.organo}, ${e.dominio}::lxp.dominio_iaim,
+           ${e.hallazgos}, 1.0, ${e.estado}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso,
+           now(), now() - (${e.dias} || ' days')::interval)
+        returning id`,
+    );
+    await sql`
+      insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+      values (${caso.id}, ${docente}, ${e.estado}::lxp.decision_validacion, ${e.feedback})`;
+  }
+
   // (La entrega de a1 a la tarea ya se sembró arriba, anclada por leccion_id · mig 0026.)
 
   // ── Ateneo (red social · §1): perfiles con especialidad/sede, posts de cada tipo,
