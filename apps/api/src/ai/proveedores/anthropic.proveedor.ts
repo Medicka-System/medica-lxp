@@ -24,6 +24,22 @@ export class AnthropicProvider implements LLMProvider {
       throw new Error('ANTHROPIC_API_KEY ausente: no se puede usar el proveedor Anthropic.');
     }
 
+    // ── Prompt caching (§7A) ──────────────────────────────────────────────
+    // Se cachea el PREFIJO estable con cache_control ephemeral (TTL default 5m):
+    //   1) system (rol/reglas/esquema JSON) — idéntico en cada ítem del lote.
+    //   2) prefijoCacheable (verdad + rúbrica + encabezados) — estable por caso/rúbrica.
+    // La respuesta del alumno (variable) va DESPUÉS, en un bloque SIN cache_control, así
+    // el prefijo pega en caché entre ítems y re-corridas dentro de la ventana.
+    const cache = { type: 'ephemeral' as const };
+    const system = [{ type: 'text', text: solicitud.system, cache_control: cache }];
+
+    const contenidoUsuario = solicitud.prefijoCacheable
+      ? [
+          { type: 'text', text: solicitud.prefijoCacheable, cache_control: cache },
+          { type: 'text', text: solicitud.prompt },
+        ]
+      : [{ type: 'text', text: solicitud.prompt }];
+
     const res = await fetch(AnthropicProvider.ENDPOINT, {
       method: 'POST',
       headers: {
@@ -35,8 +51,8 @@ export class AnthropicProvider implements LLMProvider {
         model: solicitud.modelo,
         max_tokens: solicitud.maxTokens,
         temperature: solicitud.temperatura,
-        system: solicitud.system,
-        messages: [{ role: 'user', content: solicitud.prompt }],
+        system,
+        messages: [{ role: 'user', content: contenidoUsuario }],
       }),
     });
 
@@ -59,7 +75,12 @@ export class AnthropicProvider implements LLMProvider {
       proveedor: this.nombre,
       modelo: data.model ?? solicitud.modelo,
       tokens: data.usage
-        ? { entrada: data.usage.input_tokens, salida: data.usage.output_tokens }
+        ? {
+            entrada: data.usage.input_tokens,
+            salida: data.usage.output_tokens,
+            cacheWrite: data.usage.cache_creation_input_tokens ?? 0,
+            cacheRead: data.usage.cache_read_input_tokens ?? 0,
+          }
         : undefined,
     };
   }
@@ -68,5 +89,12 @@ export class AnthropicProvider implements LLMProvider {
 interface AnthropicRespuesta {
   model?: string;
   content?: Array<{ type: string; text?: string }>;
-  usage?: { input_tokens: number; output_tokens: number };
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    /** Tokens escritos al caché (1ª vez que se ve el prefijo). */
+    cache_creation_input_tokens?: number;
+    /** Tokens leídos del caché (re-uso del prefijo dentro de la ventana). */
+    cache_read_input_tokens?: number;
+  };
 }

@@ -124,8 +124,9 @@ export interface FirmarAnonimizadosResp {
  * Solo referencias (el worker LEE el texto fuente de la BD), nunca el binario.
  */
 export interface IndexarRagJob {
-  /** Origen del contenido a indexar (para trazar y re-indexar al cambiar). */
-  fuenteTipo: 'caso_biblioteca' | 'rubrica' | 'material';
+  /** Origen del contenido a indexar (para trazar y re-indexar al cambiar).
+   *  `contenido` = teoría de una lección (fuenteId = leccion_id). */
+  fuenteTipo: 'caso_biblioteca' | 'rubrica' | 'material' | 'contenido';
   fuenteId: string;
 }
 

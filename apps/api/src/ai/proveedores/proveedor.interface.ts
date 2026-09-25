@@ -7,9 +7,15 @@
 
 /** Petición normalizada a un LLM (misma forma para todo proveedor). */
 export interface SolicitudLLM {
-  /** Instrucción de sistema (rol/reglas). */
+  /** Instrucción de sistema (rol/reglas). Es parte del PREFIJO estable → se cachea. */
   system: string;
-  /** Prompt de usuario ya renderizado (variables interpoladas). */
+  /**
+   * PREFIJO estable del mensaje de usuario que conviene CACHEAR (§7A · prompt caching):
+   * verdad estructurada + rúbrica + encabezados. Va ANTES de la respuesta del alumno.
+   * Opcional: si no se pasa, el mensaje de usuario es solo `prompt` (sin caché de prefijo).
+   */
+  prefijoCacheable?: string;
+  /** Prompt de usuario VARIABLE (la respuesta del alumno). Va DESPUÉS del prefijo, sin cachear. */
   prompt: string;
   /** Id del modelo concreto del proveedor (viene de la config del paso). */
   modelo: string;
@@ -23,8 +29,11 @@ export interface RespuestaLLM {
   texto: string;
   proveedor: string;
   modelo: string;
-  /** Consumo de tokens si el proveedor lo reporta (para costos/telemetría). */
-  tokens?: { entrada: number; salida: number };
+  /**
+   * Consumo de tokens si el proveedor lo reporta (para costos/telemetría). `cacheWrite`
+   * = tokens escritos al caché (1ª vez, más caros); `cacheRead` = leídos del caché (baratos).
+   */
+  tokens?: { entrada: number; salida: number; cacheWrite?: number; cacheRead?: number };
 }
 
 /**

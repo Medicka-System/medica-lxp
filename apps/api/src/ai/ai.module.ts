@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { EcoConfigService } from './config/eco-config.service';
 import { EmbeddingsService } from './embeddings/embeddings.service';
 import { EvaluacionPipeline } from './pipeline/evaluacion.pipeline';
+import { EcoTelemetriaService } from './costo/eco-telemetria.service';
 import { CorreccionesService } from './correcciones/correcciones.service';
 import { MockProvider } from './proveedores/mock.proveedor';
 import { AnthropicProvider } from './proveedores/anthropic.proveedor';
@@ -33,6 +34,7 @@ import { XapiModule } from '../xapi/xapi.module';
     EcoConfigService,
     EmbeddingsService,
     EvaluacionPipeline,
+    EcoTelemetriaService,
     CorreccionesService,
     MockProvider,
     AnthropicProvider,

@@ -19,12 +19,15 @@ export class MockProvider implements LLMProvider {
   readonly nombre = 'mock';
 
   generar(solicitud: SolicitudLLM): Promise<RespuestaLLM> {
-    // Señal determinista a partir del prompt (sin azar, para tests estables).
-    const semilla = huella(solicitud.prompt);
+    // Contenido completo (prefijo cacheable + variable): así la señal determinista es la
+    // misma la parta o no el pipeline en bloques para caché (no cambia el mock al cachear).
+    const contenido = (solicitud.prefijoCacheable ?? '') + solicitud.prompt;
+    // Señal determinista a partir del contenido (sin azar, para tests estables).
+    const semilla = huella(contenido);
     const nota = 60 + (semilla % 41); // 60..100
     // Respuestas muy cortas → menor confianza (simula "requiere criterio").
-    const largoRespuesta = (solicitud.prompt.match(/Respuesta del alumno/i) ? 1 : 0)
-      + Math.min(solicitud.prompt.length, 4000);
+    const largoRespuesta = (contenido.match(/Respuesta del alumno/i) ? 1 : 0)
+      + Math.min(contenido.length, 4000);
     const confianza = Number(
       Math.min(0.98, 0.55 + ((semilla % 45) + largoRespuesta / 4000 * 40) / 100).toFixed(3),
     );
@@ -47,7 +50,7 @@ export class MockProvider implements LLMProvider {
       texto: JSON.stringify(juicio),
       proveedor: this.nombre,
       modelo: `${solicitud.modelo} (mock)`,
-      tokens: { entrada: solicitud.prompt.length, salida: 0 },
+      tokens: { entrada: contenido.length, salida: 0, cacheWrite: 0, cacheRead: 0 },
     });
   }
 }

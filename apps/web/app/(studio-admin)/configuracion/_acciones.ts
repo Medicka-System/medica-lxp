@@ -15,6 +15,13 @@ import type { EcoModelos } from './_eco-contrato';
  * parámetros, umbral de confianza y el modelo por paso del pipeline.
  */
 
+/** Base del api de dominio (mismo criterio que `_lib/eco.server.ts`). */
+function apiBase(): string {
+  return (
+    process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+  ).replace(/\/$/, '');
+}
+
 // ── Helpers de saneo (mismo espíritu que lib/studio/acciones.ts: sin zod) ───────
 function clamp(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
@@ -92,6 +99,14 @@ export async function guardarEcoConfig(
         version              = version + 1
       where id = ${entrada.id}`;
   });
+
+  // Invalida el cache de config del api para que la próxima evaluación use lo recién
+  // guardado (§7A). Best-effort: si el api no responde, el TTL (30s) la recoge igual.
+  try {
+    await fetch(`${apiBase()}/ai/config/invalidar`, { method: 'POST' });
+  } catch {
+    /* no bloquea el guardado: la config ya quedó en BD; el TTL la propaga */
+  }
 
   revalidatePath('/configuracion/ia');
   revalidatePath('/configuracion');
