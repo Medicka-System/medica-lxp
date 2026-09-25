@@ -252,7 +252,7 @@ cuerpo 13–13.5/600, meta 11/400, overline 10–11/700 mayúsculas.
 
 ### Geometría
 - Radios: **12px** tarjetas · **9–11px** botones/campos/chips · **999px** chips de estado/avatares/barras · 14–18px hero
-- Grid desktop **208 / 1fr / 316**, gap 20. Ancho máx **1240px** centrado.
+- Grid desktop **208 / 1fr / 316**, gap 20. **Ancho máx por superficie** (centrado, `mx-auto`; no estirar al infinito): **Campus (alumno) 1240px** · **Studio docente 1400px** (grupos/consultas/entregas/validación) · **Studio admin 1320px** (listados/config) **/ 1360px** (dashboard/analítica). El detalle de validación (visor + reporte) pinea su interior a **1240** (medida de lectura), con las barras de cabecera/firma full-bleed.
 - Sombra única de reposo: `0 1px 3px rgba(17,24,39,.06)`. **Sin glass ni gradientes** salvo el hero de olas.
 - Target táctil 44px (48px en CTA principal). Iconografía **Lucide**, stroke 1.75.
 
