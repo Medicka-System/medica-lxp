@@ -6,10 +6,13 @@
  * aprendizaje (del LRS · el diferenciador, REAL) y operación (REAL). Eco es el
  * analista: aquí su panel es placeholder hasta que su API esté cableada (§7A).
  *
- * Sin recharts (no se añaden dependencias · §3): las gráficas son barras con tokens.
+ * Gráficas reales (crecimiento, casos por mes) vía el wrapper `<Chart>` §5A (Recharts
+ * tematizado, SSR-safe · §3); los medidores simples se quedan en CSS con tokens.
  */
 import { AlertTriangle, Lock, Send, Sparkles, Stethoscope, TrendingUp } from 'lucide-react';
+import { Area, AreaChart, Bar, BarChart, Tooltip, XAxis, YAxis } from 'recharts';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
+import { Chart, ChartTooltip, EJE } from '@/components/ui/chart';
 import { EcoMark } from '../../../_components/eco-mark';
 import type { AnaliticaData, BarraSimple } from './contrato';
 
@@ -86,7 +89,7 @@ function Tarjeta({
 }
 
 export function Analitica({ data }: { data: AnaliticaData }) {
-  const { alumnos, casos, casosPorMes, iaim, casosPorDominio, repaso, docentes, ateneo, ecoCorrecciones } = data;
+  const { alumnos, crecimiento, casos, casosMesSerie, iaim, casosPorDominio, repaso, docentes, diseno, ateneo, ecoCorrecciones } = data;
 
   const flojo = iaim.find((d) => d.flojo);
   const participacion = alumnos.activos > 0 ? Math.round((ateneo.autores / alumnos.activos) * 100) : 0;
@@ -115,6 +118,32 @@ export function Analitica({ data }: { data: AnaliticaData }) {
           <div className="mt-3.5 flex items-baseline gap-2.5">
             <span className={`${mono} text-[30px] font-extrabold leading-none tracking-[-0.03em]`}>{alumnos.activos}</span>
             <span className="text-[12px] font-semibold text-muted-foreground">con acceso al día</span>
+          </div>
+          {/* gráfica real: crecimiento acumulado de alumnos (Recharts vía wrapper §5A) */}
+          <div className="mt-3.5">
+            <Chart height={74}>
+              <AreaChart data={crecimiento} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                <XAxis dataKey="x" hide />
+                <YAxis hide domain={['dataMin - 40', 'dataMax + 40']} />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border)' }} />
+                <Area
+                  type="monotone"
+                  dataKey="v"
+                  name="Alumnos"
+                  stroke="var(--primary)"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  fill="var(--primary)"
+                  fillOpacity={0.1}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </Chart>
+            <div className="mt-1.5 flex justify-between">
+              {crecimiento.map((p) => (
+                <span key={p.x} className="text-[9.5px] text-muted-foreground">{p.x}</span>
+              ))}
+            </div>
           </div>
           <Senal tono={alumnos.altas30 > 0 ? 'ok' : 'info'}>
             {alumnos.altas30 > 0 ? `${alumnos.altas30} altas en 30 días; el cuello es capacidad docente, no demanda.` : 'Sin altas nuevas en 30 días.'}
@@ -240,17 +269,16 @@ export function Analitica({ data }: { data: AnaliticaData }) {
 
         <div className="flex flex-col gap-3.5">
           <Tarjeta titulo="Casos subidos por mes">
-            <div className="mt-4 flex h-[120px] items-end gap-2.5">
-              {casosPorMes.map((b, i, arr) => {
-                const ultimo = i === arr.length - 1;
-                return (
-                  <span key={b.etiqueta + i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-                    <span className={`${mono} text-[10px] font-bold ${ultimo ? 'text-secondary' : 'text-muted-foreground'}`}>{b.valor}</span>
-                    <span aria-hidden className="w-full rounded-t-[7px]" style={{ height: `${b.pct}%`, background: ultimo ? 'var(--primary)' : '#d6e3ea' }} />
-                    <span className="text-[10px] text-muted-foreground">{b.etiqueta}</span>
-                  </span>
-                );
-              })}
+            {/* gráfica real: casos de bitácora agregados por mes (Recharts vía wrapper §5A) */}
+            <div className="mt-3.5">
+              <Chart height={120}>
+                <BarChart data={casosMesSerie} margin={{ top: 6, right: 4, bottom: 0, left: -20 }}>
+                  <XAxis dataKey="x" {...EJE} />
+                  <YAxis allowDecimals={false} {...EJE} width={28} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--muted)' }} />
+                  <Bar dataKey="v" name="Casos" fill="var(--primary)" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                </BarChart>
+              </Chart>
             </div>
           </Tarjeta>
 
@@ -343,6 +371,48 @@ export function Analitica({ data }: { data: AnaliticaData }) {
               La comunidad la sostiene un núcleo de {ateneo.autores} autores de caso.
             </span>
           </Senal>
+        </Tarjeta>
+      </div>
+
+      <div className="mt-3.5 grid items-start gap-3.5 xl:grid-cols-2">
+        {/* #14 Actividad de diseño (CSS · real: recursos + casos curados por autor) */}
+        <Tarjeta titulo="Actividad de diseño">
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className={`${mono} text-[30px] font-extrabold leading-none tracking-[-0.03em]`}>{diseno.total}</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">piezas publicadas</span>
+          </div>
+          {diseno.barras.length > 0 ? (
+            <Barras filas={diseno.barras} color="sidebar" />
+          ) : (
+            <p className="mt-3 text-[12px] text-muted-foreground">Aún no hay contenido curado ni recursos subidos.</p>
+          )}
+          <p className="mt-3 text-[11.5px] text-muted-foreground">Recursos de la Biblioteca de Contenido y casos curados al banco.</p>
+        </Tarjeta>
+
+        {/* #16 Uso y calidad de Eco — parte real (correcciones §7A); el gasto = placeholder */}
+        <Tarjeta
+          titulo="Uso y calidad de Eco"
+          extra={
+            <span className="inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2 text-[10px] font-bold text-muted-foreground">
+              <Sparkles aria-hidden className="h-[11px] w-[11px]" strokeWidth={2} />
+              §7A
+            </span>
+          }
+        >
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className={`${mono} text-[30px] font-extrabold leading-none tracking-[-0.03em]`}>{ecoCorrecciones}</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">correcciones docente→Eco (loop de mejora)</span>
+          </div>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
+            Cada corrección del docente sobre una sugerencia de Eco se registra para afinar el modelo (§7A).
+          </p>
+          {/* gasto/costo por caso: telemetría de la orquestación de Eco (aún no cableada) */}
+          <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-[11px] border border-dashed border-border bg-muted/40 px-3.5 py-2.5">
+            <span className="min-w-0 flex-1 text-[11.5px] font-semibold leading-snug text-muted-foreground">
+              Gasto y costo por caso de Eco
+            </span>
+            <span className={`${mono} shrink-0 text-[12px] font-bold text-muted-foreground`}>— placeholder</span>
+          </div>
         </Tarjeta>
       </div>
     </div>

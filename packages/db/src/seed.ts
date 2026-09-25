@@ -1221,6 +1221,37 @@ async function seed(sql: Sql): Promise<void> {
          ${'alumno'}::lxp.origen_caso, now(), now() - ((${i} + 1) || ' days')::interval)`;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ANALÍTICA (admin) — serie temporal poblada + loop de mejora de Eco.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // (a) Casos backdateados por mes → "Casos subidos por mes" no sale plana (grupo/modulo
+  //     NULL, aprobados, en alumnos históricos: no tocan a1..a5 ni la bandeja docente).
+  const histCasos = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email limit 10`;
+  if (histCasos.length > 0) {
+    const mesesAtrasCaso = [1, 1, 2, 2, 3, 3, 4, 4]; // 2 casos por cada uno de los últimos 4 meses
+    for (let i = 0; i < mesesAtrasCaso.length; i++) {
+      const uid = histCasos[i % histCasos.length]!.user_id;
+      await sql`
+        insert into lxp.bitacora_casos
+          (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+           estado_validacion, origen, anonimizado_en, created_at)
+        values (${uid}, null, null, 'Abdomen', ${'interpretacion'}::lxp.dominio_iaim,
+           'Estudio histórico (serie mensual)', 1.0, ${'aprobado'}::lxp.estado_validacion,
+           ${'alumno'}::lxp.origen_caso, now(),
+           date_trunc('month', now()) - ((${mesesAtrasCaso[i]}) || ' months')::interval + interval '10 days')`;
+    }
+  }
+
+  // (b) Correcciones docente→Eco (loop de mejora · §7A) → "Uso y calidad de Eco".
+  for (let i = 0; i < 4; i++) {
+    await sql`
+      insert into lxp.eco_correcciones (id_docente, objeto_tipo, objeto_id, sugerencia_eco, correccion)
+      values (${docente}, 'caso', null,
+        ${sql.json({ nota_sugerida: 8, feedback: 'Sugerencia de Eco (borrador)' })},
+        ${sql.json({ nota_final: 7, feedback: 'Ajuste del docente sobre la sugerencia' })})`;
+  }
+
   // ── Plantillas de reporte (constructor Studio ↔ generador médico · §6.5) ──
   // Las "plantillas de prueba" ahora viven en la BD (no hardcodeadas): el constructor
   // las abre/edita y el médico las usa. Estructura = contrato `reportes/estructura`.
