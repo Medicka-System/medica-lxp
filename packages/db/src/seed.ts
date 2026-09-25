@@ -1031,13 +1031,30 @@ async function seed(sql: Sql): Promise<void> {
     values (${alumnos.a1}, 'horas_100', 100)
     on conflict (id_alumno, tipo) do nothing`;
 
-  // ── Anuncio vigente (hero inteligente del Home) ──
+  // ── Anuncios (§6) — 3 ejemplos para poblar las tabs del gestor admin: publicado
+  //    (hero vigente del Home), programado (aún no sale) y vencido (ya caducó).
+  //    `alcance` guarda { tipo, prioridad } (lo que el gestor lee); comunidad/alumnos reales.
   await sql`
-    insert into lxp.anuncios (autor_id, titulo, cuerpo, canales, vigente_desde, vigente_hasta)
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
     values (${admin},
       'Ya está abierto el módulo de Doppler renal',
       'Son 88 horas acreditables y cuatro cine-loops nuevos grabados en la sede. La primera sesión en vivo es el jueves a las 19:00.',
-      array['in_app'], now(), now() + interval '20 days')`;
+      ${sql.json({ tipo: 'comunidad', prioridad: 'importante' })},
+      array['in_app', 'correo'], now(), now() + interval '20 days')`;
+  await sql`
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
+    values (${admin},
+      'Cierre de inscripciones de la generación de enero',
+      'Las inscripciones de la próxima generación cierran a fin de mes. Recuerden completar su documentación.',
+      ${sql.json({ tipo: 'alumnos', prioridad: 'normal' })},
+      array['in_app'], now() + interval '5 days', now() + interval '30 days')`;
+  await sql`
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
+    values (${admin},
+      'Mantenimiento del campus del domingo pasado',
+      'El campus estuvo en mantenimiento programado. Ya quedó todo restablecido; gracias por su paciencia.',
+      ${sql.json({ tipo: 'comunidad', prioridad: 'normal' })},
+      array['in_app'], now() - interval '30 days', now() - interval '5 days')`;
 
   // ── Badge de catálogo ──────────────────────────────────────────────────
   await sql`

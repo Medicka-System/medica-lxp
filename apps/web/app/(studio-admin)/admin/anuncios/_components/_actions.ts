@@ -54,16 +54,61 @@ export async function crearAnuncio(_prev: EstadoForm, formData: FormData): Promi
 
   const alcance = { tipo: alcanceTipo, prioridad };
 
+  let anuncioId: string;
+  let destinatarios: string[];
   try {
-    await comoStaff(staff.userId, async (sql) => {
-      await sql`
+    ({ anuncioId, destinatarios } = await comoStaff(staff.userId, async (sql) => {
+      const filas = await sql<{ id: string }[]>`
         insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
-        values (${staff.userId}, ${titulo}, ${cuerpo}, ${sql.json(alcance)}, ${canales}, now(), ${hasta})`;
-    });
+        values (${staff.userId}, ${titulo}, ${cuerpo}, ${sql.json(alcance)}, ${canales}, now(), ${hasta})
+        returning id`;
+      // Audiencia por alcance (LXP real, bajo RLS): comunidad = todos; alumnos/staff por rol.
+      const audiencia = await sql<{ user_id: string }[]>`
+        select user_id from lxp.perfiles
+        where ${
+          alcanceTipo === 'alumnos'
+            ? sql`rol = 'alumno'`
+            : alcanceTipo === 'staff'
+              ? sql`rol <> 'alumno'`
+              : sql`true`
+        }`;
+      return { anuncioId: filas[0]!.id, destinatarios: audiencia.map((r) => r.user_id) };
+    }));
   } catch {
     return { ok: false, error: 'No se pudo publicar el anuncio. Intente de nuevo.' };
   }
 
+  // Canal (fan-out): el in-app es real (lxp.notificaciones vía worker); correo/WhatsApp
+  // salen por adaptador mock/stub (entrega diferida honesta · §9). BEST-EFFORT: el anuncio
+  // YA quedó creado; si el api/worker/Redis no responden, se loggea y no se rompe (§2).
+  await encolarAnuncio({ userIds: destinatarios, titulo, cuerpo, entidadId: anuncioId });
+
   revalidatePath('/admin/anuncios');
   return { ok: true };
+}
+
+/**
+ * Encola el fan-out del anuncio al motor de notificaciones (`POST /notificaciones/anuncio`,
+ * §8 job #12). BEST-EFFORT: nunca lanza — la publicación no depende de que el api esté arriba.
+ */
+async function encolarAnuncio(payload: {
+  userIds: string[];
+  titulo: string;
+  cuerpo: string;
+  entidadId: string;
+}): Promise<void> {
+  if (payload.userIds.length === 0) return;
+  const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+  try {
+    const res = await fetch(`${base}/notificaciones/anuncio`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.warn(`[anuncios] api respondió ${res.status} al encolar el fan-out.`);
+    }
+  } catch (e) {
+    console.warn('[anuncios] no se pudo encolar el fan-out (¿api arriba?):', (e as Error).message);
+  }
 }
