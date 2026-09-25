@@ -30,7 +30,7 @@ export function StaffLista({ data }: { data: StaffData }) {
       const porRol =
         filtro === 'todos' ||
         (filtro === 'admin' ? s.rol === 'admin' || s.rol === 'super_admin' : s.rol === filtro);
-      return porRol && (!q || s.nombre.toLowerCase().includes(q) || (s.email ?? '').toLowerCase().includes(q));
+      return porRol && (!q || s.nombre.toLowerCase().includes(q) || s.area.toLowerCase().includes(q));
     });
   }, [staff, filtro, busca]);
 
@@ -38,7 +38,7 @@ export function StaffLista({ data }: { data: StaffData }) {
     ['Staff activo', String(totales.total), `${totales.conteos.docentes} docentes · ${totales.conteos.disenadores} diseñadores · ${totales.conteos.admins} admins`, false],
     ['Con sobrecarga', String(totales.conSobrecarga), `docentes con ${8}+ casos en cola`, true],
     ['Validaciones esta semana', String(totales.validadosSemana), 'casos validados por el equipo', false],
-    ['Respuesta media', '—', 'de consulta a respuesta · pendiente', false],
+    ['Respuesta media', totales.respuestaMedia ?? '—', 'de consulta del alumno a respuesta del docente', false],
   ];
 
   const tabs: [Filtro, string, number][] = [
@@ -106,12 +106,12 @@ export function StaffLista({ data }: { data: StaffData }) {
       <div className="mt-5 flex flex-wrap items-center gap-2.5">
         <label className="flex h-10 w-[260px] items-center gap-2 rounded-[9px] border border-border bg-card px-3 transition-colors focus-within:border-secondary">
           <Search aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-          <span className="sr-only">Buscar por nombre o correo</span>
+          <span className="sr-only">Buscar por nombre o área</span>
           <input
             type="search"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por nombre o correo…"
+            placeholder="Buscar por nombre o área…"
             className="w-full min-w-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
@@ -160,7 +160,7 @@ export function StaffLista({ data }: { data: StaffData }) {
               <Avatar ini={s.ini} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-bold leading-snug">{s.nombre}</span>
-                <span className="mt-0.5 block truncate text-[10.5px] text-muted-foreground">{s.email ?? 'sin correo'}</span>
+                <span className="mt-0.5 block truncate text-[10.5px] text-muted-foreground">{s.area}</span>
               </span>
             </span>
 

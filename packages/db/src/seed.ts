@@ -1178,6 +1178,32 @@ async function seed(sql: Sql): Promise<void> {
     values ((select id from lxp.badges where clave = 'primer_caso' limit 1), ${alumnos.a1}, null)
     on conflict (badge_id, id_perfil) do nothing`;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STAFF (admin) — sobrecarga visible en Diego + detalle no-vacío para Sandoval/Lugo.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Área/especialidad para Sandoval y Lugo (Diego/admin/super ya la tienen).
+  await sql`update lxp.perfiles set especialidad = 'Renal y abdomen' where user_id = ${docSandoval}`;
+  await sql`update lxp.perfiles set especialidad = 'Urgencias y POCUS' where user_id = ${docLugo}`;
+
+  // 1 grupo a Sandoval → su detalle muestra "Grupos que imparte".
+  await sql`
+    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
+    values (${programa.id}, 'Grupo Renal · 2026 (Sandoval)', 'sincrono'::lxp.modalidad, '2026-04-01', ${docSandoval})`;
+
+  // ~4 casos pendientes extra en grupoSync (docente = Diego) → su cola llega a ≥8 = sobrecarga.
+  // Asignados a alumnos HISTÓRICOS (no tocan a1/a2/a3/a5 · tests de RLS cuentan sus casos exactos).
+  const histParaCola = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email limit 4`;
+  for (let i = 0; i < histParaCola.length; i++) {
+    await sql`
+      insert into lxp.bitacora_casos
+        (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+         estado_validacion, origen, anonimizado_en, created_at)
+      values (${histParaCola[i]!.user_id}, ${grupoSync.id}, ${m1.id}, 'Riñón', ${'adquisicion'}::lxp.dominio_iaim,
+         'Caso en cola de validación (demo carga)', 1.0, ${'pendiente'}::lxp.estado_validacion,
+         ${'alumno'}::lxp.origen_caso, now(), now() - ((${i} + 1) || ' days')::interval)`;
+  }
+
   // ── Plantillas de reporte (constructor Studio ↔ generador médico · §6.5) ──
   // Las "plantillas de prueba" ahora viven en la BD (no hardcodeadas): el constructor
   // las abre/edita y el médico las usa. Estructura = contrato `reportes/estructura`.
