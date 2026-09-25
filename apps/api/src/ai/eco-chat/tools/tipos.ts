@@ -20,8 +20,14 @@ export type RolLxp =
   | 'disenador_instruccional'
   | 'alumno';
 
-/** Superficie desde la que se invoca el chat (hoy solo `alumno`; §7A · roadmap 5 surfaces). */
-export type SurfaceEco = 'alumno';
+/**
+ * Superficie desde la que se invoca el chat (§7A · roadmap de surfaces). Cada surface
+ * fija QUÉ entidad está en foco (ver `CtxTool.entidadId`):
+ *  - `alumno`  → expediente de un alumno (entidadId = alumnoId).
+ *  - `grupo`   → seguimiento de un grupo (entidadId = grupoId de `lxp.grupos`).
+ *  - `escuela` → panorama global de la escuela (entidadId = centinela `'escuela'`, sin id).
+ */
+export type SurfaceEco = 'alumno' | 'grupo' | 'escuela';
 
 /** Una fuente citable que la tool devuelve, para pintarla en la UI (transparencia · §7A). */
 export interface FuenteCitada {
@@ -52,7 +58,7 @@ export interface CtxTool {
   usuarioId: string;
   rol: RolLxp;
   surface: SurfaceEco;
-  /** Entidad de la surface (hoy: `alumnoId`). */
+  /** Entidad de la surface: `alumnoId` (alumno) · `grupoId` (grupo) · `'escuela'` (escuela). */
   entidadId: string;
 }
 
@@ -62,6 +68,8 @@ export interface ToolDef {
   descripcion: string;
   /** JSON Schema del input (Anthropic `input_schema`). `{}` = sin parámetros. */
   schema: Record<string, unknown>;
+  /** Superficies en las que aplica esta tool (el engine la ofrece solo en ellas). */
+  surfaces: SurfaceEco[];
   /** Roles que pueden usarla (doble candado, además de la RLS). */
   rolesPermitidos: RolLxp[];
   /** READ-ONLY en esta fase. */

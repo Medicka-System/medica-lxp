@@ -16,7 +16,7 @@ import { Send } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import { EcoMark } from './eco-mark';
 import { preguntarAEco } from '@/lib/eco/chat.server';
-import type { FuenteEco, TurnoEco } from '@/lib/eco/tipos';
+import type { FuenteEco, SurfaceEco, TurnoEco } from '@/lib/eco/tipos';
 
 type Burbuja = {
   id: number;
@@ -43,12 +43,18 @@ export function ChatEco({
   entidadId,
   intro,
   sugerencias = [],
+  subtitulo = 'Sobre este alumno',
+  placeholder = 'Pregúntale a Eco sobre este alumno…',
 }: {
-  surface: 'alumno';
+  surface: SurfaceEco;
   entidadId: string;
   /** Texto de encuadre mientras no hay conversación. */
   intro: string;
   sugerencias?: string[];
+  /** Bajada bajo el título "Eco" (p. ej. "Sobre este grupo" / "Sobre la escuela"). */
+  subtitulo?: string;
+  /** Placeholder del input de la pregunta. */
+  placeholder?: string;
 }) {
   const [burbujas, setBurbujas] = useState<Burbuja[]>([]);
   const [texto, setTexto] = useState('');
@@ -98,7 +104,7 @@ export function ChatEco({
         <EcoMark size={32} invertido />
         <div className="min-w-0 flex-1">
           <p className="text-[13.5px] font-bold leading-tight">Eco</p>
-          <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">Sobre este alumno</p>
+          <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">{subtitulo}</p>
         </div>
         <span className="inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-card px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
           Propone · usted confirma
@@ -182,13 +188,13 @@ export function ChatEco({
             enviar(texto);
           }}
         >
-          <span className="sr-only">Preguntarle a Eco sobre este alumno</span>
+          <span className="sr-only">{placeholder}</span>
           <input
             type="text"
             value={texto}
             disabled={pensando}
             onChange={(e) => setTexto(e.target.value)}
-            placeholder="Pregúntale a Eco sobre este alumno…"
+            placeholder={placeholder}
             className="w-full min-w-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
           />
           <button

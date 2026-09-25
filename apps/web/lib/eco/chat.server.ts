@@ -1,7 +1,7 @@
 'use server';
 
 import { getSesionStaff } from '@/lib/studio/session';
-import type { FuenteEco, RespuestaEco, TurnoEco } from './tipos';
+import type { FuenteEco, RespuestaEco, SurfaceEco, TurnoEco } from './tipos';
 
 /**
  * Puente del web hacia Eco CONVERSACIONAL (§7A · §2). NO es proxy de CRUD: es
@@ -9,8 +9,8 @@ import type { FuenteEco, RespuestaEco, TurnoEco } from './tipos';
  * solo la DISPARA con la identidad del staff de la sesión. El historial es TRANSITORIO
  * (vive en el cliente y viaja en cada llamada) — no se persiste (§7A: Eco informa).
  *
- * Superficie-agnóstica: hoy `surface: 'alumno'` (expediente); las otras 4 surfaces
- * reusan esta misma acción cambiando `surface`/`entidadId`.
+ * Superficie-agnóstica: `surface` fija la entidad en foco (`alumno` → alumnoId, `grupo`
+ * → grupoId, `escuela` → centinela `'escuela'`); todas reusan esta misma acción.
  */
 
 function apiBase(): string {
@@ -25,7 +25,7 @@ function apiBase(): string {
  * candado §10). Devuelve la respuesta completa (sin streaming en v1).
  */
 export async function preguntarAEco(input: {
-  surface: 'alumno';
+  surface: SurfaceEco;
   entidadId: string;
   mensajes: TurnoEco[];
 }): Promise<RespuestaEco> {

@@ -32,7 +32,6 @@ import {
   MessageCircle,
   Plus,
   Scale,
-  Send,
   Settings,
   TrendingUp,
   Users,
@@ -40,6 +39,7 @@ import {
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
 import { EcoMark } from '../../_components/eco-mark';
+import { ChatEco } from '../../_components/chat-eco';
 import type {
   CentroControlData,
   EstadoIntegracion,
@@ -120,7 +120,6 @@ export function CentroControl({ data }: { data: CentroControlData }) {
     decisiones,
     actividad,
     ateneo,
-    eco,
   } = data;
 
   const [rango, setRango] = useState<'6m' | '12m'>('6m');
@@ -649,79 +648,15 @@ export function CentroControl({ data }: { data: CentroControlData }) {
           </div>
         </section>
 
-        {/* Eco analista (placeholder) */}
-        <section className={`${card} overflow-hidden border-[color:var(--info-border)]`}>
-          <div className="flex items-center gap-2.5 bg-[color:var(--info-surface)] px-4 py-3.5">
-            <EcoMark size={32} invertido />
-            <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-bold leading-tight">Eco</p>
-              <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">Analista · placeholder</p>
-            </div>
-            <ChipPlaceholder>Sin API</ChipPlaceholder>
-          </div>
-
-          <div className="px-4 py-3.5">
-            <div className="flex justify-end">
-              <p className="max-w-[88%] rounded-[13px] rounded-br-[4px] bg-sidebar px-3.5 py-2.5 text-[12.5px] font-medium leading-relaxed text-sidebar-foreground">
-                {eco.pregunta}
-              </p>
-            </div>
-            <div className="mt-3 flex gap-2.5">
-              <EcoMark size={26} />
-              <div className="min-w-0 flex-1">
-                <p className={`text-[12.5px] leading-relaxed ${softText}`}>{eco.intro}</p>
-                <ul className="mt-2.5 flex flex-col gap-1.5">
-                  {eco.puntos.map((p) => {
-                    const tono =
-                      p.tono === 'critica'
-                        ? 'bg-[color:var(--destructive-surface)] text-[color:var(--destructive-foreground)]'
-                        : p.tono === 'media'
-                          ? 'bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
-                          : 'bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]';
-                    return (
-                      <li key={p.titulo} className={`flex items-start gap-2.5 rounded-[9px] px-2.5 py-2.5 ${tono}`}>
-                        <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[11.5px] font-bold">{p.titulo}</span>
-                          <span className="mt-0.5 block text-[11px] leading-snug">{p.detalle}</span>
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>{eco.cierre}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-border px-4 pb-3.5 pt-3">
-            <div className="flex gap-1.5 overflow-x-auto">
-              {eco.sugerencias.map((s) => (
-                <span
-                  key={s}
-                  className={`inline-flex h-[30px] shrink-0 items-center whitespace-nowrap rounded-full border border-border bg-card px-2.5 text-[11px] font-semibold ${softText}`}
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            <form
-              className="mt-2.5 flex h-10 items-center gap-2.5 rounded-full border border-border bg-muted px-3.5 opacity-70"
-              onSubmit={(e) => e.preventDefault()}
-            >
-              <span className="sr-only">Chat de Eco (pendiente de API)</span>
-              <input
-                type="text"
-                disabled
-                placeholder="Eco conversacional llega con su API…"
-                className="w-full min-w-0 cursor-not-allowed bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
-              />
-              <span aria-hidden className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-[color:var(--info-foreground)] text-white">
-                <Send className="h-3 w-3" strokeWidth={1.75} />
-              </span>
-            </form>
-          </div>
-        </section>
+        {/* Eco, su analista de la escuela (§7A · conversacional, read-only) */}
+        <ChatEco
+          surface="escuela"
+          entidadId="escuela"
+          subtitulo="Su analista de la escuela"
+          placeholder="Pregúntele a Eco sobre la escuela…"
+          intro="Pregúntele a Eco sobre la escuela: cruza alumnos, casos y validación, competencia I-AIM y comunidad (bajo RLS) para responder con datos reales. Eco propone; usted decide."
+          sugerencias={['¿Cómo va la escuela?', '¿Cuántos casos faltan por validar?', '¿En qué dominio I-AIM está más floja?']}
+        />
       </div>
     </div>
   );

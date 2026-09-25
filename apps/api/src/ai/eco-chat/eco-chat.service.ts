@@ -219,10 +219,31 @@ export class EcoChatService {
     const base = promptChat ?? SYSTEM_CHAT_FALLBACK;
     const contexto =
       `\n\nCONTEXTO DE ESTA CONVERSACIÓN:\n` +
-      `- Superficie: expediente del alumno.\n` +
-      `- Alumno en foco (id): ${p.entidadId}. Las herramientas ya apuntan a ESTE alumno.\n` +
-      `- Rol de quien pregunta: ${rol}.`;
+      encuadreSurface(p.surface, p.entidadId) +
+      `\n- Rol de quien pregunta: ${rol}.`;
     return base + contexto;
+  }
+}
+
+/** Encuadre por superficie: qué entidad está en foco y a qué apuntan las herramientas. */
+function encuadreSurface(surface: SurfaceEco, entidadId: string): string {
+  switch (surface) {
+    case 'grupo':
+      return (
+        `- Superficie: seguimiento de un grupo.\n` +
+        `- Grupo en foco (id): ${entidadId}. Las herramientas ya apuntan a ESTE grupo.`
+      );
+    case 'escuela':
+      return (
+        `- Superficie: panorama global de la escuela.\n` +
+        `- Las herramientas agregan datos de TODA la escuela (no de un alumno o grupo puntual).`
+      );
+    case 'alumno':
+    default:
+      return (
+        `- Superficie: expediente del alumno.\n` +
+        `- Alumno en foco (id): ${entidadId}. Las herramientas ya apuntan a ESTE alumno.`
+      );
   }
 }
 
