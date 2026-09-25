@@ -46,7 +46,7 @@ export function EntregasConsola({ data }: { data: EntregasVista }) {
 
   // Barra de selectores compartida (siempre disponible para navegar grupo/actividad).
   const barra = actividad ? (
-    <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-2.5 px-6 pt-5">
+    <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-2.5 px-6 pt-5">
       <Selector
         rotulo="Grupo"
         valor={grupo?.nombre ?? '—'}
