@@ -358,6 +358,18 @@ function esperarPintado(): Promise<void> {
 }
 
 /**
+ * Corre `p` con límite de tiempo: si no resuelve en `ms`, RECHAZA. Blinda el rasterizado por
+ * lotes contra un `setStack` que se cuelga sin resolver ni rechazar (un `.dcm` que el loader no
+ * logra parsear) — sin esto, UNA imagen colgada congelaba toda la generación del PDF/miniaturas.
+ */
+function conTiempoLimite<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)),
+  ]);
+}
+
+/**
  * Renderiza MINIATURAS reales (data URL JPEG) del primer frame de cada serie, con
  * un único RenderingEngine offscreen (§4.7 · tira de series del detalle). Reusa el
  * loader DICOM ya registrado; carga cada `imageId` en un viewport oculto, deja pintar
@@ -392,7 +404,7 @@ export async function renderMiniaturas(imageIds: string[]): Promise<(string | nu
 
     for (const imageId of imageIds) {
       try {
-        await viewport.setStack([imageId], 0);
+        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
         viewport.render();
         await esperarPintado();
         const canvas = viewport.getCanvas();
@@ -444,7 +456,7 @@ export async function renderImagenesPng(imageIds: string[], lado = 1100): Promis
     const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
     for (const imageId of imageIds) {
       try {
-        await viewport.setStack([imageId], 0);
+        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
         viewport.render();
         await esperarPintado();
         const canvas = viewport.getCanvas();
@@ -504,7 +516,7 @@ export async function renderMiniaturasDetalle(
 
     for (const imageId of imageIds) {
       try {
-        await viewport.setStack([imageId], 0);
+        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
         viewport.render();
         await esperarPintado();
         const canvas = viewport.getCanvas();

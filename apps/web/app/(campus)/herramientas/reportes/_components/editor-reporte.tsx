@@ -88,6 +88,11 @@ function base64ABlob(b64: string, tipo: string): Blob {
   return new Blob([bytes], { type: tipo });
 }
 
+/** Corre `p` con límite de tiempo; si no resuelve en `ms`, devuelve `fallback` (no cuelga). */
+function conLimite<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+}
+
 /**
  * Dispara el diálogo de impresión sobre un PDF (blob same-origin) usando un iframe oculto.
  * Devuelve `true` si logró llamar a `print()`, `false` si el navegador no lo permite (el
@@ -254,13 +259,20 @@ export function EditorReporte({
     await guardarBorrador(reporte.id, paciente, armarContenido());
     let imagenesDicom: ImagenDicomReporte[] = [];
     let imagenesGaleriaDicom: ImagenGaleriaRasterizada[] = [];
+    // La rasterización DICOM (visor Cornerstone) NUNCA debe congelar la generación: además del
+    // timeout por imagen del motor, un guardia global cae a [] si el lote no termina a tiempo,
+    // así el PDF SIEMPRE sale (con el texto/tabla/impresión aunque falten imágenes).
     try {
-      imagenesDicom = await rasterizarDicomDelReporte(estructura, valores);
+      imagenesDicom = await conLimite(rasterizarDicomDelReporte(estructura, valores), 60_000, []);
     } catch {
       /* si el visor no pudo rasterizar, el PDF sale con el resto del contenido */
     }
     try {
-      imagenesGaleriaDicom = await rasterizarGaleriaDicomDelReporte(reporte.id, estructura, valores);
+      imagenesGaleriaDicom = await conLimite(
+        rasterizarGaleriaDicomDelReporte(reporte.id, estructura, valores),
+        90_000,
+        [],
+      );
     } catch {
       /* idem para las imágenes .dcm de galería */
     }
