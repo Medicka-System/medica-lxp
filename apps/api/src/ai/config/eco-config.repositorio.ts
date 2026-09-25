@@ -12,6 +12,7 @@ interface FilaEcoConfig {
   nombre: string;
   activo: boolean;
   system_prompt: string;
+  system_prompt_chat: string | null;
   user_prompt_template: string;
   temperatura: number;
   max_tokens: number;
@@ -26,6 +27,7 @@ function mapear(f: FilaEcoConfig): EcoConfig {
     nombre: f.nombre,
     activo: f.activo,
     systemPrompt: f.system_prompt,
+    systemPromptChat: f.system_prompt_chat ?? undefined,
     userPromptTemplate: f.user_prompt_template,
     temperatura: Number(f.temperatura),
     maxTokens: f.max_tokens,
@@ -38,7 +40,7 @@ function mapear(f: FilaEcoConfig): EcoConfig {
 /** Config ACTIVA (la que Eco usa por defecto). `null` si no hay ninguna. */
 export async function cargarConfigActiva(sql: Sql): Promise<EcoConfig | null> {
   const rows = await sql<FilaEcoConfig[]>`
-    select id, nombre, activo, system_prompt, user_prompt_template,
+    select id, nombre, activo, system_prompt, system_prompt_chat, user_prompt_template,
            temperatura::float8 as temperatura, max_tokens,
            umbral_confianza::float8 as umbral_confianza, modelos, version
     from lxp.eco_config
@@ -54,7 +56,7 @@ export async function cargarConfigPorNombre(
   nombre: string,
 ): Promise<EcoConfig | null> {
   const rows = await sql<FilaEcoConfig[]>`
-    select id, nombre, activo, system_prompt, user_prompt_template,
+    select id, nombre, activo, system_prompt, system_prompt_chat, user_prompt_template,
            temperatura::float8 as temperatura, max_tokens,
            umbral_confianza::float8 as umbral_confianza, modelos, version
     from lxp.eco_config

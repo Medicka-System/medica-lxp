@@ -18,11 +18,10 @@ import {
   MessageCircle,
   NotebookText,
   ScanLine,
-  Send,
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
-import { EcoMark } from '../../../../_components/eco-mark';
+import { ChatEco } from '../../../../_components/chat-eco';
 import type { Expediente, EstadoAlumno } from '../../_components/contrato';
 
 const ESTADO: Record<EstadoAlumno, string> = {
@@ -265,51 +264,12 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
             </div>
           </section>
 
-          <section className={`${card} overflow-hidden border-[color:var(--info-border)]`}>
-            <div className="flex items-center gap-2.5 bg-[color:var(--info-surface)] px-4 py-3.5">
-              <EcoMark size={32} invertido />
-              <div className="min-w-0 flex-1">
-                <p className="text-[13.5px] font-bold leading-tight">Eco</p>
-                <p className="mt-0.5 text-[10.5px] text-[color:var(--info-foreground)]">Sobre este alumno</p>
-              </div>
-              <span className="inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-2 text-[10px] font-bold text-muted-foreground">
-                <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-muted-foreground/60" />
-                Sin API
-              </span>
-            </div>
-            <div className="px-4 py-3.5">
-              <p className={`text-[12.5px] leading-relaxed ${softText}`}>
-                Cuando la API de Eco esté cableada, aquí cruzará las señales del alumno (última conexión, casos rechazados, dominio más bajo) y sugerirá una acción. Por ahora, el dato duro vive en las tarjetas de la izquierda.
-              </p>
-            </div>
-            <div className="border-t border-border px-4 pb-3.5 pt-3">
-              <div className="flex gap-1.5 overflow-x-auto">
-                {['¿Por qué está en riesgo?', 'Compáralo con su grupo'].map((s) => (
-                  <span
-                    key={s}
-                    className={`inline-flex h-[30px] shrink-0 items-center whitespace-nowrap rounded-full border border-border bg-card px-2.5 text-[11px] font-semibold ${softText}`}
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-              <form
-                className="mt-2.5 flex h-10 items-center gap-2.5 rounded-full border border-border bg-muted px-3.5 opacity-70"
-                onSubmit={(ev) => ev.preventDefault()}
-              >
-                <span className="sr-only">Chat de Eco (pendiente de API)</span>
-                <input
-                  type="text"
-                  disabled
-                  placeholder="Eco conversacional llega con su API…"
-                  className="w-full min-w-0 cursor-not-allowed bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
-                />
-                <span aria-hidden className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-[color:var(--info-foreground)] text-white">
-                  <Send className="h-3 w-3" strokeWidth={1.75} />
-                </span>
-              </form>
-            </div>
-          </section>
+          <ChatEco
+            surface="alumno"
+            entidadId={e.id}
+            intro="Pregúntale a Eco sobre este alumno. Cruza sus datos reales —competencia I-AIM, casos, avance— y el acervo del campus (RAG) para responder. Eco propone; usted confirma."
+            sugerencias={['¿Cómo va este alumno?', '¿En qué dominio está más flojo?', '¿Por qué le rechazaron casos?']}
+          />
         </div>
       </div>
     </div>

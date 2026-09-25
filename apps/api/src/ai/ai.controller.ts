@@ -17,6 +17,19 @@ import {
   type ResultadoConfirmacion,
 } from './correcciones/correcciones.service';
 import { EcoConfigService } from './config/eco-config.service';
+import {
+  EcoChatService,
+  type RespuestaChat,
+  type TurnoChat,
+} from './eco-chat/eco-chat.service';
+
+interface EcoChatBody {
+  surface?: 'alumno';
+  entidadId?: string;
+  /** Quién pregunta (staff). Hoy en el body; en Sprint 11 saldrá del JWT (como todo /ai). */
+  usuarioId?: string;
+  mensajes?: TurnoChat[];
+}
 
 interface DispararBandejaBody {
   modo: 'entregas' | 'casos';
@@ -47,7 +60,35 @@ export class AiController {
     private readonly ai: AiService,
     private readonly correcciones: CorreccionesService,
     private readonly config: EcoConfigService,
+    private readonly chat: EcoChatService,
   ) {}
+
+  /**
+   * Eco CONVERSACIONAL (§7A) — el staff pregunta en lenguaje natural sobre una entidad
+   * (hoy: el expediente de un alumno). Loop de tool-use: Eco trae datos con herramientas
+   * (SQL bajo RLS / RAG) y responde SIN inventar. READ-ONLY: informa, no acciona.
+   * Stateless: el historial llega en el body (no se persiste). Sin streaming en v1 (la
+   * respuesta llega completa; la puerta SSE queda para después). `usuarioId` viaja hoy en
+   * el cuerpo; en Sprint 11 saldrá del JWT (como el resto de /ai).
+   */
+  @Post('eco')
+  @HttpCode(200)
+  eco(@Body() body: EcoChatBody): Promise<RespuestaChat> {
+    if (body?.surface !== 'alumno') {
+      throw new BadRequestException("surface debe ser 'alumno' (por ahora la única soportada)");
+    }
+    if (!body?.entidadId) throw new BadRequestException('entidadId es requerido');
+    if (!body?.usuarioId) throw new BadRequestException('usuarioId es requerido');
+    if (!Array.isArray(body?.mensajes) || body.mensajes.length === 0) {
+      throw new BadRequestException('mensajes debe ser un arreglo no vacío');
+    }
+    return this.chat.responder({
+      surface: body.surface,
+      entidadId: body.entidadId,
+      usuarioId: body.usuarioId,
+      mensajes: body.mensajes,
+    });
+  }
 
   /** Docente dispara el pre-análisis en lote → encola `eco-evaluacion` (worker). */
   @Post('bandeja/:grupoId')

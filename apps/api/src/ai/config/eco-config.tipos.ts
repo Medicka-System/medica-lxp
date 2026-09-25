@@ -22,6 +22,12 @@ export const ecoConfigSchema = z.object({
   nombre: z.string().min(1),
   activo: z.boolean(),
   systemPrompt: z.string().min(1),
+  /**
+   * System prompt del CHAT conversacional (§7A · Eco conversacional). Opcional: si la
+   * config es previa a 0045, el engine usa un fallback. Es columna propia
+   * (`system_prompt_chat`), no parte de `modelos`, para sobrevivir a un guardado de config.
+   */
+  systemPromptChat: z.string().min(1).optional(),
   userPromptTemplate: z.string().min(1),
   temperatura: z.number().min(0).max(2),
   maxTokens: z.number().int().positive(),
@@ -30,6 +36,11 @@ export const ecoConfigSchema = z.object({
     clasificador: modeloRefSchema,
     juicio: modeloRefSchema,
     excepcion: modeloRefSchema,
+    /**
+     * Modelo que juzga el CHAT (§7A). Opcional: si un guardado de config lo dejara fuera,
+     * el engine cae a `juicio` (también Sonnet). Sembrado por 0045.
+     */
+    chat: modeloRefSchema.optional(),
   }),
   version: z.number().int().nonnegative(),
 });
