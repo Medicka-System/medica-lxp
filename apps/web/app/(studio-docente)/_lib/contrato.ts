@@ -24,6 +24,7 @@
  */
 
 import type { EstudioDicom } from '@/components/dicom';
+import type { ContenidoEstructuradoCaso } from '@campus/shared';
 
 export type DominioIaim = 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
 
@@ -110,6 +111,8 @@ export type CasoValidacion = {
   id: string;
   /** Grupo del caso (para disparar el análisis de Eco por grupo · §7A). */
   grupoId: string | null;
+  /** Nombre del grupo (para la línea meta de la bandeja y el filtro "Grupo ▾"). */
+  grupo: string | null;
   /** Alumno dueño del caso (para agrupar la bandeja y cargar sus estudios). */
   alumnoId: string;
   alumno: string;
@@ -119,6 +122,9 @@ export type CasoValidacion = {
   modulo: string | null;
   hallazgos: string | null;
   presuntivo: string | null;
+  /** Verdad estructurada del estudio (`contenido_estructurado` · §7A), si el caso la trae;
+   *  se muestra "lo que reportó el alumno" con `ContenidoEstructuradoCasoVista` (CampoReporte). */
+  contenidoEstructurado: ContenidoEstructuradoCaso | null;
   horas: number;
   creadoEn: Date;
   /** Horas en cola (para marcar lo que urge: >72 h). */
@@ -139,6 +145,25 @@ export type CasoValidacion = {
   estado: EstadoCasoValidacion;
   /** Devolución del docente ya asentada (aprobado/rechazado); `null` si sigue pendiente. */
   notaValidacion: string | null;
+};
+
+/**
+ * Cifras REALES que el backend devuelve al aprobar un caso, para el modal de confirmación
+ * (§ spec · el impacto se confirma con números, no con toast). Las horas son reales; la
+ * competencia I-AIM se recalcula en un worker (`calculo-competencia` · §8), así que aquí
+ * viaja el dominio afectado y se comunica que se actualiza en segundo plano.
+ */
+export type CifrasAprobacion = {
+  /** Horas que acreditó este caso. */
+  horasAcreditadas: number;
+  /** Total de horas acreditadas del alumno tras esta aprobación. */
+  horasTotales: number;
+  /** Meta del programa (hito final · §6); referencia para "lleva N / meta h". */
+  horasPrograma: number;
+  /** Dominio I-AIM del caso (se recalcula en segundo plano). */
+  dominioLabel: string | null;
+  /** Casos que quedan por validar en la cola del docente. */
+  casosRestantes: number;
 };
 
 // ── Estudios del alumno (rejilla de Validación · mock (studio-docente)/validacion/alumno) ──

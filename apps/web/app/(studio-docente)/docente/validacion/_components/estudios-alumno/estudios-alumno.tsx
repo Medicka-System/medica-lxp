@@ -78,11 +78,17 @@ export function EstudiosAlumno({ alumno, estudios, onAbrirEstudio, onEnviarConsu
         onBitacora={() => onVerBitacora(alumno.id)}
       />
 
+      {/* Zona de contenido: grid RESPONSIVO que llena todo el ancho del panel. `auto-fill` con
+          minmax(250px, 1fr) acomoda cuantas columnas de ≥250px quepan (ancho → 5-6; medio → 3-4;
+          angosto → 2/1), sin hueco a la derecha. gap 16 · alturas iguales por fila (§ card de estudio). */}
       <div className="px-7 pb-7 pt-5">
         <FiltrosEstudios estudios={estudios} filtro={filtro} orden={orden} onFiltro={setFiltro} onOrden={setOrden} />
 
         {visibles.length ? (
-          <ul className="mt-4 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+          <ul
+            className="mt-4 grid list-none gap-4 p-0"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}
+          >
             {visibles.map((e) => (
               <li key={e.id} className="flex">
                 <div className="flex w-full">

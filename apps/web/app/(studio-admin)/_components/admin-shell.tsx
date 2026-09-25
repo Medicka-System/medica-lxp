@@ -80,7 +80,7 @@ export function AdminShell({
                 aria-current={on ? 'page' : undefined}
                 className={`relative inline-flex h-[60px] items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] transition-colors ${focusRingDark} ${
                   on
-                    ? 'font-bold text-sidebar-foreground'
+                    ? 'font-bold text-sidebar-foreground hover:text-sidebar-foreground'
                     : 'font-medium text-white/70 hover:text-white'
                 }`}
               >

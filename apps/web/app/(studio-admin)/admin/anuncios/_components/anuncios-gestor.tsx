@@ -10,6 +10,7 @@ import { useActionState, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
+  ChevronDown,
   Lock,
   Mail,
   MessageCircle,
@@ -32,6 +33,8 @@ import {
   type Prioridad,
   type TipoAlcance,
 } from './contrato';
+
+type AlcanceFiltro = 'todos' | TipoAlcance;
 
 const PRIORIDAD: Record<Prioridad, { etiqueta: string; clase: string }> = {
   urgente: {
@@ -62,6 +65,7 @@ const INICIAL: EstadoForm = { ok: false };
 export function AnunciosGestor({ data }: { data: AnunciosData }) {
   const { rol, anuncios, conteos, audiencia } = data;
   const [filtro, setFiltro] = useState<EstadoAnuncio>('publicado');
+  const [alcanceFiltro, setAlcanceFiltro] = useState<AlcanceFiltro>('todos');
   const [busca, setBusca] = useState('');
   const [abierto, setAbierto] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -76,7 +80,10 @@ export function AnunciosGestor({ data }: { data: AnunciosData }) {
   }, [estado]);
 
   const visibles = anuncios.filter(
-    (a) => a.estado === filtro && (!busca.trim() || a.titulo.toLowerCase().includes(busca.trim().toLowerCase())),
+    (a) =>
+      a.estado === filtro &&
+      (alcanceFiltro === 'todos' || a.alcanceTipo === alcanceFiltro) &&
+      (!busca.trim() || a.titulo.toLowerCase().includes(busca.trim().toLowerCase())),
   );
 
   return (
@@ -144,6 +151,29 @@ export function AnunciosGestor({ data }: { data: AnunciosData }) {
             className="w-full min-w-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
+
+        {/* filtro por alcance (client-side sobre el dato real) */}
+        <div className="relative">
+          <label className="sr-only" htmlFor="filtro-alcance">Filtrar por alcance</label>
+          <select
+            id="filtro-alcance"
+            value={alcanceFiltro}
+            onChange={(e) => setAlcanceFiltro(e.target.value as AlcanceFiltro)}
+            className={`h-10 cursor-pointer appearance-none rounded-[10px] border bg-card pl-3.5 pr-9 text-[12.5px] font-semibold transition-colors ${focusRing} ${
+              alcanceFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
+            }`}
+          >
+            <option value="todos">Cualquier alcance</option>
+            <option value="comunidad">{ETIQUETA_ALCANCE.comunidad}</option>
+            <option value="alumnos">{ETIQUETA_ALCANCE.alumnos}</option>
+            <option value="staff">{ETIQUETA_ALCANCE.staff}</option>
+          </select>
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            strokeWidth={2}
+          />
+        </div>
       </div>
 
       {/* lista */}
@@ -155,6 +185,7 @@ export function AnunciosGestor({ data }: { data: AnunciosData }) {
               ['A quién llega', 'flex-1 min-w-0'],
               ['Canales', 'shrink-0 w-[96px]'],
               ['Publicación y vigencia', 'shrink-0 w-[180px]'],
+              ['Vistas', 'shrink-0 w-[92px] text-right'],
             ] as const
           ).map(([t, cls]) => (
             <span key={t} className={`${cls} whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground`}>
@@ -215,6 +246,12 @@ export function AnunciosGestor({ data }: { data: AnunciosData }) {
                 <span className={`${mono} mt-0.5 block text-[10.5px] ${a.vencePronto ? 'text-[color:var(--warning-foreground)]' : 'text-muted-foreground'}`}>
                   {a.vigencia}
                 </span>
+              </span>
+
+              {/* Vistas: sin store de lectura aún (greenfield · §11). Placeholder honesto. */}
+              <span className="w-[92px] shrink-0 text-right">
+                <span className={`${mono} block text-[13px] font-bold text-muted-foreground`}>—</span>
+                <span className="mt-0.5 block text-[10.5px] text-muted-foreground">sin registro</span>
               </span>
             </div>
           ))

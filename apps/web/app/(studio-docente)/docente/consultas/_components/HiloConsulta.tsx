@@ -8,6 +8,7 @@
  * del docente, nunca de Eco (§7A). SIN realtime: el hilo se recarga por navegación.
  */
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -63,6 +64,16 @@ export function HiloConsulta({
   onPedirBorrador,
   onToggleEstado,
 }: HiloConsultaProps) {
+  // Composer auto-crece con el texto (estilo WhatsApp): la altura sigue al contenido hasta
+  // un máximo, luego hace scroll. El hook va ANTES de cualquier return (reglas de hooks).
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+  }, [respuesta, activa?.id]);
+
   if (!activa) {
     return (
       <section className="grid min-w-0 flex-1 place-items-center rounded-[14px] border border-border bg-card p-8 text-center shadow-[0_1px_3px_rgba(17,24,39,0.06)]">
@@ -281,7 +292,8 @@ export function HiloConsulta({
           <label>
             <span className="sr-only">Escriba su respuesta</span>
             <textarea
-              rows={2}
+              ref={composerRef}
+              rows={1}
               value={respuesta}
               onChange={(e) => setRespuesta(e.target.value)}
               onKeyDown={(e) => {
@@ -292,7 +304,7 @@ export function HiloConsulta({
               }}
               placeholder={cerrada ? 'Consulta cerrada — reábrala para responder' : 'Escriba su respuesta…'}
               disabled={cerrada || enviando}
-              className="w-full resize-none bg-transparent text-[13.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+              className="max-h-[168px] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
             />
           </label>
           <div className="mt-3 flex flex-wrap items-center gap-2">

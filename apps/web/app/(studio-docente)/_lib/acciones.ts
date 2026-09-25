@@ -5,7 +5,10 @@ import { comoStaff } from '@/lib/db.server';
 import { encolarNotificacion } from '@/lib/campus/notificaciones-cliente';
 import { requireDocente } from './session';
 import { getCasoValidacion, getEstudiosAlumno } from './datos';
-import type { CasoValidacion, EstudiosAlumnoData } from './contrato';
+import { DOMINIO_LABEL, type CasoValidacion, type CifrasAprobacion, type DominioIaim, type EstudiosAlumnoData } from './contrato';
+
+/** Meta de horas del programa (hito final · §6). Referencia para "lleva N / meta h". */
+const HORAS_PROGRAMA = 1000;
 
 /**
  * Server actions de la consola del DOCENTE (§5B). CRUD simple `web → Supabase` bajo
@@ -63,6 +66,97 @@ export async function validarCaso(input: {
   revalidatePath('/docente/validacion');
   revalidatePath('/docente');
   return { ok: true };
+}
+
+/**
+ * Aprueba en LOTE los casos "listos para confirmar" de la bandeja (§7A · pie de la bandeja).
+ * El docente CONFIRMA el lote tras revisar el resumen — no se asienta nada sin ese paso
+ * (Eco propone, el humano firma). Cada aprobación acredita las horas del caso. La
+ * clasificación "listo" es hoy un PLACEHOLDER del cliente (Eco no conectado); el docente
+ * ve la lista y decide. RLS: `es_docente_o_mas` sobre `lxp.validaciones`/`bitacora_casos`.
+ */
+export async function aprobarCasosLote(
+  casoIds: string[],
+): Promise<ResultadoAccion & { aprobados?: number }> {
+  const { userId } = await requireDocente();
+  const ids = [...new Set(casoIds)].filter(Boolean);
+  if (!ids.length) return { ok: false, error: 'No hay casos listos que aprobar.' };
+  try {
+    await comoStaff(userId, async (sql) => {
+      await sql.begin(async (tx) => {
+        for (const casoId of ids) {
+          await tx`
+            insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+            values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
+          await tx`
+            update lxp.bitacora_casos
+            set estado_validacion = 'aprobado'::lxp.estado_validacion
+            where id = ${casoId} and estado_validacion = 'pendiente'`;
+        }
+      });
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo aprobar el lote. Inténtalo de nuevo.' };
+  }
+  // PENDIENTE DE API: encolar calculo-competencia + xAPI `validó` por cada caso (§8/§7).
+  revalidatePath('/docente/validacion');
+  revalidatePath('/docente');
+  return { ok: true, aprobados: ids.length };
+}
+
+/**
+ * Aprueba UN caso y devuelve las cifras REALES para el modal de confirmación (§ spec: el
+ * impacto se confirma con números, no con toast). Firma la decisión (validaciones + estado)
+ * y calcula: horas que acredita este caso, total acumulado del alumno tras la firma, meta del
+ * programa, dominio afectado y casos que quedan en la cola. La competencia I-AIM la recalcula
+ * el worker `calculo-competencia` (§8) — aquí se comunica el dominio y que se actualiza en
+ * segundo plano. Eco propone; el docente firma (§7A).
+ */
+export async function aprobarCaso(input: {
+  casoId: string;
+  feedback: string;
+}): Promise<ResultadoAccion & { cifras?: CifrasAprobacion }> {
+  const { userId } = await requireDocente();
+  const feedback = input.feedback.trim();
+  try {
+    const cifras = await comoStaff(userId, async (sql) => {
+      const [caso] = await sql<{ id_alumno: string; horas: number; dominio: DominioIaim | null }[]>`
+        select id_alumno, horas_estimadas::float8 as horas, dominio_iaim as dominio
+        from lxp.bitacora_casos where id = ${input.casoId} limit 1`;
+      if (!caso) throw new Error('caso no encontrado');
+
+      await sql.begin(async (tx) => {
+        await tx`
+          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+          values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
+        await tx`
+          update lxp.bitacora_casos
+          set estado_validacion = 'aprobado'::lxp.estado_validacion
+          where id = ${input.casoId} and estado_validacion = 'pendiente'`;
+      });
+
+      const [tot] = await sql<{ h: number }[]>`
+        select coalesce(sum(horas_estimadas), 0)::float8 as h
+        from lxp.bitacora_casos
+        where id_alumno = ${caso.id_alumno} and estado_validacion = 'aprobado'`;
+      const [rest] = await sql<{ n: number }[]>`
+        select count(*)::int as n from lxp.bitacora_casos where estado_validacion = 'pendiente'`;
+
+      return {
+        horasAcreditadas: caso.horas,
+        horasTotales: tot?.h ?? caso.horas,
+        horasPrograma: HORAS_PROGRAMA,
+        dominioLabel: caso.dominio ? DOMINIO_LABEL[caso.dominio] : null,
+        casosRestantes: rest?.n ?? 0,
+      } satisfies CifrasAprobacion;
+    });
+    // PENDIENTE DE API (worker · §8): encolar calculo-competencia + xAPI `validó` + notificación.
+    revalidatePath('/docente/validacion');
+    revalidatePath('/docente');
+    return { ok: true, cifras };
+  } catch {
+    return { ok: false, error: 'No se pudo aprobar el caso. Inténtalo de nuevo.' };
+  }
 }
 
 /**

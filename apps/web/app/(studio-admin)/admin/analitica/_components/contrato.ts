@@ -10,6 +10,9 @@
 
 export type BarraSimple = { etiqueta: string; valor: string; pct: number; alerta?: boolean };
 
+/** Punto de serie temporal para las gráficas reales (Recharts vía wrapper). */
+export type PuntoSerie = { x: string; v: number };
+
 export type IaimEscuela = { dominio: string; valor: number; n: number; decaimiento: number; flojo: boolean };
 
 export type DocenteDesempeno = {
@@ -23,12 +26,18 @@ export type DocenteDesempeno = {
 
 export type AnaliticaData = {
   alumnos: { activos: number; altas30: number };
+  /** Crecimiento acumulado de alumnos por mes (gráfica real · Recharts). */
+  crecimiento: PuntoSerie[];
   casos: { total: number; aprobados: number; rechazados: number; pendientes: number; tasaAprobacion: number | null };
   casosPorMes: BarraSimple[];
+  /** Casos subidos por mes como serie numérica (gráfica real · Recharts). */
+  casosMesSerie: PuntoSerie[];
   iaim: IaimEscuela[];
   casosPorDominio: BarraSimple[];
   repaso: { conDecaimiento: number; repasos: number; dominiosMedidos: number };
   docentes: DocenteDesempeno[];
+  /** Actividad de diseño (real): piezas publicadas por autor (recursos + casos curados). */
+  diseno: { total: number; barras: BarraSimple[] };
   ateneo: { casosSemana: number; casosTotal: number; comentarios: number; autores: number; sinResponder: number };
   ecoCorrecciones: number;
 };

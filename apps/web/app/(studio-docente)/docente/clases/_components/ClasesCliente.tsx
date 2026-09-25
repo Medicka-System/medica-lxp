@@ -80,8 +80,6 @@ export function ClasesCliente({ data }: { data: ClasesData }) {
   // Placeholders (sin backend): dejan un aviso claro, no fingen éxito.
   const onEditarClase = () =>
     setAviso('Editar una clase agendada se conecta con el backend (pendiente · Sprint 6).');
-  const onVerAsistencia = () =>
-    setAviso('La lista de asistencia llega del reporte de participantes de Zoom (pendiente · §9).');
   const onPreguntarEco = () => setAviso('Eco se conecta al final; aquí es solo el espacio donde vivirá.');
 
   return (
@@ -132,7 +130,6 @@ export function ClasesCliente({ data }: { data: ClasesData }) {
               filtroGrupo,
               setFiltroGrupo,
               onVerGrabacion,
-              onVerAsistencia,
               onLigar,
               leccionesPorGrupo: data.leccionesPorGrupo,
               visibles,

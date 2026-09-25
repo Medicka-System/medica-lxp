@@ -18,7 +18,6 @@ export type GrabacionesProps = {
   filtroGrupo: string;
   setFiltroGrupo: (g: string) => void;
   onVerGrabacion: (id: string) => void;
-  onVerAsistencia: (id: string) => void;
   onLigar: (grabacionId: string, leccionId: string) => void;
   leccionesPorGrupo: Record<string, LeccionOpcion[]>;
   visibles: Grabacion[];
@@ -30,7 +29,6 @@ export function Grabaciones({
   filtroGrupo,
   setFiltroGrupo,
   onVerGrabacion,
-  onVerAsistencia,
   onLigar,
   leccionesPorGrupo,
   visibles,
@@ -189,13 +187,6 @@ export function Grabaciones({
                       >
                         <Play aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
                         Ver grabación
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onVerAsistencia(g.id)}
-                        className={`h-9 whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold ${softText} transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
-                      >
-                        Lista de asistencia
                       </button>
                     </div>
                   </div>

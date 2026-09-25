@@ -15,10 +15,13 @@
  * declarados (ver `_data.ts` / `contrato.ts`), a la espera de su integración.
  */
 
+import { useState } from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
   Award,
   BarChart3,
+  ChevronRight,
   CreditCard,
   Database,
   ExternalLink,
@@ -120,6 +123,9 @@ export function CentroControl({ data }: { data: CentroControlData }) {
     eco,
   } = data;
 
+  const [rango, setRango] = useState<'6m' | '12m'>('6m');
+  const puntosTendencia = rango === '6m' ? tendencia.puntos6m : tendencia.puntos12m;
+
   return (
     <div className="mx-auto w-full max-w-[1360px] px-6 pb-7 pt-5">
       {/* cabecera + accesos de gobierno (solo súper admin) */}
@@ -136,22 +142,34 @@ export function CentroControl({ data }: { data: CentroControlData }) {
           <div className="ml-auto flex flex-wrap gap-2">
             {(
               [
-                ['Usuarios y roles', Users],
-                ['Integraciones', ExternalLink],
-                ['Configuración', Settings],
+                ['Usuarios y roles', Users, null],
+                ['Integraciones', ExternalLink, null],
+                ['Analítica', TrendingUp, '/admin/analitica'],
+                ['Configuración', Settings, '/configuracion'],
               ] as const
-            ).map(([t, Icono]) => (
-              <button
-                key={t}
-                type="button"
-                disabled
-                title="Configuración del sistema — próximamente"
-                className={`inline-flex h-10 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted-foreground ${focusRing}`}
-              >
-                <Icono aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                {t}
-              </button>
-            ))}
+            ).map(([t, Icono, href]) =>
+              href ? (
+                <Link
+                  key={t}
+                  href={href}
+                  className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+                >
+                  <Icono aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  {t}
+                </Link>
+              ) : (
+                <button
+                  key={t}
+                  type="button"
+                  disabled
+                  title={`${t} — próximamente`}
+                  className={`inline-flex h-10 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
+                >
+                  <Icono aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  {t}
+                </button>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -202,11 +220,30 @@ export function CentroControl({ data }: { data: CentroControlData }) {
         <section className={`${card} p-[18px]`}>
           <div className="flex flex-wrap items-center gap-2.5">
             <p className={`${kicker} text-muted-foreground`}>Crecimiento y actividad</p>
-            <span className="ml-auto text-[11px] font-semibold text-muted-foreground">últimos 6 meses</span>
+            <div className="ml-auto flex gap-1 rounded-full bg-muted p-[3px]">
+              {(
+                [
+                  ['6m', '6 meses'],
+                  ['12m', '12 meses'],
+                ] as const
+              ).map(([id, etiqueta]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setRango(id)}
+                  aria-pressed={rango === id}
+                  className={`h-[26px] whitespace-nowrap rounded-full px-2.5 text-[11px] font-semibold transition-colors ${focusRing} ${
+                    rango === id ? 'bg-sidebar text-sidebar-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  {etiqueta}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mt-5 flex h-[132px] items-end gap-2.5">
-            {tendencia.puntos.map((p, i, arr) => {
+            {puntosTendencia.map((p, i, arr) => {
               const ultimo = i === arr.length - 1;
               return (
                 <span key={p.mes + i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
@@ -258,7 +295,10 @@ export function CentroControl({ data }: { data: CentroControlData }) {
           </div>
 
           {riesgo.n > 0 ? (
-            <div className="mt-4 flex w-full items-center gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3 text-left">
+            <Link
+              href="/admin/alumnos"
+              className={`mt-4 flex w-full items-center gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3 text-left ${focusRing}`}
+            >
               <span
                 aria-hidden
                 className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full bg-card text-[color:var(--warning-foreground)]"
@@ -273,7 +313,12 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                   {riesgo.detalle}
                 </span>
               </span>
-            </div>
+              <ChevronRight
+                aria-hidden
+                className="h-4 w-4 shrink-0 text-[color:var(--warning-foreground)]"
+                strokeWidth={2}
+              />
+            </Link>
           ) : (
             <div className="mt-4 flex w-full items-center gap-2.5 rounded-[11px] border border-border bg-accent px-3.5 py-3">
               <span className="text-[12px] font-semibold text-accent-foreground">
@@ -316,6 +361,15 @@ export function CentroControl({ data }: { data: CentroControlData }) {
           <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
             La cobranza vive en CORA; el LXP solo la refleja. El agregado se conecta en la integración con el ERP ({cartera.ultimoCorte}).
           </p>
+          <button
+            type="button"
+            disabled
+            title="Abrir CORA — se conecta con la integración del ERP (§11)"
+            className={`mt-2.5 inline-flex h-10 w-full cursor-not-allowed items-center justify-center gap-2 rounded-[10px] border border-border bg-card text-[12.5px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
+          >
+            <ExternalLink aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            Abrir CORA
+          </button>
         </section>
       </div>
 
@@ -344,7 +398,13 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                         <span className="block text-[13px] font-bold">{it.nombre}</span>
                         <span className="mt-0.5 block text-[11px] text-muted-foreground">{it.detalle}</span>
                       </span>
-                      <span className={`${mono} shrink-0 whitespace-nowrap text-[10.5px] text-muted-foreground`}>{it.meta}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className={`${mono} whitespace-nowrap text-[10.5px] text-muted-foreground`}>{it.meta}</span>
+                        <span className={`inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[10.5px] font-bold ${sem.clase}`}>
+                          <span aria-hidden className="h-[7px] w-[7px] rounded-full bg-current" />
+                          {sem.etiqueta}
+                        </span>
+                      </span>
                     </li>
                   );
                 })}
@@ -364,9 +424,40 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                 </span>
                 <span className="text-[12px] font-semibold text-muted-foreground">{gastoIA.moneda} en {gastoIA.periodo}</span>
               </div>
-              <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-                El tope y el costo por tarea de Eco se configuran en el hub de Configuración (IA/Eco). La medición del gasto se cablea con la orquestación de Eco (§7A).
+
+              {/* Barra de tope (estructura lista; el % real llega con la telemetría de Eco · §7A). */}
+              <div className="mt-3 flex items-center gap-2.5">
+                <div
+                  className="h-[7px] flex-1 overflow-hidden rounded-full bg-[color:var(--track)]"
+                  role="progressbar"
+                  aria-valuenow={gastoIA.pctTope}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Consumo contra el tope mensual"
+                >
+                  <span className="block h-full rounded-full bg-[color:var(--info)]" style={{ width: `${gastoIA.pctTope}%` }} />
+                </div>
+                <span className={`${mono} shrink-0 text-[11.5px] font-bold text-muted-foreground`}>{gastoIA.pctTope}% del tope</span>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Tope: {gastoIA.tope}. El tope y el costo por tarea se configuran en el hub (IA/Eco); la medición del gasto se cablea con la orquestación de Eco (§7A).
               </p>
+
+              {/* Desglose por tarea (mismo layout del mock; se puebla con la telemetría real). */}
+              <ul className="mt-3.5 flex flex-col gap-2 border-t border-border pt-3.5">
+                {gastoIA.desglose.length > 0 ? (
+                  gastoIA.desglose.map((d) => (
+                    <li key={d.tarea} className="flex items-center gap-2.5">
+                      <span className={`min-w-0 flex-1 truncate text-[12px] font-medium ${softText}`}>{d.tarea}</span>
+                      <span className={`${mono} shrink-0 text-[11.5px] font-bold`}>{d.monto}</span>
+                      <span className={`${mono} w-[34px] shrink-0 text-right text-[10.5px] text-muted-foreground`}>{d.pct}</span>
+                    </li>
+                  ))
+                ) : (
+                  <li className="text-[11px] text-muted-foreground">Desglose por tarea disponible al cablear la telemetría de Eco.</li>
+                )}
+              </ul>
+
               <button
                 type="button"
                 disabled
@@ -408,38 +499,31 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                 <ul className="mt-3 flex flex-col gap-2">
                   {alertas.map((a) => {
                     const critica = a.gravedad === 'critica';
-                    return (
-                      <li
-                        key={a.id}
-                        className={`flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 ${
-                          critica
-                            ? 'border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)]'
-                            : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]'
-                        }`}
-                      >
-                        <AlertTriangle
-                          aria-hidden
-                          className={`mt-0.5 h-[15px] w-[15px] shrink-0 ${
-                            critica ? 'text-[color:var(--destructive-foreground)]' : 'text-[color:var(--warning-foreground)]'
-                          }`}
-                          strokeWidth={2}
-                        />
+                    const tono = critica
+                      ? 'text-[color:var(--destructive-foreground)]'
+                      : 'text-[color:var(--warning-foreground)]';
+                    const borde = critica
+                      ? 'border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)]'
+                      : 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)]';
+                    const cuerpo = (
+                      <>
+                        <AlertTriangle aria-hidden className={`mt-0.5 h-[15px] w-[15px] shrink-0 ${tono}`} strokeWidth={2} />
                         <span className="min-w-0 flex-1">
-                          <span
-                            className={`block text-[12.5px] font-bold ${
-                              critica ? 'text-[color:var(--destructive-foreground)]' : 'text-[color:var(--warning-foreground)]'
-                            }`}
-                          >
-                            {a.titulo}
-                          </span>
-                          <span
-                            className={`mt-1 block text-[11.5px] leading-relaxed ${
-                              critica ? 'text-[color:var(--destructive-foreground)]' : 'text-[color:var(--warning-foreground)]'
-                            }`}
-                          >
-                            {a.detalle}
-                          </span>
+                          <span className={`block text-[12.5px] font-bold ${tono}`}>{a.titulo}</span>
+                          <span className={`mt-1 block text-[11.5px] leading-relaxed ${tono}`}>{a.detalle}</span>
                         </span>
+                        {a.href && <ChevronRight aria-hidden className={`mt-0.5 h-[15px] w-[15px] shrink-0 ${tono}`} strokeWidth={2} />}
+                      </>
+                    );
+                    return (
+                      <li key={a.id}>
+                        {a.href ? (
+                          <Link href={a.href} className={`flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 ${borde} ${focusRing}`}>
+                            {cuerpo}
+                          </Link>
+                        ) : (
+                          <div className={`flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 ${borde}`}>{cuerpo}</div>
+                        )}
                       </li>
                     );
                   })}
@@ -480,14 +564,23 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                       </span>
                       <span className="mt-1 block text-[11px] text-[color:var(--warning-foreground)]">{d.detalle}</span>
                     </span>
-                    <button
-                      type="button"
-                      disabled
-                      title="Disponible próximamente"
-                      className="h-9 shrink-0 cursor-not-allowed whitespace-nowrap rounded-[9px] border border-[color:var(--warning-border)] bg-card px-3 text-[12px] font-bold text-[color:var(--warning-foreground)] opacity-70"
-                    >
-                      {d.cta}
-                    </button>
+                    {d.href ? (
+                      <Link
+                        href={d.href}
+                        className={`inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-[9px] border border-[color:var(--warning-border)] bg-card px-3 text-[12px] font-bold text-[color:var(--warning-foreground)] ${focusRing}`}
+                      >
+                        {d.cta}
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="Disponible próximamente"
+                        className="h-9 shrink-0 cursor-not-allowed whitespace-nowrap rounded-[9px] border border-[color:var(--warning-border)] bg-card px-3 text-[12px] font-bold text-[color:var(--warning-foreground)] opacity-70"
+                      >
+                        {d.cta}
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -501,7 +594,15 @@ export function CentroControl({ data }: { data: CentroControlData }) {
 
         {/* actividad del staff */}
         <section className={`${card} p-[18px]`}>
-          <p className={`${kicker} text-muted-foreground`}>Actividad del staff · reciente</p>
+          <div className="flex items-center gap-2.5">
+            <p className={`${kicker} min-w-0 flex-1 text-muted-foreground`}>Actividad del staff · reciente</p>
+            <Link
+              href="/admin/staff"
+              className={`inline-flex h-[30px] shrink-0 items-center rounded-full px-2.5 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+            >
+              Ver todo
+            </Link>
+          </div>
           {actividad.length > 0 ? (
             <ul className="mt-2.5 flex flex-col gap-0.5">
               {actividad.map((a) => (
@@ -537,6 +638,14 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                 {ateneo.casos} casos esta semana · {ateneo.comentarios} comentarios · {ateneo.sinResponder} sin responder
               </span>
             </span>
+            <button
+              type="button"
+              disabled
+              title="Abrir el Ateneo — vista de admin próximamente"
+              className={`h-9 shrink-0 cursor-not-allowed whitespace-nowrap rounded-[9px] border border-border bg-card px-3 text-[12px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
+            >
+              Abrir
+            </button>
           </div>
         </section>
 

@@ -62,9 +62,11 @@ export function CabeceraAlumno({
         </span>
       </div>
 
-      <dl className="relative mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-t-xl bg-white/10 sm:grid-cols-4">
+      {/* KPIs AGRUPADOS a la izquierda (w-fit): no se estiran a todo el ancho en pantallas
+          anchas; cada cifra tiene ancho fijo y el espacio sobrante queda a la derecha. */}
+      <dl className="relative mt-5 grid w-fit grid-cols-2 gap-px overflow-hidden rounded-t-xl bg-white/10 sm:grid-cols-4">
         {cifras.map((c) => (
-          <div key={c.etiqueta} className="bg-[rgba(10,33,64,.55)] px-4 py-3">
+          <div key={c.etiqueta} className="min-w-[140px] bg-[rgba(10,33,64,.55)] px-4 py-3">
             <dd className={`${mono} m-0 text-[20px] font-extrabold leading-none ${c.tono}`}>{c.valor}</dd>
             <dt className="mt-1.5 text-[11px] text-[color:var(--hero-ink-muted)]">{c.etiqueta}</dt>
           </div>

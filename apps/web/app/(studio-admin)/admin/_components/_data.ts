@@ -41,6 +41,7 @@ type FilaTotales = {
   alumnos_total: number;
   alumnos_activos: number;
   alumnos_nuevos_30: number;
+  alumnos_nuevos_30_prev: number;
   grupos_total: number;
   grupos_abiertos: number;
   grupos_cierran: number;
@@ -64,7 +65,7 @@ export async function getCentroControl(
 ): Promise<CentroControlData> {
   const hoy = new Date();
 
-  const { totales, tendenciaRows, actividadRows } = await comoStaff(userId, async (sql) => {
+  const { totales, tendenciaRows, actividadRows, avanceRows } = await comoStaff(userId, async (sql) => {
     // ── Totales del dominio (un solo viaje) ──────────────────────────────────
     const totales = (
       await sql<FilaTotales[]>`
@@ -72,6 +73,7 @@ export async function getCentroControl(
           (select count(*) filter (where rol = 'alumno') from lxp.perfiles)::int as alumnos_total,
           (select count(*) filter (where rol = 'alumno' and acceso_activo) from lxp.perfiles)::int as alumnos_activos,
           (select count(*) filter (where rol = 'alumno' and created_at >= now() - interval '30 days') from lxp.perfiles)::int as alumnos_nuevos_30,
+          (select count(*) filter (where rol = 'alumno' and created_at >= now() - interval '60 days' and created_at < now() - interval '30 days') from lxp.perfiles)::int as alumnos_nuevos_30_prev,
           (select count(*) from lxp.grupos)::int as grupos_total,
           (select count(*) filter (where fecha_fin is null or fecha_fin >= current_date) from lxp.grupos)::int as grupos_abiertos,
           (select count(*) filter (where fecha_fin >= current_date and fecha_fin < current_date + interval '90 days') from lxp.grupos)::int as grupos_cierran,
@@ -97,12 +99,30 @@ export async function getCentroControl(
       `
     )[0]!;
 
-    // ── Tendencia: nuevos alumnos por mes (últimos 6 meses) ──────────────────
+    // ── Tendencia: nuevos alumnos por mes (últimos 12 meses; el cliente muestra 6 o 12) ──
     const tendenciaRows = await sql<{ ym: string; n: number }[]>`
       select to_char(date_trunc('month', created_at), 'YYYY-MM') as ym, count(*)::int as n
       from lxp.perfiles
-      where rol = 'alumno' and created_at >= date_trunc('month', now()) - interval '5 months'
+      where rol = 'alumno' and created_at >= date_trunc('month', now()) - interval '11 months'
       group by 1`;
+
+    // ── Avance medio de los grupos, PONDERADO por horas acreditadas (real · lxp) ──
+    // Por grupo: fracción de casos aprobados; se promedia pesando por las horas
+    // acreditadas del grupo (los casos sin grupo —históricos— no entran aquí).
+    const avanceRows = await sql<{ avance: number }[]>`
+      select coalesce(
+        sum((aprob / nullif(total, 0)) * horas) / nullif(sum(horas), 0),
+        0
+      )::float8 as avance
+      from (
+        select
+          count(*) filter (where estado_validacion = 'aprobado')::float8 as aprob,
+          count(*)::float8 as total,
+          coalesce(sum(horas_estimadas) filter (where estado_validacion = 'aprobado'), 0)::float8 as horas
+        from lxp.bitacora_casos
+        where grupo_id is not null
+        group by grupo_id
+      ) g`;
 
     // ── Actividad del staff: validaciones recientes por docente (últimos 3 días) ──
     const actividadRows = await sql<
@@ -116,8 +136,21 @@ export async function getCentroControl(
       order by ultimo desc
       limit 5`;
 
-    return { totales, tendenciaRows, actividadRows };
+    return { totales, tendenciaRows, actividadRows, avanceRows };
   });
+
+  // Delta de inscripciones: variación real vs. los 30 días anteriores (si los hubo).
+  const deltaInscPositivo = totales.alumnos_nuevos_30 >= totales.alumnos_nuevos_30_prev;
+  const deltaInscripciones: string | null =
+    totales.alumnos_nuevos_30_prev > 0
+      ? `${deltaInscPositivo ? '+' : ''}${Math.round(
+          ((totales.alumnos_nuevos_30 - totales.alumnos_nuevos_30_prev) /
+            totales.alumnos_nuevos_30_prev) *
+            100,
+        )}%`
+      : totales.alumnos_nuevos_30 > 0
+        ? `+${totales.alumnos_nuevos_30} nuevos`
+        : null;
 
   // ── KPIs (reales) ──────────────────────────────────────────────────────────
   const kpis: CentroControlData['kpis'] = [
@@ -154,34 +187,38 @@ export async function getCentroControl(
     },
     {
       id: 'k4',
-      titulo: 'Casos este mes',
-      valor: miles(totales.casos_mes),
-      unidad: 'subidos a bitácora',
-      delta: totales.casos_pendientes > 0 ? `${totales.casos_pendientes} por validar` : undefined,
-      pie: `${miles(totales.casos_aprobados)} aprobados acumulados`,
+      titulo: 'Inscripciones',
+      valor: miles(totales.alumnos_nuevos_30),
+      unidad: 'últimos 30 días',
+      delta: deltaInscripciones ?? undefined,
+      deltaPositivo: deltaInscPositivo,
+      pie: 'altas de alumnos provisionadas por CORA',
       icono: 'inscripciones',
     },
   ];
 
-  // ── Tendencia (últimos 6 meses; ejes siempre presentes) ─────────────────────
+  // ── Tendencia: series reales de 12 y 6 meses (ejes siempre presentes) ────────
   const porMes = new Map(tendenciaRows.map((r) => [r.ym, r.n]));
-  const buckets: { ym: string; mes: string; n: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    buckets.push({ ym, mes: MESES[d.getMonth()]!, n: porMes.get(ym) ?? 0 });
+  /** Construye N buckets mensuales terminando en el mes actual, escalados a su propio máximo. */
+  function serieMeses(n: number): PuntoTendencia[] {
+    const buckets: { mes: string; n: number }[] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      buckets.push({ mes: MESES[d.getMonth()]!, n: porMes.get(ym) ?? 0 });
+    }
+    const max = Math.max(1, ...buckets.map((b) => b.n));
+    return buckets.map((b) => ({
+      mes: b.mes,
+      valor: miles(b.n),
+      altura: Math.max(6, Math.round((b.n / max) * 100)),
+    }));
   }
-  const maxBucket = Math.max(1, ...buckets.map((b) => b.n));
-  const puntos: PuntoTendencia[] = buckets.map((b) => ({
-    mes: b.mes,
-    valor: miles(b.n),
-    altura: Math.max(6, Math.round((b.n / maxBucket) * 100)),
-  }));
+  const puntos12m = serieMeses(12);
+  const puntos6m = serieMeses(6);
 
-  const avanceCasos =
-    totales.casos_mes + totales.casos_aprobados > 0
-      ? Math.round((totales.casos_aprobados / (totales.casos_aprobados + totales.casos_pendientes || 1)) * 100)
-      : 0;
+  // Avance medio de los grupos, ponderado por horas acreditadas (real · lxp).
+  const avanceGrupos = Math.round((avanceRows[0]?.avance ?? 0) * 100);
   const alDia =
     totales.alumnos_total > 0
       ? Math.round((totales.alumnos_activos / totales.alumnos_total) * 100)
@@ -227,6 +264,7 @@ export async function getCentroControl(
       detalle: 'temario sin publicar a ningún grupo',
       cta: 'Revisar',
       icono: 'certificados',
+      href: '/admin/programas',
     });
   }
 
@@ -238,6 +276,7 @@ export async function getCentroControl(
       titulo: `${totales.casos_pendientes_viejos} casos llevan +7 días pendientes`,
       detalle: 'La validación se está rezagando; revise la carga de los docentes.',
       gravedad: totales.casos_pendientes_viejos >= 10 ? 'critica' : 'media',
+      href: '/admin/staff',
     });
   }
   if (totales.en_riesgo > 0) {
@@ -246,6 +285,7 @@ export async function getCentroControl(
       titulo: `${totales.en_riesgo} alumnos sin actividad reciente`,
       detalle: 'Sin casos subidos en 14 días; conviene un recordatorio o seguimiento.',
       gravedad: 'media',
+      href: '/admin/alumnos',
     });
   }
 
@@ -254,7 +294,8 @@ export async function getCentroControl(
     fecha: fechaLarga(hoy),
     kpis,
     tendencia: {
-      puntos,
+      puntos6m,
+      puntos12m,
       resumen: [
         { valor: miles(totales.alumnos_activos), etiqueta: 'alumnos activos' },
         { valor: miles(totales.casos_mes), etiqueta: 'casos este mes' },
@@ -262,8 +303,8 @@ export async function getCentroControl(
       ],
     },
     avance: [
-      { titulo: 'Alumnos con acceso al día', pct: alDia, detalle: `${miles(totales.alumnos_activos)} de ${miles(totales.alumnos_total)}` },
-      { titulo: 'Casos validados vs. pendientes', pct: avanceCasos, detalle: `${miles(totales.casos_aprobados)} aprobados · ${miles(totales.casos_pendientes)} en cola` },
+      { titulo: `Avance medio de los ${miles(totales.grupos_total)} grupos`, pct: avanceGrupos, detalle: 'ponderado por horas acreditadas' },
+      { titulo: 'Alumnos al día', pct: alDia, detalle: `${miles(totales.alumnos_activos)} de ${miles(totales.alumnos_total)}` },
     ],
     riesgo: {
       n: totales.en_riesgo,

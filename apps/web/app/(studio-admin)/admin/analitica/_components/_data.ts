@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
-import type { AnaliticaData, IaimEscuela, BarraSimple, DocenteDesempeno } from './contrato';
+import type { AnaliticaData, IaimEscuela, BarraSimple, DocenteDesempeno, PuntoSerie } from './contrato';
 
 /**
  * Lecturas de Analítica CON RLS (`comoStaff` → `lxp.es_staff()`). La capa de
@@ -23,13 +23,23 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
   const hoy = new Date();
 
   const raw = await comoStaff(userId, async (sql) => {
-    const [alumnos, casos, casosMes, iaimRows, casosDom, repaso, valDoc, colaDoc, ateneo, ecoCorr] =
+    const [alumnos, crecimiento, casos, casosMes, iaimRows, casosDom, repaso, valDoc, colaDoc, ateneo, ecoCorr, diseno] =
       await Promise.all([
         sql<{ activos: number; altas30: number }[]>`
           select
             count(*) filter (where rol = 'alumno' and acceso_activo)::int as activos,
             count(*) filter (where rol = 'alumno' and created_at >= now() - interval '30 days')::int as altas30
           from lxp.perfiles`,
+        // Crecimiento acumulado de alumnos al cierre de cada uno de los últimos 6 meses.
+        sql<{ ym: string; v: number }[]>`
+          select to_char(m, 'YYYY-MM') as ym,
+            (select count(*) from lxp.perfiles p
+               where p.rol = 'alumno' and p.created_at < (m + interval '1 month'))::int as v
+          from generate_series(
+            date_trunc('month', now()) - interval '5 months',
+            date_trunc('month', now()),
+            interval '1 month'
+          ) m`,
         sql<{ ap: number; re: number; pe: number; total: number }[]>`
           select
             count(*) filter (where estado_validacion = 'aprobado')::int as ap,
@@ -73,12 +83,21 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
                where p.tipo = 'caso' and p.estado = 'aprobado'
                  and not exists (select 1 from lxp.comentarios_ateneo c where c.post_id = p.id))::int as sin_responder`,
         sql<{ n: number }[]>`select count(*)::int as n from lxp.eco_correcciones`,
+        // Actividad de diseño (real): piezas por autor = recursos subidos + casos curados.
+        sql<{ nombre: string; piezas: number }[]>`
+          select pf.nombre, (coalesce(rec.n, 0) + coalesce(cur.n, 0))::int as piezas
+          from lxp.perfiles pf
+          left join (select created_by, count(*) as n from lxp.recursos group by created_by) rec on rec.created_by = pf.user_id
+          left join (select curador_id, count(*) as n from lxp.casos_biblioteca group by curador_id) cur on cur.curador_id = pf.user_id
+          where pf.rol <> 'alumno'`,
       ]);
 
     return {
       alumnos: alumnos[0]!,
+      crecimiento,
       casos: casos[0]!,
       casosMes,
+      diseno,
       iaimRows,
       casosDom,
       repaso: repaso[0]!,
@@ -128,6 +147,25 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
   const maxMes = Math.max(1, ...buckets.map((b) => Number(b.valor)));
   for (const b of buckets) b.pct = Math.max(4, Math.round((Number(b.valor) / maxMes) * 100));
 
+  // ── series numéricas para las gráficas reales (Recharts) ──────────────────────
+  const crecimiento: PuntoSerie[] = raw.crecimiento.map((r) => {
+    const mes = Number(r.ym.slice(5, 7)) - 1;
+    return { x: MESES[mes]!, v: r.v };
+  });
+  const casosMesSerie: PuntoSerie[] = buckets.map((b) => ({ x: b.etiqueta, v: Number(b.valor) }));
+
+  // ── actividad de diseño (real): piezas por autor ──────────────────────────────
+  const disenoFilas = raw.diseno.filter((d) => d.piezas > 0).sort((a, b) => b.piezas - a.piezas);
+  const maxPiezas = Math.max(1, ...disenoFilas.map((d) => d.piezas));
+  const diseno = {
+    total: disenoFilas.reduce((s, d) => s + d.piezas, 0),
+    barras: disenoFilas.map((d) => ({
+      etiqueta: d.nombre,
+      valor: String(d.piezas),
+      pct: Math.round((d.piezas / maxPiezas) * 100),
+    })) as BarraSimple[],
+  };
+
   // ── desempeño docente ────────────────────────────────────────────────────────
   const cola = new Map(raw.colaDoc.map((r) => [r.docente_id, r.cola]));
   const docentes: DocenteDesempeno[] = raw.valDoc.map((r) => {
@@ -140,6 +178,7 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
 
   return {
     alumnos: raw.alumnos,
+    crecimiento,
     casos: {
       total: raw.casos.total,
       aprobados: raw.casos.ap,
@@ -148,10 +187,12 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
       tasaAprobacion,
     },
     casosPorMes: buckets,
+    casosMesSerie,
     iaim,
     casosPorDominio,
     repaso: { conDecaimiento: raw.repaso.con_decaimiento, repasos: raw.repaso.repasos, dominiosMedidos: raw.repaso.medidos },
     docentes,
+    diseno,
     ateneo: {
       casosSemana: raw.ateneo.casos_semana,
       casosTotal: raw.ateneo.casos_total,

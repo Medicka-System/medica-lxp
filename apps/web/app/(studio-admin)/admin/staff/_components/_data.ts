@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
-import type { StaffData, MiembroStaff, RolStaff, DetalleStaff, CifraCarga } from './contrato';
+import type { StaffData, MiembroStaff, RolStaff, DetalleStaff, CifraCarga, RegistroTrabajo } from './contrato';
 
 /**
  * Lecturas de Staff CON RLS (`comoStaff` → `lxp.es_staff()`). La carga se deriva de
@@ -11,6 +11,26 @@ import type { StaffData, MiembroStaff, RolStaff, DetalleStaff, CifraCarga } from
  */
 
 const SOBRECARGA = 8; // casos en cola a partir de los cuales se marca sobrecarga
+
+const AREA_DEFAULT: Record<RolStaff, string> = {
+  super_admin: 'Gobierno de la plataforma',
+  admin: 'Operación académica',
+  docente: 'Docencia clínica',
+  disenador_instruccional: 'Diseño instruccional',
+};
+
+/** Área/especialidad real; si no está registrada, un rótulo por rol. */
+function areaDe(rol: RolStaff, especialidad: string | null): string {
+  return especialidad && especialidad.trim() ? especialidad.trim() : AREA_DEFAULT[rol];
+}
+
+/** Formatea segundos a "N h" / "N min" (respuesta media). Null si no hay dato. */
+function formatoDuracion(seg: number | null): string | null {
+  if (seg === null || !Number.isFinite(seg) || seg <= 0) return null;
+  const horas = seg / 3600;
+  if (horas >= 1) return `${Math.round(horas)} h`;
+  return `${Math.max(1, Math.round(seg / 60))} min`;
+}
 
 function fecha(d: Date): string {
   return d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
@@ -31,9 +51,9 @@ function actividadDe(rol: RolStaff, validaciones7d: number, curados: number): st
 
 export async function getStaff(userId: string): Promise<StaffData> {
   return comoStaff(userId, async (sql) => {
-    const [perfiles, gruposPorDoc, colaPorDoc, valPorDoc, curadosPorCurador] = await Promise.all([
-      sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date }[]>`
-        select user_id, nombre, email, rol::text as rol, created_at
+    const [perfiles, gruposPorDoc, colaPorDoc, valPorDoc, curadosPorCurador, respuesta] = await Promise.all([
+      sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null }[]>`
+        select user_id, nombre, email, rol::text as rol, created_at, especialidad
         from lxp.perfiles where rol <> 'alumno' order by nombre`,
       sql<{ docente_id: string; n: number }[]>`
         select docente_id, count(*)::int as n from lxp.grupos
@@ -49,6 +69,13 @@ export async function getStaff(userId: string): Promise<StaffData> {
       sql<{ curador_id: string; n: number }[]>`
         select curador_id, count(*)::int as n from lxp.casos_biblioteca
         where curador_id is not null group by curador_id`,
+      // Respuesta media: consulta→primera respuesta del docente (real).
+      sql<{ seg: number | null }[]>`
+        select avg(extract(epoch from (r.primera - m.primera)))::float8 as seg
+        from lxp.consultas q
+        join lateral (select min(created_at) as primera from lxp.consulta_mensajes where consulta_id = q.id) m on true
+        join lateral (select min(created_at) as primera from lxp.consulta_mensajes where consulta_id = q.id and autor_id = q.id_docente) r on true
+        where q.id_docente is not null and r.primera is not null and r.primera >= m.primera`,
     ]);
 
     const grupos = new Map(gruposPorDoc.map((r) => [r.docente_id, r.n]));
@@ -67,6 +94,7 @@ export async function getStaff(userId: string): Promise<StaffData> {
         nombre: p.nombre,
         rol: p.rol,
         email: p.email,
+        area: areaDe(p.rol, p.especialidad),
         cargo: cargoDe(p.rol, g, c),
         actividad: actividadDe(p.rol, v, c),
         desde: fecha(p.created_at),
@@ -83,7 +111,16 @@ export async function getStaff(userId: string): Promise<StaffData> {
       admins: staff.filter((s) => s.rol === 'admin' || s.rol === 'super_admin').length,
     };
 
-    return { totales: { total: staff.length, conSobrecarga, validadosSemana, conteos }, staff };
+    return {
+      totales: {
+        total: staff.length,
+        conSobrecarga,
+        validadosSemana,
+        respuestaMedia: formatoDuracion(respuesta[0]?.seg ?? null),
+        conteos,
+      },
+      staff,
+    };
   });
 }
 
@@ -97,13 +134,13 @@ const ETIQUETA_ROL: Record<RolStaff, string> = {
 export async function getDetalleStaff(userId: string, staffId: string): Promise<DetalleStaff | null> {
   return comoStaff(userId, async (sql) => {
     const p = (
-      await sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date }[]>`
-        select user_id, nombre, email, rol::text as rol, created_at
+      await sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null }[]>`
+        select user_id, nombre, email, rol::text as rol, created_at, especialidad
         from lxp.perfiles where user_id = ${staffId} and rol <> 'alumno' limit 1`
     )[0];
     if (!p) return null;
 
-    const [grupos, valSemana, valMes, curados] = await Promise.all([
+    const [grupos, valSemana, valMes, curados, entregas, consultas] = await Promise.all([
       sql<{ id: string; nombre: string; cola: number }[]>`
         select g.id, g.nombre,
           count(c.*) filter (where c.estado_validacion = 'pendiente')::int as cola
@@ -114,9 +151,21 @@ export async function getDetalleStaff(userId: string, staffId: string): Promise<
       sql<{ n: number }[]>`select count(*)::int as n from lxp.validaciones where id_docente = ${staffId} and created_at >= now() - interval '7 days'`,
       sql<{ n: number }[]>`select count(*)::int as n from lxp.validaciones where id_docente = ${staffId} and created_at >= now() - interval '30 days'`,
       sql<{ n: number }[]>`select count(*)::int as n from lxp.casos_biblioteca where curador_id = ${staffId}`,
+      sql<{ n: number }[]>`
+        select count(*)::int as n from lxp.entregas e join lxp.grupos g on g.id = e.grupo_id
+        where g.docente_id = ${staffId} and e.estado = 'calificada'`,
+      sql<{ total: number; sin_responder: number }[]>`
+        select count(*)::int as total,
+          count(*) filter (where estado = 'abierta' and not exists (
+            select 1 from lxp.consulta_mensajes m where m.consulta_id = q.id and m.autor_id = q.id_docente
+          ))::int as sin_responder
+        from lxp.consultas q where q.id_docente = ${staffId}`,
     ]);
 
     const colaTotal = grupos.reduce((s, g) => s + g.cola, 0);
+    const entregasN = entregas[0]?.n ?? 0;
+    const consultasTotal = consultas[0]?.total ?? 0;
+    const consultasSin = consultas[0]?.sin_responder ?? 0;
     const cifras: CifraCarga[] = [];
     if (p.rol === 'docente') {
       cifras.push(
@@ -133,16 +182,39 @@ export async function getDetalleStaff(userId: string, staffId: string): Promise<
       cifras.push({ etiqueta: 'rol de gobierno', valor: '—', icono: 'grupos' });
     }
 
+    // Registro de su trabajo (validación y entregas · real). Solo lo que aplica al rol.
+    const registro: RegistroTrabajo[] = [];
+    if (p.rol === 'docente') {
+      registro.push(
+        { titulo: 'Casos validados', detalle: `${valSemana[0]?.n ?? 0} esta semana · ${valMes[0]?.n ?? 0} en el mes`, icono: 'casos' },
+        { titulo: 'Casos en cola', detalle: colaTotal > 0 ? `${colaTotal} esperando validación` : 'sin casos en cola', alerta: colaTotal >= SOBRECARGA, icono: 'cola' },
+        { titulo: 'Entregas calificadas', detalle: `${entregasN} en sus grupos`, icono: 'entregas' },
+        { titulo: 'Consultas', detalle: consultasTotal > 0 ? `${consultasTotal} atendidas · ${consultasSin} sin responder` : 'sin consultas dirigidas', alerta: consultasSin > 0, icono: 'consultas' },
+      );
+    } else if (curados[0]?.n) {
+      registro.push({ titulo: 'Curaduría', detalle: `${curados[0].n} casos curados a la Biblioteca`, icono: 'casos' });
+    }
+
+    const colaSobrecargada = p.rol === 'docente' && colaTotal >= SOBRECARGA;
+
     return {
       id: p.user_id,
       ini: iniciales(p.nombre),
       nombre: p.nombre,
       rol: p.rol,
       email: p.email,
+      area: areaDe(p.rol, p.especialidad),
       desde: p.created_at.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' }),
-      senal: p.rol === 'docente' && colaTotal >= SOBRECARGA ? `Sobrecarga · ${colaTotal} casos en cola` : undefined,
+      senal: colaSobrecargada ? `Sobrecarga · ${colaTotal} casos en cola` : undefined,
       cifras,
+      aviso: colaSobrecargada
+        ? {
+            titulo: `Tiene ${colaTotal} casos en cola.`,
+            detalle: 'Está por encima del umbral de carga; considere repartir su área o darle apoyo para validar.',
+          }
+        : undefined,
       grupos,
+      registro,
       permisos: [
         { etiqueta: 'Rol', valor: ETIQUETA_ROL[p.rol] },
         { etiqueta: 'Correo', valor: p.email ?? '—' },

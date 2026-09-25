@@ -702,23 +702,30 @@ async function seed(sql: Sql): Promise<void> {
   const casoAprobado = first(
     await sql<{ id: string }[]>`
       insert into lxp.bitacora_casos
-        (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, diagnostico_presuntivo,
+        (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, diagnostico_presuntivo,
          horas_estimadas, estado_validacion, origen, anonimizado_en)
-      values (${alumnos.a1}, ${m2.id}, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
+      values (${alumnos.a1}, ${grupoSync.id}, ${m2.id}, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
          'Líquido libre en Morrison', 'Hemoperitoneo', 1.5, ${'aprobado'}::lxp.estado_validacion,
          ${'alumno'}::lxp.origen_caso, now())
       returning id`,
   );
+  // `created_at` backdateado para variar la espera de la bandeja (y mostrar el urgente >72 h).
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a1}, ${m1.id}, 'Tórax', ${'interpretacion'}::lxp.dominio_iaim,
-       'Líneas B difusas', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, 'Tórax', ${'interpretacion'}::lxp.dominio_iaim,
+       'Líneas B difusas', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '4 hours')`;
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a2}, ${m1.id}, 'Riñón', ${'indicacion'}::lxp.dominio_iaim,
-       'Hidronefrosis leve', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a2}, ${grupoSync.id}, ${m1.id}, 'Riñón', ${'indicacion'}::lxp.dominio_iaim,
+       'Hidronefrosis leve', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '3 days')`;
+  // Caso pendiente en la cohorte B (a5) → la bandeja muestra dos grupos y el filtro "Grupo ▾".
+  await sql`
+    insert into lxp.bitacora_casos
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a5}, ${grupoAsync.id}, ${m2.id}, 'Vesícula', ${'interpretacion'}::lxp.dominio_iaim,
+       'Pared engrosada, Murphy ecográfico', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '6 hours')`;
 
   // Caso OBSTÉTRICO con VERDAD ESTRUCTURADA (§7A · Opción B): como si viniera de un reporte
   // con tabla de biometría. Sirve para demostrar el puente bitácora→banco y el render
@@ -769,23 +776,54 @@ async function seed(sql: Sql): Promise<void> {
   };
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, contenido_estructurado,
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, contenido_estructurado,
        horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a1}, ${m1.id}, 'Obstétrico', ${'interpretacion'}::lxp.dominio_iaim,
+    values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, 'Obstétrico', ${'interpretacion'}::lxp.dominio_iaim,
        'Biometría fetal acorde a 31.4 semanas; ILA normal.', ${sql.json(contenidoObstetrico)},
        1.5, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
 
   // Caso del alumno suspendido: ni siquiera él debe verlo (acceso_activo=false).
   await sql`
     insert into lxp.bitacora_casos
-      (id_alumno, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en)
-    values (${alumnos.a4}, ${m1.id}, 'Vejiga', ${'adquisicion'}::lxp.dominio_iaim,
-       'Globo vesical', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now())`;
+      (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas, estado_validacion, origen, anonimizado_en, created_at)
+    values (${alumnos.a4}, ${grupoSync.id}, ${m1.id}, 'Vejiga', ${'adquisicion'}::lxp.dominio_iaim,
+       'Globo vesical', 1.0, ${'pendiente'}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso, now(), now() - interval '26 hours')`;
 
   // Validación del docente sobre el caso aprobado de a1.
   await sql`
     insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
     values (${casoAprobado.id}, ${docente}, ${'aprobado'}::lxp.decision_validacion, 'Buen reconocimiento del espacio de Morrison.')`;
+
+  // Estudios ya resueltos (aprobado/devuelto) de a1 → llenan la rejilla "Estudios del alumno"
+  // para ver el grid RESPONSIVO con varias columnas en pantallas anchas (no tocan la cola).
+  const estudiosResueltos: {
+    organo: string;
+    dominio: 'indicacion' | 'adquisicion' | 'interpretacion' | 'decision_medica';
+    hallazgos: string;
+    estado: 'aprobado' | 'rechazado';
+    dias: number;
+    feedback: string;
+  }[] = [
+    { organo: 'Hígado', dominio: 'interpretacion', hallazgos: 'Esteatosis leve, ecoestructura homogénea', estado: 'aprobado', dias: 5, feedback: 'Buen barrido, mediciones correctas.' },
+    { organo: 'Aorta', dominio: 'adquisicion', hallazgos: 'Diámetro 1.8 cm, sin aneurisma', estado: 'aprobado', dias: 8, feedback: 'Cortes adecuados en los tres niveles.' },
+    { organo: 'Vía biliar', dominio: 'interpretacion', hallazgos: 'Colédoco 5 mm, sin dilatación', estado: 'aprobado', dias: 11, feedback: 'Bien documentado.' },
+    { organo: 'Bazo', dominio: 'adquisicion', hallazgos: 'Esplenomegalia leve 13 cm', estado: 'rechazado', dias: 14, feedback: 'Falta medir el eje largo en el corte correcto; vuelve a subirlo.' },
+  ];
+  for (const e of estudiosResueltos) {
+    const caso = first(
+      await sql<{ id: string }[]>`
+        insert into lxp.bitacora_casos
+          (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+           estado_validacion, origen, anonimizado_en, created_at)
+        values (${alumnos.a1}, ${grupoSync.id}, ${m1.id}, ${e.organo}, ${e.dominio}::lxp.dominio_iaim,
+           ${e.hallazgos}, 1.0, ${e.estado}::lxp.estado_validacion, ${'alumno'}::lxp.origen_caso,
+           now(), now() - (${e.dias} || ' days')::interval)
+        returning id`,
+    );
+    await sql`
+      insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+      values (${caso.id}, ${docente}, ${e.estado}::lxp.decision_validacion, ${e.feedback})`;
+  }
 
   // (La entrega de a1 a la tarea ya se sembró arriba, anclada por leccion_id · mig 0026.)
 
@@ -993,19 +1031,226 @@ async function seed(sql: Sql): Promise<void> {
     values (${alumnos.a1}, 'horas_100', 100)
     on conflict (id_alumno, tipo) do nothing`;
 
-  // ── Anuncio vigente (hero inteligente del Home) ──
+  // ── Anuncios (§6) — 3 ejemplos para poblar las tabs del gestor admin: publicado
+  //    (hero vigente del Home), programado (aún no sale) y vencido (ya caducó).
+  //    `alcance` guarda { tipo, prioridad } (lo que el gestor lee); comunidad/alumnos reales.
   await sql`
-    insert into lxp.anuncios (autor_id, titulo, cuerpo, canales, vigente_desde, vigente_hasta)
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
     values (${admin},
       'Ya está abierto el módulo de Doppler renal',
       'Son 88 horas acreditables y cuatro cine-loops nuevos grabados en la sede. La primera sesión en vivo es el jueves a las 19:00.',
-      array['in_app'], now(), now() + interval '20 days')`;
+      ${sql.json({ tipo: 'comunidad', prioridad: 'importante' })},
+      array['in_app', 'correo'], now(), now() + interval '20 days')`;
+  await sql`
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
+    values (${admin},
+      'Cierre de inscripciones de la generación de enero',
+      'Las inscripciones de la próxima generación cierran a fin de mes. Recuerden completar su documentación.',
+      ${sql.json({ tipo: 'alumnos', prioridad: 'normal' })},
+      array['in_app'], now() + interval '5 days', now() + interval '30 days')`;
+  await sql`
+    insert into lxp.anuncios (autor_id, titulo, cuerpo, alcance, canales, vigente_desde, vigente_hasta)
+    values (${admin},
+      'Mantenimiento del campus del domingo pasado',
+      'El campus estuvo en mantenimiento programado. Ya quedó todo restablecido; gracias por su paciencia.',
+      ${sql.json({ tipo: 'comunidad', prioridad: 'normal' })},
+      array['in_app'], now() - interval '30 days', now() - interval '5 days')`;
 
   // ── Badge de catálogo ──────────────────────────────────────────────────
   await sql`
     insert into lxp.badges (clave, nombre, descripcion, regla)
     values ('primer_caso', 'Primer caso', 'Subió su primer caso a la bitácora',
       ${sql.json({ tipo: 'casos', umbral: 1 })})`;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PANORAMA DEL ADMIN (Inicio · centro de control) — datos REALISTAS que el SQL lee.
+  // Puebla las métricas de DOMINIO del dashboard (tendencia 6m/12m, avance, riesgo,
+  // actividad de staff, decisiones y alertas) sin números inventados del mock.
+  //
+  //   • Casos históricos → grupo_id/modulo_id NULL + estado 'aprobado': NUNCA aparecen
+  //     en la bandeja del docente (filtra 'pendiente') ni en vistas por grupo; solo
+  //     cuentan en los agregados globales (es_staff ve todo · bitacora_select 0010).
+  //   • No tocan a1..a5 (los tests de RLS cuentan sus casos exactos: a1=7, a2=1).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // (1) Dos docentes más → la "Actividad del staff" muestra varios miembros (como el mock).
+  const docSandoval = await altaCora(sql, { email: `sandoval${SEED_EMAIL_DOMINIO}`, nombre: 'Dr. Sandoval', coraRol: 'docente' });
+  await crearPerfil(sql, docSandoval, { lxpRol: 'docente', acceso: true });
+  const docLugo = await altaCora(sql, { email: `lugo${SEED_EMAIL_DOMINIO}`, nombre: 'Dra. Lugo', coraRol: 'docente' });
+  await crearPerfil(sql, docLugo, { lxpRol: 'docente', acceso: true });
+
+  // (2) Cohortes históricas: altas repartidas en 12 meses (curva de crecimiento) para
+  //     que la tendencia (6m y 12m) rinda poblada. acceso_activo=true, SIN inscripción
+  //     CORA (no entran a rosters). ~80% con un caso aprobado reciente (→ "al día"); el
+  //     resto sin actividad reciente (→ "en riesgo", realista ~20%).
+  const altasPorMes = [4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 6]; // meses 11→0 (el actual, parcial)
+  let hist = 0;
+  for (let mIdx = 0; mIdx < altasPorMes.length; mIdx++) {
+    const mesesAtras = altasPorMes.length - 1 - mIdx;
+    for (let i = 0; i < altasPorMes[mIdx]!; i++) {
+      hist++;
+      const uid = await altaCora(sql, {
+        email: `hist${hist}${SEED_EMAIL_DOMINIO}`,
+        nombre: `Alumno Histórico ${hist}`,
+        coraRol: 'alumno',
+      });
+      await crearPerfil(sql, uid, { lxpRol: 'alumno', acceso: true });
+      // created_at backdateado al mes correspondiente (día variado; nunca en el futuro).
+      const dia = 3 + (i % 22);
+      await sql`
+        update lxp.perfiles
+        set created_at = least(
+          now() - interval '1 hour',
+          date_trunc('month', now()) - (${mesesAtras} || ' months')::interval + (${dia} || ' days')::interval
+        )
+        where user_id = ${uid}`;
+      // 80% con un caso aprobado reciente (dentro de 14 días) → "al día". grupo/modulo NULL.
+      if (hist % 5 !== 0) {
+        const dias = 1 + (hist % 13);
+        const horas = 1 + (hist % 3) * 0.5;
+        const casoHist = first(
+          await sql<{ id: string }[]>`
+            insert into lxp.bitacora_casos
+              (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+               estado_validacion, origen, anonimizado_en, created_at)
+            values (${uid}, null, null, 'Abdomen', ${'adquisicion'}::lxp.dominio_iaim,
+               'Estudio histórico acreditado', ${horas}, ${'aprobado'}::lxp.estado_validacion,
+               ${'alumno'}::lxp.origen_caso, now(), now() - (${dias} || ' days')::interval)
+            returning id`,
+        );
+        // Un tercio de esos casos lleva validación de Sandoval/Lugo (dentro de 3 días) →
+        // la actividad del staff muestra 3 docentes distintos.
+        if (hist % 3 === 0) {
+          const quien = hist % 2 === 0 ? docSandoval : docLugo;
+          await sql`
+            insert into lxp.validaciones (caso_id, id_docente, decision, feedback, created_at)
+            values (${casoHist.id}, ${quien}, ${'aprobado'}::lxp.decision_validacion,
+                    'Estudio correcto.', now() - ((${hist % 3}) || ' hours')::interval - interval '10 minutes')`;
+        }
+      }
+    }
+  }
+
+  // (3) Un programa en BORRADOR → decisión "programas en borrador" (defaults: estado 'borrador').
+  await sql`
+    insert into lxp.programas (nombre, descripcion, publicado, version)
+    values ('POCUS Avanzado — Borrador', 'En construcción por el equipo de diseño.', false, 1)`;
+
+  // (4) Un post del Ateneo PENDIENTE → decisión "posts del Ateneo por moderar" (visible
+  //     solo a su autor y al staff · posts_ateneo_select 0010; no aparece en el feed).
+  await sql`
+    insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
+    values (${alumnos.a3}, 'caso'::lxp.post_ateneo_tipo, 'Caso para el Ateneo (en revisión)',
+            'Propongo este caso para la discusión del grupo.', 'pendiente'::lxp.estado_validacion, 'inscritos')`;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALUMNOS (admin) — competencia I-AIM AMPLIA + reconocimiento de a1.
+  // La proyección I-AIM la escribe el worker en prod; aquí es seed para que la columna
+  // I-AIM de la lista y "Competencia media" rindan (no solo a1) y el expediente sea rico.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const DOMS_IAIM = ['indicacion', 'adquisicion', 'interpretacion', 'decision_medica'] as const;
+  /** Siembra los 4 dominios I-AIM de un alumno con niveles dados (decaimiento derivado). */
+  async function sembrarCompetencia(alumno: string, niveles: [number, number, number, number]): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+      const nivel = niveles[i]!;
+      const decaimiento = nivel < 55 ? 8 + (nivel % 12) : 0;
+      const horas = 20 + (nivel % 30);
+      await sql`
+        insert into lxp.competencia_dominios (id_alumno, dominio_iaim, horas, nivel, decaimiento, proximo_repaso)
+        values (${alumno}, ${DOMS_IAIM[i]!}::lxp.dominio_iaim, ${horas}, ${nivel}, ${decaimiento},
+                ${nivel < 55 ? sql`(now() + interval '3 days')::date` : sql`null`})
+        on conflict (id_alumno, dominio_iaim) do nothing`;
+    }
+  }
+
+  // a2/a3/a5 (a1 ya la tiene arriba, con Adquisición en caída).
+  await sembrarCompetencia(alumnos.a2, [68, 60, 72, 64]);
+  await sembrarCompetencia(alumnos.a3, [55, 48, 61, 58]);
+  await sembrarCompetencia(alumnos.a5, [80, 72, 78, 75]);
+
+  // ~2/3 de los alumnos históricos con I-AIM (niveles variados); el resto queda "sin
+  // proyección aún" (estado real que la vista también muestra).
+  const historicos = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email`;
+  for (let i = 0; i < historicos.length; i++) {
+    if (i % 3 === 0) continue; // ~1/3 sin competencia
+    const base = 50 + ((i * 7) % 45); // 50..94, pseudo-variado
+    await sembrarCompetencia(historicos[i]!.user_id, [
+      Math.min(100, base + 5),
+      Math.max(30, base - 10),
+      base,
+      Math.max(35, base - 4),
+    ]);
+  }
+
+  // Expediente rico de a1: 1 certificado (ligado a su hito de 100 h) + 1 insignia.
+  await sql`
+    insert into lxp.certificados (id_alumno, hito_id, folio, titulo)
+    values (${alumnos.a1},
+            (select id from lxp.hitos where id_alumno = ${alumnos.a1} and tipo = 'horas_100' limit 1),
+            'CERT-A1-100H', 'Certificado · 100 horas acreditadas')
+    on conflict (folio) do nothing`;
+  await sql`
+    insert into lxp.badges_otorgados (badge_id, id_perfil, otorgado_por)
+    values ((select id from lxp.badges where clave = 'primer_caso' limit 1), ${alumnos.a1}, null)
+    on conflict (badge_id, id_perfil) do nothing`;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STAFF (admin) — sobrecarga visible en Diego + detalle no-vacío para Sandoval/Lugo.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Área/especialidad para Sandoval y Lugo (Diego/admin/super ya la tienen).
+  await sql`update lxp.perfiles set especialidad = 'Renal y abdomen' where user_id = ${docSandoval}`;
+  await sql`update lxp.perfiles set especialidad = 'Urgencias y POCUS' where user_id = ${docLugo}`;
+
+  // 1 grupo a Sandoval → su detalle muestra "Grupos que imparte".
+  await sql`
+    insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, docente_id)
+    values (${programa.id}, 'Grupo Renal · 2026 (Sandoval)', 'sincrono'::lxp.modalidad, '2026-04-01', ${docSandoval})`;
+
+  // ~4 casos pendientes extra en grupoSync (docente = Diego) → su cola llega a ≥8 = sobrecarga.
+  // Asignados a alumnos HISTÓRICOS (no tocan a1/a2/a3/a5 · tests de RLS cuentan sus casos exactos).
+  const histParaCola = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email limit 4`;
+  for (let i = 0; i < histParaCola.length; i++) {
+    await sql`
+      insert into lxp.bitacora_casos
+        (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+         estado_validacion, origen, anonimizado_en, created_at)
+      values (${histParaCola[i]!.user_id}, ${grupoSync.id}, ${m1.id}, 'Riñón', ${'adquisicion'}::lxp.dominio_iaim,
+         'Caso en cola de validación (demo carga)', 1.0, ${'pendiente'}::lxp.estado_validacion,
+         ${'alumno'}::lxp.origen_caso, now(), now() - ((${i} + 1) || ' days')::interval)`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ANALÍTICA (admin) — serie temporal poblada + loop de mejora de Eco.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // (a) Casos backdateados por mes → "Casos subidos por mes" no sale plana (grupo/modulo
+  //     NULL, aprobados, en alumnos históricos: no tocan a1..a5 ni la bandeja docente).
+  const histCasos = await sql<{ user_id: string }[]>`
+    select user_id from lxp.perfiles where email like ${'hist%' + SEED_EMAIL_DOMINIO} order by email limit 10`;
+  if (histCasos.length > 0) {
+    const mesesAtrasCaso = [1, 1, 2, 2, 3, 3, 4, 4]; // 2 casos por cada uno de los últimos 4 meses
+    for (let i = 0; i < mesesAtrasCaso.length; i++) {
+      const uid = histCasos[i % histCasos.length]!.user_id;
+      await sql`
+        insert into lxp.bitacora_casos
+          (id_alumno, grupo_id, modulo_id, organo, dominio_iaim, hallazgos, horas_estimadas,
+           estado_validacion, origen, anonimizado_en, created_at)
+        values (${uid}, null, null, 'Abdomen', ${'interpretacion'}::lxp.dominio_iaim,
+           'Estudio histórico (serie mensual)', 1.0, ${'aprobado'}::lxp.estado_validacion,
+           ${'alumno'}::lxp.origen_caso, now(),
+           date_trunc('month', now()) - ((${mesesAtrasCaso[i]!}) || ' months')::interval + interval '10 days')`;
+    }
+  }
+
+  // (b) Correcciones docente→Eco (loop de mejora · §7A) → "Uso y calidad de Eco".
+  for (let i = 0; i < 4; i++) {
+    await sql`
+      insert into lxp.eco_correcciones (id_docente, objeto_tipo, objeto_id, sugerencia_eco, correccion)
+      values (${docente}, 'caso', null,
+        ${sql.json({ nota_sugerida: 8, feedback: 'Sugerencia de Eco (borrador)' })},
+        ${sql.json({ nota_final: 7, feedback: 'Ajuste del docente sobre la sugerencia' })})`;
+  }
 
   // ── Plantillas de reporte (constructor Studio ↔ generador médico · §6.5) ──
   // Las "plantillas de prueba" ahora viven en la BD (no hardcodeadas): el constructor
