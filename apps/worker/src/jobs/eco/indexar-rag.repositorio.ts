@@ -48,8 +48,48 @@ export async function leerTextoFuente(
     return `Rúbrica:\n${aTexto(rows[0].criterios)}`;
   }
 
+  // Teoría de una lección (fuenteId = leccion_id): arma el texto de sus bloques
+  // (`lxp.bloques.config`) con el contexto de programa · módulo · lección (§7A · RAG).
+  if (fuenteTipo === 'contenido') {
+    const rows = await sql<
+      { nombre: string; modulo: string | null; programa: string | null; tipo_bloque: string; config: unknown }[]
+    >`
+      select l.nombre, m.nombre as modulo, pr.nombre as programa, b.tipo_bloque, b.config
+      from lxp.bloques b
+      join lxp.lecciones l on l.id = b.leccion_id
+      left join lxp.modulos m on m.id = l.modulo_id
+      left join lxp.programas pr on pr.id = m.programa_id
+      where b.leccion_id = ${fuenteId}
+      order by b.orden`;
+    if (!rows[0]) return '';
+    const cabecera = [rows[0].programa, rows[0].modulo, rows[0].nombre].filter(Boolean).join(' · ');
+    const cuerpo = rows
+      .map((r) => textoDeBloque(r.tipo_bloque, r.config))
+      .filter(Boolean)
+      .join('\n\n');
+    return cuerpo ? `Lección: ${cabecera}\n\n${cuerpo}` : '';
+  }
+
   // 'material' u otros: aún no soportado; el worker lo registra y sigue.
   return '';
+}
+
+/** Texto indexable de un bloque de teoría según su tipo (HTML sin etiquetas, o rótulos). */
+function textoDeBloque(_tipo: string, config: unknown): string {
+  const c = (config ?? {}) as Record<string, unknown>;
+  if (typeof c.html === 'string' && c.html.trim()) return quitarHtml(c.html);
+  return [c.titulo, c.pie, c.alt, c.descripcion]
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .join(' — ');
+}
+
+/** Quita etiquetas HTML y normaliza espacios (para indexar solo el texto legible). */
+function quitarHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Borra los chunks previos de una fuente (idempotencia del reindexado). */
