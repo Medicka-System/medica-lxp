@@ -26,7 +26,7 @@ export const SECCIONES: SeccionDocente[] = [
   { id: 'consultas', etiqueta: 'Consultas', href: '/docente/consultas' },
   { id: 'biblioteca', etiqueta: 'Biblioteca', href: '/docente/biblioteca' },
   { id: 'recursos-biblioteca', etiqueta: 'Recursos', href: '/docente/recursos-biblioteca' },
-  { id: 'ateneo', etiqueta: 'Ateneo', href: '/ateneo', externa: true },
+  { id: 'ateneo', etiqueta: 'Ateneo', href: '/docente/ateneo' },
   { id: 'recursos', etiqueta: 'Mis recursos', href: '/docente/recursos' },
   { id: 'clases', etiqueta: 'Clases', href: '/docente/clases' },
 ];
