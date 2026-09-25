@@ -1157,7 +1157,7 @@ async function seed(sql: Sql): Promise<void> {
       const horas = 20 + (nivel % 30);
       await sql`
         insert into lxp.competencia_dominios (id_alumno, dominio_iaim, horas, nivel, decaimiento, proximo_repaso)
-        values (${alumno}, ${DOMS_IAIM[i]}::lxp.dominio_iaim, ${horas}, ${nivel}, ${decaimiento},
+        values (${alumno}, ${DOMS_IAIM[i]!}::lxp.dominio_iaim, ${horas}, ${nivel}, ${decaimiento},
                 ${nivel < 55 ? sql`(now() + interval '3 days')::date` : sql`null`})
         on conflict (id_alumno, dominio_iaim) do nothing`;
     }
@@ -1239,7 +1239,7 @@ async function seed(sql: Sql): Promise<void> {
         values (${uid}, null, null, 'Abdomen', ${'interpretacion'}::lxp.dominio_iaim,
            'Estudio histórico (serie mensual)', 1.0, ${'aprobado'}::lxp.estado_validacion,
            ${'alumno'}::lxp.origen_caso, now(),
-           date_trunc('month', now()) - ((${mesesAtrasCaso[i]}) || ' months')::interval + interval '10 days')`;
+           date_trunc('month', now()) - ((${mesesAtrasCaso[i]!}) || ' months')::interval + interval '10 days')`;
     }
   }
 
