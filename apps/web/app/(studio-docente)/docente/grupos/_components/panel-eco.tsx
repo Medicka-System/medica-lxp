@@ -74,7 +74,7 @@ export function PanelEco({ resumen }: { resumen: string }) {
     return (
       <aside
         aria-label="Eco"
-        className="flex w-14 shrink-0 flex-col items-center gap-3 self-start rounded-[14px] border border-[color:var(--info-border)] bg-card py-3.5 shadow-rest"
+        className="flex min-h-[calc(100vh-120px)] w-14 shrink-0 flex-col items-center gap-3 self-stretch rounded-[14px] border border-[color:var(--info-border)] bg-card py-3.5 shadow-rest"
       >
         <button
           type="button"
