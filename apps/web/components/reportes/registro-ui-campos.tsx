@@ -17,11 +17,12 @@
  * del médico lo inyecta por `renderVisorDicom`.
  */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Images, Info, Plus, X } from 'lucide-react';
+import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Images, Info, Loader2, Plus, Upload, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
+import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import {
   fueraDeRango,
   leerBool,
@@ -200,6 +201,138 @@ function EListaEditable({
         </button>
       </span>
     </div>
+  );
+}
+
+/* ═══════════════════ imagen de referencia fija (subir | link) ═══════════════════ */
+
+/**
+ * Muestra una imagen de REFERENCIA de la plantilla. `src` es un LINK http(s) (se usa tal cual) o
+ * una REF interna `media/imagenes/…` — subida al object storage (§5C) — que se firma bajo demanda
+ * (URL de vida corta, 1 h). Así el constructor, la vista previa y el editor del médico la ven igual
+ * sin persistir URLs firmadas que caducan: en BD se guarda la ref DURABLE (§6.5). No es imagen de
+ * paciente → sin Presidio (§10).
+ */
+function ImgReferencia({ src, alt, className }: { src?: string; alt: string; className: string }) {
+  const esRef = typeof src === 'string' && src.startsWith('media/imagenes/');
+  const [firmada, setFirmada] = useState<string | null>(null);
+  useEffect(() => {
+    if (!esRef || !src) return;
+    let vivo = true;
+    void firmarLecturaImagenReferencia([src]).then((urls) => {
+      if (vivo) setFirmada(urls[src] ?? null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [esRef, src]);
+  const url = esRef ? firmada : src;
+  if (!url) {
+    return (
+      <div className={`grid min-h-[120px] place-items-center bg-muted text-muted-foreground ${className}`}>
+        {esRef ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={1.75} /> : <ImageOff className="h-5 w-5" strokeWidth={1.5} />}
+      </div>
+    );
+  }
+  return <img src={url} alt={alt} className={className} />;
+}
+
+/**
+ * Editor de la IMAGEN DE REFERENCIA fija (§6.5, §5C): el diseñador SUBE un archivo (diagrama de la
+ * plantilla → object storage vía `/media/imagenes`, reusando el flujo del constructor de teoría; NO
+ * pasa por Presidio porque no es imagen de paciente · §10) o PEGA un link. En `refUrl` se guarda la
+ * ref durable (subida) o la URL (link).
+ */
+function EImagenReferencia({ campo, onCambio }: EditorCtx) {
+  const refUrl = campo.refUrl ?? '';
+  const [modo, setModo] = useState<'subir' | 'link'>(
+    refUrl && !refUrl.startsWith('media/imagenes/') ? 'link' : 'subir',
+  );
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function subir(file: File) {
+    setError(null);
+    const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase();
+    setSubiendo(true);
+    try {
+      const firma = await firmarSubidaImagenContenido(ext);
+      if (!firma.ok) {
+        setError(firma.error);
+        return;
+      }
+      const put = await fetch(firma.datos.urlSubida, {
+        method: 'PUT',
+        headers: { 'content-type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!put.ok) {
+        setError('No se pudo subir la imagen a object storage.');
+        return;
+      }
+      onCambio({ refUrl: firma.datos.ref });
+    } catch {
+      setError('Error al subir la imagen.');
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  return (
+    <ECampo label="Imagen de referencia">
+      <ESeg<'subir' | 'link'>
+        opciones={[
+          ['subir', 'Subir archivo'],
+          ['link', 'Pegar link'],
+        ]}
+        valor={modo}
+        onCambio={setModo}
+      />
+      {modo === 'subir' ? (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), inputRef.current?.click())}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files?.[0];
+            if (f) void subir(f);
+          }}
+          className={`mt-2 grid cursor-pointer place-items-center rounded-[9px] border-[1.5px] border-dashed border-border bg-card px-3 py-4 text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
+        >
+          <span className="text-[11.5px] font-semibold text-secondary">
+            {subiendo ? <Loader2 className="mx-auto h-5 w-5 animate-spin" strokeWidth={1.75} /> : <Upload className="mx-auto h-5 w-5" strokeWidth={1.75} />}
+            {subiendo ? 'Subiendo…' : 'Sube un diagrama o haz click'}
+          </span>
+          <span className="mt-0.5 text-[10.5px] text-muted-foreground">JPG, PNG, WEBP o GIF</span>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void subir(f);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      ) : (
+        <input
+          value={refUrl}
+          onChange={(e) => onCambio({ refUrl: e.target.value })}
+          placeholder="https://…"
+          className={`${cfgInput} mt-2`}
+        />
+      )}
+      {error && <span className="mt-1.5 block text-[11px] font-semibold text-[color:var(--warning-foreground)]">{error}</span>}
+      {campo.refUrl && (
+        <ImgReferencia src={campo.refUrl} alt={campo.nombre || 'Imagen de referencia'} className="mt-2 max-h-[140px] w-full rounded-[8px] border border-border object-contain" />
+      )}
+    </ECampo>
   );
 }
 
@@ -589,7 +722,7 @@ function CampoImagenControl({
 }) {
   if (campo.origen === 'referencia') {
     return campo.refUrl ? (
-      <img
+      <ImgReferencia
         src={campo.refUrl}
         alt={campo.nombre || 'Imagen de referencia'}
         className="mt-1.5 max-h-[320px] w-full rounded-[11px] border border-border object-contain"
@@ -981,7 +1114,7 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     ),
     preview: (campo) =>
       campo.origen === 'referencia' && campo.refUrl ? (
-        <img src={campo.refUrl} alt={campo.nombre} className="max-h-[200px] w-full rounded-[10px] border border-border object-contain" />
+        <ImgReferencia src={campo.refUrl} alt={campo.nombre || 'Imagen de referencia'} className="max-h-[200px] w-full rounded-[10px] border border-border object-contain" />
       ) : (
         <div
           className="grid place-items-center rounded-[10px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
@@ -1003,11 +1136,7 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
             <option value="referencia">Referencia fija de la plantilla</option>
           </select>
         </ECampo>
-        {campo.origen === 'referencia' && (
-          <ECampo label="URL de la imagen">
-            <input value={campo.refUrl ?? ''} onChange={(e) => onCambio({ refUrl: e.target.value })} placeholder="https://…" className={cfgInput} />
-          </ECampo>
-        )}
+        {campo.origen === 'referencia' && <EImagenReferencia campo={campo} onCambio={onCambio} />}
         <ECampo label="Proporción">
           <ESeg
             opciones={[

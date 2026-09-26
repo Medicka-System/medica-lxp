@@ -1,6 +1,7 @@
 'use server';
 
 import { requireAutoria } from '@/lib/studio/session';
+import { firmarLecturaImagenes as firmarLecturaImagenesServer } from '@/lib/media/firmar-imagenes.server';
 
 /**
  * Puente del Studio hacia el DOMINIO de media/paquetes (§2/§3/§7 · Sprint 6/course
@@ -145,6 +146,17 @@ export async function firmarLecturaImagenContenido(
     console.error('[firmarLecturaImagenContenido] fallo:', e);
     return { ok: false, error: 'No se pudo firmar la lectura de imágenes (apps/api).' };
   }
+}
+
+/**
+ * Firma la LECTURA de imágenes de REFERENCIA de una plantilla de reporte (§6.5). A diferencia del
+ * resto de este puente NO exige rol de autoría: la imagen de referencia es CONTENIDO de la plantilla
+ * (diagramas fijos), sin PII (§10 solo aplica a paciente), y debe verse tanto en el Studio
+ * (constructor/vista previa) como en el Campus (el médico que llena el reporte, que no es staff).
+ * Solo firma claves `media/imagenes/`; devuelve `{ ref → url }` (vacío si falla, no redirige).
+ */
+export async function firmarLecturaImagenReferencia(refs: string[]): Promise<Record<string, string>> {
+  return firmarLecturaImagenesServer(refs);
 }
 
 export type IngestaPaquete = {
