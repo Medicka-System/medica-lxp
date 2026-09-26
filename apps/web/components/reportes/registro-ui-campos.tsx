@@ -667,6 +667,10 @@ function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: C
     copia[r][c] = v;
     onCambio(copia);
   }
+  // Tabla vacía (0×0): sin columna fantasma; nada que llenar hasta que la plantilla tenga columnas/filas.
+  if (cols.length === 0 && filas.length === 0) {
+    return <p className="mt-1.5 text-[12px] text-muted-foreground">Tabla sin columnas ni filas.</p>;
+  }
   return (
     <div className="mt-1.5 overflow-x-auto rounded-[10px] border border-border">
       <table className="w-full border-collapse text-[12.5px]">
@@ -976,20 +980,27 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     preview: (campo) => {
       const cols = campo.columnas ?? [];
       const filas = campo.filas ?? [];
-      // Grid de la spec: etiqueta 1.3fr · columnas 1fr · columna de acción 48px.
-      const grid = `1.3fr ${cols.map(() => '1fr').join(' ')} 48px`;
+      // Tabla VACÍA (0×0): sin columna fantasma ni "Medida" inyectado — se ve vacía hasta que el
+      // diseñador agregue columnas/filas (ambas son datos normales, editables/borrables en Config).
+      if (cols.length === 0 && filas.length === 0) {
+        return (
+          <div className="rounded-[9px] border border-dashed border-border px-3 py-4 text-center text-[11.5px] text-muted-foreground">
+            Tabla vacía — agrega columnas y filas en la configuración.
+          </div>
+        );
+      }
+      // 1ª columna = etiquetas de fila (`filas`) con encabezado EN BLANCO — igual que el reporte del
+      // médico y el PDF. NO se inyecta ningún "Medida" fijo; las demás columnas salen de `columnas`.
+      const grid = `1.3fr ${cols.map(() => '1fr').join(' ')}`;
       return (
         <div className="overflow-hidden rounded-[9px] border border-border text-[11.5px]">
           <div className="grid bg-muted" style={{ gridTemplateColumns: grid }}>
-            <span className="px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">Medida</span>
+            <span className="px-[11px] py-[9px]" />
             {cols.map((c, i) => (
               <span key={i} className="border-l border-border px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">
                 {c}
               </span>
             ))}
-            <span className="grid place-items-center border-l border-border text-secondary">
-              <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
-            </span>
           </div>
           {filas.map((f, r) => (
             <div key={r} className="grid border-t border-border" style={{ gridTemplateColumns: grid }}>
@@ -999,7 +1010,6 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
                   —
                 </span>
               ))}
-              <span className="border-l border-border" />
             </div>
           ))}
         </div>
