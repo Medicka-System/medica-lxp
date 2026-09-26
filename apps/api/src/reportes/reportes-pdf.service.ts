@@ -33,6 +33,8 @@ type Campo = {
   /** dimensiones: nº de ejes (2|3) y decimales para formatear x × y × z. */
   ejes?: number;
   decimales?: number;
+  /** texto/multitexto: boilerplate predeterminado; se imprime si el médico no escribió nada. */
+  valorDefecto?: string;
   /** 1b-2: si es `false`, el campo NO sale en el PDF (solo captura). Ausente/true ⇒ sale. */
   enInforme?: boolean;
 };
@@ -102,6 +104,13 @@ function valorGenerico(v: unknown): string {
 }
 
 /* ───────────────────────── lectores de valores (autocontenidos) ───────────────────────── */
+/** El valor del médico o, si está VACÍO/ausente, el `valorDefecto` (boilerplate) de la plantilla —
+ *  así el PDF imprime el predeterminado aunque el reporte no se haya re-guardado (mismo criterio que
+ *  el editor del médico: honra lo escrito y rellena lo vacío · §6.5). */
+function conDefecto(c: Campo, v: unknown): unknown {
+  const vacio = v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  return vacio && typeof c.valorDefecto === 'string' && c.valorDefecto !== '' ? c.valorDefecto : v;
+}
 function leerTexto(v: unknown): string {
   if (typeof v === 'string') return v;
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
@@ -334,8 +343,9 @@ export class ReportesPdfService {
       vistos.add(c.id); // registrado aunque se oculte, para no re-agregarlo desde el catálogo
       if (c.enInforme === false) continue;
       // El encabezado puede tener campos no-string (sino/multiseleccion): formatéalos igual que
-      // en hallazgos para que salgan en la card de datos.
-      const raw = paciente[c.id];
+      // en hallazgos para que salgan en la card de datos. `conDefecto`: si el médico no escribió,
+      // cae al boilerplate de la plantilla (p.ej. multitexto de técnica en "Datos del estudio").
+      const raw = conDefecto(c, paciente[c.id]);
       const val =
         c.tipo === 'sino'
           ? typeof raw === 'boolean'
@@ -429,7 +439,7 @@ export class ReportesPdfService {
           for (const img of leerGaleria(valores[c.id])) await this.dibujarGaleria(doc, img, galeriaPorRef);
           continue;
         }
-        this.campoTexto(doc, c, valores[c.id]);
+        this.campoTexto(doc, c, conDefecto(c, valores[c.id]));
       }
       doc.espacio(8);
     }

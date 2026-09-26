@@ -545,6 +545,27 @@ export function inicialesDesde(estructura: EstructuraPlantilla): {
   return { valores, datosPaciente };
 }
 
+/**
+ * Mezcla los `valorDefecto` (boilerplate de la plantilla) sobre los valores YA guardados del
+ * reporte, rellenando SOLO los campos VACÍOS o AUSENTES. Se aplica al ABRIR el reporte (no solo al
+ * crearlo, `inicialesDesde`): así un default añadido/editado en la plantilla DESPUÉS de crear el
+ * reporte igual se precarga y el médico edita sobre esa base. Un valor ya escrito NUNCA se pisa.
+ */
+export function conDefectos(
+  estructura: EstructuraPlantilla,
+  valores: Record<string, unknown>,
+  datosPaciente: Record<string, unknown>,
+): { valores: Record<string, unknown>; datosPaciente: Record<string, string> } {
+  const ini = inicialesDesde(estructura);
+  const vacio = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  const outValores: Record<string, unknown> = { ...valores };
+  for (const [k, v] of Object.entries(ini.valores)) if (vacio(outValores[k])) outValores[k] = v;
+  const outPaciente: Record<string, string> = {};
+  for (const [k, v] of Object.entries(datosPaciente)) if (typeof v === 'string') outPaciente[k] = v;
+  for (const [k, v] of Object.entries(ini.datosPaciente)) if (vacio(outPaciente[k])) outPaciente[k] = v;
+  return { valores: outValores, datosPaciente: outPaciente };
+}
+
 /* ───────────────────── Valores del reporte (instancia del médico) ───────────────────── */
 
 /** Referencia a un estudio DICOM del médico para un campo `imagen` de origen `dicom`. */

@@ -35,6 +35,7 @@ import {
   campoPacienteDesdeCatalogo,
   campoRequerido,
   CAMPOS_PACIENTE_CATALOGO,
+  conDefectos,
   contarImagenesReporte,
   esCampoEstatico,
   type CampoPlantilla,
@@ -153,8 +154,12 @@ export function EditorReporte({
   const columnasEnc = encabezado?.columnas ?? 3;
   const secciones = estructura.secciones.filter((s) => s.tipo === 'hallazgos');
 
-  const [paciente, setPaciente] = useState<DatosPaciente>(reporte.datosPaciente);
-  const [valores, setValores] = useState<Record<string, unknown>>(reporte.contenido.valores ?? {});
+  // Al ABRIR, precarga el boilerplate (`valorDefecto`) en los campos vacíos/ausentes —igual que la
+  // vista previa del constructor y el reporte recién creado— para que un default añadido a la
+  // plantilla DESPUÉS de crear el reporte igual salga como base editable. Lo escrito no se pisa.
+  const iniciales = conDefectos(estructura, reporte.contenido.valores ?? {}, reporte.datosPaciente);
+  const [paciente, setPaciente] = useState<DatosPaciente>(iniciales.datosPaciente);
+  const [valores, setValores] = useState<Record<string, unknown>>(iniciales.valores);
   const [impresion, setImpresion] = useState(reporte.contenido.impresion);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pickerCampo, setPickerCampo] = useState<string | null>(null);
