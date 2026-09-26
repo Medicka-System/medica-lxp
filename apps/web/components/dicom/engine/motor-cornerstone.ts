@@ -369,16 +369,54 @@ function conTiempoLimite<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-/** Imágenes rasterizadas EN PARALELO por lote (pool de lanes). Sube si el equipo aguanta. */
-const RASTER_CONCURRENCIA = 4;
+/**
+ * Concurrencia del rasterizado por lote. BAJA (2) a propósito: cada lane usa un contexto WebGL
+ * y el navegador solo mantiene ~16 vivos a la vez. Antes se creaba (y "destruía") un engine por
+ * lote/imagen, pero `engine.destroy()` NO libera el contexto WebGL de inmediato → llamadas
+ * repetidas (p. ej. 18 miniaturas) agotaban los contextos y el canvas salía NEGRO.
+ */
+const RASTER_CONCURRENCIA = 2;
+
+type LaneRaster = { engine: RenderingEngine; viewportId: string; el: HTMLDivElement };
 
 /**
- * Rasteriza un LOTE de imageIds en PARALELO con límite de concurrencia. Cornerstone NO rinde N
- * imágenes en un mismo viewport (setStack reemplaza la pila), así que cada "lane" abre su PROPIO
- * RenderingEngine + viewport offscreen y va tomando índices de una cola compartida. El resultado
- * se escribe por ÍNDICE (`salida[i]`), de modo que conserva el ORDEN original aunque las lanes
- * terminen desordenadas. Mantiene el timeout por imagen (una imagen lenta cae a `null` y la lane
- * sigue con la siguiente). No lanza: el rasterizado es best-effort.
+ * Pool PERSISTENTE de lanes: se crean como mucho `RASTER_CONCURRENCIA` engines EN TODA LA VIDA
+ * de la página y se REUSAN entre llamadas (jamás se destruyen). Así el número de contextos WebGL
+ * queda ACOTADO y no crece con cada lote → no más miniaturas negras por fuga de contextos.
+ */
+const poolLanes: LaneRaster[] = [];
+
+function crearLaneRaster(): LaneRaster {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:-10000px;top:0;width:160px;height:120px;pointer-events:none;';
+  document.body.appendChild(el);
+  const engineId = `raster-engine-${++seq}`;
+  const viewportId = `raster-vp-${seq}`;
+  const engine = new RenderingEngine(engineId);
+  engine.enableElement({ viewportId, type: CoreEnums.ViewportType.STACK, element: el as HTMLDivElement });
+  return { engine, viewportId, el };
+}
+
+/**
+ * Serializa los lotes: las lanes del pool son COMPARTIDAS, así que dos lotes a la vez
+ * (p. ej. miniaturas de galería + rasterizado del PDF) las corromperían. Encola uno tras otro.
+ */
+let cadenaRaster: Promise<unknown> = Promise.resolve();
+function enColaRaster<T>(fn: () => Promise<T>): Promise<T> {
+  const r = cadenaRaster.then(fn, fn);
+  cadenaRaster = r.then(
+    () => undefined,
+    () => undefined,
+  );
+  return r;
+}
+
+/**
+ * Rasteriza un LOTE de imageIds con concurrencia limitada, REUSANDO el pool persistente de lanes.
+ * Cornerstone no rinde N imágenes en un mismo viewport (setStack reemplaza la pila), así que hay
+ * `RASTER_CONCURRENCIA` lanes; cada una toma índices de una cola compartida. El resultado se
+ * escribe por ÍNDICE (`salida[i]`) → conserva el ORDEN aunque terminen desordenadas. Mantiene el
+ * timeout por imagen (una lenta cae a `null` y la lane sigue). No lanza: es best-effort.
  */
 async function renderLotePool<T>(
   imageIds: string[],
@@ -393,20 +431,23 @@ async function renderLotePool<T>(
     return salida;
   }
 
-  let cursor = 0;
-  const lanes = Math.max(1, Math.min(RASTER_CONCURRENCIA, imageIds.length));
+  return enColaRaster(async () => {
+    const nLanes = Math.max(1, Math.min(RASTER_CONCURRENCIA, imageIds.length));
+    while (poolLanes.length < nLanes) poolLanes.push(crearLaneRaster());
+    const lanes = poolLanes.slice(0, nLanes);
 
-  const correrLane = async (): Promise<void> => {
-    // Cada lane es independiente: su propio engine + viewport + elemento offscreen.
-    const el = document.createElement('div');
-    el.style.cssText = `position:fixed;left:-10000px;top:0;width:${opts.ancho}px;height:${opts.alto}px;pointer-events:none;`;
-    document.body.appendChild(el);
-    const engineId = `raster-engine-${++seq}`;
-    const viewportId = `raster-vp-${seq}`;
-    const engine = new RenderingEngine(engineId);
-    try {
-      engine.enableElement({ viewportId, type: CoreEnums.ViewportType.STACK, element: el as HTMLDivElement });
-      const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
+    let cursor = 0;
+    const correrLane = async (lane: LaneRaster): Promise<void> => {
+      // Ajusta el tamaño de la lane al lote actual (miniatura 160×120 vs PDF 1100×825) y
+      // redimensiona su canvas WebGL — sin crear un engine nuevo.
+      lane.el.style.width = `${opts.ancho}px`;
+      lane.el.style.height = `${opts.alto}px`;
+      try {
+        lane.engine.resize(true, false);
+      } catch {
+        /* resize best-effort */
+      }
+      const viewport = lane.engine.getViewport(lane.viewportId) as Types.IStackViewport;
       for (;;) {
         const i = cursor++; // sincrónico → cada lane toma un índice distinto (JS mono-hilo)
         if (i >= imageIds.length) break;
@@ -419,20 +460,12 @@ async function renderLotePool<T>(
           salida[i] = null;
         }
       }
-    } catch {
-      /* si la lane no pudo montar, sus índices quedan en null */
-    } finally {
-      try {
-        engine.destroy();
-      } catch {
-        /* no-op */
-      }
-      el.remove();
-    }
-  };
+    };
 
-  await Promise.all(Array.from({ length: lanes }, () => correrLane()));
-  return salida;
+    await Promise.all(lanes.map((l) => correrLane(l)));
+    // NO se destruye nada: el pool se reusa → contextos WebGL acotados a RASTER_CONCURRENCIA.
+    return salida;
+  });
 }
 
 /**
@@ -476,55 +509,14 @@ export type MiniaturaDetalle = { url: string; ancho: number; alto: number };
 export async function renderMiniaturasDetalle(
   imageIds: string[],
 ): Promise<(MiniaturaDetalle | null)[]> {
-  if (imageIds.length === 0) return [];
-  try {
-    await inicializarCornerstone();
-  } catch {
-    return imageIds.map(() => null);
-  }
-
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;left:-10000px;top:0;width:160px;height:120px;pointer-events:none;';
-  document.body.appendChild(el);
-
-  const engineId = `thumbd-engine-${++seq}`;
-  const viewportId = `thumbd-vp-${seq}`;
-  const engine = new RenderingEngine(engineId);
-  const salida: (MiniaturaDetalle | null)[] = [];
-
-  try {
-    engine.enableElement({
-      viewportId,
-      type: CoreEnums.ViewportType.STACK,
-      element: el as HTMLDivElement,
-    });
-    const viewport = engine.getViewport(viewportId) as Types.IStackViewport;
-
-    for (const imageId of imageIds) {
-      try {
-        await conTiempoLimite(viewport.setStack([imageId], 0), 8000);
-        viewport.render();
-        await esperarPintado();
-        const canvas = viewport.getCanvas();
-        const url = canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
-        // Dimensiones reales de la imagen (no del canvas 160×120): [cols, rows, 1].
-        const dims = viewport.getImageData()?.dimensions;
-        const ancho = Array.isArray(dims) ? dims[0] ?? 0 : 0;
-        const alto = Array.isArray(dims) ? dims[1] ?? 0 : 0;
-        salida.push(url && ancho > 0 && alto > 0 ? { url, ancho, alto } : url ? { url, ancho: 4, alto: 3 } : null);
-      } catch {
-        salida.push(null);
-      }
-    }
-  } catch {
-    while (salida.length < imageIds.length) salida.push(null);
-  } finally {
-    try {
-      engine.destroy();
-    } catch {
-      /* no-op */
-    }
-    el.remove();
-  }
-  return salida;
+  return renderLotePool(imageIds, { ancho: 160, alto: 120, timeoutMs: 8000 }, (viewport) => {
+    const canvas = viewport.getCanvas();
+    const url = canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
+    if (!url) return null;
+    // Dimensiones reales de la imagen (no del canvas 160×120): [cols, rows, 1].
+    const dims = viewport.getImageData()?.dimensions;
+    const ancho = Array.isArray(dims) ? dims[0] ?? 0 : 0;
+    const alto = Array.isArray(dims) ? dims[1] ?? 0 : 0;
+    return ancho > 0 && alto > 0 ? { url, ancho, alto } : { url, ancho: 4, alto: 3 };
+  });
 }

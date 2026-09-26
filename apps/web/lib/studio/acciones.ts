@@ -760,9 +760,13 @@ export async function guardarEstructuraPlantilla(
   const estructura = normalizarEstructura(datos.estructura);
   try {
     await comoStaff(userId, async (sql) => {
+      // jsonb vía `sql.json` (objeto), NO `JSON.stringify(x)::jsonb`: postgres.js reserializa el
+      // string y lo guarda DOBLE-CODIFICADO (la estructura quedaba como texto JSON → el editor no
+      // veía secciones/campos). Mismo patrón que reportes/_acciones.ts.
       await sql`
         update lxp.plantillas_reporte
-        set nombre = ${nombre}, tipo_estudio = ${tipo}, estructura = ${JSON.stringify(estructura)}::jsonb
+        set nombre = ${nombre}, tipo_estudio = ${tipo},
+            estructura = ${sql.json(estructura as Parameters<typeof sql.json>[0])}
         where id = ${id}`;
     });
     revalidatePath('/studio/herramientas/plantillas');

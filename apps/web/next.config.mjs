@@ -47,6 +47,14 @@ cargarEnvRaiz();
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@campus/shared'],
+  // El generador de PDF manda al server action las imágenes DICOM rasterizadas (PNG) del
+  // reporte; con ~18 imágenes el payload supera el límite POR DEFECTO de 1 MB de los Server
+  // Actions → "Body exceeded 1 MB limit" y el PDF nunca se pide. Subimos el tope (§6.5).
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
   // postgres.js corre SOLO en server components (lectura con RLS); no se empaqueta.
   serverExternalPackages: ['postgres'],
   // ── Cornerstone3D WASM ↔ bundler (§3) ──────────────────────────────────────

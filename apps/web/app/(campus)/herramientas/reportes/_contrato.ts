@@ -17,11 +17,11 @@ export type EstadoReporte = 'borrador' | 'finalizado' | 'enviado';
 
 /**
  * Datos de paciente — viven SOLO en el reporte clínico, nunca en el caso educativo (§10).
- * Indexados por `campo.id` del encabezado (edad/sexo separados; expediente autollenado).
- * Se guarda laxo (Record) porque el encabezado es editable: el diseñador puede quitar o
- * añadir campos y sus valores se guardan por id.
+ * Indexados por `campo.id` del encabezado. Valor LAXO (`unknown`): la mayoría son texto, pero el
+ * diseñador puede colocar en el encabezado campos no-string (sino→boolean, multiseleccion→string[]);
+ * NO se coacciona a "" (si no, esos valores se perderían al capturar/guardar).
  */
-export type DatosPaciente = Record<string, string>;
+export type DatosPaciente = Record<string, unknown>;
 
 /** Ids estándar del encabezado (los que tienen comportamiento especial). */
 export const CAMPO_EXPEDIENTE = 'expediente';
@@ -59,11 +59,25 @@ export type ReporteListItem = {
   nota: string;
 };
 
+/** Filtros server-side del listado (viven en la URL para sobrevivir recarga/atrás). */
+export type FiltroReportes = { estado: 'todos' | EstadoReporte; estudio: string; q: string };
+
+/** Tamaños de página permitidos (default 25). */
+export const TAMANOS_PAGINA = [25, 50, 100] as const;
+export type TamanoPagina = (typeof TAMANOS_PAGINA)[number];
+
 export type ReportesData = {
+  /** KPIs del encabezado — SIEMPRE sobre TODO el conjunto del usuario (no la página ni el filtro). */
   resumen: { borradores: number; listos: number; enviadosSemana: number; delMes: number };
   conteos: { todos: number; borradores: number; finalizados: number; enviados: number };
   plantillas: PlantillaOpcion[];
+  /** Solo las filas de la página actual (ya filtrada). */
   items: ReporteListItem[];
+  /** Total del conjunto YA FILTRADO (para nº de páginas y mostrar/ocultar el paginador). */
+  total: number;
+  page: number;
+  size: number;
+  filtro: FiltroReportes;
 };
 
 /** Plantilla resuelta para el editor (nombre + estructura viva). */

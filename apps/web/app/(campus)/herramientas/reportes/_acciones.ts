@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
 import type { ResultadoAccion } from '@/lib/campus/resultado';
+import type { EstructuraPlantilla } from '@/lib/reportes/estructura';
 import { contenidoVacio, type ContenidoReporte, type DatosPaciente, type EstadoReporte } from './_contrato';
+import { getReporte } from './_datos';
 
 /**
  * Server actions del generador de reportes. CRUD simple `web → Supabase` bajo RLS
@@ -99,7 +101,7 @@ export async function guardarBorrador(
       // jsonb vía `sql.json` (objeto), no `JSON.stringify(x)::jsonb` — ver crearReporte.
       await sql`
         update lxp.reportes
-        set datos_paciente = ${sql.json(datosPaciente)},
+        set datos_paciente = ${sql.json(datosPaciente as Parameters<typeof sql.json>[0])},
             contenido = ${sql.json(contenido as Parameters<typeof sql.json>[0])}
         where id = ${id} and id_medico = ${alumno.userId}`;
     });
@@ -131,6 +133,14 @@ async function cambiarEstado(id: string, estado: EstadoReporte): Promise<Resulta
 /** Finaliza el reporte (deja de ser borrador). El PDF/envío son pasos aparte. */
 export async function finalizarReporte(id: string): Promise<ResultadoAccion> {
   return cambiarEstado(id, 'finalizado');
+}
+
+/**
+ * Reabre un reporte finalizado para editarlo (estado → borrador). No hay versionado: al
+ * volver a finalizar se SOBRESCRIBE la misma versión. RLS (id_medico) sigue siendo el candado.
+ */
+export async function reabrirReporte(id: string): Promise<ResultadoAccion> {
+  return cambiarEstado(id, 'borrador');
 }
 
 /**
@@ -185,6 +195,23 @@ export async function generarPdf(
 
 function apiBase(): string {
   return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+export type DatosReportePdf =
+  | { ok: true; estructura: EstructuraPlantilla; valores: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Estructura + valores de un reporte del médico (RLS: solo el dueño, vía `getReporte`), para que
+ * el CLIENTE rasterice las imágenes DICOM offscreen y arme el PDF DESDE EL LISTADO (sin abrir el
+ * editor). No expone nada que el dueño no pueda ya ver en el editor.
+ */
+export async function datosReportePdf(id: string): Promise<DatosReportePdf> {
+  const alumno = await getSesionAlumno();
+  const rep = await getReporte(alumno.userId, id);
+  if (!rep) return { ok: false, error: 'Ese reporte no es tuyo o no existe.' };
+  const estructura = rep.plantilla?.estructura ?? { secciones: [] };
+  return { ok: true, estructura, valores: rep.contenido.valores };
 }
 
 export type ResultadoCaso =

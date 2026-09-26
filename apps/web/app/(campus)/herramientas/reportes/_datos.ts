@@ -3,7 +3,6 @@ import { comoAlumno } from '@/lib/db.server';
 import { fechaCorta, haceCuanto } from '@/lib/format';
 import {
   contarCampos,
-  leerRefDicom,
   normalizarEstructura,
   type ValoresReporte,
 } from '@/lib/reportes/estructura';
@@ -45,12 +44,16 @@ function normalizarContenido(raw: unknown, fallbackFolio: string): ContenidoRepo
 function normalizarPaciente(d: Partial<DatosPaciente> | null): DatosPaciente {
   const base = datosPacienteVacios();
   if (!d || typeof d !== 'object') return base;
-  for (const [k, v] of Object.entries(d)) base[k] = typeof v === 'string' ? v : '';
+  // Preserva el valor tal cual (incluye boolean/array de campos no-string en el encabezado);
+  // ya NO se coacciona a "" (eso perdía sino/multiseleccion al recargar).
+  for (const [k, v] of Object.entries(d)) base[k] = v;
   return base;
 }
 
+/** Lectura como texto de un campo de paciente (para columnas/resumen); no-string ⇒ "". */
 function campoP(p: DatosPaciente, id: string): string {
-  return (p[id] ?? '').trim();
+  const v = p[id];
+  return typeof v === 'string' ? v.trim() : '';
 }
 
 /** "42 · Masculino" para la columna del listado (edad y sexo ya separados). */
@@ -58,15 +61,12 @@ function edadSexo(p: DatosPaciente): string {
   return [campoP(p, 'edad'), campoP(p, 'sexo')].filter(Boolean).join(' · ');
 }
 
-function contarImagenes(c: ContenidoReporte): number {
-  return Object.values(c.valores).filter((v) => leerRefDicom(v) !== null).length;
-}
 
-function nota(estado: EstadoReporte, paciente: DatosPaciente, contenido: ContenidoReporte): string {
+function nota(estado: EstadoReporte, paciente: DatosPaciente, tieneImpresion: boolean): string {
   if (estado === 'enviado') return 'Enviado al paciente';
   if (estado === 'finalizado') return 'Listo para enviar';
   if (!campoP(paciente, 'paciente')) return 'Sin datos del paciente';
-  if (!contenido.impresion.trim()) return 'Falta impresión diagnóstica';
+  if (!tieneImpresion) return 'Falta impresión diagnóstica';
   return 'Sin finalizar';
 }
 
@@ -89,7 +89,158 @@ async function getPlantillasPublicadas(
   });
 }
 
-type FilaReporte = {
+/** Parámetros de paginación/filtro del listado (ya validados/normalizados por la page). */
+export type ParamsReportes = {
+  page: number;
+  size: number;
+  estado: 'todos' | EstadoReporte;
+  estudio: string; // '' = todos
+  q: string;
+};
+
+/** Fila LIGERA del listado: solo lo que muestra la tabla; imágenes contadas EN SQL (sin jsonb pesado). */
+type FilaListado = {
+  id: string;
+  estado: string;
+  folio: string | null;
+  paciente: string | null;
+  edad: string | null;
+  sexo: string | null;
+  tiene_impresion: boolean;
+  plantilla_nombre: string | null;
+  plantilla_tipo: string | null;
+  imagenes: number;
+  created_at: Date;
+};
+
+/**
+ * Listado de reportes del médico PAGINADO EN EL SERVIDOR (§6.5). Tres consultas ligeras, todas
+ * bajo RLS (id_medico = auth.uid()):
+ *   1) KPIs GLOBALES (todo el conjunto del usuario, sin filtro ni página) — agregación.
+ *   2) COUNT del conjunto YA FILTRADO (para nº de páginas / mostrar el paginador).
+ *   3) La PÁGINA (LIMIT/OFFSET), solo campos de la fila; el nº de imágenes se cuenta EN SQL.
+ * Orden estable: created_at DESC, id DESC (índice `reportes_medico_creado_idx`). Nunca trae todo.
+ */
+export async function getReportes(userId: string, params: ParamsReportes): Promise<ReportesData> {
+  const { page, size, estado, estudio, q } = params;
+  const offset = (page - 1) * size;
+  return comoAlumno(userId, async (sql) => {
+    // Filtro server-side COMPARTIDO por el COUNT y la página (mismo conjunto exacto).
+    const like = `%${q.trim()}%`;
+    const cond = sql`
+      r.id_medico = ${userId}
+      ${estado !== 'todos' ? sql`and r.estado = ${estado}` : sql``}
+      ${estudio ? sql`and p.tipo_estudio = ${estudio}` : sql``}
+      ${
+        q.trim()
+          ? sql`and (
+              r.contenido->>'folio' ilike ${like}
+              or r.datos_paciente->>'paciente' ilike ${like}
+              or p.nombre ilike ${like}
+              or coalesce(p.tipo_estudio, '') ilike ${like}
+            )`
+          : sql``
+      }
+    `;
+
+    // 1) KPIs GLOBALES — independientes del filtro y de la página (solo id_medico).
+    const [kpi] = await sql<
+      {
+        total: number;
+        borradores: number;
+        finalizados: number;
+        enviados: number;
+        enviados_semana: number;
+        del_mes: number;
+      }[]
+    >`
+      select
+        count(*)::int as total,
+        count(*) filter (where estado = 'borrador')::int as borradores,
+        count(*) filter (where estado = 'finalizado')::int as finalizados,
+        count(*) filter (where estado = 'enviado')::int as enviados,
+        count(*) filter (where estado = 'enviado' and updated_at > now() - interval '7 days')::int as enviados_semana,
+        count(*) filter (where created_at > now() - interval '30 days')::int as del_mes
+      from lxp.reportes where id_medico = ${userId}`;
+
+    // 2) COUNT del conjunto YA FILTRADO.
+    const [c] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from lxp.reportes r
+      left join lxp.plantillas_reporte p on p.id = r.plantilla_id
+      where ${cond}`;
+    const total = c?.total ?? 0;
+
+    // 3) La PÁGINA (LIMIT/OFFSET). Imágenes contadas en SQL (galería array/{imagenes} + dicom {casoId}).
+    const filas = await sql<FilaListado[]>`
+      select
+        r.id, r.estado,
+        r.contenido->>'folio' as folio,
+        r.datos_paciente->>'paciente' as paciente,
+        r.datos_paciente->>'edad' as edad,
+        r.datos_paciente->>'sexo' as sexo,
+        (coalesce(r.contenido->>'impresion', '') <> '') as tiene_impresion,
+        p.nombre as plantilla_nombre, p.tipo_estudio as plantilla_tipo,
+        coalesce((
+          select sum(case
+            when jsonb_typeof(v.value) = 'array' then jsonb_array_length(v.value)
+            when jsonb_typeof(v.value) = 'object' and v.value ? 'imagenes'
+                 and jsonb_typeof(v.value->'imagenes') = 'array' then jsonb_array_length(v.value->'imagenes')
+            when jsonb_typeof(v.value) = 'object' and v.value ? 'casoId' then 1
+            else 0 end)
+          from jsonb_each(
+            case when jsonb_typeof(r.contenido) = 'object'
+                 then coalesce(r.contenido->'valores', '{}'::jsonb) else '{}'::jsonb end
+          ) v
+        ), 0)::int as imagenes,
+        r.created_at
+      from lxp.reportes r
+      left join lxp.plantillas_reporte p on p.id = r.plantilla_id
+      where ${cond}
+      order by r.created_at desc, r.id desc
+      limit ${size} offset ${offset}`;
+
+    const plantillas = await getPlantillasPublicadas(sql);
+
+    const items: ReporteListItem[] = filas.map((f) => {
+      const est = estadoValido(f.estado);
+      const pac: DatosPaciente = {
+        paciente: f.paciente ?? '',
+        edad: f.edad ?? '',
+        sexo: f.sexo ?? '',
+      };
+      return {
+        id: f.id,
+        folio: f.folio || 'RPT-0000',
+        paciente: campoP(pac, 'paciente') || 'Sin nombre',
+        edadSexo: edadSexo(pac) || '—',
+        plantilla: f.plantilla_nombre ?? '—',
+        tipoEstudio: f.plantilla_tipo ?? '',
+        fecha: fechaCorta(new Date(f.created_at)),
+        estado: est,
+        imagenes: f.imagenes,
+        nota: nota(est, pac, f.tiene_impresion),
+      };
+    });
+
+    const conteos = {
+      todos: kpi?.total ?? 0,
+      borradores: kpi?.borradores ?? 0,
+      finalizados: kpi?.finalizados ?? 0,
+      enviados: kpi?.enviados ?? 0,
+    };
+    const resumen = {
+      borradores: kpi?.borradores ?? 0,
+      listos: kpi?.finalizados ?? 0,
+      enviadosSemana: kpi?.enviados_semana ?? 0,
+      delMes: kpi?.del_mes ?? 0,
+    };
+
+    return { resumen, conteos, plantillas, items, total, page, size, filtro: { estado, estudio, q } };
+  });
+}
+
+type FilaDetalle = {
   id: string;
   estado: string;
   datos_paciente: Partial<DatosPaciente> | null;
@@ -97,73 +248,15 @@ type FilaReporte = {
   caso_generado_id: string | null;
   plantilla_nombre: string | null;
   plantilla_tipo: string | null;
+  plantilla_id: string | null;
+  plantilla_estructura: unknown;
   created_at: Date;
   updated_at: Date;
 };
 
-export async function getReportes(userId: string): Promise<ReportesData> {
-  return comoAlumno(userId, async (sql) => {
-    const filas = await sql<FilaReporte[]>`
-      select r.id, r.estado, r.datos_paciente, r.contenido, r.caso_generado_id,
-             r.created_at, r.updated_at,
-             p.nombre as plantilla_nombre, p.tipo_estudio as plantilla_tipo
-      from lxp.reportes r
-      left join lxp.plantillas_reporte p on p.id = r.plantilla_id
-      where r.id_medico = ${userId}
-      order by r.created_at desc`;
-
-    const plantillas = await getPlantillasPublicadas(sql);
-
-    const ahora = Date.now();
-    const semana = 7 * 24 * 3600 * 1000;
-    const mes = 30 * 24 * 3600 * 1000;
-
-    const items: ReporteListItem[] = filas.map((f, idx) => {
-      const estado = estadoValido(f.estado);
-      const contenido = normalizarContenido(
-        f.contenido,
-        `RPT-${String(filas.length - idx).padStart(4, '0')}`,
-      );
-      const paciente = normalizarPaciente(f.datos_paciente);
-      return {
-        id: f.id,
-        folio: contenido.folio,
-        paciente: campoP(paciente, 'paciente') || 'Sin nombre',
-        edadSexo: edadSexo(paciente) || '—',
-        plantilla: f.plantilla_nombre ?? '—',
-        tipoEstudio: f.plantilla_tipo ?? '',
-        fecha: fechaCorta(new Date(f.created_at)),
-        estado,
-        imagenes: contarImagenes(contenido),
-        nota: nota(estado, paciente, contenido),
-      };
-    });
-
-    const conteos = {
-      todos: items.length,
-      borradores: items.filter((i) => i.estado === 'borrador').length,
-      finalizados: items.filter((i) => i.estado === 'finalizado').length,
-      enviados: items.filter((i) => i.estado === 'enviado').length,
-    };
-    const resumen = {
-      borradores: conteos.borradores,
-      listos: conteos.finalizados,
-      enviadosSemana: filas.filter(
-        (f) =>
-          estadoValido(f.estado) === 'enviado' && ahora - new Date(f.updated_at).getTime() < semana,
-      ).length,
-      delMes: filas.filter((f) => ahora - new Date(f.created_at).getTime() < mes).length,
-    };
-
-    return { resumen, conteos, plantillas, items };
-  });
-}
-
 export async function getReporte(userId: string, id: string): Promise<ReporteDetalle | null> {
   return comoAlumno(userId, async (sql) => {
-    const filas = await sql<
-      (FilaReporte & { plantilla_id: string | null; plantilla_estructura: unknown })[]
-    >`
+    const filas = await sql<FilaDetalle[]>`
       select r.id, r.estado, r.datos_paciente, r.contenido, r.caso_generado_id,
              r.created_at, r.updated_at, r.plantilla_id,
              p.nombre as plantilla_nombre, p.tipo_estudio as plantilla_tipo,

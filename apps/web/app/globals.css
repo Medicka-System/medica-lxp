@@ -59,6 +59,12 @@
   --hero-ink-soft: #dceeed;
   --hero-ink-muted: #bcd7e4;
   --track: #e8edf1;
+  /* Constructor de plantillas (§6.5): lienzo y borde punteado del mock. */
+  --canvas: #f1f4f6;
+  --dashed: #d6dde3;
+  /* Sombras §5A: reposo (tarjetas) y halo de selección teal. */
+  --shadow-rest: 0 1px 3px rgba(17, 24, 39, 0.06);
+  --halo-teal: 0 0 0 4px rgba(83, 195, 190, 0.16);
 
   /* ── Hero de olas ── */
   --wave-0: #0f2d52;

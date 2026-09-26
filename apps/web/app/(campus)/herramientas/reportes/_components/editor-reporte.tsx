@@ -21,6 +21,7 @@ import {
   Mail,
   MoreHorizontal,
   NotebookText,
+  Pencil,
   Printer,
   Save,
   Search,
@@ -32,7 +33,9 @@ import { VisorEstudio } from '@/components/casos/visor-estudio';
 import {
   campoCompleto,
   campoPacienteDesdeCatalogo,
+  campoRequerido,
   CAMPOS_PACIENTE_CATALOGO,
+  contarImagenesReporte,
   esCampoEstatico,
   type CampoPlantilla,
   type RefDicom,
@@ -44,6 +47,7 @@ import {
   generarPdf,
   guardarBorrador,
   guardarComoCaso,
+  reabrirReporte,
   type ImagenDicomReporte,
   type ResultadoPdf,
 } from '../_acciones';
@@ -155,7 +159,6 @@ export function EditorReporte({
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [pickerCampo, setPickerCampo] = useState<string | null>(null);
   const [casoDialog, setCasoDialog] = useState(false);
-  const [finalizarDialog, setFinalizarDialog] = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [mailDialog, setMailDialog] = useState(false);
   const [mailTo, setMailTo] = useState('');
@@ -164,34 +167,45 @@ export function EditorReporte({
   const [pendiente, iniciar] = useTransition();
 
   const estado = reporte.estado;
+  // Dos modos (§ciclo de vida): BORRADOR editable · FINALIZADO/ENVIADO read-only (bloquea toda
+  // edición; solo se puede exportar/imprimir o pulsar "Editar reporte" para reabrir a borrador).
+  const soloLectura = estado !== 'borrador';
 
   function setValor(campoId: string, v: unknown) {
     setValores((prev) => ({ ...prev, [campoId]: v }));
   }
   function setPacienteCampo(id: string, v: unknown) {
-    setPaciente((p) => ({ ...p, [id]: typeof v === 'string' ? v : '' }));
+    // Guarda el valor TAL CUAL (no coacciona a ""): el encabezado puede tener campos no-string
+    // (sino/multiseleccion) y su boolean/array debe persistir igual que en hallazgos.
+    setPaciente((p) => ({ ...p, [id]: v }));
   }
 
   const camposLlenables = useMemo(
     () => secciones.flatMap((s) => s.campos).filter((c) => !esCampoEstatico(c.tipo)),
     [secciones],
   );
-  const imagenes = useMemo(
-    () => camposLlenables.filter((c) => c.tipo === 'imagen' && c.origen === 'dicom' && campoCompleto(c, valores[c.id])).length,
-    [camposLlenables, valores],
-  );
+  // Imágenes REALES = galería (JPG/PNG/.dcm) + imagen/dicom clínico + imagen/referencia. Fuente
+  // de verdad ÚNICA compartida con el listado (`contarImagenesReporte`).
+  const imagenes = useMemo(() => contarImagenesReporte(estructura, valores), [estructura, valores]);
 
   const checklist = useMemo(() => {
     const base = [
-      { item: 'Datos del paciente', listo: (paciente.paciente ?? '').trim() !== '' },
+      { item: 'Datos del paciente', listo: String(paciente.paciente ?? '').trim() !== '' },
     ];
-    const porCampo = camposLlenables.map((c) => ({
-      item: c.nombre || 'Campo sin nombre',
-      listo: campoCompleto(c, valores[c.id]),
-    }));
+    // Solo los campos OBLIGATORIOS entran al gate (1b-1). `campoRequerido` = obligatorio ?? true:
+    // las plantillas actuales (sin el flag) siguen requiriendo TODO → gate idéntico.
+    const porCampo = camposLlenables
+      .filter((c) => campoRequerido(c))
+      .map((c) => ({
+        item: c.nombre || 'Campo sin nombre',
+        listo: campoCompleto(c, valores[c.id]),
+      }));
     return [...base, ...porCampo, { item: 'Impresión diagnóstica', listo: impresion.trim() !== '' }];
   }, [paciente, camposLlenables, valores, impresion]);
   const hechos = checklist.filter((c) => c.listo).length;
+  // Fuente de verdad ÚNICA de completitud (la MISMA card): completo = todos los checks en verde.
+  const completo = hechos === checklist.length;
+  const faltan = checklist.filter((c) => !c.listo).map((c) => c.item);
 
   function armarContenido(): ContenidoReporte {
     return {
@@ -222,10 +236,15 @@ export function EditorReporte({
       const g = await guardarBorrador(reporte.id, paciente, armarContenido());
       if (!g.ok) return g;
       const f = await finalizarReporte(reporte.id);
-      // Al finalizar: pregunta si quiere derivar el caso educativo (no automático).
+      // Al finalizar: pregunta si quiere derivar el caso educativo (no automático). Este es el
+      // ÚNICO modal de confirmación tras finalizar (se quitó el modal previo "¿finalizar?").
       if (f.ok && !reporte.casoGeneradoId) setCasoDialog(true);
       return f;
     }, 'Reporte finalizado.');
+  // "Editar reporte" (desde finalizado): reabre a borrador y desbloquea la edición. Al terminar,
+  // el botón vuelve a "Finalizar" y se re-sella SOBRESCRIBIENDO la misma versión (sin versionado).
+  const onEditar = () =>
+    conAccion(() => reabrirReporte(reporte.id), 'Reporte reabierto para edición.');
   // Enviar por correo (menú de 3 puntos · BUG 4): captura correo + asunto. El ENVÍO real por
   // mail es dominio PENDIENTE (§8/§9); por ahora se guarda, se marca como enviado y se confirma
   // la captura — nunca se fuerza el correo desde el botón principal.
@@ -395,15 +414,18 @@ export function EditorReporte({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onGuardar}
-            disabled={pendiente}
-            className={`inline-flex h-11 items-center gap-2 rounded-full border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
-          >
-            <Save aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-            Guardar borrador
-          </button>
+          {/* "Guardar borrador" solo en edición: en un reporte finalizado no hay qué guardar. */}
+          {!soloLectura && (
+            <button
+              type="button"
+              onClick={onGuardar}
+              disabled={pendiente}
+              className={`inline-flex h-11 items-center gap-2 rounded-full border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
+            >
+              <Save aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Guardar borrador
+            </button>
+          )}
           <button
             type="button"
             onClick={onImprimir}
@@ -422,18 +444,33 @@ export function EditorReporte({
             <Download aria-hidden className="h-4 w-4" strokeWidth={1.75} />
             {pdfOcupado ? 'Generando…' : 'Exportar PDF'}
           </button>
-          {/* Verde: SIEMPRE "Finalizar" (BUG 3) — abre el modal de confirmación; nunca fuerza
-              correo. Ya finalizado/enviado queda como "Finalizado" (deshabilitado). */}
+          {/* Botón principal según el ciclo de vida: BORRADOR → "Finalizar" (sella + modal de
+              caso); FINALIZADO → "Editar reporte" (reabre a borrador). Sin modal previo.
+              "Finalizar" se BLOQUEA hasta que TODOS los checks de la card estén en verde
+              (misma fuente de verdad `completo`); al pasar el mouse indica qué falta. */}
           <button
             type="button"
             onClick={() => {
               setMensaje(null);
-              setFinalizarDialog(true);
+              if (soloLectura) onEditar();
+              else onFinalizar();
             }}
-            disabled={pendiente || estado !== 'borrador'}
+            disabled={pendiente || (!soloLectura && !completo)}
+            title={
+              !soloLectura && !completo
+                ? `Antes de finalizar, completa: ${faltan.join(', ')}`
+                : undefined
+            }
             className={`inline-flex h-12 items-center gap-2.5 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
           >
-            {estado === 'borrador' ? 'Finalizar' : 'Finalizado'}
+            {soloLectura ? (
+              <>
+                <Pencil aria-hidden className="h-4 w-4" strokeWidth={2} />
+                Editar reporte
+              </>
+            ) : (
+              'Finalizar'
+            )}
           </button>
           {/* Menú de 3 puntos: "Enviar por mail" (BUG 4) → modal de captura correo + asunto. */}
           <div className="relative">
@@ -516,6 +553,7 @@ export function EditorReporte({
                     campo={c}
                     valor={paciente[c.id] ?? ''}
                     modo="llenar"
+                    soloLectura={soloLectura}
                     onCambio={(v) => setPacienteCampo(c.id, v)}
                   />
                 </div>
@@ -542,6 +580,7 @@ export function EditorReporte({
               onPicker={setPickerCampo}
               renderVisorDicom={renderVisorDicom}
               reporteId={reporte.id}
+              soloLectura={soloLectura}
             />
           ))}
 
@@ -551,9 +590,12 @@ export function EditorReporte({
             <textarea
               rows={3}
               value={impresion}
-              onChange={(e) => setImpresion(e.target.value)}
+              readOnly={soloLectura}
+              onChange={(e) => {
+                if (!soloLectura) setImpresion(e.target.value);
+              }}
               placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
-              className="mt-3 w-full resize-y rounded-[10px] border border-border bg-card p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary"
+              className={`mt-3 w-full resize-y rounded-[10px] border border-border p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${soloLectura ? 'bg-muted' : 'bg-card'}`}
             />
           </section>
         </div>
@@ -602,8 +644,8 @@ export function EditorReporte({
               ))}
             </ul>
             <p className="mt-3.5 text-[12px] leading-relaxed text-muted-foreground">
-              {imagenes} {imagenes === 1 ? 'imagen DICOM insertada' : 'imágenes DICOM insertadas'}. La plantilla
-              evita omisiones: mientras falte algo, conviene dejar el reporte en borrador.
+              {imagenes} {imagenes === 1 ? 'imagen insertada' : 'imágenes insertadas'}. La plantilla
+              evita omisiones: no podrás finalizar mientras falte algo (queda en borrador).
             </p>
           </section>
 
@@ -675,54 +717,6 @@ export function EditorReporte({
               >
                 <NotebookText aria-hidden className="h-4 w-4" strokeWidth={1.9} />
                 {pendiente ? 'Generando…' : 'Sí, guardar como caso'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* diálogo: confirmar finalizar (BUG 3) — el verde abre esto; nunca finaliza directo */}
-      {finalizarDialog && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Finalizar reporte"
-          onClick={() => !pendiente && setFinalizarDialog(false)}
-        >
-          <div className={`${card} w-full max-w-[460px] p-6`} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start gap-3">
-              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
-                <NotebookText className="h-5 w-5" strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0">
-                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">¿Finalizar el reporte?</h2>
-                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
-                  Se guardan los cambios y el reporte pasa a <strong>finalizado</strong>. Podrás
-                  exportarlo en PDF, imprimirlo o enviarlo por correo. Podrás derivarlo como caso
-                  anonimizado a tu bitácora.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setFinalizarDialog(false)}
-                disabled={pendiente}
-                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFinalizarDialog(false);
-                  onFinalizar();
-                }}
-                disabled={pendiente}
-                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
-              >
-                {pendiente ? 'Finalizando…' : 'Sí, finalizar'}
               </button>
             </div>
           </div>
@@ -807,6 +801,7 @@ function SeccionCard({
   onPicker,
   renderVisorDicom,
   reporteId,
+  soloLectura,
 }: {
   seccion: SeccionPlantilla;
   valores: Record<string, unknown>;
@@ -814,6 +809,7 @@ function SeccionCard({
   onPicker: (campoId: string) => void;
   renderVisorDicom: (ref: RefDicom) => React.ReactNode;
   reporteId: string;
+  soloLectura: boolean;
 }) {
   return (
     <section className={`${card} p-5`}>
@@ -825,6 +821,7 @@ function SeccionCard({
               campo={c}
               valor={valores[c.id]}
               modo="llenar"
+              soloLectura={soloLectura}
               onCambio={(v) => onValor(c.id, v)}
               onElegirEstudio={() => onPicker(c.id)}
               onQuitarEstudio={() => onValor(c.id, null)}

@@ -30,8 +30,21 @@ type Campo = {
   origen?: string;
   refUrl?: string;
   span?: number;
+  /** dimensiones: nº de ejes (2|3) y decimales para formatear x × y × z. */
+  ejes?: number;
+  decimales?: number;
+  /** 1b-2: si es `false`, el campo NO sale en el PDF (solo captura). Ausente/true ⇒ sale. */
+  enInforme?: boolean;
 };
-type Seccion = { id?: string; tipo?: string; titulo?: string; columnas?: number; campos?: Campo[] };
+type Seccion = {
+  id?: string;
+  tipo?: string;
+  titulo?: string;
+  columnas?: number;
+  campos?: Campo[];
+  /** 1b-2: si es `false`, la sección entera se omite del PDF. Ausente/true ⇒ sale. */
+  enInforme?: boolean;
+};
 type Estructura = { secciones?: Seccion[] };
 type Contenido = { folio?: string; valores?: Record<string, unknown>; impresion?: string } | null;
 
@@ -313,11 +326,28 @@ export class ReportesPdfService {
   /* ── datos del estudio / paciente (dos columnas label:valor) ── */
   private datosEstudio(doc: Doc, estructura: Estructura, paciente: Record<string, unknown>) {
     const enc = (estructura.secciones ?? []).find((s) => s.tipo === 'encabezado');
+    // enInforme:false a nivel de la card de datos → no se imprime (1b-2). Ausente/true ⇒ sale.
+    if (enc && enc.enInforme === false) return;
     const campos: { etiqueta: string; valor: string }[] = [];
     const vistos = new Set<string>();
     for (const c of enc?.campos ?? []) {
-      const val = leerTexto(paciente[c.id]);
-      vistos.add(c.id);
+      vistos.add(c.id); // registrado aunque se oculte, para no re-agregarlo desde el catálogo
+      if (c.enInforme === false) continue;
+      // El encabezado puede tener campos no-string (sino/multiseleccion): formatéalos igual que
+      // en hallazgos para que salgan en la card de datos.
+      const raw = paciente[c.id];
+      const val =
+        c.tipo === 'sino'
+          ? typeof raw === 'boolean'
+            ? raw
+              ? 'Sí'
+              : 'No'
+            : ''
+          : c.tipo === 'multiseleccion'
+            ? Array.isArray(raw)
+              ? raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '').join(', ')
+              : ''
+            : leerTexto(raw);
       if (val) campos.push({ etiqueta: c.nombre || c.id, valor: val });
     }
     // Cualquier dato de paciente que no venía en el encabezado (ej. defaults del catálogo).
@@ -375,7 +405,8 @@ export class ReportesPdfService {
     dicomPorCampo: Map<string, string>,
     galeriaPorRef: Map<string, string>,
   ) {
-    const secciones = (estructura.secciones ?? []).filter((s) => s.tipo !== 'encabezado');
+    // Omite el encabezado y las secciones con enInforme:false (1b-2). Ausente/true ⇒ sale.
+    const secciones = (estructura.secciones ?? []).filter((s) => s.tipo !== 'encabezado' && s.enInforme !== false);
     if (secciones.length === 0) return;
     doc.texto('HALLAZGOS', { size: 9, font: doc.bold, color: C.teal, gap: 6 });
 
@@ -384,6 +415,8 @@ export class ReportesPdfService {
       doc.texto(san(s.titulo || 'Sección'), { size: 12, font: doc.bold, color: C.navy, gap: 2 });
 
       for (const c of s.campos ?? []) {
+        // Campo marcado como "no sale en el informe" (1b-2): se omite del PDF.
+        if (c.enInforme === false) continue;
         if (c.tipo === 'guia' || c.tipo === 'titulo') {
           if (c.tipo === 'titulo' && c.nombre) doc.texto(san(c.nombre), { size: 10.5, font: doc.bold, color: C.soft, gap: 1 });
           continue;
@@ -418,6 +451,32 @@ export class ReportesPdfService {
       if (!tieneDato) return;
       if (etiqueta) doc.texto(etiqueta, { size: 10.5, font: doc.bold, color: C.soft, gap: 2 });
       this.dibujarTabla(doc, columnas, filas, datos);
+      return;
+    }
+    if (c.tipo === 'multiseleccion') {
+      // Valor = string[]; se imprimen las marcadas unidas por coma (antes del fallback genérico).
+      const arr = Array.isArray(valor) ? valor.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
+      if (arr.length === 0) return;
+      doc.texto(`${etiqueta ? etiqueta + ': ' : ''}${arr.join(', ')}`, { size: 10.5, gap: 2 });
+      return;
+    }
+    if (c.tipo === 'dimensiones') {
+      // Valor = number[] (largo = ejes); se imprime x × y × z con la unidad.
+      const ejes = c.ejes === 2 ? 2 : 3;
+      const src = Array.isArray(valor) ? valor : [];
+      const nums = Array.from({ length: ejes }, (_, i) => {
+        const x = src[i];
+        if (typeof x === 'number' && Number.isFinite(x)) return x;
+        if (typeof x === 'string' && x.trim() !== '' && Number.isFinite(Number(x))) return Number(x);
+        return null;
+      });
+      if (!nums.some((n) => n !== null)) return;
+      const dec = typeof c.decimales === 'number' ? c.decimales : undefined;
+      const partes = nums.map((n) => (n === null ? '—' : dec !== undefined ? n.toFixed(dec) : String(n)));
+      doc.texto(`${etiqueta ? etiqueta + ': ' : ''}${partes.join(' × ')}${c.unidad ? ` ${c.unidad}` : ''}`, {
+        size: 10.5,
+        gap: 2,
+      });
       return;
     }
     const txt = leerTexto(valor).trim();
