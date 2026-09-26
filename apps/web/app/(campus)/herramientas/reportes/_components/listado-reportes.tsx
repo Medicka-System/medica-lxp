@@ -6,13 +6,26 @@
  * borradores con un server action. Referencia visual: mock `alumno/reportes`.
  */
 
-import { useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronDown, FileText, MoreHorizontal, Plus, Search, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  Mail,
+  MoreHorizontal,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
-import { crearReporte } from '../_acciones';
-import { ETIQUETA_ESTADO, type EstadoReporte, type ReportesData } from '../_contrato';
+import { crearReporte, datosReportePdf, enviarReporte } from '../_acciones';
+import { construirPdfReporte, descargarPdfBlob } from '../_pdf-cliente';
+import { ETIQUETA_ESTADO, TAMANOS_PAGINA, type EstadoReporte, type ReporteListItem, type ReportesData } from '../_contrato';
+import { Selector } from './selector';
 
 const claseEstado: Record<EstadoReporte, string> = {
   borrador: 'border border-border bg-muted text-[color:var(--foreground-soft)]',
@@ -22,15 +35,52 @@ const claseEstado: Record<EstadoReporte, string> = {
 };
 
 export function ListadoReportes({ data }: { data: ReportesData }) {
-  const { resumen, conteos, items, plantillas } = data;
+  // Todo paginado/filtrado en el SERVIDOR: `items` es solo la página; `total` es el conjunto YA
+  // FILTRADO; `resumen`/`conteos` son GLOBALES (no cambian con filtro/página). `filtro` = URL.
+  const { resumen, conteos, items, plantillas, total, page, size, filtro } = data;
   const router = useRouter();
-  const [estado, setEstado] = useState<'todos' | EstadoReporte>('todos');
-  const [tipo, setTipo] = useState('Todos');
-  const [busqueda, setBusqueda] = useState('');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [buscaPlantilla, setBuscaPlantilla] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [creando, iniciarCrear] = useTransition();
+  // Menú de 3 puntos por fila (posición fija para no recortarse con el overflow de la tabla).
+  const [menu, setMenu] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
+  const [mailItem, setMailItem] = useState<ReporteListItem | null>(null);
+  const [mailTo, setMailTo] = useState('');
+  const [mailAsunto, setMailAsunto] = useState('');
+  const [mailBusy, setMailBusy] = useState(false);
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
+  // Búsqueda local (se vuelca a la URL con debounce → el server re-consulta).
+  const [busqueda, setBusqueda] = useState(filtro.q);
+
+  // Escribe filtros/página en la URL (el server re-consulta). `push` para cambios explícitos;
+  // `replace` para el debounce de búsqueda (no ensucia el historial en cada tecla).
+  const setParams = useCallback(
+    (patch: Record<string, string | null>, metodo: 'push' | 'replace' = 'push') => {
+      const sp = new URLSearchParams(searchParams?.toString() ?? '');
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === '') sp.delete(k);
+        else sp.set(k, v);
+      }
+      const qs = sp.toString();
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (metodo === 'replace') router.replace(url);
+      else router.push(url);
+    },
+    [router, pathname, searchParams],
+  );
+
+  // Debounce de la búsqueda → URL (?q=…) volviendo a page 1. No empuja si no cambió.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (busqueda.trim() !== filtro.q) setParams({ q: busqueda.trim() || null, page: null }, 'replace');
+    }, 350);
+    return () => clearTimeout(t);
+  }, [busqueda, filtro.q, setParams]);
 
   // Tipos de estudio para el filtro: los que traen las plantillas publicadas.
   const tiposEstudio = useMemo(
@@ -51,15 +101,9 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
     setNuevoAbierto(true);
   }
 
-  const visibles = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    return items.filter((r) => {
-      if (estado !== 'todos' && r.estado !== estado) return false;
-      if (tipo !== 'Todos' && r.tipoEstudio !== tipo) return false;
-      if (!q) return true;
-      return [r.folio, r.paciente, r.plantilla, r.tipoEstudio].join(' ').toLowerCase().includes(q);
-    });
-  }, [items, estado, tipo, busqueda]);
+  const totalPaginas = Math.max(1, Math.ceil(total / size));
+  // El paginador SOLO aparece si el conjunto filtrado no cabe en una página.
+  const mostrarPaginador = total > size;
 
   function crear(plantillaId: string) {
     setError(null);
@@ -73,6 +117,78 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
       }
     });
   }
+
+  // "Descargar PDF" desde la fila (borrador o finalizado): trae estructura+valores (RLS),
+  // rasteriza las imágenes DICOM offscreen y pide el PDF al endpoint → descarga el blob.
+  function descargarPdfFila(item: ReporteListItem) {
+    setMenu(null);
+    setAviso({ tipo: 'ok', texto: `Generando el PDF de ${item.folio}…` });
+    setPdfBusy(item.id);
+    void (async () => {
+      try {
+        const d = await datosReportePdf(item.id);
+        if (!d.ok) {
+          setAviso({ tipo: 'error', texto: d.error });
+          return;
+        }
+        const res = await construirPdfReporte(item.id, d.estructura, d.valores);
+        if (!res.ok) {
+          setAviso({ tipo: 'error', texto: res.error });
+          return;
+        }
+        descargarPdfBlob(res.pdfBase64, res.filename);
+        setAviso({ tipo: 'ok', texto: `PDF de ${item.folio} descargado.` });
+      } finally {
+        setPdfBusy(null);
+      }
+    })();
+  }
+
+  function abrirMail(item: ReporteListItem) {
+    setMenu(null);
+    setAviso(null);
+    setMailItem(item);
+    setMailTo('');
+    setMailAsunto(`Reporte ${item.folio}`);
+  }
+
+  // "Enviar por mail" (solo finalizados): captura correo+asunto, genera el PDF (mismo flujo) y lo
+  // "adjunta". El envío real de correo es STUB (dominio pendiente §8/§9): se marca como enviado.
+  function enviarMail() {
+    const item = mailItem;
+    const correo = mailTo.trim();
+    if (!item || !correo) return;
+    setMailBusy(true);
+    void (async () => {
+      try {
+        const d = await datosReportePdf(item.id);
+        if (!d.ok) {
+          setAviso({ tipo: 'error', texto: d.error });
+          return;
+        }
+        const res = await construirPdfReporte(item.id, d.estructura, d.valores);
+        if (!res.ok) {
+          setAviso({ tipo: 'error', texto: res.error });
+          return;
+        }
+        const env = await enviarReporte(item.id);
+        setMailItem(null);
+        if (env.ok) {
+          setAviso({
+            tipo: 'ok',
+            texto: `PDF de ${item.folio} generado y enviado a ${correo} (envío por correo pendiente de conectar).`,
+          });
+          router.refresh();
+        } else {
+          setAviso({ tipo: 'error', texto: env.error ?? 'No se pudo completar el envío.' });
+        }
+      } finally {
+        setMailBusy(false);
+      }
+    })();
+  }
+
+  const menuItem = menu ? (items.find((i) => i.id === menu.id) ?? null) : null;
 
   const tarjetas = [
     {
@@ -138,6 +254,18 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
         ))}
       </div>
 
+      {aviso && (
+        <p
+          className={`mt-4 rounded-[10px] px-3.5 py-2.5 text-[13px] font-medium ${
+            aviso.tipo === 'ok'
+              ? 'border border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]'
+              : 'border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+          }`}
+        >
+          {aviso.texto}
+        </p>
+      )}
+
       {/* filtros */}
       <div className="mt-7 flex flex-wrap items-center gap-3">
         <div
@@ -157,38 +285,30 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
               key={id}
               type="button"
               role="tab"
-              aria-selected={estado === id}
-              onClick={() => setEstado(id)}
+              aria-selected={filtro.estado === id}
+              onClick={() => setParams({ estado: id === 'todos' ? null : id, page: null })}
               className={`inline-flex h-10 items-center gap-[7px] whitespace-nowrap rounded-full px-4 text-[13px] font-semibold transition-colors ${focusRing} ${
-                estado === id
+                filtro.estado === id
                   ? 'bg-sidebar text-sidebar-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
               {etiqueta}
-              <span className={`${mono} ${estado === id ? 'opacity-70' : 'text-muted-foreground'}`}>
+              <span className={`${mono} ${filtro.estado === id ? 'opacity-70' : 'text-muted-foreground'}`}>
                 {n}
               </span>
             </button>
           ))}
         </div>
 
-        <label className="flex h-12 items-center gap-2 rounded-full border border-border bg-card px-5">
-          <span className="text-[12.5px] text-muted-foreground">Estudio</span>
-          <select
-            value={tipo}
-            onChange={(e) => setTipo(e.target.value)}
-            className="appearance-none bg-transparent text-[13.5px] font-semibold text-foreground outline-none"
-          >
-            <option value="Todos">Todos</option>
-            {tiposEstudio.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-        </label>
+        {/* Filtro estudio: dropdown estilizado §5A (reemplaza el <select> nativo). Cambiar filtro
+            vuelve a page 1 y conserva el resto de la URL. */}
+        <Selector
+          rotulo="Estudio"
+          valor={filtro.estudio || 'Todos'}
+          opciones={[{ id: '', etiqueta: 'Todos' }, ...tiposEstudio.map((t) => ({ id: t, etiqueta: t }))]}
+          onSelect={(id) => setParams({ estudio: id || null, page: null })}
+        />
 
         <label className="ml-auto flex h-12 min-w-[280px] items-center gap-2.5 rounded-full border border-border bg-card px-5 transition-colors focus-within:border-secondary">
           <Search aria-hidden className="h-[17px] w-[17px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
@@ -203,8 +323,9 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
         </label>
       </div>
 
-      {/* tabla / vacío */}
-      {items.length === 0 ? (
+      {/* tabla / vacío — el estado vacío global usa el TOTAL del usuario (conteos.todos), no la
+          página: si hay reportes pero el filtro no devuelve nada, se muestra la tabla con su aviso. */}
+      {conteos.todos === 0 ? (
         <div className={`${card} mt-4 grid place-items-center gap-3 px-6 py-16 text-center`}>
           <span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-accent-foreground">
             <FileText aria-hidden className="h-6 w-6" strokeWidth={1.75} />
@@ -240,7 +361,7 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((r) => (
+                {items.map((r) => (
                   <tr key={r.id} className="border-t border-border transition-colors hover:bg-accent">
                     <td className="px-4 py-3.5">
                       <span className={`${mono} block text-[12.5px] font-bold`}>{r.folio}</span>
@@ -280,15 +401,30 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
                         <button
                           type="button"
                           aria-label="Más acciones"
-                          className={`grid h-10 w-10 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
+                          aria-haspopup="menu"
+                          aria-expanded={menu?.id === r.id}
+                          disabled={pdfBusy === r.id}
+                          onClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setMenu(
+                              menu?.id === r.id
+                                ? null
+                                : { id: r.id, top: rect.bottom + 4, right: window.innerWidth - rect.right },
+                            );
+                          }}
+                          className={`grid h-10 w-10 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60 ${focusRing}`}
                         >
-                          <MoreHorizontal aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+                          {pdfBusy === r.id ? (
+                            <Loader2 aria-hidden className="h-[17px] w-[17px] animate-spin" strokeWidth={2} />
+                          ) : (
+                            <MoreHorizontal aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
+                          )}
                         </button>
                       </span>
                     </td>
                   </tr>
                 ))}
-                {visibles.length === 0 && (
+                {items.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">
                       Ningún reporte coincide con el filtro.
@@ -301,11 +437,142 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
         </div>
       )}
 
-      {items.length > 0 && (
-        <div className="mt-5 flex items-center justify-center gap-3">
-          <span className={`${mono} text-[12px] text-muted-foreground`}>
-            {visibles.length} de {conteos.todos}
-          </span>
+      {/* paginador server-side: SOLO si el conjunto filtrado no cabe en una página. Tamaño de
+          página (25/50/100) y nº de página viven en la URL; cambiar tamaño vuelve a page 1. */}
+      {conteos.todos > 0 && mostrarPaginador && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className={`text-[12.5px] text-muted-foreground`}>Por página</span>
+            <Selector
+              rotulo=""
+              valor={String(size)}
+              opciones={TAMANOS_PAGINA.map((n) => ({ id: String(n), etiqueta: String(n) }))}
+              onSelect={(id) => setParams({ size: id, page: null })}
+            />
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className={`${mono} text-[12px] text-muted-foreground`}>
+              Página {page} de {totalPaginas} · {total} {total === 1 ? 'reporte' : 'reportes'}
+            </span>
+            <button
+              type="button"
+              aria-label="Página anterior"
+              disabled={page <= 1}
+              onClick={() => setParams({ page: page - 1 <= 1 ? null : String(page - 1) })}
+              className={`grid h-10 w-10 place-items-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+            >
+              <ChevronLeft aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              aria-label="Página siguiente"
+              disabled={page >= totalPaginas}
+              onClick={() => setParams({ page: String(page + 1) })}
+              className={`grid h-10 w-10 place-items-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+            >
+              <ChevronRight aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* menú de 3 puntos de la fila (posición fija; no se recorta con el overflow de la tabla) */}
+      {menu && menuItem && (
+        <>
+          <div className="fixed inset-0 z-40" aria-hidden onClick={() => setMenu(null)} />
+          <div
+            role="menu"
+            style={{ position: 'fixed', top: menu.top, right: menu.right }}
+            className="z-50 w-56 rounded-[12px] border border-border bg-card p-1.5 shadow-[0_8px_24px_rgba(17,24,39,.12)]"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => descargarPdfFila(menuItem)}
+              className={`flex w-full items-center gap-2.5 rounded-[9px] px-3 py-2.5 text-left text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+            >
+              <Download aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              Descargar PDF
+            </button>
+            {menuItem.estado !== 'borrador' && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => abrirMail(menuItem)}
+                className={`flex w-full items-center gap-2.5 rounded-[9px] px-3 py-2.5 text-left text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+              >
+                <Mail aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                Enviar por mail
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* diálogo: enviar por mail (solo finalizados) — genera el PDF; envío real = stub (§8/§9) */}
+      {mailItem && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enviar por correo"
+          onClick={() => !mailBusy && setMailItem(null)}
+        >
+          <div className={`${card} w-full max-w-[460px] p-6`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
+                <Mail className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Enviar por correo</h2>
+                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+                  Se genera el PDF de <strong>{mailItem.folio}</strong> y se adjunta. El envío real por
+                  correo está pendiente de conectar (dominio de correo · §8/§9).
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="block">
+                <span className="text-[11.5px] font-semibold text-foreground">Correo del destinatario</span>
+                <input
+                  type="email"
+                  value={mailTo}
+                  onChange={(e) => setMailTo(e.target.value)}
+                  placeholder="paciente@correo.com"
+                  className={`mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${focusRing}`}
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11.5px] font-semibold text-foreground">Asunto</span>
+                <input
+                  type="text"
+                  value={mailAsunto}
+                  onChange={(e) => setMailAsunto(e.target.value)}
+                  placeholder="Asunto del correo"
+                  className={`mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${focusRing}`}
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setMailItem(null)}
+                disabled={mailBusy}
+                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={enviarMail}
+                disabled={mailBusy || !mailTo.trim()}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+              >
+                <Mail aria-hidden className="h-4 w-4" strokeWidth={1.9} />
+                {mailBusy ? 'Generando y enviando…' : 'Generar y enviar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

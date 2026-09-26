@@ -21,8 +21,6 @@ import {
   Stethoscope,
   ThumbsUp,
 } from "lucide-react";
-import { mono, kickerWide as kicker, softText, card, focusRing } from "@/components/tokens";
-import { Avatar } from "@/components/Avatar";
 
 /* ───────────────────────────── Tipos ───────────────────────────── */
 
@@ -147,6 +145,42 @@ const MOCK: CasoDetalle = {
   },
 };
 
+/* ───────────────────────── Estilo compartido ───────────────────────── */
+
+const card = "rounded-xl border border-border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)]";
+const mono = "font-mono tabular-nums";
+const kicker = "text-[11px] font-semibold uppercase tracking-[0.16em]";
+const softText = "text-[color:var(--foreground-soft)]";
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+
+function Avatar({ nombre, size = 40, docente }: { nombre: string; size?: number; docente?: boolean }) {
+  const iniciales = nombre
+    .replace(/^(Dr\.|Dra\.)\s*/, "")
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join("");
+  return (
+    <span className="relative shrink-0">
+      <span
+        aria-hidden
+        style={{ width: size, height: size, fontSize: size * 0.32 }}
+        className="grid place-items-center rounded-full bg-sidebar font-bold text-sidebar-foreground"
+      >
+        {iniciales}
+      </span>
+      {docente && (
+        <span
+          aria-hidden
+          className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-card bg-primary text-[color:var(--sidebar)]"
+        >
+          <BadgeCheck className="h-3 w-3" strokeWidth={2.4} />
+        </span>
+      )}
+    </span>
+  );
+}
 
 function Comentarios({
   items,

@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import type { LLMProvider, RespuestaLLM, SolicitudLLM } from './proveedor.interface';
+import type {
+  LLMProvider,
+  RespuestaChatLLM,
+  RespuestaLLM,
+  SolicitudChatLLM,
+  SolicitudLLM,
+} from './proveedor.interface';
 
 /**
  * Proveedor MOCK (default hasta cablear el LLM real · §7A "usa MOCK por ahora").
@@ -51,6 +57,37 @@ export class MockProvider implements LLMProvider {
       proveedor: this.nombre,
       modelo: `${solicitud.modelo} (mock)`,
       tokens: { entrada: contenido.length, salida: 0, cacheWrite: 0, cacheRead: 0 },
+    });
+  }
+
+  /**
+   * Chat MOCK (§7A): NO usa tools (no hay modelo que razone). Devuelve de inmediato una
+   * respuesta de demostración que deja claro que Eco real llega con la key. Termina el
+   * loop en la primera vuelta (`stop: 'end'`, `toolUses: []`), así el engine y la UI se
+   * prueban sin credenciales.
+   */
+  generarChat(solicitud: SolicitudChatLLM): Promise<RespuestaChatLLM> {
+    const ultimo = [...solicitud.mensajes]
+      .reverse()
+      .find((m) => m.role === 'user');
+    const pregunta =
+      ultimo?.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join(' ')
+        .slice(0, 160) ?? '';
+    const texto =
+      `[Eco · MOCK] Recibí «${pregunta}». Sin un proveedor real cableado no consulto ` +
+      `los datos del alumno (tools). Configura ECO_PROVIDER=anthropic + ANTHROPIC_API_KEY ` +
+      `para que Eco responda usando las herramientas. Eco propone; usted confirma (§7A).`;
+    return Promise.resolve({
+      stop: 'end',
+      texto,
+      toolUses: [],
+      contenido: [{ type: 'text', text: texto }],
+      proveedor: this.nombre,
+      modelo: `${solicitud.modelo} (mock)`,
+      tokens: { entrada: pregunta.length, salida: texto.length, cacheWrite: 0, cacheRead: 0 },
     });
   }
 }

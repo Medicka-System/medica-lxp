@@ -44,13 +44,19 @@ export function GaleriaReporte({
   reporteId,
   valor,
   onCambio,
+  soloLectura = false,
 }: {
   reporteId: string;
   valor: unknown;
   onCambio: (imagenes: ImagenGaleria[]) => void;
+  /** Reporte FINALIZADO: muestra las imágenes pero sin subir/borrar/reordenar/editar pie. */
+  soloLectura?: boolean;
 }) {
   const imagenes = leerGaleria(valor);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  // Miniaturas rasterizadas de los .dcm (BUG 1): un .dcm no se muestra como <img>; se pinta
+  // con Cornerstone (wadouri) a un PNG. Los JPG/PNG siguen mostrándose con su URL firmada.
+  const [rasters, setRasters] = useState<Record<string, string>>({});
   const [subiendo, setSubiendo] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [revisar, setRevisar] = useState(false);
@@ -71,6 +77,34 @@ export function GaleriaReporte({
       vivo = false;
     };
   }, [refsKey, reporteId]);
+
+  // Rasteriza a miniatura los .dcm cuya URL firmada ya llegó (BUG 1). La key cambia cuando
+  // aparece un .dcm nuevo con URL, disparando solo entonces el render de Cornerstone.
+  const dcmPendientesKey = imagenes
+    .filter((i) => i.ext === 'dcm' && urls[i.ref] && !rasters[i.ref])
+    .map((i) => i.ref)
+    .join(',');
+  useEffect(() => {
+    const pend = dcmPendientesKey ? dcmPendientesKey.split(',') : [];
+    if (pend.length === 0) return;
+    let vivo = true;
+    (async () => {
+      // Dinámico: mantiene el WASM de Cornerstone FUERA del bundle del Studio (esta pieza la
+      // comparte `campo-reporte`); solo se carga al rasterizar un .dcm en el editor del campus.
+      const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
+      const pngs = await renderMiniaturas(pend.map((ref) => `wadouri:${urls[ref]}`));
+      if (!vivo) return;
+      const add: Record<string, string> = {};
+      pend.forEach((ref, i) => {
+        const u = pngs[i];
+        if (u) add[ref] = u;
+      });
+      if (Object.keys(add).length) setRasters((r) => ({ ...r, ...add }));
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [dcmPendientesKey]);
 
   // Acumulador local sembrado del valor comprometido: evita perder imágenes al subir
   // varias a la vez (el estado de React va desfasado entre awaits del loop).
@@ -138,40 +172,42 @@ export function GaleriaReporte({
 
   return (
     <div className="mt-1.5">
-      {/* zona de subida */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer.files?.length) void subir(e.dataTransfer.files);
-        }}
-        className={`grid cursor-pointer place-items-center rounded-[11px] border-[1.5px] border-dashed border-border bg-card px-4 py-6 text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
-      >
-        <span className="text-[12.5px] font-semibold text-secondary">
-          {subiendo > 0 ? (
-            <Loader2 className="mx-auto h-6 w-6 animate-spin" strokeWidth={1.75} />
-          ) : (
-            <Upload className="mx-auto h-6 w-6" strokeWidth={1.75} />
-          )}
-          {subiendo > 0 ? `Subiendo ${subiendo} imagen(es)…` : 'Arrastra tus imágenes aquí o haz click para elegir'}
-        </span>
-        <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm</span>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,.jpg,.jpeg,.png,.dcm,application/dicom"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.length) void subir(e.target.files);
-            e.target.value = '';
+      {/* zona de subida (oculta en read-only: reporte finalizado) */}
+      {!soloLectura && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files?.length) void subir(e.dataTransfer.files);
           }}
-        />
-      </div>
+          className={`grid cursor-pointer place-items-center rounded-[11px] border-[1.5px] border-dashed border-border bg-card px-4 py-6 text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
+        >
+          <span className="text-[12.5px] font-semibold text-secondary">
+            {subiendo > 0 ? (
+              <Loader2 className="mx-auto h-6 w-6 animate-spin" strokeWidth={1.75} />
+            ) : (
+              <Upload className="mx-auto h-6 w-6" strokeWidth={1.75} />
+            )}
+            {subiendo > 0 ? `Subiendo ${subiendo} imagen(es)…` : 'Arrastra tus imágenes aquí o haz click para elegir'}
+          </span>
+          <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm</span>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,.jpg,.jpeg,.png,.dcm,application/dicom"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) void subir(e.target.files);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      )}
 
       {error && (
         <p className="mt-2 rounded-[9px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-1.5 text-[12px] text-[color:var(--warning-foreground)]">
@@ -185,26 +221,72 @@ export function GaleriaReporte({
         </p>
       )}
 
-      {/* grid 2 columnas, reordenable */}
-      {imagenes.length > 0 && (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={imagenes.map((i) => i.ref)} strategy={rectSortingStrategy}>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {imagenes.map((img, i) => (
-                <ItemGaleria
-                  key={img.ref}
-                  img={img}
-                  indice={i + 1}
-                  url={urls[img.ref]}
-                  onPie={(pie) => setPie(img.ref, pie)}
-                  onQuitar={() => quitar(img.ref)}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
+      {/* grid 2 columnas: reordenable en edición, plano (sin DnD/controles) en read-only */}
+      {imagenes.length > 0 &&
+        (soloLectura ? (
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {imagenes.map((img, i) => (
+              <ItemGaleriaSoloLectura
+                key={img.ref}
+                img={img}
+                indice={i + 1}
+                url={img.ext === 'dcm' ? rasters[img.ref] : urls[img.ref]}
+              />
+            ))}
+          </div>
+        ) : (
+          // id estable → dnd-kit siembra DndDescribedBy/aria-describedby determinista (SSR = CSR);
+          // sin esto el contador interno difiere y provoca hydration mismatch.
+          <DndContext id={`galeria-${reporteId}`} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={imagenes.map((i) => i.ref)} strategy={rectSortingStrategy}>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {imagenes.map((img, i) => (
+                  <ItemGaleria
+                    key={img.ref}
+                    img={img}
+                    indice={i + 1}
+                    url={img.ext === 'dcm' ? rasters[img.ref] : urls[img.ref]}
+                    onPie={(pie) => setPie(img.ref, pie)}
+                    onQuitar={() => quitar(img.ref)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        ))}
     </div>
+  );
+}
+
+/** Ítem de galería READ-ONLY (reporte finalizado): imagen + pie, sin arrastrar/borrar/editar. */
+function ItemGaleriaSoloLectura({
+  img,
+  indice,
+  url,
+}: {
+  img: ImagenGaleria;
+  indice: number;
+  url?: string;
+}) {
+  return (
+    <figure className="overflow-hidden rounded-[11px] border border-border bg-card">
+      <div className="relative">
+        {url ? (
+          // eslint-disable-next-line
+          <img src={url} alt={img.pie || `Imagen ${indice}`} className="h-[190px] w-full bg-muted object-contain" />
+        ) : (
+          <div className="grid h-[190px] w-full place-items-center bg-muted text-muted-foreground">
+            <ImageOff className="h-6 w-6" strokeWidth={1.5} />
+          </div>
+        )}
+        <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--sidebar)] text-[11px] font-bold text-white">
+          {indice}
+        </span>
+      </div>
+      {img.pie ? (
+        <figcaption className="border-t border-border p-2 text-[12px] text-foreground">{img.pie}</figcaption>
+      ) : null}
+    </figure>
   );
 }
 

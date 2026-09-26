@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
 import type { ResultadoAccion } from '@/lib/campus/resultado';
+import type { EstructuraPlantilla } from '@/lib/reportes/estructura';
 import { contenidoVacio, type ContenidoReporte, type DatosPaciente, type EstadoReporte } from './_contrato';
+import { getReporte } from './_datos';
 
 /**
  * Server actions del generador de reportes. CRUD simple `web → Supabase` bajo RLS
@@ -69,10 +71,13 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
       const expediente = await expedienteUnico(sql);
       const datosPaciente = { ...iniciales.datosPaciente, expediente, solicitante: alumno.nombre ?? '' };
 
+      // jsonb: pasar el OBJETO vía `sql.json` — NO `JSON.stringify(x)::jsonb` (postgres.js
+      // vuelve a serializar el string y lo guarda DOBLE-CODIFICADO como texto JSON, dejando
+      // `valores`/`impresion` inalcanzables → el PDF salía vacío).
       const [row] = await sql<{ id: string }[]>`
         insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)
-        values (${alumno.userId}, ${plantillaId}, ${JSON.stringify(datosPaciente)}::jsonb,
-                ${JSON.stringify(contenido)}::jsonb, 'borrador')
+        values (${alumno.userId}, ${plantillaId}, ${sql.json(datosPaciente)},
+                ${sql.json(contenido as Parameters<typeof sql.json>[0])}, 'borrador')
         returning id`;
       return row.id;
     });
@@ -93,10 +98,11 @@ export async function guardarBorrador(
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
     await comoAlumno(alumno.userId, async (sql) => {
+      // jsonb vía `sql.json` (objeto), no `JSON.stringify(x)::jsonb` — ver crearReporte.
       await sql`
         update lxp.reportes
-        set datos_paciente = ${JSON.stringify(datosPaciente)}::jsonb,
-            contenido = ${JSON.stringify(contenido)}::jsonb
+        set datos_paciente = ${sql.json(datosPaciente as Parameters<typeof sql.json>[0])},
+            contenido = ${sql.json(contenido as Parameters<typeof sql.json>[0])}
         where id = ${id} and id_medico = ${alumno.userId}`;
     });
     revalidatePath(REVALIDAR);
@@ -130,6 +136,14 @@ export async function finalizarReporte(id: string): Promise<ResultadoAccion> {
 }
 
 /**
+ * Reabre un reporte finalizado para editarlo (estado → borrador). No hay versionado: al
+ * volver a finalizar se SOBRESCRIBE la misma versión. RLS (id_medico) sigue siendo el candado.
+ */
+export async function reabrirReporte(id: string): Promise<ResultadoAccion> {
+  return cambiarEstado(id, 'borrador');
+}
+
+/**
  * Marca el reporte como enviado al paciente. El ENVÍO POR CORREO real es dominio
  * (`apps/api`/`worker`) — PENDIENTE DE API. Aquí solo se refleja el estado.
  */
@@ -137,13 +151,67 @@ export async function enviarReporte(id: string): Promise<ResultadoAccion> {
   return cambiarEstado(id, 'enviado');
 }
 
-/** STUB — genera el PDF del reporte. El servicio de PDF vive en `apps/api` (§6.5). */
-export async function generarPdf(_id: string): Promise<ResultadoAccion> {
-  return { ok: false, error: 'La generación de PDF se conecta con el servicio de dominio (pendiente).' };
+export type ImagenDicomReporte = { campoId: string; pngBase64: string };
+/** Imagen `.dcm` de una GALERÍA, rasterizada en el cliente (PNG) e indexada por su `ref`. */
+export type ImagenGaleriaDicomReporte = { ref: string; pngBase64: string };
+export type ResultadoPdf =
+  | { ok: true; pdfBase64: string; filename: string }
+  | { ok: false; error: string };
+
+/**
+ * Genera el PDF del reporte (DOMINIO §2 — el servicio de PDF vive en `apps/api`). Gatea la
+ * propiedad bajo RLS (`comoAlumno`, id_medico = auth.uid()) ANTES de llamar y pasa el userId
+ * como candado que el `api` revalida (mismo filtro que `getReporte`). Las imágenes DICOM las
+ * rasteriza el cliente (visor Cornerstone) y viajan en el body. Devuelve el PDF en base64 para
+ * que el navegador lo descargue/imprima como blob.
+ */
+export async function generarPdf(
+  id: string,
+  imagenesDicom: ImagenDicomReporte[] = [],
+  imagenesGaleriaDicom: ImagenGaleriaDicomReporte[] = [],
+): Promise<ResultadoPdf> {
+  const alumno = await getSesionAlumno();
+  const propio = await comoAlumno(alumno.userId, (sql) =>
+    sql<{ folio: string | null }[]>`
+      select contenido->>'folio' as folio
+      from lxp.reportes where id = ${id} and id_medico = ${alumno.userId} limit 1`,
+  );
+  if (propio.length === 0) return { ok: false, error: 'Ese reporte no es tuyo.' };
+  try {
+    const res = await fetch(`${apiBase()}/reportes/${encodeURIComponent(id)}/pdf`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: alumno.userId, imagenesDicom, imagenesGaleriaDicom }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo generar el PDF (HTTP ${res.status}).` };
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const folio = (propio[0]?.folio ?? 'reporte').replace(/[^a-zA-Z0-9._-]/g, '') || 'reporte';
+    return { ok: true, pdfBase64: bytes.toString('base64'), filename: `${folio}.pdf` };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar el servicio de PDF (apps/api).' };
+  }
 }
 
 function apiBase(): string {
   return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+export type DatosReportePdf =
+  | { ok: true; estructura: EstructuraPlantilla; valores: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Estructura + valores de un reporte del médico (RLS: solo el dueño, vía `getReporte`), para que
+ * el CLIENTE rasterice las imágenes DICOM offscreen y arme el PDF DESDE EL LISTADO (sin abrir el
+ * editor). No expone nada que el dueño no pueda ya ver en el editor.
+ */
+export async function datosReportePdf(id: string): Promise<DatosReportePdf> {
+  const alumno = await getSesionAlumno();
+  const rep = await getReporte(alumno.userId, id);
+  if (!rep) return { ok: false, error: 'Ese reporte no es tuyo o no existe.' };
+  const estructura = rep.plantilla?.estructura ?? { secciones: [] };
+  return { ok: true, estructura, valores: rep.contenido.valores };
 }
 
 export type ResultadoCaso =

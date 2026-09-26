@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { LLMProvider, RespuestaLLM, SolicitudLLM } from './proveedor.interface';
+import type {
+  BloqueContenido,
+  LLMProvider,
+  RespuestaChatLLM,
+  RespuestaLLM,
+  SolicitudChatLLM,
+  SolicitudLLM,
+} from './proveedor.interface';
 
 /**
  * Adaptador de Anthropic (Claude) — el proveedor real por default (§3). Habla con
@@ -84,11 +91,95 @@ export class AnthropicProvider implements LLMProvider {
         : undefined,
     };
   }
+
+  /**
+   * Una vuelta del loop de chat con TOOL-USE nativo (§7A · Eco conversacional). El
+   * engine (`EcoChatService`) llama esto en bucle: si `stop === 'tool_use'` ejecuta las
+   * herramientas pedidas y vuelve a llamar con el `tool_result` anexado, hasta la
+   * respuesta final.
+   *
+   * Prompt caching (§7A): el PREFIJO estable entre vueltas es `tools` + `system` (idéntico
+   * en cada llamada del turno). Se marca `cache_control: ephemeral` en la ÚLTIMA tool y en
+   * el bloque de system → Anthropic cachea [tools + system]. Los mensajes (que crecen con
+   * cada vuelta) van sin cachear.
+   */
+  async generarChat(solicitud: SolicitudChatLLM): Promise<RespuestaChatLLM> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY ausente: no se puede usar el proveedor Anthropic.');
+    }
+
+    const cache = { type: 'ephemeral' as const };
+    const system = [{ type: 'text', text: solicitud.system, cache_control: cache }];
+    const tools = solicitud.tools.map((t, i) => ({
+      name: t.nombre,
+      description: t.descripcion,
+      input_schema: t.schema,
+      // Punto de corte del caché en la última tool → cachea todo el prefijo de tools.
+      ...(i === solicitud.tools.length - 1 ? { cache_control: cache } : {}),
+    }));
+
+    const res = await fetch(AnthropicProvider.ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': AnthropicProvider.API_VERSION,
+      },
+      body: JSON.stringify({
+        model: solicitud.modelo,
+        max_tokens: solicitud.maxTokens,
+        temperature: solicitud.temperatura,
+        system,
+        tools,
+        messages: solicitud.mensajes,
+      }),
+    });
+
+    if (!res.ok) {
+      const cuerpo = await res.text().catch(() => '');
+      throw new Error(
+        `Anthropic respondió ${res.status} ${res.statusText}: ${cuerpo.slice(0, 300)}`,
+      );
+    }
+
+    const data = (await res.json()) as AnthropicRespuesta;
+    const contenido = (data.content ?? []) as BloqueContenido[];
+    const texto = contenido
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text ?? '')
+      .join('')
+      .trim();
+    const toolUses = contenido
+      .filter(
+        (b): b is { type: 'tool_use'; id: string; name: string; input: unknown } =>
+          b.type === 'tool_use',
+      )
+      .map((b) => ({ id: b.id, nombre: b.name, input: b.input }));
+
+    return {
+      stop: data.stop_reason ?? 'end',
+      texto,
+      toolUses,
+      contenido,
+      proveedor: this.nombre,
+      modelo: data.model ?? solicitud.modelo,
+      tokens: data.usage
+        ? {
+            entrada: data.usage.input_tokens,
+            salida: data.usage.output_tokens,
+            cacheWrite: data.usage.cache_creation_input_tokens ?? 0,
+            cacheRead: data.usage.cache_read_input_tokens ?? 0,
+          }
+        : undefined,
+    };
+  }
 }
 
 interface AnthropicRespuesta {
   model?: string;
-  content?: Array<{ type: string; text?: string }>;
+  stop_reason?: string;
+  content?: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
   usage?: {
     input_tokens: number;
     output_tokens: number;

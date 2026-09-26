@@ -36,6 +36,59 @@ export interface RespuestaLLM {
   tokens?: { entrada: number; salida: number; cacheWrite?: number; cacheRead?: number };
 }
 
+// ── Tool-use nativo (Eco conversacional · §7A) ──────────────────────────────
+// El chat de Eco NO es un one-shot: el modelo pide herramientas (datos/RAG), el
+// engine las ejecuta y le devuelve el resultado, y así hasta la respuesta final
+// (loop tool-use). Estos tipos normalizan ese ida y vuelta para cualquier proveedor.
+
+/** Bloque de contenido de un mensaje (forma Anthropic, reusable por otros adaptadores). */
+export type BloqueContenido =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+
+/** Un turno de la conversación (usuario o asistente) con sus bloques. */
+export interface MensajeChat {
+  role: 'user' | 'assistant';
+  content: BloqueContenido[];
+}
+
+/** Definición de una herramienta ofrecida al modelo (JSON Schema del input). */
+export interface HerramientaLLM {
+  nombre: string;
+  descripcion: string;
+  /** JSON Schema del input (Anthropic `input_schema`). */
+  schema: Record<string, unknown>;
+}
+
+/** Petición de UNA vuelta del loop de chat con tools. */
+export interface SolicitudChatLLM {
+  /** System prompt del chat (rol analista + reglas de tool-use). Prefijo CACHEABLE. */
+  system: string;
+  /** Definiciones de tools ofrecidas (prefijo CACHEABLE junto con el system). */
+  tools: HerramientaLLM[];
+  /** Turnos de la conversación (incluye tool_use/tool_result de vueltas previas). NO se cachean. */
+  mensajes: MensajeChat[];
+  modelo: string;
+  temperatura: number;
+  maxTokens: number;
+}
+
+/** Respuesta de UNA vuelta del loop. */
+export interface RespuestaChatLLM {
+  /** `tool_use` = el modelo pide herramientas; `end` (u otro) = respuesta final. */
+  stop: 'tool_use' | 'end' | string;
+  /** Texto final concatenado (relevante cuando `stop` != 'tool_use'). */
+  texto: string;
+  /** Herramientas que el modelo pide ejecutar en esta vuelta. */
+  toolUses: Array<{ id: string; nombre: string; input: unknown }>;
+  /** Contenido CRUDO del turno del asistente, para re-anexarlo tal cual al historial. */
+  contenido: BloqueContenido[];
+  proveedor: string;
+  modelo: string;
+  tokens?: { entrada: number; salida: number; cacheWrite?: number; cacheRead?: number };
+}
+
 /**
  * Adaptador de un proveedor de LLM. Implementaciones: `MockProvider` (default en
  * dev/tests, sin costo ni red) y `AnthropicProvider` (Claude, real). El factory
@@ -45,4 +98,10 @@ export interface LLMProvider {
   /** Identificador estable del proveedor (`mock`, `anthropic`, …). */
   readonly nombre: string;
   generar(solicitud: SolicitudLLM): Promise<RespuestaLLM>;
+  /**
+   * Una vuelta del loop de chat con tool-use nativo (§7A · Eco conversacional).
+   * Opcional: un proveedor que no lo implemente no puede servir el chat (el engine
+   * lo detecta y responde claro). El MOCK lo implementa sin tools (respuesta demo).
+   */
+  generarChat?(solicitud: SolicitudChatLLM): Promise<RespuestaChatLLM>;
 }
