@@ -49,8 +49,8 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
   try {
     const id = await comoAlumno(alumno.userId, async (sql) => {
       // La plantilla debe existir y estar publicada (RLS select ya lo restringe al alumno).
-      const [pl] = await sql<{ id: string; estructura: unknown }[]>`
-        select id, estructura from lxp.plantillas_reporte where id = ${plantillaId} and publicado limit 1`;
+      const [pl] = await sql<{ id: string; estructura: unknown; version: number }[]>`
+        select id, estructura, version from lxp.plantillas_reporte where id = ${plantillaId} and publicado limit 1`;
       if (!pl) throw new Error('plantilla no disponible');
 
       const [{ n }] = await sql<{ n: number }[]>`
@@ -68,6 +68,11 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
       // Si la plantilla EXCLUYE la impresión, no se siembra (así no fluye al PDF ni al caso).
       contenido.impresion = estructura.incluyeImpresion !== false ? (estructura.impresionDefecto ?? '') : '';
 
+      // SNAPSHOT (§6.5): se CONGELA la estructura de la plantilla + su versión DENTRO de `contenido`
+      // al crear el reporte. A partir de aquí el reporte es autocontenido: aunque la plantilla se
+      // edite después, este reporte renderiza con su snapshot. NUNCA se re-copia (ver guardarBorrador).
+      const contenidoConSnapshot = { ...contenido, estructuraSnapshot: estructura, plantillaVersion: pl.version };
+
       // Encabezado autollenado: expediente ÚNICO + médico solicitante = usuario logueado.
       const expediente = await expedienteUnico(sql);
       const datosPaciente = { ...iniciales.datosPaciente, expediente, solicitante: alumno.nombre ?? '' };
@@ -78,7 +83,7 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
       const [row] = await sql<{ id: string }[]>`
         insert into lxp.reportes (id_medico, plantilla_id, datos_paciente, contenido, estado)
         values (${alumno.userId}, ${plantillaId}, ${sql.json(datosPaciente)},
-                ${sql.json(contenido as Parameters<typeof sql.json>[0])}, 'borrador')
+                ${sql.json(contenidoConSnapshot as Parameters<typeof sql.json>[0])}, 'borrador')
         returning id`;
       return row.id;
     });
@@ -100,10 +105,17 @@ export async function guardarBorrador(
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       // jsonb vía `sql.json` (objeto), no `JSON.stringify(x)::jsonb` — ver crearReporte.
+      // SNAPSHOT (§6.5): el `estructuraSnapshot`/`plantillaVersion` YA congelados se PRESERVAN
+      // server-side (se re-mezclan desde la fila actual, `||` con precedencia derecha). El cliente
+      // no los envía ni los puede pisar → una vez seteados al crear, NUNCA se re-copian.
       await sql`
         update lxp.reportes
         set datos_paciente = ${sql.json(datosPaciente as Parameters<typeof sql.json>[0])},
-            contenido = ${sql.json(contenido as Parameters<typeof sql.json>[0])}
+            contenido = ${sql.json(contenido as Parameters<typeof sql.json>[0])}::jsonb
+              || jsonb_build_object(
+                   'estructuraSnapshot', contenido -> 'estructuraSnapshot',
+                   'plantillaVersion', contenido -> 'plantillaVersion'
+                 )
         where id = ${id} and id_medico = ${alumno.userId}`;
     });
     revalidatePath(REVALIDAR);

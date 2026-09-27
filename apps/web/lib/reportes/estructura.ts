@@ -20,12 +20,15 @@
  * plantilla) vs `dicom` (hueco que el médico llena con su estudio, visor real).
  */
 
+import { etiquetaFormula } from './formulas';
+
 export type TipoCampo =
   | 'texto' // input de una línea
   | 'multitexto' // textarea (hallazgos, párrafos)
   | 'numero' // numérico simple (edad…)
   | 'medida' // numérico + unidad (mm/cm/cc)
   | 'dimensiones' // medida compuesta: __ × __ × __ unidad (2 o 3 ejes). Valor = number[]
+  | 'calculado' // solo-lectura: se auto-calcula con una fórmula del catálogo (ver `formulas.ts`)
   | 'fecha' // selector de fecha
   | 'tabla' // rejilla filas × columnas (mediciones obstétrico/carótida)
   | 'sino' // checkbox / sí-no
@@ -98,6 +101,14 @@ export type CampoPlantilla = {
   formulaExpresion?: string;
   formulaCamposFuente?: string[];
   formulaFormato?: string;
+  /**
+   * `calculado`: id de la fórmula del CATÁLOGO (`formulas.ts` · IdFormula) y mapa de cada entrada de
+   * esa fórmula → id de un campo del reporte (encabezado o hallazgos). El valor se auto-calcula al
+   * llenar y se persiste en `contenido.valores` como cualquier campo. `unidad`/`decimales` (arriba)
+   * formatean la salida. Es SOLO-LECTURA para el médico.
+   */
+  formula?: string;
+  entradas?: Record<string, string>;
   /** opcion/multiseleccion: agrega la opción "Otro" con texto libre. */
   permiteOtro?: boolean;
   /** multiseleccion: mínimo/máximo de casillas marcadas (minSel alimenta el gate). */
@@ -228,6 +239,29 @@ export const REGISTRO_CAMPOS: Record<TipoCampo, DefCampo> = {
       else delete c.unidad;
     },
   },
+  calculado: {
+    label: 'Calculado',
+    defaults: (c) => {
+      c.span = 1;
+      // Auto-calculado ⇒ nunca bloquea el gate de Finalizar (el médico no lo captura). El diseñador
+      // puede volverlo obligatorio si quiere; ausente ⇒ opcional (a diferencia del resto de campos).
+      c.obligatorio = false;
+    },
+    formato: (c) => etiquetaFormula(c.formula) || 'fórmula sin elegir',
+    // Completo = tiene un valor calculado no vacío (solo relevante si el diseñador lo hizo obligatorio).
+    completo: (_c, v) => texto(v),
+    normalizar: (o, c) => {
+      const f = txt(o.formula);
+      if (f) c.formula = f;
+      else delete c.formula;
+      const ent = leerEntradas(o.entradas);
+      if (Object.keys(ent).length) c.entradas = ent;
+      else delete c.entradas;
+      const u = txt(o.unidad);
+      if (u) c.unidad = u;
+      else delete c.unidad;
+    },
+  },
   fecha: {
     label: 'Fecha',
     defaults: (c) => {
@@ -333,6 +367,7 @@ export const TIPOS_CAMPO: TipoCampo[] = [
   'numero',
   'medida',
   'dimensiones',
+  'calculado',
   'fecha',
   'tabla',
   'sino',
@@ -469,6 +504,15 @@ function num(v: unknown): number | undefined {
 }
 function listaTxt(v: unknown): string[] {
   return Array.isArray(v) ? v.map(txt) : [];
+}
+/** Mapa `entrada → campoId` de un campo `calculado`: conserva solo pares string→string no vacíos. */
+function leerEntradas(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === 'string' && val) out[k] = val;
+  }
+  return out;
 }
 
 function normalizarCampo(raw: unknown, i: number): CampoPlantilla | null {

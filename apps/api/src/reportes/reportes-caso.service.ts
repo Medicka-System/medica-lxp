@@ -355,7 +355,10 @@ export class ReportesCasoService {
     const sql = this.db.sql;
     const [r] = await sql<FilaReporte[]>`
       select r.id, r.id_medico, r.datos_paciente, r.contenido, r.caso_generado_id,
-             r.plantilla_id, p.tipo_estudio, p.nombre as plantilla_nombre, p.estructura
+             r.plantilla_id, p.tipo_estudio, p.nombre as plantilla_nombre,
+             -- SNAPSHOT (§6.5): el caso se arma con la estructura CONGELADA del reporte (no la viva),
+             -- así el caso educativo coincide con el reporte tal como se llenó. Fallback: plantilla viva.
+             coalesce(r.contenido -> 'estructuraSnapshot', p.estructura) as estructura
       from lxp.reportes r
       left join lxp.plantillas_reporte p on p.id = r.plantilla_id
       where r.id = ${reporteId}

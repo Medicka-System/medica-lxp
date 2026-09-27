@@ -19,10 +19,11 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Info, Loader2, Plus, Upload, X } from 'lucide-react';
+import { Calculator, Calendar, Check, ChevronDown, ImageOff, ImagePlus, Info, Loader2, Plus, Upload, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
 import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
+import { CATALOGO_FORMULAS, IDS_FORMULA, esIdFormula, etiquetaFormula } from '@/lib/reportes/formulas';
 import {
   columnasDatos,
   fueraDeRango,
@@ -54,9 +55,14 @@ export type RenderCtx = {
   reporteId?: string;
 };
 
+/** Campo candidato para conectar como ENTRADA de una fórmula (`calculado`). */
+export type CampoRef = { id: string; nombre: string; tipo: TipoCampo };
+
 export type EditorCtx = {
   campo: CampoPlantilla;
   onCambio: (patch: Partial<CampoPlantilla>) => void;
+  /** `calculado`: otros campos de la plantilla a los que se pueden mapear las entradas. */
+  camposDisponibles?: CampoRef[];
 };
 
 export type DefUICampo = {
@@ -340,8 +346,88 @@ function EImagenReferencia({ campo, onCambio }: EditorCtx) {
   );
 }
 
-/* Editor común numero/medida (min/max/decimales + rango normal + percentil + fórmula). */
-function EditorNumerico({ campo, onCambio }: EditorCtx) {
+/**
+ * Config de FÓRMULA reutilizable (§6.5): elige una fórmula del CATÁLOGO (`formulas.ts`) y MAPEA cada
+ * entrada a un campo EXISTENTE del canvas por un DROPDOWN filtrado por tipo compatible (número/medida
+ * para entradas numéricas, fecha para fechas). Sin expresiones libres. La usan `numero`/`medida` (el
+ * resultado se inyecta en su input, editable) y el tipo legacy `calculado`.
+ */
+function ConfigFormula({ campo, onCambio, camposDisponibles = [] }: EditorCtx) {
+  const def = esIdFormula(campo.formula) ? CATALOGO_FORMULAS[campo.formula] : null;
+
+  const elegirFormula = (id: string) => {
+    // Al cambiar de fórmula se reinicia el mapeo de entradas (los nombres de entrada difieren).
+    onCambio(esIdFormula(id) ? { formula: id, entradas: {} } : { formula: undefined, entradas: {} });
+  };
+  const setEntrada = (nombre: string, campoId: string) => {
+    const next: Record<string, string> = { ...(campo.entradas ?? {}) };
+    if (campoId) next[nombre] = campoId;
+    else delete next[nombre];
+    onCambio({ entradas: next });
+  };
+  const compatibles = (tipo: 'numero' | 'fecha') =>
+    camposDisponibles.filter((c) => (tipo === 'fecha' ? c.tipo === 'fecha' : c.tipo === 'numero' || c.tipo === 'medida'));
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <ECampo label="Fórmula (opcional)">
+        <select value={campo.formula ?? ''} onChange={(e) => elegirFormula(e.target.value)} className={cfgInput}>
+          <option value="">Sin fórmula (captura manual)</option>
+          {IDS_FORMULA.map((id) => (
+            <option key={id} value={id}>
+              {CATALOGO_FORMULAS[id].label}
+            </option>
+          ))}
+        </select>
+      </ECampo>
+
+      {def && (
+        <>
+          <p className="text-[11px] leading-snug text-muted-foreground">{def.descripcion}</p>
+          <div className="flex flex-col gap-2">
+            <p className="text-[11.5px] font-semibold">Entradas</p>
+            {def.entradas.map((ent) => {
+              const opts = compatibles(ent.tipo);
+              const val = campo.entradas?.[ent.nombre] ?? '';
+              const faltante = val === '';
+              return (
+                <label key={ent.nombre} className="block">
+                  <span className="block text-[11px] text-muted-foreground">
+                    {ent.etiqueta} <span className="opacity-70">· {ent.tipo === 'fecha' ? 'fecha' : 'número/medida'}</span>
+                  </span>
+                  <select
+                    value={val}
+                    onChange={(e) => setEntrada(ent.nombre, e.target.value)}
+                    className={`${cfgInput} mt-1 ${faltante ? 'border-[color:var(--warning-border)]' : ''}`}
+                  >
+                    <option value="">Sin asignar…</option>
+                    {opts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre || c.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
+            {camposDisponibles.length === 0 && (
+              <p className="text-[11px] text-[color:var(--warning-foreground)]">
+                Agrega campos de número, medida o fecha a la plantilla para conectarlos.
+              </p>
+            )}
+          </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Se calcula al llenar y se inyecta en el campo. El médico puede editar el resultado; se
+            respeta hasta que cambie una de las entradas, entonces se recalcula.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* Editor común numero/medida (min/max/decimales + rango normal + percentil + fórmula del catálogo). */
+function EditorNumerico({ campo, onCambio, camposDisponibles }: EditorCtx) {
   const esMedida = campo.tipo === 'medida';
   return (
     <div className="flex flex-col gap-3">
@@ -377,23 +463,30 @@ function EditorNumerico({ campo, onCambio }: EditorCtx) {
           </ECampo>
         </>
       )}
-      <ECampo label="Fórmula (opcional)">
-        <input
-          value={campo.formulaExpresion ?? ''}
-          onChange={(e) => onCambio({ formulaExpresion: e.target.value })}
-          placeholder="fecha_estudio - fum"
-          className={`${cfgInput} font-mono`}
-        />
-      </ECampo>
-      <EListaEditable
-        items={campo.formulaCamposFuente ?? []}
-        onCambio={(formulaCamposFuente) => onCambio({ formulaCamposFuente })}
-        placeholder="id de campo fuente…"
-        chips
-      />
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        La fórmula se guarda; el cálculo automático se conecta en una fase posterior.
-      </p>
+      <ConfigFormula campo={campo} onCambio={onCambio} camposDisponibles={camposDisponibles} />
+    </div>
+  );
+}
+
+/**
+ * Editor de config del tipo LEGACY `calculado` (solo-lectura): reusa `ConfigFormula` (elegir fórmula
+ * + mapear entradas) y agrega unidad/decimales para formatear la salida. El camino PRINCIPAL de
+ * cálculo ahora vive en `numero`/`medida` (input editable); este tipo se mantiene por compatibilidad.
+ */
+function EditorCalculado({ campo, onCambio, camposDisponibles }: EditorCtx) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ConfigFormula campo={campo} onCambio={onCambio} camposDisponibles={camposDisponibles} />
+      {esIdFormula(campo.formula) && (
+        <div className="grid grid-cols-2 gap-2.5">
+          <ECampo label="Unidad">
+            <input value={campo.unidad ?? ''} onChange={(e) => onCambio({ unidad: e.target.value })} placeholder="mm · mL · g" className={`${cfgInput} font-mono`} />
+          </ECampo>
+          <ECampo label="Decimales">
+            <ENum valor={campo.decimales} onCambio={(v) => onCambio({ decimales: v })} />
+          </ECampo>
+        </div>
+      )}
     </div>
   );
 }
@@ -865,6 +958,38 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
         </div>
       </div>
     ),
+  },
+  calculado: {
+    // SOLO-LECTURA: muestra el valor auto-calculado (persistido en `contenido.valores`) + unidad. El
+    // recálculo reactivo lo hace el editor del médico al cambiar las entradas (`editor-reporte.tsx`).
+    render: ({ campo, valor }) => {
+      const v = leerTexto(valor).trim();
+      return (
+        <div className={`${previewBox} mt-1.5 h-11 justify-between bg-muted`}>
+          {v ? (
+            <span className="font-mono tabular-nums text-foreground">
+              {v}
+              {campo.unidad ? <span className="ml-1 text-muted-foreground">{campo.unidad}</span> : null}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <Calculator aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Se calcula automáticamente
+            </span>
+          )}
+        </div>
+      );
+    },
+    preview: (campo) => (
+      <div className={`${previewBox} justify-between`}>
+        <span className="inline-flex items-center gap-1.5">
+          <Calculator aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {etiquetaFormula(campo.formula) || 'Fórmula sin elegir'}
+        </span>
+        {campo.unidad ? <span className="font-mono">{campo.unidad}</span> : null}
+      </div>
+    ),
+    editor: (ctx) => <EditorCalculado {...ctx} />,
   },
   fecha: {
     render: ({ campo, valor, deshabilitado, cambia }) => (
