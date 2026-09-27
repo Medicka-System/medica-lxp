@@ -269,13 +269,24 @@ export async function getReporte(userId: string, id: string): Promise<ReporteDet
     if (!f) return null;
 
     const contenido = normalizarContenido(f.contenido, 'RPT-0000');
+    // SNAPSHOT (§6.5): la estructura para RENDERIZAR/llenar sale del snapshot CONGELADO en el reporte
+    // (`contenido.estructuraSnapshot`); fallback a la plantilla VIVA solo si el snapshot es null
+    // (reportes legacy sin backfill / contenido doble-codificado). El snapshot es server-interno: NO
+    // viaja en `ContenidoReporte`, se lee del jsonb crudo aquí.
+    const snapshot =
+      f.contenido && typeof f.contenido === 'object'
+        ? ((f.contenido as { estructuraSnapshot?: unknown }).estructuraSnapshot ?? null)
+        : null;
+    const estructura = normalizarEstructura(snapshot ?? f.plantilla_estructura);
+    // El reporte es autocontenido: mientras tenga snapshot renderiza aunque la plantilla viva se haya
+    // editado o eliminado. Solo es null si NO hay ni snapshot ni plantilla viva.
     const plantilla =
-      f.plantilla_id && f.plantilla_nombre
+      f.plantilla_id && (snapshot != null || f.plantilla_nombre)
         ? {
             id: f.plantilla_id,
-            nombre: f.plantilla_nombre,
+            nombre: f.plantilla_nombre ?? 'Plantilla del reporte',
             tipoEstudio: f.plantilla_tipo ?? '',
-            estructura: normalizarEstructura(f.plantilla_estructura),
+            estructura,
           }
         : null;
 

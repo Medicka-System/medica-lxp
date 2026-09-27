@@ -269,7 +269,10 @@ export class ReportesPdfService {
     // (o no existe) → 404, sin revelar existencia.
     const [r] = await sql<FilaReporte[]>`
       select r.id, r.estado, r.datos_paciente, r.contenido,
-             p.nombre as plantilla_nombre, p.tipo_estudio, p.estructura
+             p.nombre as plantilla_nombre, p.tipo_estudio,
+             -- SNAPSHOT (§6.5): el PDF se pinta con la estructura CONGELADA en el reporte; fallback a
+             -- la plantilla viva solo si el snapshot es null (legacy). comoObj tolera doble-codificado.
+             coalesce(r.contenido -> 'estructuraSnapshot', p.estructura) as estructura
       from lxp.reportes r
       left join lxp.plantillas_reporte p on p.id = r.plantilla_id
       where r.id = ${reporteId} and r.id_medico = ${userId}
