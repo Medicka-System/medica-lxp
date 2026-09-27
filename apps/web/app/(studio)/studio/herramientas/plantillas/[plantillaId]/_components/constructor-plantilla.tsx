@@ -1085,9 +1085,10 @@ function PanelCampo({
         </Bloque>
       )}
 
-      {/* Ancho: se muestra para campos llenables Y para `guia` (título queda a fila completa).
-          El segmentado de span es común; los interruptores solo aplican a campos llenables. */}
-      {(!esCampoEstatico(c.tipo) || c.tipo === 'guia') && (
+      {/* Ancho ("span" de columnas): común a TODOS los tipos, incluidos TÍTULO y guía — el render
+          (constructor/médico/vista previa) ya honra `span` para todos. Los interruptores
+          (obligatorio / sale en informe) solo aplican a campos llenables. */}
+      {(!esCampoEstatico(c.tipo) || c.tipo === 'guia' || c.tipo === 'titulo') && (
         <Bloque>
           <p className={kicker}>Ancho en la sección</p>
           <Segmentado
