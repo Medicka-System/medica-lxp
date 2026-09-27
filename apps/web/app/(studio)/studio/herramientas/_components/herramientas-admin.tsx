@@ -15,14 +15,13 @@ import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import type { ConteosHerramientas, HerramientaItem, TipoHerramienta } from '@/lib/studio/datos';
 import { crearHerramienta, publicarHerramienta, renombrarHerramienta } from '@/lib/studio/acciones';
 
-const META: Record<TipoHerramienta, { etiqueta: string; icono: typeof Calculator; cta: string; unidad: string; placeholder: string; nota: string }> = {
+const META: Record<TipoHerramienta, { etiqueta: string; icono: typeof Calculator; cta: string; unidad: string; placeholder: string; nota?: string }> = {
   plantillas: {
     etiqueta: 'Plantillas de reporte',
     icono: LayoutTemplate,
     cta: 'Nueva plantilla',
     unidad: 'reportes',
     placeholder: 'Buscar plantilla…',
-    nota: 'La estructura del reporte (secciones, campos, guía) se arma en el generador de reportes (Sprint 6.5).',
   },
   calculadoras: {
     etiqueta: 'Calculadoras',
@@ -138,13 +137,16 @@ export function HerramientasAdmin({
         </button>
       </div>
 
-      {/* nota de contenido clínico (placeholder honesto) */}
-      <div className="mt-4 flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-3">
-        <Icono aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-        <p className="text-[12px] leading-relaxed text-[color:var(--info-foreground)]">
-          Aquí administras el catálogo (crear, nombrar, publicar) — real bajo RLS. {meta.nota}
-        </p>
-      </div>
+      {/* nota de contenido clínico (placeholder honesto): SOLO para herramientas cuyo contenido se
+          define aparte (calculadoras/simuladores). Plantillas se edita aquí (rutaBase) → sin banner. */}
+      {!rutaBase && meta.nota && (
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-4 py-3">
+          <Icono aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+          <p className="text-[12px] leading-relaxed text-[color:var(--info-foreground)]">
+            Aquí administras el catálogo (crear, nombrar, publicar) — real bajo RLS. {meta.nota}
+          </p>
+        </div>
+      )}
 
       {/* tabla */}
       <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-rest">
