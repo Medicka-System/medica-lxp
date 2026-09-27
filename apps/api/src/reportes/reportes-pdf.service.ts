@@ -456,7 +456,8 @@ export class ReportesPdfService {
     if (c.tipo === 'tabla') {
       const filas = c.filas ?? [];
       const columnas = c.columnas ?? [];
-      const datos = leerTabla(valor, filas.length, columnas.length);
+      // columnas[0] = columna de etiquetas de fila; los datos ocupan columnas[1..].
+      const datos = leerTabla(valor, filas.length, Math.max(0, columnas.length - 1));
       const tieneDato = datos.some((f) => f.some((x) => x.trim() !== ''));
       if (!tieneDato) return;
       if (etiqueta) doc.texto(etiqueta, { size: 10.5, font: doc.bold, color: C.soft, gap: 2 });
@@ -507,10 +508,12 @@ export class ReportesPdfService {
   }
 
   private dibujarTabla(doc: Doc, columnas: string[], filas: string[], datos: string[][]) {
-    const nCols = columnas.length + 1; // 1ª columna = etiqueta de fila
+    // `columnas` YA incluye la 1ª columna (la de etiquetas de fila, `columnas[0]`); sus celdas son
+    // las `filas`. Los datos del médico ocupan columnas[1..] (ancho = columnas.length − 1).
+    const nCols = Math.max(1, columnas.length);
     const colW = CONTENT_W / nCols;
     const rowH = 16;
-    const encabezados = ['', ...columnas];
+    const encabezados = columnas;
     const cuerpo = filas.map((f, r) => [f, ...(datos[r] ?? [])]);
     const pintarFila = (celdas: string[], negrita: boolean, fondo?: boolean) => {
       doc.asegurar(rowH);

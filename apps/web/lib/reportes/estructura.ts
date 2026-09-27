@@ -233,7 +233,10 @@ export const REGISTRO_CAMPOS: Record<TipoCampo, DefCampo> = {
   tabla: {
     label: 'Tabla',
     defaults: (c) => {
-      c.columnas = ['Longitudinal', 'AP', 'Transverso'];
+      // `columnas[0]` = columna de etiquetas de fila (header vacío por defecto, nombrable/borrable
+      // como cualquier otra); `columnas[1..]` = columnas de datos. La tabla y la config listan
+      // SIEMPRE las mismas columnas (incluida la 0). Las `filas` son las etiquetas de esa 1a columna.
+      c.columnas = ['', 'Longitudinal', 'AP', 'Transverso'];
       c.filas = ['Derecho', 'Izquierdo'];
     },
     formato: (c) => `tabla ${c.filas?.length ?? 0}×${c.columnas?.length ?? 0}`,
@@ -654,6 +657,14 @@ export function leerTabla(v: unknown, filas: number, columnas: number): ValorTab
     }
   }
   return base;
+}
+
+/**
+ * Columnas de DATOS de una tabla: TODAS menos `columnas[0]`, que es la columna de etiquetas de fila
+ * (§6.5). La matriz de valores del médico es `filas × columnasDatos`; la 1a columna muestra `filas`.
+ */
+export function columnasDatos(campo: CampoPlantilla): string[] {
+  return (campo.columnas ?? []).slice(1);
 }
 
 /** ¿El campo cuenta como "completo" para el checklist del reporte? — del registro. */

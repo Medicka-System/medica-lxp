@@ -24,6 +24,7 @@ import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
 import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import {
+  columnasDatos,
   fueraDeRango,
   leerBool,
   leerDimensiones,
@@ -661,24 +662,29 @@ function MultiseleccionControl({ campo, valor, deshabilitado, cambia }: RenderCt
 function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: CampoPlantilla; valor: unknown; deshabilitado: boolean; onCambio: (v: unknown) => void }) {
   const cols = campo.columnas ?? [];
   const filas = campo.filas ?? [];
-  const datos = leerTabla(valor, filas.length, cols.length);
+  // `columnas[0]` = columna de etiquetas de fila (celdas = `filas`, no editables); `columnas[1..]`
+  // = columnas de datos que el médico llena. La matriz de valores es `filas × columnasDatos`.
+  const dataCols = columnasDatos(campo);
+  const datos = leerTabla(valor, filas.length, dataCols.length);
   function editar(r: number, c: number, v: string) {
     const copia = datos.map((f) => [...f]);
     copia[r][c] = v;
     onCambio(copia);
   }
-  // Tabla vacía (0×0): sin columna fantasma; nada que llenar hasta que la plantilla tenga columnas/filas.
-  if (cols.length === 0 && filas.length === 0) {
-    return <p className="mt-1.5 text-[12px] text-muted-foreground">Tabla sin columnas ni filas.</p>;
+  // Sin columnas = tabla vacía: no hay nada que pintar (ni la columna de etiquetas existe).
+  if (cols.length === 0) {
+    return <p className="mt-1.5 text-[12px] text-muted-foreground">Tabla sin columnas.</p>;
   }
   return (
     <div className="mt-1.5 overflow-x-auto rounded-[10px] border border-border">
       <table className="w-full border-collapse text-[12.5px]">
         <thead>
           <tr className="bg-muted">
-            <th className="border-b border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground" />
             {cols.map((c, i) => (
-              <th key={i} className="border-b border-l border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground">
+              <th
+                key={i}
+                className={`border-b border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground ${i > 0 ? 'border-l' : ''}`}
+              >
                 {c}
               </th>
             ))}
@@ -688,7 +694,7 @@ function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: C
           {filas.map((f, r) => (
             <tr key={r}>
               <th className="border-t border-border bg-muted/50 px-2 py-1 text-left text-[11.5px] font-semibold">{f}</th>
-              {cols.map((_, c) => (
+              {dataCols.map((_, c) => (
                 <td key={c} className="border-l border-t border-border p-0">
                   <input
                     type="text"
@@ -980,23 +986,24 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     preview: (campo) => {
       const cols = campo.columnas ?? [];
       const filas = campo.filas ?? [];
-      // Tabla VACÍA (0×0): sin columna fantasma ni "Medida" inyectado — se ve vacía hasta que el
-      // diseñador agregue columnas/filas (ambas son datos normales, editables/borrables en Config).
-      if (cols.length === 0 && filas.length === 0) {
+      // Sin columnas = tabla vacía: sin columna fantasma, se ve vacía hasta que el diseñador agregue
+      // columnas (la 1a será la de etiquetas de fila) — todas nombrables/borrables en Config.
+      if (cols.length === 0) {
         return (
           <div className="rounded-[9px] border border-dashed border-border px-3 py-4 text-center text-[11.5px] text-muted-foreground">
-            Tabla vacía — agrega columnas y filas en la configuración.
+            Tabla vacía — agrega columnas en la configuración.
           </div>
         );
       }
-      // 1ª columna = etiquetas de fila (`filas`) con encabezado EN BLANCO — igual que el reporte del
-      // médico y el PDF. NO se inyecta ningún "Medida" fijo; las demás columnas salen de `columnas`.
-      const grid = `1.3fr ${cols.map(() => '1fr').join(' ')}`;
+      // `columnas[0]` = columna de etiquetas de fila (celdas = `filas`); `columnas[1..]` = datos. La
+      // tabla pinta EXACTAMENTE las columnas de la config (incluida la 0), sin columna inyectada.
+      const dataCols = columnasDatos(campo);
+      const grid = `1.3fr ${dataCols.map(() => '1fr').join(' ')}`;
       return (
         <div className="overflow-hidden rounded-[9px] border border-border text-[11.5px]">
           <div className="grid bg-muted" style={{ gridTemplateColumns: grid }}>
-            <span className="px-[11px] py-[9px]" />
-            {cols.map((c, i) => (
+            <span className="px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">{cols[0]}</span>
+            {dataCols.map((c, i) => (
               <span key={i} className="border-l border-border px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">
                 {c}
               </span>
@@ -1005,7 +1012,7 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
           {filas.map((f, r) => (
             <div key={r} className="grid border-t border-border" style={{ gridTemplateColumns: grid }}>
               <span className="truncate px-[11px] py-2 font-semibold">{f}</span>
-              {cols.map((_, i) => (
+              {dataCols.map((_, i) => (
                 <span key={i} className="border-l border-border px-[11px] py-2 text-muted-foreground">
                   —
                 </span>
