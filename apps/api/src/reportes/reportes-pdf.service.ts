@@ -390,7 +390,8 @@ export class ReportesPdfService {
     }
     if (campos.length === 0) return;
 
-    doc.texto('DATOS DEL ESTUDIO', { size: 9, font: doc.bold, color: C.teal, gap: 4 });
+    // Encabezado de sección UNIFICADO (§ estilo único): teal · 10pt bold · MAYÚSCULAS · gap 6 al primer texto.
+    doc.texto('DATOS DEL ESTUDIO', { size: 10, font: doc.bold, color: C.teal, gap: 6 });
 
     // Rejilla de 2 columnas.
     const colW = (CONTENT_W - 20) / 2;
@@ -405,7 +406,7 @@ export class ReportesPdfService {
       const yTop = doc.y;
       par.forEach((c, j) => {
         const x = M + j * (colW + 20);
-        doc.page.drawText(san(c.etiqueta), { x, y: yTop - 9, size: 8.5, font: doc.bold, color: C.muted });
+        doc.page.drawText(san(c.etiqueta), { x, y: yTop - 9, size: 10, font: doc.bold, color: C.muted });
         let yy = yTop - 22;
         for (const linea of doc.wrap(c.valor, doc.font, 10, colW)) {
           doc.page.drawText(linea, { x, y: yy, size: 10, font: doc.font, color: C.ink });
@@ -432,13 +433,14 @@ export class ReportesPdfService {
     const secciones = (estructura.secciones ?? []).filter((s) => s.tipo !== 'encabezado' && s.enInforme !== false);
     if (secciones.length === 0) return;
 
-    const size = 10.5;
+    const size = 10;
     const lineH = size * 1.42;
 
     for (const s of secciones) {
       doc.asegurar(24);
       // Título de la sección — salvo `ocultarTitulo` (B6/A: evita duplicar con una tabla homónima).
-      if (!s.ocultarTitulo && s.titulo) doc.texto(san(s.titulo), { size: 12, font: doc.bold, color: C.navy, gap: 2 });
+      // Estilo UNIFICADO de encabezado de sección: teal · 10pt bold · MAYÚSCULAS · gap 6.
+      if (!s.ocultarTitulo && s.titulo) doc.texto(san(s.titulo).toUpperCase(), { size: 10, font: doc.bold, color: C.teal, gap: 6 });
 
       // Rejilla de N columnas de la sección; cada campo "en línea" ocupa `span` columnas (B3).
       const N = Math.min(4, Math.max(1, s.columnas ?? 1));
@@ -732,8 +734,9 @@ export class ReportesPdfService {
     doc.espacio(2);
     doc.linea();
     doc.espacio(4);
-    doc.texto('IMPRESIÓN DIAGNÓSTICA', { size: 9, font: doc.bold, color: C.teal, gap: 4 });
-    doc.texto(t, { size: 11, color: C.ink, gap: 4 });
+    // Encabezado de sección UNIFICADO (teal · 10pt bold · MAYÚSCULAS · gap 6) + cuerpo a 10pt.
+    doc.texto('IMPRESIÓN DIAGNÓSTICA', { size: 10, font: doc.bold, color: C.teal, gap: 6 });
+    doc.texto(t, { size: 10, color: C.ink, gap: 4 });
   }
 
   private firma(doc: Doc, paciente: Record<string, unknown>) {
