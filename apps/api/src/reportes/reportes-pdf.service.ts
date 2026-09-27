@@ -47,7 +47,7 @@ type Seccion = {
   /** 1b-2: si es `false`, la sección entera se omite del PDF. Ausente/true ⇒ sale. */
   enInforme?: boolean;
 };
-type Estructura = { secciones?: Seccion[] };
+type Estructura = { secciones?: Seccion[]; incluyeImpresion?: boolean };
 type Contenido = { folio?: string; valores?: Record<string, unknown>; impresion?: string } | null;
 
 type FilaReporte = {
@@ -294,7 +294,8 @@ export class ReportesPdfService {
     await this.membrete(doc, r, folio);
     this.datosEstudio(doc, estructura, paciente);
     await this.hallazgos(doc, estructura, valores, dicomPorCampo, galeriaPorRef);
-    this.impresionDiagnostica(doc, impresion);
+    // La plantilla puede EXCLUIR la impresión (el diseñador la quitó); ausente = incluida (retrocompat).
+    if (estructura.incluyeImpresion !== false) this.impresionDiagnostica(doc, impresion);
     this.firma(doc, paciente);
     this.pieDePagina(doc);
 

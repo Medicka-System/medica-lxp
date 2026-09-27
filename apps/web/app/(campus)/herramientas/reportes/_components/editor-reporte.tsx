@@ -142,6 +142,8 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
   const camposPaciente = encabezado?.campos.length ? encabezado.campos : encabezadoPorDefecto();
   const columnasEnc = encabezado?.columnas ?? 3;
   const secciones = estructura.secciones.filter((s) => s.tipo === 'hallazgos');
+  // La plantilla puede EXCLUIR la impresión (el diseñador la quitó); ausente = incluida (retrocompat).
+  const incluyeImpresion = estructura.incluyeImpresion !== false;
 
   // Al ABRIR, precarga el boilerplate (`valorDefecto`) en los campos vacíos/ausentes —igual que la
   // vista previa del constructor y el reporte recién creado— para que un default añadido a la
@@ -193,8 +195,12 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
         item: c.nombre || 'Campo sin nombre',
         listo: campoCompleto(c, valores[c.id]),
       }));
-    return [...base, ...porCampo, { item: 'Impresión diagnóstica', listo: impresion.trim() !== '' }];
-  }, [paciente, camposLlenables, valores, impresion]);
+    return [
+      ...base,
+      ...porCampo,
+      ...(incluyeImpresion ? [{ item: 'Impresión diagnóstica', listo: impresion.trim() !== '' }] : []),
+    ];
+  }, [paciente, camposLlenables, valores, impresion, incluyeImpresion]);
   const hechos = checklist.filter((c) => c.listo).length;
   // Fuente de verdad ÚNICA de completitud (la MISMA card): completo = todos los checks en verde.
   const completo = hechos === checklist.length;
@@ -564,20 +570,22 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
             />
           ))}
 
-          {/* impresión diagnóstica (fija) */}
-          <section className={`${card} p-5`}>
-            <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
-            <textarea
-              rows={3}
-              value={impresion}
-              readOnly={soloLectura}
-              onChange={(e) => {
-                if (!soloLectura) setImpresion(e.target.value);
-              }}
-              placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
-              className={`mt-3 w-full resize-y rounded-[10px] border border-border p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${soloLectura ? 'bg-muted' : 'bg-card'}`}
-            />
-          </section>
+          {/* impresión diagnóstica — solo si la plantilla la incluye (el diseñador la pudo quitar) */}
+          {incluyeImpresion && (
+            <section className={`${card} p-5`}>
+              <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
+              <textarea
+                rows={3}
+                value={impresion}
+                readOnly={soloLectura}
+                onChange={(e) => {
+                  if (!soloLectura) setImpresion(e.target.value);
+                }}
+                placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
+                className={`mt-3 w-full resize-y rounded-[10px] border border-border p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary ${soloLectura ? 'bg-muted' : 'bg-card'}`}
+              />
+            </section>
+          )}
         </div>
 
         {/* ══════ estación: checklist + puente académico ══════ */}

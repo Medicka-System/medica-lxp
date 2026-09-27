@@ -65,7 +65,8 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
 
       const contenido = contenidoVacio(folio, plantillaId);
       contenido.valores = iniciales.valores;
-      contenido.impresion = estructura.impresionDefecto ?? '';
+      // Si la plantilla EXCLUYE la impresión, no se siembra (así no fluye al PDF ni al caso).
+      contenido.impresion = estructura.incluyeImpresion !== false ? (estructura.impresionDefecto ?? '') : '';
 
       // Encabezado autollenado: expediente ÚNICO + médico solicitante = usuario logueado.
       const expediente = await expedienteUnico(sql);

@@ -108,17 +108,19 @@ export function VistaPreviaPlantilla({
             </section>
           ))}
 
-          {/* impresión diagnóstica (fija) */}
-          <section className={`${card} p-5`}>
-            <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
-            <textarea
-              rows={3}
-              value={impresion}
-              readOnly
-              placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
-              className="mt-3 w-full resize-y rounded-[10px] border border-border bg-muted p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none placeholder:text-muted-foreground"
-            />
-          </section>
+          {/* impresión diagnóstica — solo si la plantilla la incluye (el diseñador la pudo quitar) */}
+          {estructura.incluyeImpresion !== false && (
+            <section className={`${card} p-5`}>
+              <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
+              <textarea
+                rows={3}
+                value={impresion}
+                readOnly
+                placeholder="Cierre con su conclusión: qué encontró, del lado que corresponda, y qué sugiere."
+                className="mt-3 w-full resize-y rounded-[10px] border border-border bg-muted p-3.5 text-[15px] font-medium leading-[1.7] text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </section>
+          )}
 
           <p className={`text-center text-[12px] ${softText}`}>
             Vista previa de solo lectura. El alumno llena estos campos en “Mis reportes”.

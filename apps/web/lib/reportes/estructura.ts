@@ -128,8 +128,14 @@ export type SeccionPlantilla = {
 
 export type EstructuraPlantilla = {
   secciones: SeccionPlantilla[];
-  /** Texto predeterminado de la card fija "Impresión diagnóstica" (boilerplate · Fase 2). */
+  /** Texto predeterminado de la sección "Impresión diagnóstica" (boilerplate · Fase 2). */
   impresionDefecto?: string;
+  /**
+   * ¿La plantilla INCLUYE la sección de impresión diagnóstica? AUSENTE o `true` = sí (comportamiento
+   * histórico · retrocompat). El diseñador la puede QUITAR (`false`) desde el constructor y volver a
+   * AGREGARLA desde la paleta. Solo controla su visibilidad; el resto del plumbing no cambia.
+   */
+  incluyeImpresion?: boolean;
 };
 
 /* ═══════════════════════ REGISTRO DE TIPOS DE CAMPO (fuente ÚNICA) ═══════════════════════ */
@@ -526,6 +532,8 @@ export function normalizarEstructura(raw: unknown): EstructuraPlantilla {
     : [];
   const est: EstructuraPlantilla = { secciones };
   if (typeof o.impresionDefecto === 'string' && o.impresionDefecto) est.impresionDefecto = o.impresionDefecto;
+  // Solo se persiste cuando el diseñador la EXCLUYE; ausente = incluida (retrocompat).
+  if (o.incluyeImpresion === false) est.incluyeImpresion = false;
   return est;
 }
 
