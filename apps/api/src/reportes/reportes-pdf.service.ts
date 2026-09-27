@@ -37,6 +37,8 @@ type Campo = {
   valorDefecto?: string;
   /** 1b-2: si es `false`, el campo NO sale en el PDF (solo captura). Ausente/true ⇒ sale. */
   enInforme?: boolean;
+  /** Si es `true`, no se pinta el título propio del campo (tabla/título) — evita duplicar. Ausente ⇒ se muestra. */
+  ocultarTitulo?: boolean;
 };
 type Seccion = {
   id?: string;
@@ -46,8 +48,14 @@ type Seccion = {
   campos?: Campo[];
   /** 1b-2: si es `false`, la sección entera se omite del PDF. Ausente/true ⇒ sale. */
   enInforme?: boolean;
+  /** Si es `true`, no se pinta el título de la sección (evita duplicar con una tabla homónima). Ausente ⇒ se muestra. */
+  ocultarTitulo?: boolean;
 };
 type Estructura = { secciones?: Seccion[]; incluyeImpresion?: boolean };
+
+/** Una corrida de texto con su fuente y ancho precalculado (para envolver "Etiqueta: valor" con la etiqueta en negrita). */
+type Run = { t: string; f: PDFFont; w: number };
+type Linea = Run[];
 type Contenido = { folio?: string; valores?: Record<string, unknown>; impresion?: string } | null;
 
 type FilaReporte = {
@@ -411,7 +419,7 @@ export class ReportesPdfService {
     doc.espacio(4);
   }
 
-  /* ── hallazgos por sección: valores como TEXTO + imágenes embebidas ── */
+  /* ── hallazgos por sección: rejilla que RESPETA el `span`/`columnas` del constructor ── */
   private async hallazgos(
     doc: Doc,
     estructura: Estructura,
@@ -420,63 +428,98 @@ export class ReportesPdfService {
     galeriaPorRef: Map<string, string>,
   ) {
     // Omite el encabezado y las secciones con enInforme:false (1b-2). Ausente/true ⇒ sale.
+    // (Sin encabezado "HALLAZGOS" genérico: cada sección se declara con su propio título · B5.)
     const secciones = (estructura.secciones ?? []).filter((s) => s.tipo !== 'encabezado' && s.enInforme !== false);
     if (secciones.length === 0) return;
-    doc.texto('HALLAZGOS', { size: 9, font: doc.bold, color: C.teal, gap: 6 });
+
+    const size = 10.5;
+    const lineH = size * 1.42;
 
     for (const s of secciones) {
       doc.asegurar(24);
-      doc.texto(san(s.titulo || 'Sección'), { size: 12, font: doc.bold, color: C.navy, gap: 2 });
+      // Título de la sección — salvo `ocultarTitulo` (B6/A: evita duplicar con una tabla homónima).
+      if (!s.ocultarTitulo && s.titulo) doc.texto(san(s.titulo), { size: 12, font: doc.bold, color: C.navy, gap: 2 });
+
+      // Rejilla de N columnas de la sección; cada campo "en línea" ocupa `span` columnas (B3).
+      const N = Math.min(4, Math.max(1, s.columnas ?? 1));
+      const gap = 18;
+      const colW = (CONTENT_W - gap * (N - 1)) / N;
+
+      // Buffer de la fila en curso (solo campos en línea); un bloque la vacía antes de pintarse.
+      let fila: { lineas: Linea[]; col: number }[] = [];
+      let usados = 0;
+      const flush = () => {
+        if (!fila.length) return;
+        const alto = Math.max(...fila.map((it) => it.lineas.length * lineH));
+        doc.asegurar(alto);
+        const yTop = doc.y;
+        for (const it of fila) this.pintarEtiquetaValor(doc, M + it.col * (colW + gap), yTop, it.lineas, size);
+        doc.y = yTop - alto - 4;
+        fila = [];
+        usados = 0;
+      };
+      // Bloque a todo el ancho (multitexto): dibuja con SALTO DE PÁGINA por línea (un párrafo largo
+      // puede exceder la página) — a diferencia de la rejilla, que asegura la altura de la fila.
+      const bloqueAncho = (lineas: Linea[]) => {
+        flush();
+        this.pintarBloqueLineas(doc, lineas, size);
+        doc.espacio(4);
+      };
 
       for (const c of s.campos ?? []) {
         // Campo marcado como "no sale en el informe" (1b-2): se omite del PDF.
         if (c.enInforme === false) continue;
-        if (c.tipo === 'guia' || c.tipo === 'titulo') {
-          if (c.tipo === 'titulo' && c.nombre) doc.texto(san(c.nombre), { size: 10.5, font: doc.bold, color: C.soft, gap: 1 });
+        if (c.tipo === 'guia') continue;
+        if (c.tipo === 'titulo') {
+          flush();
+          if (!c.ocultarTitulo && c.nombre) doc.texto(san(c.nombre), { size: 10.5, font: doc.bold, color: C.soft, gap: 1 });
           continue;
         }
         if (c.tipo === 'imagen') {
+          flush();
           await this.dibujarImagenCampo(doc, c, valores[c.id], dicomPorCampo, galeriaPorRef);
           continue;
         }
         if (c.tipo === 'galeria') {
+          flush();
           for (const img of leerGaleria(valores[c.id])) await this.dibujarGaleria(doc, img, galeriaPorRef);
           continue;
         }
-        this.campoTexto(doc, c, conDefecto(c, valores[c.id]));
+        if (c.tipo === 'tabla') {
+          this.dibujarTablaCampo(doc, c, valores[c.id], flush);
+          continue;
+        }
+        const ev = this.valorLineaDe(c, conDefecto(c, valores[c.id]));
+        if (!ev) continue;
+        // Multitexto = párrafo a todo el ancho; el resto participa en la rejilla por su `span`.
+        if (c.tipo === 'multitexto') {
+          bloqueAncho(this.envolverEtiquetaValor(doc, ev.etiqueta, ev.valor, CONTENT_W, size));
+          continue;
+        }
+        const sp = Math.min(N, Math.max(1, c.span ?? 1));
+        if (usados + sp > N) flush();
+        const w = sp * colW + gap * (sp - 1);
+        fila.push({ lineas: this.envolverEtiquetaValor(doc, ev.etiqueta, ev.valor, w, size), col: usados });
+        usados += sp;
+        if (usados >= N) flush();
       }
+      flush();
       doc.espacio(8);
     }
   }
 
-  private campoTexto(doc: Doc, c: Campo, valor: unknown) {
+  /** Valor "en línea" (etiqueta + valor) de un campo NO-bloque. `null` si no hay nada que imprimir. */
+  private valorLineaDe(c: Campo, valor: unknown): { etiqueta: string; valor: string } | null {
     const etiqueta = san(c.nombre || '').trim();
     if (c.tipo === 'sino') {
       const b = leerBool(valor);
-      if (b === null) return;
-      doc.texto(`${etiqueta ? etiqueta + ': ' : ''}${b ? 'Sí' : 'No'}`, { size: 10.5, gap: 2 });
-      return;
-    }
-    if (c.tipo === 'tabla') {
-      const filas = c.filas ?? [];
-      const columnas = c.columnas ?? [];
-      // columnas[0] = columna de etiquetas de fila; los datos ocupan columnas[1..].
-      const datos = leerTabla(valor, filas.length, Math.max(0, columnas.length - 1));
-      const tieneDato = datos.some((f) => f.some((x) => x.trim() !== ''));
-      if (!tieneDato) return;
-      if (etiqueta) doc.texto(etiqueta, { size: 10.5, font: doc.bold, color: C.soft, gap: 2 });
-      this.dibujarTabla(doc, columnas, filas, datos);
-      return;
+      return b === null ? null : { etiqueta, valor: b ? 'Sí' : 'No' };
     }
     if (c.tipo === 'multiseleccion') {
-      // Valor = string[]; se imprimen las marcadas unidas por coma (antes del fallback genérico).
       const arr = Array.isArray(valor) ? valor.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
-      if (arr.length === 0) return;
-      doc.texto(`${etiqueta ? etiqueta + ': ' : ''}${arr.join(', ')}`, { size: 10.5, gap: 2 });
-      return;
+      return arr.length ? { etiqueta, valor: arr.join(', ') } : null;
     }
     if (c.tipo === 'dimensiones') {
-      // Valor = number[] (largo = ejes); se imprime x × y × z con la unidad.
       const ejes = c.ejes === 2 ? 2 : 3;
       const src = Array.isArray(valor) ? valor : [];
       const nums = Array.from({ length: ejes }, (_, i) => {
@@ -485,54 +528,127 @@ export class ReportesPdfService {
         if (typeof x === 'string' && x.trim() !== '' && Number.isFinite(Number(x))) return Number(x);
         return null;
       });
-      if (!nums.some((n) => n !== null)) return;
+      if (!nums.some((n) => n !== null)) return null;
       const dec = typeof c.decimales === 'number' ? c.decimales : undefined;
       const partes = nums.map((n) => (n === null ? '—' : dec !== undefined ? n.toFixed(dec) : String(n)));
-      doc.texto(`${etiqueta ? etiqueta + ': ' : ''}${partes.join(' × ')}${c.unidad ? ` ${c.unidad}` : ''}`, {
-        size: 10.5,
-        gap: 2,
-      });
-      return;
+      return { etiqueta, valor: `${partes.join(' × ')}${c.unidad ? ` ${c.unidad}` : ''}` };
     }
     const txt = leerTexto(valor).trim();
     if (!txt) {
-      // Fallback GENÉRICO (data-driven §BUG2): un tipo que el motor no conoce, o un valor no
-      // textual, se rinde como "etiqueta: valor" en vez de romper u omitirse en silencio.
+      // Fallback GENÉRICO (data-driven §BUG2): un tipo desconocido o valor no textual igual se rinde.
       const generico = valorGenerico(valor);
-      if (generico) doc.texto(etiqueta ? `${etiqueta}: ${generico}` : generico, { size: 10.5, gap: 2 });
-      return;
+      return generico ? { etiqueta, valor: generico } : null;
     }
-    // `calculado`: se lee el valor YA persistido en `valores` (no se recomputa · §3) y se le agrega
-    // su unidad, igual que a `medida`.
+    // `calculado`/`medida`: valor persistido (no se recomputa · §3) + su unidad.
     const unidad = (c.tipo === 'medida' || c.tipo === 'calculado') && c.unidad ? ` ${c.unidad}` : '';
-    if (etiqueta) {
-      // Etiqueta en negrita + valor en la misma corrida cuando es corto; párrafo si es largo.
-      doc.texto(`${etiqueta}: ${txt}${unidad}`, { size: 10.5, gap: 2 });
-    } else {
-      doc.texto(`${txt}${unidad}`, { size: 10.5, gap: 2 });
+    return { etiqueta, valor: `${txt}${unidad}` };
+  }
+
+  /** Envuelve "Etiqueta: valor" a `maxW` con la ETIQUETA en negrita y el valor en peso normal (B4). */
+  private envolverEtiquetaValor(doc: Doc, etiqueta: string, valor: string, maxW: number, size: number): Linea[] {
+    const sp = doc.font.widthOfTextAtSize(' ', size);
+    const tokens: { t: string; f: PDFFont }[] = [];
+    const et = san(etiqueta).trim();
+    if (et) for (const w of `${et}:`.split(/\s+/).filter(Boolean)) tokens.push({ t: w, f: doc.bold });
+    for (const w of san(valor).split(/\s+/).filter(Boolean)) tokens.push({ t: w, f: doc.font });
+    if (!tokens.length) return [[]];
+    const lineas: Linea[] = [];
+    let cur: Linea = [];
+    let curW = 0;
+    for (const tk of tokens) {
+      const w = tk.f.widthOfTextAtSize(tk.t, size);
+      if (cur.length && curW + sp + w > maxW) {
+        lineas.push(cur);
+        cur = [];
+        curW = 0;
+      }
+      curW += (cur.length ? sp : 0) + w;
+      cur.push({ t: tk.t, f: tk.f, w });
     }
+    if (cur.length) lineas.push(cur);
+    return lineas.length ? lineas : [[]];
+  }
+
+  /** Pinta líneas de corridas (cada una con su fuente) desde `yTop` hacia abajo, SIN salto de página
+   *  (la rejilla asegura la altura de la fila antes de llamar). Para columnas alineadas. */
+  private pintarEtiquetaValor(doc: Doc, x: number, yTop: number, lineas: Linea[], size: number) {
+    const lineH = size * 1.42;
+    const sp = doc.font.widthOfTextAtSize(' ', size);
+    let y = yTop - size;
+    for (const linea of lineas) {
+      let xx = x;
+      for (const run of linea) {
+        doc.page.drawText(run.t, { x: xx, y, size, font: run.f, color: C.ink });
+        xx += run.w + sp;
+      }
+      y -= lineH;
+    }
+  }
+
+  /** Pinta líneas de corridas a todo el ancho CON salto de página por línea (párrafos largos). */
+  private pintarBloqueLineas(doc: Doc, lineas: Linea[], size: number) {
+    const lineH = size * 1.42;
+    const sp = doc.font.widthOfTextAtSize(' ', size);
+    for (const linea of lineas) {
+      doc.asegurar(lineH);
+      const y = doc.y - size;
+      let xx = M;
+      for (const run of linea) {
+        doc.page.drawText(run.t, { x: xx, y, size, font: run.f, color: C.ink });
+        xx += run.w + sp;
+      }
+      doc.y -= lineH;
+    }
+  }
+
+  /** Tabla como bloque: título propio (salvo `ocultarTitulo`) + rejilla con celdas que ENVUELVEN. */
+  private dibujarTablaCampo(doc: Doc, c: Campo, valor: unknown, flush: () => void) {
+    const filas = c.filas ?? [];
+    const columnas = c.columnas ?? [];
+    // columnas[0] = columna de etiquetas de fila; los datos ocupan columnas[1..].
+    const datos = leerTabla(valor, filas.length, Math.max(0, columnas.length - 1));
+    if (!datos.some((f) => f.some((x) => x.trim() !== ''))) return;
+    flush();
+    const etiqueta = san(c.nombre || '').trim();
+    if (!c.ocultarTitulo && etiqueta) doc.texto(etiqueta, { size: 10.5, font: doc.bold, color: C.soft, gap: 2 });
+    this.dibujarTabla(doc, columnas, filas, datos);
   }
 
   private dibujarTabla(doc: Doc, columnas: string[], filas: string[], datos: string[][]) {
     // `columnas` YA incluye la 1ª columna (la de etiquetas de fila, `columnas[0]`); sus celdas son
     // las `filas`. Los datos del médico ocupan columnas[1..] (ancho = columnas.length − 1).
     const nCols = Math.max(1, columnas.length);
-    const colW = CONTENT_W / nCols;
-    const rowH = 16;
-    const encabezados = columnas;
+    // La 1ª columna (etiquetas de fila, p.ej. "Brazo Derecho (Incluida la mano)") es la más larga →
+    // recibe más ancho y, como todas, ENVUELVE a varias líneas (fix del texto cortado · B2).
+    const unidades = nCols === 1 ? [1] : [1.7, ...Array.from({ length: nCols - 1 }, () => 1)];
+    const totalU = unidades.reduce((a, b) => a + b, 0);
+    const anchos = unidades.map((u) => (CONTENT_W * u) / totalU);
+    const xs = anchos.map((_, i) => M + anchos.slice(0, i).reduce((a, b) => a + b, 0));
+    const size = 8.5;
+    const lineH = size * 1.34;
+    const padY = 5;
     const cuerpo = filas.map((f, r) => [f, ...(datos[r] ?? [])]);
+
     const pintarFila = (celdas: string[], negrita: boolean, fondo?: boolean) => {
+      const font = negrita ? doc.bold : doc.font;
+      // Envuelve cada celda a su ancho de columna (−8 de padding) → varias líneas, sin truncar.
+      const porCelda = celdas.map((celda, i) => doc.wrap(celda, font, size, (anchos[i] ?? anchos[0]!) - 8));
+      const nLineas = Math.max(1, ...porCelda.map((l) => l.length));
+      const rowH = nLineas * lineH + padY * 2;
       doc.asegurar(rowH);
       const yTop = doc.y;
       if (fondo) doc.page.drawRectangle({ x: M, y: yTop - rowH, width: CONTENT_W, height: rowH, color: C.accent });
-      celdas.forEach((celda, i) => {
-        const t = doc.wrap(celda, negrita ? doc.bold : doc.font, 8.5, colW - 8)[0] ?? '';
-        doc.page.drawText(t, { x: M + i * colW + 4, y: yTop - 11, size: 8.5, font: negrita ? doc.bold : doc.font, color: negrita ? C.soft : C.ink });
+      porCelda.forEach((lineas, i) => {
+        let yy = yTop - padY - size;
+        for (const l of lineas) {
+          doc.page.drawText(l, { x: (xs[i] ?? M) + 4, y: yy, size, font, color: negrita ? C.soft : C.ink });
+          yy -= lineH;
+        }
       });
       doc.page.drawLine({ start: { x: M, y: yTop - rowH }, end: { x: PAGE_W - M, y: yTop - rowH }, thickness: 0.5, color: C.border });
       doc.y = yTop - rowH;
     };
-    pintarFila(encabezados, true, true);
+    pintarFila(columnas, true, true);
     for (const fila of cuerpo) pintarFila(fila, false);
     doc.espacio(6);
   }

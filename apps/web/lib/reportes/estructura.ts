@@ -78,6 +78,12 @@ export type CampoPlantilla = {
    */
   obligatorio?: boolean;
   enInforme?: boolean;
+  /**
+   * `tabla`/`titulo`: si es `true`, NO se pinta el título propio del campo (en el render y en el PDF).
+   * Sirve para no duplicar (ej. una tabla "Biometría fetal" dentro de la sección homónima). Ausente ⇒
+   * se muestra (retrocompat, no cambia plantillas existentes).
+   */
+  ocultarTitulo?: boolean;
 
   /* ── Config RICA por tipo (1b-2) — TODAS opcionales · AUSENTE = comportamiento actual ──
    * Se conservan por el passthrough del normalizador; cada una la usa el registro (UI + lógica). */
@@ -135,6 +141,9 @@ export type SeccionPlantilla = {
    *  · `enInforme`: si es `false`, la sección no se muestra en el reporte. Ausente ⇒ sale. */
   colapsada?: boolean;
   enInforme?: boolean;
+  /** Si es `true`, no se pinta el TÍTULO de la sección (render + PDF) — evita duplicar con una tabla
+   * homónima. Ausente ⇒ se muestra (retrocompat). */
+  ocultarTitulo?: boolean;
 };
 
 export type EstructuraPlantilla = {
@@ -539,6 +548,8 @@ function normalizarCampo(raw: unknown, i: number): CampoPlantilla | null {
   else delete c.obligatorio;
   if (typeof o.enInforme === 'boolean') c.enInforme = o.enInforme;
   else delete c.enInforme;
+  if (o.ocultarTitulo === true) c.ocultarTitulo = true;
+  else delete c.ocultarTitulo;
   REGISTRO_CAMPOS[tipo].normalizar?.(o, c as CampoPlantilla);
   return c as CampoPlantilla;
 }
@@ -554,6 +565,7 @@ function normalizarSeccion(raw: unknown, i: number): SeccionPlantilla | null {
   const s: SeccionPlantilla = { id: txt(o.id) || `s${i + 1}`, tipo, titulo: txt(o.titulo) || `Sección ${i + 1}`, columnas, campos };
   if (typeof o.colapsada === 'boolean') s.colapsada = o.colapsada;
   if (typeof o.enInforme === 'boolean') s.enInforme = o.enInforme;
+  if (o.ocultarTitulo === true) s.ocultarTitulo = true;
   return s;
 }
 
