@@ -22,6 +22,7 @@ import type { DragEvent, ReactNode } from 'react';
 import {
   AlignLeft,
   ArrowLeft,
+  Calculator,
   Calendar,
   ChevronDown,
   ChevronUp,
@@ -48,7 +49,7 @@ import {
   Type,
 } from 'lucide-react';
 import { mono, kicker, focusRing } from '@/lib/studio/estilos';
-import { REGISTRO_UI } from '@/components/reportes/registro-ui-campos';
+import { REGISTRO_UI, type CampoRef } from '@/components/reportes/registro-ui-campos';
 import {
   campoNuevo,
   campoPacienteDesdeCatalogo,
@@ -94,6 +95,7 @@ const ICONO_TIPO: Record<TipoCampo, typeof Type> = {
   multiseleccion: ListTodo,
   imagen: ImageIcon,
   galeria: Images,
+  calculado: Calculator,
 };
 
 type ItemPaleta = { tipo: TipoCampo | 'seccion'; nombre: string; icono: typeof Type };
@@ -113,6 +115,7 @@ const GRUPOS: { titulo: string; items: ItemPaleta[] }[] = [
       { tipo: 'numero', nombre: 'Número', icono: Hash },
       { tipo: 'medida', nombre: 'Medida', icono: Ruler },
       { tipo: 'dimensiones', nombre: 'Dimensiones', icono: Move3d },
+      { tipo: 'calculado', nombre: 'Calculado', icono: Calculator },
       { tipo: 'fecha', nombre: 'Fecha', icono: Calendar },
       { tipo: 'tabla', nombre: 'Tabla', icono: Table2 },
     ],
@@ -201,6 +204,16 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
   const campoSel = useMemo(
     () => (seleccion?.k === 'campo' && seccionSel ? seccionSel.campos.find((c) => c.id === seleccion.campoId) ?? null : null),
     [seccionSel, seleccion],
+  );
+  // Campos a los que un campo `calculado` puede conectar sus entradas: cualquier número/medida/fecha
+  // de CUALQUIER sección (encabezado incluido → fecha del estudio), menos el propio campo.
+  const camposParaFormula = useMemo<CampoRef[]>(
+    () =>
+      secciones
+        .flatMap((s) => s.campos)
+        .filter((c) => c.id !== campoSel?.id && (c.tipo === 'numero' || c.tipo === 'medida' || c.tipo === 'fecha'))
+        .map((c) => ({ id: c.id, nombre: c.nombre || c.id, tipo: c.tipo })),
+    [secciones, campoSel],
   );
 
   const actualizarCampo = (campoId: string, patch: Partial<CampoPlantilla>) =>
@@ -565,6 +578,7 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
             <PanelCampo
               campo={campoSel}
               seccion={seccionSel}
+              camposDisponibles={camposParaFormula}
               onCambio={(patch) => actualizarCampo(campoSel.id, patch)}
               onTipo={(tipo) => reemplazarCampo(campoSel.id, { ...campoNuevo(tipo), id: campoSel.id, nombre: campoSel.nombre, guia: campoSel.guia })}
             />
@@ -1068,11 +1082,13 @@ function CampoCard({
 function PanelCampo({
   campo: c,
   seccion,
+  camposDisponibles,
   onCambio,
   onTipo,
 }: {
   campo: CampoPlantilla;
   seccion: SeccionPlantilla;
+  camposDisponibles?: CampoRef[];
   onCambio: (patch: Partial<CampoPlantilla>) => void;
   onTipo: (t: TipoCampo) => void;
 }) {
@@ -1118,7 +1134,7 @@ function PanelCampo({
       {editorTipo && (
         <Bloque>
           <p className={kicker}>{ETIQUETA_TIPO[c.tipo]}</p>
-          <div className="mt-2.5">{editorTipo({ campo: c, onCambio })}</div>
+          <div className="mt-2.5">{editorTipo({ campo: c, onCambio, camposDisponibles })}</div>
         </Bloque>
       )}
 

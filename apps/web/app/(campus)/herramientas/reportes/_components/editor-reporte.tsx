@@ -12,7 +12,7 @@
  * DOMINIO (stubs · `apps/api`): generar PDF, enviar por correo, "guardar como caso".
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
@@ -38,6 +38,7 @@ import {
   type CampoPlantilla,
   type SeccionPlantilla,
 } from '@/lib/reportes/estructura';
+import { evaluarCampoCalculado } from '@/lib/reportes/formulas';
 import {
   enviarReporte,
   finalizarReporte,
@@ -136,7 +137,8 @@ function imprimirDesdeUrl(url: string): Promise<boolean> {
 
 export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
   const router = useRouter();
-  const estructura = reporte.plantilla?.estructura ?? { secciones: [] };
+  // Referencia ESTABLE (viene de props): evita que el efecto de recálculo se dispare en cada render.
+  const estructura = useMemo(() => reporte.plantilla?.estructura ?? { secciones: [] }, [reporte.plantilla]);
 
   const encabezado = estructura.secciones.find((s) => s.tipo === 'encabezado');
   const camposPaciente = encabezado?.campos.length ? encabezado.campos : encabezadoPorDefecto();
@@ -174,6 +176,31 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
     // (sino/multiseleccion) y su boolean/array debe persistir igual que en hallazgos.
     setPaciente((p) => ({ ...p, [id]: v }));
   }
+
+  // RECÁLCULO REACTIVO de los campos `calculado` (§6.5): al cambiar cualquier entrada (encabezado o
+  // hallazgos), reevalúa cada fórmula contra la fuente mezclada y PERSISTE el resultado en el store
+  // que corresponda (encabezado→paciente, hallazgos→valores). Solo en EDICIÓN: en un reporte
+  // finalizado (vista) NO se recomputa — se lee el valor persistido (criterio §3). El guardia por
+  // diferencia evita el bucle (solo hace setState cuando el valor calculado cambió de verdad).
+  useEffect(() => {
+    if (soloLectura) return;
+    const fuente: Record<string, unknown> = { ...paciente, ...valores };
+    let cambV: Record<string, unknown> | null = null;
+    let cambP: Record<string, string> | null = null;
+    for (const s of estructura.secciones) {
+      for (const c of s.campos) {
+        if (c.tipo !== 'calculado') continue;
+        const nuevo = evaluarCampoCalculado(c, fuente);
+        if (s.tipo === 'encabezado') {
+          if (String(paciente[c.id] ?? '') !== nuevo) (cambP ??= {})[c.id] = nuevo;
+        } else if (String(valores[c.id] ?? '') !== nuevo) {
+          (cambV ??= {})[c.id] = nuevo;
+        }
+      }
+    }
+    if (cambV) setValores((prev) => ({ ...prev, ...cambV }));
+    if (cambP) setPaciente((prev) => ({ ...prev, ...cambP }));
+  }, [paciente, valores, estructura, soloLectura]);
 
   const camposLlenables = useMemo(
     () => secciones.flatMap((s) => s.campos).filter((c) => !esCampoEstatico(c.tipo)),

@@ -502,7 +502,9 @@ export class ReportesPdfService {
       if (generico) doc.texto(etiqueta ? `${etiqueta}: ${generico}` : generico, { size: 10.5, gap: 2 });
       return;
     }
-    const unidad = c.tipo === 'medida' && c.unidad ? ` ${c.unidad}` : '';
+    // `calculado`: se lee el valor YA persistido en `valores` (no se recomputa · §3) y se le agrega
+    // su unidad, igual que a `medida`.
+    const unidad = (c.tipo === 'medida' || c.tipo === 'calculado') && c.unidad ? ` ${c.unidad}` : '';
     if (etiqueta) {
       // Etiqueta en negrita + valor en la misma corrida cuando es corto; párrafo si es largo.
       doc.texto(`${etiqueta}: ${txt}${unidad}`, { size: 10.5, gap: 2 });
