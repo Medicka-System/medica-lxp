@@ -102,13 +102,18 @@ export const CATALOGO_FORMULAS: Record<IdFormula, DefFormula> = {
       { nombre: 'fecha_estudio', etiqueta: 'Fecha del estudio', tipo: 'fecha' },
       { nombre: 'fecha_nacimiento', etiqueta: 'Fecha de nacimiento', tipo: 'fecha' },
     ],
+    // Edad por CALENDARIO (no dias/365.25, que se equivocaba en el límite del cumpleaños): años
+    // transcurridos menos 1 si el cumpleaños AÚN no llega en el año del estudio. Fechas ancladas a
+    // UTC (parseFecha) → los componentes getUTC* son estables sin importar la zona horaria.
     calcular: (e) => {
       const est = parseFecha(e.fecha_estudio);
       const nac = parseFecha(e.fecha_nacimiento);
       if (!est || !nac) return '';
-      const dias = diffDias(nac, est);
-      if (dias < 0) return '';
-      return String(Math.floor(dias / 365.25));
+      let edad = est.getUTCFullYear() - nac.getUTCFullYear();
+      const dm = est.getUTCMonth() - nac.getUTCMonth();
+      if (dm < 0 || (dm === 0 && est.getUTCDate() < nac.getUTCDate())) edad -= 1;
+      if (edad < 0) return '';
+      return String(edad);
     },
   },
 
@@ -267,4 +272,39 @@ export function evaluarCampoCalculado(campo: CampoCalculado, fuente: Record<stri
   } catch {
     return '';
   }
+}
+
+/** Un campo con fórmula, con su id, para el recálculo reactivo del llenado. */
+export type CampoConFormula = { id: string; campo: CampoCalculado };
+
+/**
+ * NÚCLEO PURO del recálculo reactivo del llenado (regla A+B · §6.5), extraído para poder testearlo
+ * sin React. Dados los campos con fórmula, la fuente actual de valores, la fuente del render ANTERIOR
+ * (null = primer cálculo) y el Set de ids editados a mano (se MUTA en sitio):
+ *   1) Si alguna ENTRADA mapeada de un campo cambió respecto a la fuente anterior, limpia su marca
+ *      manual (los insumos frescos mandan → se recalcula y pisa).
+ *   2) Devuelve `id → valor` SOLO para los campos que deben inyectarse: no marcados como manuales y
+ *      con un cálculo no vacío. El llamador enruta al store y aplica el diff.
+ */
+export function recalcularFormulas(
+  campos: CampoConFormula[],
+  fuente: Record<string, unknown>,
+  fuenteAnterior: Record<string, unknown> | null,
+  editadosManual: Set<string>,
+): Record<string, string> {
+  if (fuenteAnterior) {
+    for (const { id, campo } of campos) {
+      const fuentesIds = Object.values(campo.entradas ?? {});
+      if (fuentesIds.some((sid) => String(fuenteAnterior[sid] ?? '') !== String(fuente[sid] ?? ''))) {
+        editadosManual.delete(id);
+      }
+    }
+  }
+  const out: Record<string, string> = {};
+  for (const { id, campo } of campos) {
+    if (editadosManual.has(id)) continue;
+    const nuevo = evaluarCampoCalculado(campo, fuente);
+    if (nuevo !== '') out[id] = nuevo;
+  }
+  return out;
 }

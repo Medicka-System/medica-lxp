@@ -12,7 +12,7 @@
  * DOMINIO (stubs · `apps/api`): generar PDF, enviar por correo, "guardar como caso".
  */
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
@@ -38,7 +38,7 @@ import {
   type CampoPlantilla,
   type SeccionPlantilla,
 } from '@/lib/reportes/estructura';
-import { evaluarCampoCalculado } from '@/lib/reportes/formulas';
+import { esIdFormula, evaluarCampoCalculado, recalcularFormulas } from '@/lib/reportes/formulas';
 import {
   enviarReporte,
   finalizarReporte,
@@ -168,39 +168,86 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
   // edición; solo se puede exportar/imprimir o pulsar "Editar reporte" para reabrir a borrador).
   const soloLectura = estado !== 'borrador';
 
+  // Campos con FÓRMULA activa (numero/medida/calculado con `formula` del catálogo): su valor se
+  // auto-calcula al llenar. `idsConFormula` = sus ids para marcar la edición manual del médico.
+  const camposConFormula = useMemo(
+    () =>
+      estructura.secciones.flatMap((s) =>
+        s.campos.filter((c) => esIdFormula(c.formula)).map((c) => ({ campo: c, enEncabezado: s.tipo === 'encabezado' })),
+      ),
+    [estructura],
+  );
+  const idsConFormula = useMemo(() => new Set(camposConFormula.map((f) => f.campo.id)), [camposConFormula]);
+
+  // Marca de EDICIÓN MANUAL: ids de campos-fórmula que el médico escribió a mano (se respeta su
+  // valor). Es un Set MUTADO en sitio (ref estable de useState, sin setter) que el efecto lee por
+  // cierre. Semilla al abrir: un valor guardado que NO coincide con el que produce la fórmula desde
+  // las fuentes guardadas ⇒ el médico lo había editado → se respeta (no se recomputa al reabrir).
+  const [editadosManual] = useState<Set<string>>(() => {
+    const fuente: Record<string, unknown> = { ...iniciales.datosPaciente, ...iniciales.valores };
+    const set = new Set<string>();
+    for (const s of estructura.secciones) {
+      for (const c of s.campos) {
+        if (!esIdFormula(c.formula)) continue;
+        const store = s.tipo === 'encabezado' ? iniciales.datosPaciente[c.id] : iniciales.valores[c.id];
+        const txt = typeof store === 'string' ? store.trim() : store;
+        if (txt === undefined || txt === null || txt === '') continue;
+        const calc = evaluarCampoCalculado(c, fuente);
+        if (calc !== '' && String(store) !== calc) set.add(c.id);
+      }
+    }
+    return set;
+  });
+  // Última fuente vista, para detectar QUÉ entrada cambió entre renders (null = primer render).
+  const fuenteAnteriorRef = useRef<Record<string, unknown> | null>(null);
+
   function setValor(campoId: string, v: unknown) {
+    // El médico escribió en un campo-fórmula ⇒ su valor manda hasta que cambie una entrada (regla A).
+    if (idsConFormula.has(campoId)) editadosManual.add(campoId);
     setValores((prev) => ({ ...prev, [campoId]: v }));
   }
   function setPacienteCampo(id: string, v: unknown) {
+    if (idsConFormula.has(id)) editadosManual.add(id);
     // Guarda el valor TAL CUAL (no coacciona a ""): el encabezado puede tener campos no-string
     // (sino/multiseleccion) y su boolean/array debe persistir igual que en hallazgos.
     setPaciente((p) => ({ ...p, [id]: v }));
   }
 
-  // RECÁLCULO REACTIVO de los campos `calculado` (§6.5): al cambiar cualquier entrada (encabezado o
-  // hallazgos), reevalúa cada fórmula contra la fuente mezclada y PERSISTE el resultado en el store
-  // que corresponda (encabezado→paciente, hallazgos→valores). Solo en EDICIÓN: en un reporte
-  // finalizado (vista) NO se recomputa — se lee el valor persistido (criterio §3). El guardia por
-  // diferencia evita el bucle (solo hace setState cuando el valor calculado cambió de verdad).
+  // RECÁLCULO REACTIVO (regla A+B · §6.5) de los campos con FÓRMULA (numero/medida editable +
+  // calculado legacy). Al cambiar CUALQUIER entrada mapeada se recalcula e INYECTA el resultado en el
+  // campo (encabezado→paciente, hallazgos→valores). Reglas:
+  //   · Si una entrada del campo CAMBIÓ desde el último render, se limpia su marca manual → gana el
+  //     cálculo fresco (los insumos mandan).
+  //   · Si el médico editó el valor a mano (marca manual) y ninguna entrada cambió, se RESPETA.
+  //   · Sin insumos suficientes (cálculo vacío) no se pisa nada.
+  // Solo en EDICIÓN: en un reporte finalizado (vista) NO se recomputa — se lee el valor persistido
+  // (criterio §3). El guardia por diferencia evita el bucle de render.
   useEffect(() => {
     if (soloLectura) return;
     const fuente: Record<string, unknown> = { ...paciente, ...valores };
+    // Núcleo puro (regla A+B): limpia marcas manuales de fuentes cambiadas y devuelve id→valor a inyectar.
+    const upd = recalcularFormulas(
+      camposConFormula.map((f) => ({ id: f.campo.id, campo: f.campo })),
+      fuente,
+      fuenteAnteriorRef.current,
+      editadosManual,
+    );
+    fuenteAnteriorRef.current = fuente;
+    // Enruta al store (encabezado→paciente, hallazgos→valores) y aplica solo los que cambian de verdad.
     let cambV: Record<string, unknown> | null = null;
     let cambP: Record<string, string> | null = null;
-    for (const s of estructura.secciones) {
-      for (const c of s.campos) {
-        if (c.tipo !== 'calculado') continue;
-        const nuevo = evaluarCampoCalculado(c, fuente);
-        if (s.tipo === 'encabezado') {
-          if (String(paciente[c.id] ?? '') !== nuevo) (cambP ??= {})[c.id] = nuevo;
-        } else if (String(valores[c.id] ?? '') !== nuevo) {
-          (cambV ??= {})[c.id] = nuevo;
-        }
+    for (const { campo, enEncabezado } of camposConFormula) {
+      const nuevo = upd[campo.id];
+      if (nuevo === undefined) continue;
+      if (enEncabezado) {
+        if (String(paciente[campo.id] ?? '') !== nuevo) (cambP ??= {})[campo.id] = nuevo;
+      } else if (String(valores[campo.id] ?? '') !== nuevo) {
+        (cambV ??= {})[campo.id] = nuevo;
       }
     }
-    if (cambV) setValores((prev) => ({ ...prev, ...cambV }));
-    if (cambP) setPaciente((prev) => ({ ...prev, ...cambP }));
-  }, [paciente, valores, estructura, soloLectura]);
+    if (cambV) setValores((p) => ({ ...p, ...cambV }));
+    if (cambP) setPaciente((p) => ({ ...p, ...cambP }));
+  }, [paciente, valores, soloLectura, camposConFormula, editadosManual]);
 
   const camposLlenables = useMemo(
     () => secciones.flatMap((s) => s.campos).filter((c) => !esCampoEstatico(c.tipo)),

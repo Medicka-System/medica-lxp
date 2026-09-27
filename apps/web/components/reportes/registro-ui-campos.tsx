@@ -346,8 +346,88 @@ function EImagenReferencia({ campo, onCambio }: EditorCtx) {
   );
 }
 
-/* Editor común numero/medida (min/max/decimales + rango normal + percentil + fórmula). */
-function EditorNumerico({ campo, onCambio }: EditorCtx) {
+/**
+ * Config de FÓRMULA reutilizable (§6.5): elige una fórmula del CATÁLOGO (`formulas.ts`) y MAPEA cada
+ * entrada a un campo EXISTENTE del canvas por un DROPDOWN filtrado por tipo compatible (número/medida
+ * para entradas numéricas, fecha para fechas). Sin expresiones libres. La usan `numero`/`medida` (el
+ * resultado se inyecta en su input, editable) y el tipo legacy `calculado`.
+ */
+function ConfigFormula({ campo, onCambio, camposDisponibles = [] }: EditorCtx) {
+  const def = esIdFormula(campo.formula) ? CATALOGO_FORMULAS[campo.formula] : null;
+
+  const elegirFormula = (id: string) => {
+    // Al cambiar de fórmula se reinicia el mapeo de entradas (los nombres de entrada difieren).
+    onCambio(esIdFormula(id) ? { formula: id, entradas: {} } : { formula: undefined, entradas: {} });
+  };
+  const setEntrada = (nombre: string, campoId: string) => {
+    const next: Record<string, string> = { ...(campo.entradas ?? {}) };
+    if (campoId) next[nombre] = campoId;
+    else delete next[nombre];
+    onCambio({ entradas: next });
+  };
+  const compatibles = (tipo: 'numero' | 'fecha') =>
+    camposDisponibles.filter((c) => (tipo === 'fecha' ? c.tipo === 'fecha' : c.tipo === 'numero' || c.tipo === 'medida'));
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <ECampo label="Fórmula (opcional)">
+        <select value={campo.formula ?? ''} onChange={(e) => elegirFormula(e.target.value)} className={cfgInput}>
+          <option value="">Sin fórmula (captura manual)</option>
+          {IDS_FORMULA.map((id) => (
+            <option key={id} value={id}>
+              {CATALOGO_FORMULAS[id].label}
+            </option>
+          ))}
+        </select>
+      </ECampo>
+
+      {def && (
+        <>
+          <p className="text-[11px] leading-snug text-muted-foreground">{def.descripcion}</p>
+          <div className="flex flex-col gap-2">
+            <p className="text-[11.5px] font-semibold">Entradas</p>
+            {def.entradas.map((ent) => {
+              const opts = compatibles(ent.tipo);
+              const val = campo.entradas?.[ent.nombre] ?? '';
+              const faltante = val === '';
+              return (
+                <label key={ent.nombre} className="block">
+                  <span className="block text-[11px] text-muted-foreground">
+                    {ent.etiqueta} <span className="opacity-70">· {ent.tipo === 'fecha' ? 'fecha' : 'número/medida'}</span>
+                  </span>
+                  <select
+                    value={val}
+                    onChange={(e) => setEntrada(ent.nombre, e.target.value)}
+                    className={`${cfgInput} mt-1 ${faltante ? 'border-[color:var(--warning-border)]' : ''}`}
+                  >
+                    <option value="">Sin asignar…</option>
+                    {opts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre || c.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
+            {camposDisponibles.length === 0 && (
+              <p className="text-[11px] text-[color:var(--warning-foreground)]">
+                Agrega campos de número, medida o fecha a la plantilla para conectarlos.
+              </p>
+            )}
+          </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Se calcula al llenar y se inyecta en el campo. El médico puede editar el resultado; se
+            respeta hasta que cambie una de las entradas, entonces se recalcula.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* Editor común numero/medida (min/max/decimales + rango normal + percentil + fórmula del catálogo). */
+function EditorNumerico({ campo, onCambio, camposDisponibles }: EditorCtx) {
   const esMedida = campo.tipo === 'medida';
   return (
     <div className="flex flex-col gap-3">
@@ -383,115 +463,29 @@ function EditorNumerico({ campo, onCambio }: EditorCtx) {
           </ECampo>
         </>
       )}
-      <ECampo label="Fórmula (opcional)">
-        <input
-          value={campo.formulaExpresion ?? ''}
-          onChange={(e) => onCambio({ formulaExpresion: e.target.value })}
-          placeholder="fecha_estudio - fum"
-          className={`${cfgInput} font-mono`}
-        />
-      </ECampo>
-      <EListaEditable
-        items={campo.formulaCamposFuente ?? []}
-        onCambio={(formulaCamposFuente) => onCambio({ formulaCamposFuente })}
-        placeholder="id de campo fuente…"
-        chips
-      />
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        La fórmula se guarda; el cálculo automático se conecta en una fase posterior.
-      </p>
+      <ConfigFormula campo={campo} onCambio={onCambio} camposDisponibles={camposDisponibles} />
     </div>
   );
 }
 
 /**
- * Editor de config del campo `calculado` (§6.5): ELIGE una fórmula del CATÁLOGO (`formulas.ts`) y
- * MAPEA cada una de sus entradas a un campo EXISTENTE de la plantilla, filtrando por tipo compatible
- * (número/medida para entradas numéricas, fecha para entradas de fecha). No hay expresiones libres.
+ * Editor de config del tipo LEGACY `calculado` (solo-lectura): reusa `ConfigFormula` (elegir fórmula
+ * + mapear entradas) y agrega unidad/decimales para formatear la salida. El camino PRINCIPAL de
+ * cálculo ahora vive en `numero`/`medida` (input editable); este tipo se mantiene por compatibilidad.
  */
-function EditorCalculado({ campo, onCambio, camposDisponibles = [] }: EditorCtx) {
-  const def = esIdFormula(campo.formula) ? CATALOGO_FORMULAS[campo.formula] : null;
-
-  const elegirFormula = (id: string) => {
-    if (!esIdFormula(id)) {
-      onCambio({ formula: undefined, entradas: {} });
-      return;
-    }
-    const d = CATALOGO_FORMULAS[id];
-    // Al elegir: reinicia el mapeo y precarga unidad/decimales sugeridos por la fórmula.
-    onCambio({ formula: id, entradas: {}, unidad: d.unidad || undefined, decimales: d.decimalesDefecto });
-  };
-
-  const setEntrada = (nombre: string, campoId: string) => {
-    const next: Record<string, string> = { ...(campo.entradas ?? {}) };
-    if (campoId) next[nombre] = campoId;
-    else delete next[nombre];
-    onCambio({ entradas: next });
-  };
-
-  const compatibles = (tipo: 'numero' | 'fecha') =>
-    camposDisponibles.filter((c) => (tipo === 'fecha' ? c.tipo === 'fecha' : c.tipo === 'numero' || c.tipo === 'medida'));
-
+function EditorCalculado({ campo, onCambio, camposDisponibles }: EditorCtx) {
   return (
     <div className="flex flex-col gap-3">
-      <ECampo label="Fórmula">
-        <select value={campo.formula ?? ''} onChange={(e) => elegirFormula(e.target.value)} className={cfgInput}>
-          <option value="">Elegir fórmula…</option>
-          {IDS_FORMULA.map((id) => (
-            <option key={id} value={id}>
-              {CATALOGO_FORMULAS[id].label}
-            </option>
-          ))}
-        </select>
-      </ECampo>
-
-      {def && (
-        <>
-          <p className="text-[11px] leading-snug text-muted-foreground">{def.descripcion}</p>
-
-          <div className="flex flex-col gap-2">
-            <p className="text-[11.5px] font-semibold">Entradas</p>
-            {def.entradas.map((ent) => {
-              const opts = compatibles(ent.tipo);
-              const val = campo.entradas?.[ent.nombre] ?? '';
-              const faltante = val === '';
-              return (
-                <label key={ent.nombre} className="block">
-                  <span className="block text-[11px] text-muted-foreground">
-                    {ent.etiqueta} <span className="opacity-70">· {ent.tipo === 'fecha' ? 'fecha' : 'número/medida'}</span>
-                  </span>
-                  <select
-                    value={val}
-                    onChange={(e) => setEntrada(ent.nombre, e.target.value)}
-                    className={`${cfgInput} mt-1 ${faltante ? 'border-[color:var(--warning-border)]' : ''}`}
-                  >
-                    <option value="">Sin asignar…</option>
-                    {opts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nombre || c.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              );
-            })}
-            {camposDisponibles.length === 0 && (
-              <p className="text-[11px] text-[color:var(--warning-foreground)]">
-                Agrega campos de número, medida o fecha a la plantilla para conectarlos.
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <ECampo label="Unidad">
-              <input value={campo.unidad ?? ''} onChange={(e) => onCambio({ unidad: e.target.value })} placeholder="mm · mL · g" className={`${cfgInput} font-mono`} />
-            </ECampo>
-            <ECampo label="Decimales">
-              <ENum valor={campo.decimales} onCambio={(v) => onCambio({ decimales: v })} />
-            </ECampo>
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">Se calcula solo al llenar el reporte; el médico no lo edita.</p>
-        </>
+      <ConfigFormula campo={campo} onCambio={onCambio} camposDisponibles={camposDisponibles} />
+      {esIdFormula(campo.formula) && (
+        <div className="grid grid-cols-2 gap-2.5">
+          <ECampo label="Unidad">
+            <input value={campo.unidad ?? ''} onChange={(e) => onCambio({ unidad: e.target.value })} placeholder="mm · mL · g" className={`${cfgInput} font-mono`} />
+          </ECampo>
+          <ECampo label="Decimales">
+            <ENum valor={campo.decimales} onCambio={(v) => onCambio({ decimales: v })} />
+          </ECampo>
+        </div>
       )}
     </div>
   );

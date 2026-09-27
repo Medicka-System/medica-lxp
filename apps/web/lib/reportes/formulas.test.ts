@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOGO_FORMULAS, evaluarCampoCalculado, etiquetaFormula, IDS_FORMULA } from './formulas';
+import {
+  CATALOGO_FORMULAS,
+  evaluarCampoCalculado,
+  etiquetaFormula,
+  IDS_FORMULA,
+  recalcularFormulas,
+  type CampoConFormula,
+} from './formulas';
 
 // Atajo: corre una fórmula del catálogo con entradas resueltas por nombre.
 const run = (id: keyof typeof CATALOGO_FORMULAS, e: Record<string, unknown>, decimales?: number) =>
@@ -11,11 +18,29 @@ describe('catálogo de fórmulas', () => {
   });
 
   describe('edad_paciente', () => {
-    it('años cumplidos', () => {
+    it('años cumplidos (mismo día)', () => {
       expect(run('edad_paciente', { fecha_estudio: '2026-01-01', fecha_nacimiento: '1990-01-01' })).toBe('36');
     });
-    it('aún no cumple el año → uno menos', () => {
-      expect(run('edad_paciente', { fecha_estudio: '2026-06-30', fecha_nacimiento: '1990-12-31' })).toBe('35');
+    it('cumpleaños YA pasó en el año del estudio', () => {
+      // nace en junio, estudio en septiembre → ya cumplió: 43
+      expect(run('edad_paciente', { fecha_estudio: '2024-09-01', fecha_nacimiento: '1981-06-15' })).toBe('43');
+    });
+    it('cumpleaños AÚN no llega en el año del estudio → uno menos', () => {
+      // nace en junio, estudio en enero → todavía no cumple: 42
+      expect(run('edad_paciente', { fecha_estudio: '2024-01-01', fecha_nacimiento: '1981-06-15' })).toBe('42');
+    });
+    it('el día exacto del cumpleaños ya cuenta el año', () => {
+      expect(run('edad_paciente', { fecha_estudio: '2024-06-15', fecha_nacimiento: '1981-06-15' })).toBe('43');
+    });
+    it('un día antes del cumpleaños aún no cuenta', () => {
+      expect(run('edad_paciente', { fecha_estudio: '2024-06-14', fecha_nacimiento: '1981-06-15' })).toBe('42');
+    });
+    it('límite mismo día/mes (regresión del bug /365.25 que daba uno menos)', () => {
+      // Exactamente en el cumpleaños nº43; dias/365.25 devolvía 42, el calendario da 43.
+      expect(run('edad_paciente', { fecha_estudio: '2024-01-01', fecha_nacimiento: '1981-01-01' })).toBe('43');
+    });
+    it('estudio anterior al nacimiento → vacío', () => {
+      expect(run('edad_paciente', { fecha_estudio: '1980-01-01', fecha_nacimiento: '1990-01-01' })).toBe('');
     });
     it('entrada faltante → vacío', () => {
       expect(run('edad_paciente', { fecha_estudio: '2026-01-01' })).toBe('');
@@ -128,5 +153,52 @@ describe('etiquetaFormula', () => {
   it('id desconocido → vacío', () => {
     expect(etiquetaFormula('nope')).toBe('');
     expect(etiquetaFormula(undefined)).toBe('');
+  });
+});
+
+describe('recalcularFormulas (regla A+B del llenado)', () => {
+  // Un campo IR (índice de resistencia) que lee vps/vtd de otros campos del reporte.
+  const campoIR: CampoConFormula = {
+    id: 'ir',
+    campo: { formula: 'indice_resistencia', entradas: { vps: 'cVps', vtd: 'cVtd' } },
+  };
+
+  it('calcula e inyecta cuando hay insumos (primer cálculo, sin fuente anterior)', () => {
+    const manual = new Set<string>();
+    const upd = recalcularFormulas([campoIR], { cVps: '80', cVtd: '20' }, null, manual);
+    expect(upd).toEqual({ ir: '0.75' });
+  });
+
+  it('RECÁLCULO se dispara al cambiar una fuente (aunque hubiera edición manual)', () => {
+    const manual = new Set<string>(['ir']); // el médico había editado el valor a mano
+    const prev = { cVps: '80', cVtd: '20' };
+    const ahora = { cVps: '100', cVtd: '20' }; // cambió VPS → los insumos mandan
+    const upd = recalcularFormulas([campoIR], ahora, prev, manual);
+    expect(manual.has('ir')).toBe(false); // marca manual limpiada
+    expect(upd).toEqual({ ir: '0.80' }); // (100-20)/100
+  });
+
+  it('RESPETA el valor manual mientras NINGUNA fuente cambie', () => {
+    const manual = new Set<string>(['ir']);
+    const prev = { cVps: '80', cVtd: '20' };
+    const ahora = { cVps: '80', cVtd: '20' }; // sin cambios en fuentes
+    const upd = recalcularFormulas([campoIR], ahora, prev, manual);
+    expect(manual.has('ir')).toBe(true); // sigue marcado como manual
+    expect(upd.ir).toBeUndefined(); // no se pisa el valor del médico
+  });
+
+  it('recalcula al cambiar CUALQUIER fuente (no solo la primera)', () => {
+    const manual = new Set<string>(['ir']);
+    const prev = { cVps: '80', cVtd: '20' };
+    const ahora = { cVps: '80', cVtd: '40' }; // cambió VTD
+    const upd = recalcularFormulas([campoIR], ahora, prev, manual);
+    expect(manual.has('ir')).toBe(false);
+    expect(upd).toEqual({ ir: '0.50' }); // (80-40)/80
+  });
+
+  it('sin insumos suficientes no inyecta nada (no pisa con vacío)', () => {
+    const manual = new Set<string>();
+    const upd = recalcularFormulas([campoIR], { cVps: '80' }, null, manual);
+    expect(upd.ir).toBeUndefined();
   });
 });
