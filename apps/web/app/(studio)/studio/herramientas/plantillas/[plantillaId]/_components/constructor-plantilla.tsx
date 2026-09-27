@@ -1175,6 +1175,16 @@ function PanelCampo({
               />
             </div>
           )}
+          {/* Ocultar título — común a TODOS los tipos con etiqueta/título propio (reusa `ocultarTitulo`,
+              la misma prop que la sección y la tabla). El PDF respeta el flag en cada tipo. */}
+          <div className="mt-3">
+            <Interruptor
+              titulo="Ocultar título"
+              detalle="no muestra la etiqueta/título de este campo en el informe"
+              on={!!c.ocultarTitulo}
+              onCambio={(v) => onCambio({ ocultarTitulo: v })}
+            />
+          </div>
         </Bloque>
       )}
 

@@ -172,6 +172,16 @@ function san(t: string): string {
     .join('');
 }
 
+/**
+ * Formato de PRESENTACIÓN de fechas: ISO "AAAA-MM-DD" (o "AAAA-MM-DDTHH:mm") → "DD/MM/AAAA"
+ * (con hora si venía). En BD se siguen guardando en ISO; esto es solo cómo se pinta. Si el valor no
+ * parece una fecha ISO, se devuelve intacto (no toca nombres, medidas, texto libre, etc.).
+ */
+function fechaLocal(s: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(s.trim());
+  return m ? `${m[3]}/${m[2]}/${m[1]}${m[4] ? ` ${m[4]}` : ''}` : s;
+}
+
 function hex(h: string) {
   const n = parseInt(h.replace('#', ''), 16);
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
@@ -318,7 +328,7 @@ export class ReportesPdfService {
     let logoAlto = 0;
     try {
       const logo = await doc.pdf.embedPng(Buffer.from(LOGO_MEDICA_PNG_BASE64, 'base64'));
-      const w = 150;
+      const w = 120;
       const h = (logo.height / logo.width) * w;
       logoAlto = h;
       doc.page.drawImage(logo, { x: M, y: doc.y - h, width: w, height: h });
@@ -327,7 +337,7 @@ export class ReportesPdfService {
     }
     // Título + folio alineados a la derecha del membrete.
     const titulo = san(r.plantilla_nombre || 'Reporte clínico');
-    const tSize = 15;
+    const tSize = 14;
     const tW = bold_width(doc.bold, titulo, tSize, PAGE_W - M);
     doc.page.drawText(tW.texto, { x: PAGE_W - M - tW.ancho, y: doc.y - 13, size: tSize, font: doc.bold, color: C.navy });
     const meta = san(`${folio}${r.tipo_estudio ? ` · ${r.tipo_estudio}` : ''}`);
@@ -369,7 +379,9 @@ export class ReportesPdfService {
             ? Array.isArray(raw)
               ? raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '').join(', ')
               : ''
-            : leerTexto(raw);
+            : c.tipo === 'fecha'
+              ? fechaLocal(leerTexto(raw))
+              : leerTexto(raw);
       if (val) campos.push({ etiqueta: c.nombre || c.id, valor: val });
     }
     // Cualquier dato de paciente que no venía en el encabezado (ej. defaults del catálogo).
@@ -385,7 +397,7 @@ export class ReportesPdfService {
     };
     for (const [k, etiqueta] of Object.entries(nombresCatalogo)) {
       if (vistos.has(k)) continue;
-      const val = leerTexto(paciente[k]);
+      const val = k === 'fechaEstudio' ? fechaLocal(leerTexto(paciente[k])) : leerTexto(paciente[k]);
       if (val) campos.push({ etiqueta, valor: val });
     }
     if (campos.length === 0) return;
@@ -512,7 +524,9 @@ export class ReportesPdfService {
 
   /** Valor "en línea" (etiqueta + valor) de un campo NO-bloque. `null` si no hay nada que imprimir. */
   private valorLineaDe(c: Campo, valor: unknown): { etiqueta: string; valor: string } | null {
-    const etiqueta = san(c.nombre || '').trim();
+    // `ocultarTitulo`: suprime la ETIQUETA del campo (aplica a numero/medida/texto/fecha/opcion/sino/
+    // multiseleccion/dimensiones/calculado/multitexto) — solo se imprime el valor.
+    const etiqueta = c.ocultarTitulo ? '' : san(c.nombre || '').trim();
     if (c.tipo === 'sino') {
       const b = leerBool(valor);
       return b === null ? null : { etiqueta, valor: b ? 'Sí' : 'No' };
@@ -541,9 +555,11 @@ export class ReportesPdfService {
       const generico = valorGenerico(valor);
       return generico ? { etiqueta, valor: generico } : null;
     }
+    // Fecha (o fórmula que devuelve fecha, ej. FPP en un `calculado`) → presentación DD/MM/AAAA.
+    const base = c.tipo === 'fecha' || c.tipo === 'calculado' ? fechaLocal(txt) : txt;
     // `calculado`/`medida`: valor persistido (no se recomputa · §3) + su unidad.
     const unidad = (c.tipo === 'medida' || c.tipo === 'calculado') && c.unidad ? ` ${c.unidad}` : '';
-    return { etiqueta, valor: `${txt}${unidad}` };
+    return { etiqueta, valor: `${base}${unidad}` };
   }
 
   /** Envuelve "Etiqueta: valor" a `maxW` con la ETIQUETA en negrita y el valor en peso normal (B4). */
@@ -662,9 +678,11 @@ export class ReportesPdfService {
     dicomPorCampo: Map<string, string>,
     galeriaPorRef: Map<string, string>,
   ) {
+    // `ocultarTitulo`: la imagen usa el nombre del campo como pie → se omite el pie si está activo.
+    const pie = c.ocultarTitulo ? undefined : c.nombre;
     if (c.origen === 'referencia' && c.refUrl) {
       const bytes = await this.fetchBytes(c.refUrl);
-      if (bytes) await this.embeber(doc, bytes, extDeUrl(c.refUrl), c.nombre);
+      if (bytes) await this.embeber(doc, bytes, extDeUrl(c.refUrl), pie);
       return;
     }
     // origen 'dicom' = el médico SUBIÓ 1 imagen (galería de 1, ya anonimizada) → mismo render que la
@@ -678,7 +696,7 @@ export class ReportesPdfService {
     const b64 = dicomPorCampo.get(c.id);
     if (b64) {
       const bytes = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-      await this.embeber(doc, bytes, 'png', c.nombre);
+      await this.embeber(doc, bytes, 'png', pie);
     }
   }
 

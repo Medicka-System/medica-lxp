@@ -1071,7 +1071,6 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
           <p className="mb-1.5 text-[11.5px] font-semibold">Filas</p>
           <EListaEditable items={campo.filas ?? []} onCambio={(filas) => onCambio({ filas })} placeholder="Nueva fila…" chips />
         </div>
-        <EToggle titulo="Ocultar título de la tabla" on={!!campo.ocultarTitulo} onCambio={(v) => onCambio({ ocultarTitulo: v })} />
       </div>
     ),
   },
