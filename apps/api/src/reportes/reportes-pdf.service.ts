@@ -432,7 +432,7 @@ export class ReportesPdfService {
           continue;
         }
         if (c.tipo === 'imagen') {
-          await this.dibujarImagenCampo(doc, c, valores[c.id], dicomPorCampo);
+          await this.dibujarImagenCampo(doc, c, valores[c.id], dicomPorCampo, galeriaPorRef);
           continue;
         }
         if (c.tipo === 'galeria') {
@@ -531,13 +531,26 @@ export class ReportesPdfService {
     doc.espacio(6);
   }
 
-  private async dibujarImagenCampo(doc: Doc, c: Campo, valor: unknown, dicomPorCampo: Map<string, string>) {
+  private async dibujarImagenCampo(
+    doc: Doc,
+    c: Campo,
+    valor: unknown,
+    dicomPorCampo: Map<string, string>,
+    galeriaPorRef: Map<string, string>,
+  ) {
     if (c.origen === 'referencia' && c.refUrl) {
       const bytes = await this.fetchBytes(c.refUrl);
       if (bytes) await this.embeber(doc, bytes, extDeUrl(c.refUrl), c.nombre);
       return;
     }
-    // origen dicom: el cliente mandó el PNG rasterizado del visor.
+    // origen 'dicom' = el médico SUBIÓ 1 imagen (galería de 1, ya anonimizada) → mismo render que la
+    // galería: jpg/png se firma server-side; .dcm lo rasterizó el cliente (galeriaPorRef).
+    const subidas = leerGaleria(valor);
+    if (subidas.length) {
+      for (const img of subidas) await this.dibujarGaleria(doc, img, galeriaPorRef);
+      return;
+    }
+    // Compat: reportes viejos con imagen DICOM referenciada de la bitácora (rasterizada por el cliente).
     const b64 = dicomPorCampo.get(c.id);
     if (b64) {
       const bytes = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64');

@@ -88,7 +88,9 @@ export async function rasterizarGaleriaDicomDelReporte(
   for (const s of estructura.secciones) {
     if (s.tipo === 'encabezado') continue;
     for (const c of s.campos) {
-      if (c.tipo !== 'galeria') continue;
+      // Galería y la IMAGEN del médico (origen 'dicom', que sube 1 imagen) guardan el mismo formato
+      // (ImagenGaleria[]); ambas rasterizan sus .dcm igual para el PDF.
+      if (c.tipo !== 'galeria' && !(c.tipo === 'imagen' && c.origen === 'dicom')) continue;
       for (const img of leerGaleria(valores[c.id])) {
         if (img.ext === 'dcm' && img.ref) refs.push(img.ref);
       }

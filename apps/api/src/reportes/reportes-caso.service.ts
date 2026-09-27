@@ -32,6 +32,8 @@ type Campo = {
   unidad?: string;
   columnas?: string[];
   filas?: string[];
+  /** `imagen`: 'referencia' (fija de la plantilla) | 'dicom' (el médico SUBE 1 imagen · galería de 1). */
+  origen?: string;
 };
 type Seccion = { id?: string; tipo?: string; titulo?: string; campos?: Campo[] };
 type Estructura = { secciones?: Seccion[] };
@@ -80,7 +82,9 @@ export function imagenesDe(estructura: Estructura, valores: Record<string, unkno
   for (const s of estructura.secciones ?? []) {
     const seccionId = typeof s.id === 'string' ? s.id : '';
     for (const c of s.campos ?? []) {
-      if (c.tipo !== 'galeria') continue;
+      // La galería y la IMAGEN del médico (origen 'dicom', que sube 1 imagen) guardan el MISMO
+      // formato (ImagenGaleria[]) y ya vienen anonimizadas del upload (Presidio) → ambas van al caso.
+      if (c.tipo !== 'galeria' && !(c.tipo === 'imagen' && c.origen === 'dicom')) continue;
       const v = valores[c.id];
       const arr = Array.isArray(v) ? v : v && typeof v === 'object' ? (v as { imagenes?: unknown }).imagenes : null;
       if (!Array.isArray(arr)) continue;

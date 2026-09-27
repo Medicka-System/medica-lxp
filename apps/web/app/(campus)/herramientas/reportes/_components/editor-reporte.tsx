@@ -24,12 +24,9 @@ import {
   Pencil,
   Printer,
   Save,
-  Search,
-  X,
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
-import { VisorEstudio } from '@/components/casos/visor-estudio';
 import {
   campoCompleto,
   campoPacienteDesdeCatalogo,
@@ -39,7 +36,6 @@ import {
   contarImagenesReporte,
   esCampoEstatico,
   type CampoPlantilla,
-  type RefDicom,
   type SeccionPlantilla,
 } from '@/lib/reportes/estructura';
 import {
@@ -59,7 +55,6 @@ import {
 } from '../_rasterizar-dicom';
 import {
   ETIQUETA_ESTADO,
-  type CasoDicomOpcion,
   type ContenidoReporte,
   type DatosPaciente,
   type EstadoReporte,
@@ -139,13 +134,7 @@ function imprimirDesdeUrl(url: string): Promise<boolean> {
   });
 }
 
-export function EditorReporte({
-  reporte,
-  casosDicom,
-}: {
-  reporte: ReporteDetalle;
-  casosDicom: CasoDicomOpcion[];
-}) {
+export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
   const router = useRouter();
   const estructura = reporte.plantilla?.estructura ?? { secciones: [] };
 
@@ -162,7 +151,6 @@ export function EditorReporte({
   const [valores, setValores] = useState<Record<string, unknown>>(iniciales.valores);
   const [impresion, setImpresion] = useState(reporte.contenido.impresion);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
-  const [pickerCampo, setPickerCampo] = useState<string | null>(null);
   const [casoDialog, setCasoDialog] = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [mailDialog, setMailDialog] = useState(false);
@@ -379,17 +367,6 @@ export function EditorReporte({
   }
   const onImprimir = imprimirPdf;
 
-  function elegirEstudio(casoId: string) {
-    if (pickerCampo) setValor(pickerCampo, { casoId, tabla: 'bitacora_casos' });
-    setPickerCampo(null);
-  }
-
-  // El editor (campus) inyecta el visor real; la pieza compartida no lo importa (así el
-  // bundle del Studio no arrastra el WASM de Cornerstone).
-  const renderVisorDicom = (ref: RefDicom) => (
-    <VisorEstudio casoId={ref.casoId} tabla={ref.tabla} soloLectura className="h-[300px] min-h-[300px]" />
-  );
-
   const tituloReporte = reporte.plantilla?.nombre ?? 'Reporte clínico';
 
   return (
@@ -582,8 +559,6 @@ export function EditorReporte({
               seccion={s}
               valores={valores}
               onValor={setValor}
-              onPicker={setPickerCampo}
-              renderVisorDicom={renderVisorDicom}
               reporteId={reporte.id}
               soloLectura={soloLectura}
             />
@@ -676,11 +651,6 @@ export function EditorReporte({
           </section>
         </aside>
       </div>
-
-      {/* diálogo: elegir estudio DICOM de la bitácora */}
-      {pickerCampo && (
-        <PickerEstudio casos={casosDicom} onElegir={elegirEstudio} onCerrar={() => setPickerCampo(null)} />
-      )}
 
       {/* diálogo: ¿guardar como caso? (al finalizar) */}
       {casoDialog && (
@@ -803,16 +773,12 @@ function SeccionCard({
   seccion,
   valores,
   onValor,
-  onPicker,
-  renderVisorDicom,
   reporteId,
   soloLectura,
 }: {
   seccion: SeccionPlantilla;
   valores: Record<string, unknown>;
   onValor: (campoId: string, v: unknown) => void;
-  onPicker: (campoId: string) => void;
-  renderVisorDicom: (ref: RefDicom) => React.ReactNode;
   reporteId: string;
   soloLectura: boolean;
 }) {
@@ -828,99 +794,11 @@ function SeccionCard({
               modo="llenar"
               soloLectura={soloLectura}
               onCambio={(v) => onValor(c.id, v)}
-              onElegirEstudio={() => onPicker(c.id)}
-              onQuitarEstudio={() => onValor(c.id, null)}
-              renderVisorDicom={renderVisorDicom}
               reporteId={reporteId}
             />
           </div>
         ))}
       </div>
     </section>
-  );
-}
-
-/* ── selector de estudio de la bitácora ── */
-function PickerEstudio({
-  casos,
-  onElegir,
-  onCerrar,
-}: {
-  casos: CasoDicomOpcion[];
-  onElegir: (casoId: string) => void;
-  onCerrar: () => void;
-}) {
-  const [busca, setBusca] = useState('');
-  const visibles = busca.trim()
-    ? casos.filter((c) => c.titulo.toLowerCase().includes(busca.trim().toLowerCase()))
-    : casos;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Elegir estudio DICOM"
-      onClick={onCerrar}
-    >
-      <div className={`${card} w-full max-w-[520px] p-6`} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start gap-3">
-          <div className="min-w-0">
-            <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Insertar imagen del estudio</h2>
-            <p className={`mt-1 text-[12.5px] ${softText}`}>
-              Elige un estudio de tu bitácora. Se muestra anonimizado en el visor del reporte.
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Cerrar"
-            onClick={onCerrar}
-            className={`ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
-          >
-            <X aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
-          </button>
-        </div>
-
-        <label className="mt-4 flex h-10 items-center gap-2 rounded-[9px] border border-border bg-card px-3 focus-within:border-secondary">
-          <Search aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-          <input
-            type="search"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar estudio por órgano o hallazgo…"
-            className="w-full min-w-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-
-        <div className="mt-3 max-h-[320px] overflow-y-auto">
-          {visibles.length === 0 ? (
-            <p className="px-2 py-8 text-center text-[13px] text-muted-foreground">
-              {casos.length === 0
-                ? 'No tienes estudios con imágenes en tu bitácora todavía.'
-                : 'Ningún estudio coincide con la búsqueda.'}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {visibles.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onElegir(c.id)}
-                    className={`flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-bold">{c.titulo}</span>
-                      <span className={`${mono} mt-0.5 block text-[11.5px] text-muted-foreground`}>
-                        {c.series} {c.series === 1 ? 'serie' : 'series'} · {c.fecha}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }

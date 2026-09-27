@@ -286,8 +286,9 @@ export const REGISTRO_CAMPOS: Record<TipoCampo, DefCampo> = {
     defaults: (c) => {
       c.origen = 'dicom';
     },
-    formato: (c) => (c.origen === 'referencia' ? 'imagen de referencia (fija)' : 'imagen del estudio (DICOM)'),
-    completo: (c, v) => (c.origen === 'referencia' ? true : leerRefDicom(v) !== null),
+    formato: (c) => (c.origen === 'referencia' ? 'imagen de referencia (fija)' : 'imagen que sube el médico'),
+    // origen 'dicom' = el médico SUBE 1 imagen (galería de 1): completo si hay al menos una imagen.
+    completo: (c, v) => (c.origen === 'referencia' ? true : leerGaleria(v).length > 0),
     normalizar: (o, c) => {
       c.origen = o.origen === 'referencia' ? 'referencia' : 'dicom';
       if (c.origen === 'referencia' && txt(o.refUrl)) c.refUrl = txt(o.refUrl);
@@ -407,8 +408,9 @@ export function contarImagenesReporte(e: EstructuraPlantilla, valores: Record<st
       else if (c.tipo === 'imagen') {
         if (c.origen === 'referencia') {
           if (c.refUrl) n += 1;
-        } else if (leerRefDicom(valores[c.id])) {
-          n += 1;
+        } else {
+          // origen 'dicom' = imagen que sube el médico (galería de 1, mismo formato que la galería).
+          n += leerGaleria(valores[c.id]).length;
         }
       }
     }

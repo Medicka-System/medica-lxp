@@ -134,7 +134,7 @@ const cfgInput =
 export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstructor }) {
   const [nombre, setNombre] = useState(plantilla.nombre);
   const [tipoEstudio, setTipoEstudio] = useState(plantilla.tipoEstudio);
-  const [impresionDefecto] = useState(plantilla.estructura.impresionDefecto ?? '');
+  const [impresionDefecto, setImpresionDefecto] = useState(plantilla.estructura.impresionDefecto ?? '');
   const [secciones, setSecciones] = useState<SeccionPlantilla[]>(() => {
     const base = plantilla.estructura.secciones;
     return base.some((s) => s.tipo === 'encabezado') ? base : [seccionEncabezadoPorDefecto(), ...base];
@@ -469,6 +469,26 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
               <Plus aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
               Agregar sección
             </button>
+
+            {/* Impresión diagnóstica: sección FIJA que SIEMPRE cierra el reporte del médico (§6.5).
+                Antes no aparecía en el constructor; ahora el diseñador ve y edita su texto
+                predeterminado (boilerplate) como cualquier otra sección. El médico lo edita al llenar. */}
+            <section className="rounded-[12px] border border-border bg-card p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
+                <span className="ml-auto text-[11px] text-muted-foreground">Sección fija · siempre cierra el reporte</span>
+              </div>
+              <textarea
+                rows={3}
+                value={impresionDefecto}
+                onChange={(e) => {
+                  setImpresionDefecto(e.target.value);
+                  setSucio(true);
+                }}
+                placeholder="Texto predeterminado de la impresión (el médico lo edita al llenar). Ej.: Conclusión | …"
+                className="mt-3 w-full resize-y rounded-[10px] border border-border bg-muted p-3.5 text-[14px] leading-[1.7] text-foreground outline-none placeholder:text-muted-foreground focus:border-secondary"
+              />
+            </section>
           </div>
         </div>
 

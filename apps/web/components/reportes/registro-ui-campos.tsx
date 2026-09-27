@@ -19,7 +19,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Images, Info, Loader2, Plus, Upload, X } from 'lucide-react';
+import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Info, Loader2, Plus, Upload, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
 import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
@@ -29,7 +29,6 @@ import {
   leerBool,
   leerDimensiones,
   leerMultiseleccion,
-  leerRefDicom,
   leerTabla,
   leerTexto,
   type CampoPlantilla,
@@ -462,7 +461,7 @@ function NumeroControl({ campo, valor, deshabilitado, cambia, medida }: RenderCt
         disabled={deshabilitado}
         value={leerTexto(valor)}
         onChange={(e) => cambia(e.target.value)}
-        className={`${inputBase} h-11 rounded-r-none`}
+        className={`${inputBase} sin-spinner h-11 rounded-r-none`}
       />
       <span className="inline-flex items-center rounded-r-[10px] border border-l-0 border-border bg-muted px-3 text-[12.5px] font-semibold text-muted-foreground">
         {campo.unidad || '—'}
@@ -475,7 +474,7 @@ function NumeroControl({ campo, valor, deshabilitado, cambia, medida }: RenderCt
       disabled={deshabilitado}
       value={leerTexto(valor)}
       onChange={(e) => cambia(e.target.value)}
-      className={`${inputBase} mt-1.5 h-11`}
+      className={`${inputBase} sin-spinner mt-1.5 h-11`}
     />
   );
   return (
@@ -512,7 +511,7 @@ function DimensionesControl({ campo, valor, deshabilitado, cambia }: RenderCtx) 
             value={x === '' ? '' : x}
             onChange={(e) => set(i, e.target.value)}
             aria-label={`Eje ${i + 1}`}
-            className={`${inputBase} h-11 min-w-0 flex-1 text-center`}
+            className={`${inputBase} sin-spinner h-11 min-w-0 flex-1 text-center`}
           />
         </Fragment>
       ))}
@@ -710,95 +709,6 @@ function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: C
         </tbody>
       </table>
     </div>
-  );
-}
-
-function CampoImagenControl({
-  campo,
-  valor,
-  modo,
-  soloLectura,
-  onElegirEstudio,
-  onQuitarEstudio,
-  renderVisorDicom,
-}: {
-  campo: CampoPlantilla;
-  valor: unknown;
-  modo: ModoCampo;
-  soloLectura: boolean;
-  onElegirEstudio?: () => void;
-  onQuitarEstudio?: () => void;
-  renderVisorDicom?: (ref: RefDicom) => ReactNode;
-}) {
-  if (campo.origen === 'referencia') {
-    return campo.refUrl ? (
-      <ImgReferencia
-        src={campo.refUrl}
-        alt={campo.nombre || 'Imagen de referencia'}
-        className="mt-1.5 max-h-[320px] w-full rounded-[11px] border border-border object-contain"
-      />
-    ) : (
-      <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
-        <span>
-          <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
-          Imagen de referencia (sin URL)
-        </span>
-      </div>
-    );
-  }
-  const ref: RefDicom | null = leerRefDicom(valor);
-  if (modo === 'previa') {
-    return (
-      <div className="mt-1.5 grid h-[180px] place-items-center rounded-[11px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-center">
-        <span className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
-          <Images className="mx-auto h-5 w-5" strokeWidth={1.75} />
-          Hueco DICOM · el médico inserta aquí su estudio
-        </span>
-      </div>
-    );
-  }
-  if (ref) {
-    return (
-      <div className="mt-1.5">
-        {renderVisorDicom ? (
-          renderVisorDicom(ref)
-        ) : (
-          <div className="grid h-[280px] place-items-center rounded-xl border border-border bg-muted text-[12px] text-muted-foreground">
-            Estudio {ref.casoId.slice(0, 8)} · visor no disponible aquí
-          </div>
-        )}
-        {!soloLectura && (
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={onElegirEstudio} className={`inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}>
-              <Images aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Cambiar estudio
-            </button>
-            <button type="button" onClick={onQuitarEstudio} className={`inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted ${focusRing}`}>
-              <X aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Quitar
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (soloLectura) {
-    return (
-      <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
-        <span>
-          <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
-          Sin imagen insertada
-        </span>
-      </div>
-    );
-  }
-  return (
-    <button type="button" onClick={onElegirEstudio} className={`mt-1.5 grid h-[180px] w-full place-items-center rounded-[11px] border-[1.5px] border-dashed border-border bg-card text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}>
-      <span className="text-[12.5px] font-semibold text-secondary">
-        <Images className="mx-auto h-6 w-6" strokeWidth={1.75} />
-        Insertar imagen del estudio
-      </span>
-    </button>
   );
 }
 
@@ -1126,9 +1036,37 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     ),
   },
   imagen: {
-    render: (ctx) => (
-      <CampoImagenControl campo={ctx.campo} valor={ctx.valor} modo={ctx.modo} soloLectura={ctx.soloLectura} onElegirEstudio={ctx.onElegirEstudio} onQuitarEstudio={ctx.onQuitarEstudio} renderVisorDicom={ctx.renderVisorDicom} />
-    ),
+    render: ({ campo, valor, modo, soloLectura, reporteId, cambia }) => {
+      // (1) Referencia FIJA de la plantilla (ilustración/diagrama). No es imagen de paciente.
+      if (campo.origen === 'referencia') {
+        return campo.refUrl ? (
+          <ImgReferencia
+            src={campo.refUrl}
+            alt={campo.nombre || 'Imagen de referencia'}
+            className="mt-1.5 max-h-[320px] w-full rounded-[11px] border border-border object-contain"
+          />
+        ) : (
+          <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
+            <span>
+              <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
+              Imagen de referencia (sin URL)
+            </span>
+          </div>
+        );
+      }
+      // (2) Imagen del MÉDICO: SUBE UNA imagen (JPG/PNG/.dcm) — MISMO flujo que la galería (uploader
+      // + anonimización Presidio al subir + firma de lectura), LIMITADO A 1 (estudios de precisión).
+      return modo === 'llenar' && reporteId ? (
+        <GaleriaReporte reporteId={reporteId} max={1} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
+      ) : (
+        <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-center">
+          <span className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
+            <ImagePlus className="mx-auto h-5 w-5" strokeWidth={1.75} />
+            El médico sube aquí una imagen (JPG, PNG o .dcm)
+          </span>
+        </div>
+      );
+    },
     preview: (campo) =>
       campo.origen === 'referencia' && campo.refUrl ? (
         <ImgReferencia src={campo.refUrl} alt={campo.nombre || 'Imagen de referencia'} className="max-h-[200px] w-full rounded-[10px] border border-border object-contain" />
@@ -1149,7 +1087,7 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
       <div className="flex flex-col gap-3">
         <ECampo label="Origen">
           <select value={campo.origen ?? 'dicom'} onChange={(e) => onCambio({ origen: e.target.value === 'referencia' ? 'referencia' : 'dicom' })} className={cfgInput}>
-            <option value="dicom">Estudio del médico (DICOM)</option>
+            <option value="dicom">El médico sube una imagen</option>
             <option value="referencia">Referencia fija de la plantilla</option>
           </select>
         </ECampo>
