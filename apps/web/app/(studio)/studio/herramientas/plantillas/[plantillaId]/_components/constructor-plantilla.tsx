@@ -343,7 +343,13 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
     }
   };
   const permitirDrop = (e: DragEvent, id: string) => {
-    if (!e.dataTransfer.types.includes(MIME)) return;
+    // `preventDefault()` en `onDragOver` es OBLIGATORIO: sin él el navegador rechaza el drop y muestra
+    // el cursor "prohibido" (⊘). Antes se condicionaba a `types.includes(MIME)`, pero detectar un MIME
+    // CUSTOM en `dataTransfer.types` durante `dragover` es poco fiable (React/navegador) → cuando daba
+    // false, NO se hacía preventDefault y TODAS las zonas rechazaban el arrastre. Ahora se permite todo
+    // arrastre INTERNO (solo se descarta un drag de ARCHIVOS externos, que sí expone `types: ['Files']`);
+    // la validación real del contenido ocurre en el drop (`leerCarga` devuelve null si no es nuestro).
+    if (e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     if (dropSobre !== id) setDropSobre(id);
   };
