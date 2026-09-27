@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Clock, Loader2, Pencil, Stethoscope, Trash2, TriangleAlert } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
-import { fechaCorta } from '@/lib/format';
+import { fechaCorta, fechaLargaHora } from '@/lib/format';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import { VisorDicomPlaceholder } from '../../../_components/visor-dicom';
 import { VistaCasoEstudio } from '@/components/casos/vista-caso-estudio';
@@ -320,12 +320,15 @@ function PanelLectura({
 }) {
   const ficha: [string, string | null][] = [
     ['Órgano', caso.organo],
-    ['Patología', caso.patologia],
+    ['Tipo de estudio', caso.tipoEstudio],
+    ['Expediente', caso.expediente],
     ['Dominio I-AIM', caso.dominio ? DOMINIO_LABEL[caso.dominio] : null],
+    ['Patología', caso.patologia],
     ['Técnica', caso.tecnica],
     ['Equipo', caso.equipo],
     ['Docente', caso.docente],
     ['Módulo', caso.modulo],
+    ['Fecha', fechaLargaHora(caso.fecha)],
   ];
 
   return (

@@ -33,6 +33,27 @@ function hallazgoCorto(hallazgos: string | null): string {
   return linea.length > 120 ? `${linea.slice(0, 117)}…` : linea;
 }
 
+/**
+ * Título de la tarjeta del caso: si viene de un REPORTE, "Plantilla · Tipo de estudio" (así dos
+ * casos de la misma plantilla con distinto tipo/estudio se distinguen). Si no hay plantilla (caso
+ * subido a mano), cae al hallazgo corto — el título de antes.
+ */
+function tituloCaso(plantillaNombre: string | null, tipoEstudio: string | null, fallback: string): string {
+  const p = (plantillaNombre ?? '').trim();
+  if (!p) return fallback;
+  const t = (tipoEstudio ?? '').trim();
+  return t ? `${p} · ${t}` : p;
+}
+
+/** Expediente del estudio desde el snapshot (sección encabezado del contenido estructurado). null si no hay. */
+function expedienteDe(ce: import('@campus/shared').ContenidoEstructuradoCaso | null): string | null {
+  const enc = (ce?.secciones ?? []).find((s) => s.tipo === 'encabezado');
+  const campo = (enc?.campos ?? []).find((c) => c.id === 'expediente' || /expediente/i.test(c.nombre ?? ''));
+  if (!campo) return null;
+  const v = ce?.valores?.[campo.id];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
 /** Docentes disponibles para asignar la validación (SECURITY DEFINER · mig 0025). */
 export async function getDocentes(userId: string): Promise<DocenteOpcion[]> {
   return comoAlumno(userId, async (sql) => {
@@ -112,6 +133,8 @@ export async function getCasoBitacora(
       docenteId: r.docente_id,
       docente: r.docente,
       fecha: r.created_at,
+      expediente: expedienteDe(r.contenido_estructurado ?? null),
+      tipoEstudio: r.contenido_estructurado?.fuente?.tipoEstudio ?? null,
       estado: r.estado_validacion,
       estudioEstado: r.estudio_estado,
       series: r.series,
@@ -138,6 +161,8 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
         cine_loop: boolean;
         horas: number;
         feedback: string | null;
+        plantilla_nombre: string | null;
+        tipo_estudio: string | null;
       }[]
     >`
       select
@@ -149,6 +174,8 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
         c.created_at,
         c.estado_validacion,
         c.estudio_estado,
+        c.contenido_estructurado->'fuente'->>'plantillaNombre' as plantilla_nombre,
+        c.contenido_estructurado->'fuente'->>'tipoEstudio'     as tipo_estudio,
         coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
         exists (
           select 1 from jsonb_array_elements(c.estudio_series) s
@@ -218,6 +245,7 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
 
     const items: CasoBitacora[] = casos.map((c) => ({
       id: c.id,
+      titulo: tituloCaso(c.plantilla_nombre, c.tipo_estudio, hallazgoCorto(c.hallazgos)),
       hallazgoCorto: hallazgoCorto(c.hallazgos),
       modulo: c.modulo,
       organo: c.organo,

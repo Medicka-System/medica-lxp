@@ -185,8 +185,12 @@ export function snapshotContenidoCaso(
   const secciones: ContenidoEstructuradoCaso['secciones'] = [];
   const valoresLimpios: Record<string, unknown> = {};
   for (const s of estructura.secciones ?? []) {
-    if (s.tipo === 'encabezado') continue;
-    const campos = (s.campos ?? []).filter((c) => c.tipo !== 'galeria' && c.tipo !== 'imagen');
+    const esEnc = s.tipo === 'encabezado';
+    // ENCABEZADO ("Datos del estudio") SÍ viaja al caso (§10 · cambio) EXCEPTO los dos campos PII:
+    // Nombre del paciente y Fecha de nacimiento. Todo lo demás (expediente, médico tratante, fecha de
+    // estudio, FUM, indicación, tipo de estudio, etc.) se conserva. Los HALLAZGOS, como antes.
+    let campos = (s.campos ?? []).filter((c) => c.tipo !== 'galeria' && c.tipo !== 'imagen');
+    if (esEnc) campos = campos.filter((c) => !esCampoPacientePII(c));
     if (!campos.length) continue;
     // La tabla se copia con las columnas de DATOS (columnas[1..]); columnas[0] es la columna de
     // etiquetas de fila y sus valores ya viajan en `filas` — así el contrato del caso queda alineado
@@ -204,9 +208,13 @@ export function snapshotContenidoCaso(
       // de tabla…), no solo el subconjunto del tipo laxo — por eso el cast al contrato.
       campos: camposSnap as unknown as ContenidoEstructuradoCaso['secciones'][number]['campos'],
     });
+    // Encabezado: los valores viven en `datos_paciente` y son el DATO del estudio que sí va al caso
+    // → verbatim (sin scrub, no son PII una vez excluidos nombre/nacimiento). Hallazgos: scrub PII
+    // defensivo del texto libre, como antes.
+    const fuenteVals = esEnc ? datosPaciente : valores;
     for (const c of campos) {
-      if (Object.prototype.hasOwnProperty.call(valores, c.id)) {
-        valoresLimpios[c.id] = scrubValor(valores[c.id], datosPaciente);
+      if (Object.prototype.hasOwnProperty.call(fuenteVals, c.id)) {
+        valoresLimpios[c.id] = esEnc ? fuenteVals[c.id] : scrubValor(valores[c.id], datosPaciente);
       }
     }
   }
@@ -314,6 +322,24 @@ export function estructurarContenido(
 
   if (!secciones.length && !imp && !imgs.length) return null;
   return { version: 1, secciones, impresion: imp, imagenes: imgs };
+}
+
+/**
+ * ¿Es uno de los DOS campos del encabezado que NO deben viajar al caso (§10): Nombre del paciente
+ * o Fecha de nacimiento? Se identifican por id de catálogo (`paciente`) o por el nombre visible
+ * (nombre del paciente / fecha de nacimiento). El resto de "Datos del estudio" sí va al caso.
+ */
+export function esCampoPacientePII(c: Campo): boolean {
+  const id = (c.id ?? '').toLowerCase();
+  const nombre = (c.nombre ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, ''); // sin acentos
+  // Nombre del paciente
+  if (id === 'paciente' || nombre === 'nombre' || nombre === 'paciente' || /nombre del paciente|paciente.*nombre|nombre.*paciente/.test(nombre)) return true;
+  // Fecha de nacimiento
+  if (/nacimiento/.test(nombre) || /nacimiento|(^|_)dob($|_)/.test(id)) return true;
+  return false;
 }
 
 /** Scrub de PII conocida (nombre/expediente/solicitante del paciente) en texto libre (§10). */

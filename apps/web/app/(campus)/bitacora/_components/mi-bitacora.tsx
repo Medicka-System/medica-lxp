@@ -11,7 +11,7 @@
  * (Sprint 4.7) y la validación/horas acreditadas son dominio (ver bitacora-contrato).
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -35,6 +35,7 @@ import {
 } from '@/components/casos/subida-dicom';
 import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
+import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
@@ -281,6 +282,22 @@ function SheetSubirCaso({
 
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
   const tieneEstudio = c.estudioEstado === 'anonimizado';
+  // Thumbnail = PRIMERA imagen del estudio (solo JPG/PNG, que se muestran directo; el .dcm necesita
+  // el visor Cornerstone y no se puede miniaturizar barato en la lista → cae al placeholder). Se
+  // carga perezoso por tarjeta (firma URL vía el api) solo cuando el estudio ya está anonimizado.
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tieneEstudio || c.piezas < 1) return;
+    let vivo = true;
+    void lecturaEstudioDicom(c.id, 'bitacora_casos').then((res) => {
+      if (!vivo || !res.ok) return;
+      const primera = res.datos.series[0];
+      if (primera?.tipo === 'imagen' && primera.urlLectura) setThumb(primera.urlLectura);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [c.id, tieneEstudio, c.piezas]);
   const etiquetaEstudio =
     c.organo ??
     (c.estudioEstado === 'procesando'
@@ -300,12 +317,17 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
       }`}
     >
       <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
-        <VisorDicomPlaceholder
-          etiqueta={etiquetaEstudio}
-          alto={156}
-          loop={c.cineLoop}
-          piezas={c.piezas}
-        />
+        {thumb ? (
+          // <img> directo: es una URL FIRMADA efímera de object storage (no un asset local para next/image).
+          <img src={thumb} alt="" className="h-[156px] w-full object-cover" />
+        ) : (
+          <VisorDicomPlaceholder
+            etiqueta={etiquetaEstudio}
+            alto={156}
+            loop={c.cineLoop}
+            piezas={c.piezas}
+          />
+        )}
         {tieneEstudio && (
           <span
             className="absolute inset-0 grid place-items-center bg-[rgba(15,45,82,.35)] opacity-0 transition-opacity hover:opacity-100"
@@ -330,7 +352,7 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
           </span>
         </div>
         <h3 className="mt-3 text-[15px] font-bold leading-snug" style={{ textWrap: 'pretty' }}>
-          {c.hallazgoCorto}
+          {c.titulo}
         </h3>
         <p className={`mt-2 text-[12.5px] leading-snug ${softText}`}>
           {[c.modulo, c.organo].filter(Boolean).join(' · ') || 'Sin catalogar'}
