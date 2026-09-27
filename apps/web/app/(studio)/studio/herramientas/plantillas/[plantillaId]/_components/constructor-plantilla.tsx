@@ -5,9 +5,11 @@
  * diseñador (Paleta 252 · Lienzo · Propiedades 328), sobre el REGISTRO DE UI escalable
  * (`registro-ui-campos.tsx`: preview + editor por tipo) y el contrato EXISTENTE.
  *
- * Drag-and-drop nativo HTML5 (MIME `application/x-plantilla`), 3 cargas:
+ * Drag-and-drop nativo HTML5 — el PAYLOAD vive en un REF de React (no en el dataTransfer, que es
+ * frágil con MIME custom), 3 cargas:
  *   { k:'nuevo', tipo, preset? }  desde la paleta · { k:'campo', id }  mover campo · { k:'seccion', id }  reordenar.
- * Soltar sobre un campo inserta ANTES; en el cuerpo de la sección, al final; en "Agregar sección", nueva.
+ * Soltar sobre un campo inserta ANTES; en el cuerpo de la sección, al final; en "Agregar sección", nueva;
+ * en un hueco del lienzo, a la última sección.
  *
  * Wiring al contrato (shape SIN cambios): etiqueta↔`nombre`, ancho↔`span`, config↔llaves
  * existentes (unidad/opciones/origen/refUrl/columnas/filas/valorDefecto). Flags nuevos OPCIONALES
@@ -15,7 +17,7 @@
  * `guardarEstructuraPlantilla` (sql.json). Autoguardado a los 2 s.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import {
   AlignLeft,
@@ -66,7 +68,6 @@ import {
 import { guardarEstructuraPlantilla } from '@/lib/studio/acciones';
 import type { PlantillaConstructor } from '@/lib/studio/datos';
 
-const MIME = 'application/x-plantilla';
 const TIPOS_ESTUDIO = ['Abdominal', 'Obstétrico', 'Mama', 'Doppler', 'MSK', 'Tiroideo', 'Renal', 'Pélvico'];
 
 type Seleccion =
@@ -331,39 +332,40 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
   };
 
   /* ── drag & drop ── */
+  // El PAYLOAD del arrastre vive en un REF de React, NO en el `dataTransfer` del navegador. Detectar un
+  // MIME CUSTOM en `dataTransfer.types` (dragover) o leerlo con `getData` (drop) es INTRÍNSECAMENTE
+  // FRÁGIL en HTML5 nativo — fallaba de forma intermitente (types daba false → ⊘; getData daba "" →
+  // el drop no movía nada). El ref sobrevive de dragstart a drop con certeza; el dataTransfer solo se
+  // usa para que Firefox inicie el drag (requiere algún setData) y para el efecto del cursor.
+  const cargaRef = useRef<CargaDrag | null>(null);
   const iniciarDrag = (e: DragEvent, carga: CargaDrag) => {
-    e.dataTransfer.setData(MIME, JSON.stringify(carga));
+    cargaRef.current = carga;
+    e.dataTransfer.setData('text/plain', carga.k);
     e.dataTransfer.effectAllowed = carga.k === 'nuevo' ? 'copy' : 'move';
   };
-  const leerCarga = (e: DragEvent): CargaDrag | null => {
-    try {
-      return JSON.parse(e.dataTransfer.getData(MIME)) as CargaDrag;
-    } catch {
-      return null;
-    }
-  };
   const permitirDrop = (e: DragEvent, id: string) => {
-    // `preventDefault()` en `onDragOver` es OBLIGATORIO: sin él el navegador rechaza el drop y muestra
-    // el cursor "prohibido" (⊘). Antes se condicionaba a `types.includes(MIME)`, pero detectar un MIME
-    // CUSTOM en `dataTransfer.types` durante `dragover` es poco fiable (React/navegador) → cuando daba
-    // false, NO se hacía preventDefault y TODAS las zonas rechazaban el arrastre. Ahora se permite todo
-    // arrastre INTERNO (solo se descarta un drag de ARCHIVOS externos, que sí expone `types: ['Files']`);
-    // la validación real del contenido ocurre en el drop (`leerCarga` devuelve null si no es nuestro).
-    if (e.dataTransfer.types.includes('Files')) return;
+    // `preventDefault()` en `onDragOver` es OBLIGATORIO o el navegador rechaza el drop (cursor ⊘). Se
+    // gatea en el REF (hay un arrastre INTERNO en curso), no en el MIME del dataTransfer: así TODAS las
+    // zonas aceptan el drop interno de forma fiable; un drag de archivos externos (sin ref) no se acapara.
+    if (!cargaRef.current) return;
     e.preventDefault();
     if (dropSobre !== id) setDropSobre(id);
   };
-  const soltarEnSeccion = (e: DragEvent, seccionId: string, antesDe?: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDropSobre(null);
-    const c = leerCarga(e);
-    if (!c) return;
+  /** Aplica la carga arrastrada a una sección (reordenar/mover/insertar/agregar). */
+  const aplicarCarga = (c: CargaDrag, seccionId: string, antesDe?: string) => {
     if (c.k === 'nuevo') {
       if (c.tipo === 'seccion') return void agregarSeccion(seccionId);
       insertarCampo(seccionId, crearCampoPreset(c.tipo, c.preset), antesDe);
     } else if (c.k === 'campo') moverCampo(c.id, seccionId, antesDe);
     else if (c.k === 'seccion') moverSeccion(c.id, seccionId);
+  };
+  const soltarEnSeccion = (e: DragEvent, seccionId: string, antesDe?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropSobre(null);
+    const c = cargaRef.current;
+    cargaRef.current = null;
+    if (c) aplicarCarga(c, seccionId, antesDe);
   };
 
   /* ── teclado: Esc deselecciona · Supr elimina campo ── */
@@ -378,6 +380,16 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // Al TERMINAR o CANCELAR cualquier arrastre, limpia el payload y el resaltado (evita ref colgado).
+  useEffect(() => {
+    const limpiar = () => {
+      cargaRef.current = null;
+      setDropSobre(null);
+    };
+    window.addEventListener('dragend', limpiar);
+    return () => window.removeEventListener('dragend', limpiar);
+  }, []);
 
   return (
     <div className="flex h-[calc(100vh-60px)] flex-col bg-background">
@@ -424,10 +436,27 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
           }}
         />
 
-        {/* 2 · Lienzo */}
+        {/* 2 · Lienzo — catch-all de drop: los huecos entre/alrededor de las tarjetas también aceptan el
+            arrastre (sin ⊘) y lo enrutan a la última sección. Las zonas internas (sección/campo/agregar)
+            consumen `cargaRef` primero, así que este handler no duplica el movimiento. */}
         <div
           className="min-w-0 flex-1 overflow-y-auto bg-[color:var(--canvas)] px-7 pb-10 pt-[22px]"
           onClick={(e) => e.target === e.currentTarget && setSeleccion(null)}
+          onDragOver={(e) => permitirDrop(e, 'lienzo')}
+          onDragLeave={() => setDropSobre(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDropSobre(null);
+            const c = cargaRef.current;
+            cargaRef.current = null;
+            if (!c) return;
+            const ultima = [...secciones].reverse().find((s) => s.tipo === 'hallazgos') ?? secciones.at(-1);
+            if (ultima) aplicarCarga(c, ultima.id);
+            else if (c.k !== 'seccion') {
+              const s = agregarSeccion();
+              aplicarCarga(c, s.id);
+            }
+          }}
         >
           <div className="mx-auto flex max-w-[880px] flex-col gap-4">
             <div className="flex items-center gap-2.5">
@@ -479,8 +508,10 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
               onDragLeave={() => setDropSobre(null)}
               onDrop={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 setDropSobre(null);
-                const c = leerCarga(e);
+                const c = cargaRef.current;
+                cargaRef.current = null;
                 if (!c) return;
                 const s = agregarSeccion();
                 if (c.k === 'nuevo' && c.tipo !== 'seccion') insertarCampo(s.id, crearCampoPreset(c.tipo, c.preset));
