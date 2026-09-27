@@ -234,7 +234,11 @@ function ImgReferencia({ src, alt, className }: { src?: string; alt: string; cla
       </div>
     );
   }
-  return <img src={url} alt={alt} className={className} />;
+  // `draggable={false}`: en el CONSTRUCTOR la tarjeta del campo es `draggable` (drag-and-drop nativo).
+  // Un `<img>` es draggable por defecto y ROBABA el arrastre: al agarrar la imagen, el navegador
+  // iniciaba un drag de imagen (sin el MIME de la plantilla) y las zonas de drop lo rechazaban (⊘).
+  // Deshabilitarlo deja que el arrastre lo tome la tarjeta y el reordenamiento vuelve a funcionar.
+  return <img src={url} alt={alt} className={className} draggable={false} />;
 }
 
 /**
