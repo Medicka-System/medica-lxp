@@ -45,12 +45,15 @@ export function GaleriaReporte({
   valor,
   onCambio,
   soloLectura = false,
+  max,
 }: {
   reporteId: string;
   valor: unknown;
   onCambio: (imagenes: ImagenGaleria[]) => void;
   /** Reporte FINALIZADO: muestra las imágenes pero sin subir/borrar/reordenar/editar pie. */
   soloLectura?: boolean;
+  /** Máximo de imágenes (undefined = sin límite). El componente IMAGEN del médico lo usa con `max=1`. */
+  max?: number;
 }) {
   const imagenes = leerGaleria(valor);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -119,7 +122,14 @@ export function GaleriaReporte({
       return;
     }
     let acumulado = leerGaleria(valorRef.current);
-    for (const file of lista) {
+    // Límite opcional (componente Imagen del médico: máx 1). Solo se suben las que caben.
+    const espacio = typeof max === 'number' ? Math.max(0, max - acumulado.length) : lista.length;
+    const aSubir = lista.slice(0, espacio);
+    if (aSubir.length === 0) {
+      setError(`Máximo ${max} imagen${max === 1 ? '' : 'es'}.`);
+      return;
+    }
+    for (const file of aSubir) {
       const ext = extDe(file);
       setSubiendo((s) => s + 1);
       try {
@@ -172,8 +182,8 @@ export function GaleriaReporte({
 
   return (
     <div className="mt-1.5">
-      {/* zona de subida (oculta en read-only: reporte finalizado) */}
-      {!soloLectura && (
+      {/* zona de subida (oculta en read-only y al alcanzar el máximo — p. ej. imagen única del médico) */}
+      {!soloLectura && (max === undefined || imagenes.length < max) && (
         <div
           role="button"
           tabIndex={0}

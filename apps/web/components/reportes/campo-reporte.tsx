@@ -21,11 +21,12 @@ export type { ModoCampo };
 
 /** Clase de col-span del campo dentro del grid de la sección. */
 export function claseSpan(campo: CampoPlantilla, columnas: number): string {
-  // `multitexto` y `guia` HONRAN su span como los demás (antes iban forzados a fila completa). Los
-  // que sí ocupan siempre toda la fila por su naturaleza (tabla/imagen/galería/título) se mantienen.
-  const bloque = ['tabla', 'imagen', 'galeria', 'titulo'].includes(campo.tipo);
+  // Honra el `span` configurado para TODOS los tipos — IGUAL que el constructor, donde
+  // `CampoCard` aplica `gridColumn: span min(span, columnas)` sin distinguir por tipo. Antes
+  // `tabla/imagen/galeria/titulo` se forzaban a fila completa e IGNORABAN su ancho, por lo que el
+  // render del alumno no coincidía con el layout de columnas propuesto en el constructor (FIX).
   const span = campo.span ?? 1;
-  if (bloque || span >= columnas || span >= 4) return 'col-span-full';
+  if (span >= columnas || span >= 4) return 'col-span-full';
   if (span >= 3) return 'lg:col-span-3';
   if (span >= 2) return 'sm:col-span-2';
   return '';

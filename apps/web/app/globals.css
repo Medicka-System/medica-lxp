@@ -240,3 +240,15 @@ a:hover {
 [data-tema-lectura='oscuro'] .trama {
   background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0 2px, transparent 2px 9px);
 }
+
+/* Inputs numéricos (medida / número / dimensiones del reporte) SIN las flechas del spinner nativo:
+   el input sigue siendo numérico, pero se ocultan los botones arriba/abajo (§5A · limpieza visual). */
+.sin-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.sin-spinner::-webkit-outer-spin-button,
+.sin-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

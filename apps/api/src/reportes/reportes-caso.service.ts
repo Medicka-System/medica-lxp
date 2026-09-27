@@ -32,6 +32,8 @@ type Campo = {
   unidad?: string;
   columnas?: string[];
   filas?: string[];
+  /** `imagen`: 'referencia' (fija de la plantilla) | 'dicom' (el médico SUBE 1 imagen · galería de 1). */
+  origen?: string;
 };
 type Seccion = { id?: string; tipo?: string; titulo?: string; campos?: Campo[] };
 type Estructura = { secciones?: Seccion[] };
@@ -80,7 +82,9 @@ export function imagenesDe(estructura: Estructura, valores: Record<string, unkno
   for (const s of estructura.secciones ?? []) {
     const seccionId = typeof s.id === 'string' ? s.id : '';
     for (const c of s.campos ?? []) {
-      if (c.tipo !== 'galeria') continue;
+      // La galería y la IMAGEN del médico (origen 'dicom', que sube 1 imagen) guardan el MISMO
+      // formato (ImagenGaleria[]) y ya vienen anonimizadas del upload (Presidio) → ambas van al caso.
+      if (c.tipo !== 'galeria' && !(c.tipo === 'imagen' && c.origen === 'dicom')) continue;
       const v = valores[c.id];
       const arr = Array.isArray(v) ? v : v && typeof v === 'object' ? (v as { imagenes?: unknown }).imagenes : null;
       if (!Array.isArray(arr)) continue;
@@ -120,6 +124,20 @@ export function aplanarHallazgos(
   return aplanarContenidoCaso(aContenidoEstructurado(estructura, valores, impresion));
 }
 
+/**
+ * Deja cada tabla con sus columnas de DATOS (`columnas[1..]`); `columnas[0]` es la columna de
+ * ETIQUETAS DE FILA y sus valores por fila viajan en `filas`. Así el contrato del caso
+ * (estructurado / snapshot / aplanado) usa SIEMPRE columnas de datos, alineado con la matriz de
+ * valores `filas × columnasDatos` — igual que los casos ya guardados (columnas = datos).
+ */
+function seccionColumnasDatos(s: Seccion): Seccion {
+  if (!Array.isArray(s.campos)) return s;
+  return {
+    ...s,
+    campos: s.campos.map((c) => (c.tipo === 'tabla' ? { ...c, columnas: (c.columnas ?? []).slice(1) } : c)),
+  };
+}
+
 /** Arma el snapshot estructurado (contrato compartido) desde la estructura + valores. */
 export function aContenidoEstructurado(
   estructura: Estructura,
@@ -128,9 +146,10 @@ export function aContenidoEstructurado(
   fuente?: ContenidoEstructuradoCaso['fuente'],
 ): ContenidoEstructuradoCaso {
   return {
-    // La estructura de la plantilla (jsonb) ya trae la forma completa de secciones/campos;
-    // el tipo laxo la sub-describe, por eso el cast al contrato de almacén.
-    secciones: (estructura.secciones ?? []) as unknown as ContenidoEstructuradoCaso['secciones'],
+    // La estructura de la plantilla (jsonb) ya trae la forma completa de secciones/campos; el tipo
+    // laxo la sub-describe, por eso el cast al contrato. La tabla se pasa con columnas de DATOS
+    // (columnas[0] = etiquetas de fila → sus valores están en `filas`), alineada con la matriz.
+    secciones: (estructura.secciones ?? []).map(seccionColumnasDatos) as unknown as ContenidoEstructuradoCaso['secciones'],
     valores,
     impresion,
     ...(fuente ? { fuente } : {}),
@@ -169,6 +188,12 @@ export function snapshotContenidoCaso(
     if (s.tipo === 'encabezado') continue;
     const campos = (s.campos ?? []).filter((c) => c.tipo !== 'galeria' && c.tipo !== 'imagen');
     if (!campos.length) continue;
+    // La tabla se copia con las columnas de DATOS (columnas[1..]); columnas[0] es la columna de
+    // etiquetas de fila y sus valores ya viajan en `filas` — así el contrato del caso queda alineado
+    // con la matriz de valores (`filas × columnasDatos`), sin la columna de etiquetas duplicada.
+    const camposSnap = campos.map((c) =>
+      c.tipo === 'tabla' ? { ...c, columnas: (c.columnas ?? []).slice(1) } : c,
+    );
     const columnas = (s as { columnas?: number }).columnas;
     secciones.push({
       id: typeof s.id === 'string' ? s.id : '',
@@ -177,7 +202,7 @@ export function snapshotContenidoCaso(
       columnas: typeof columnas === 'number' ? columnas : 1,
       // Los campos se copian con TODA su metadata de runtime (opciones/span/filas/columnas
       // de tabla…), no solo el subconjunto del tipo laxo — por eso el cast al contrato.
-      campos: campos as unknown as ContenidoEstructuradoCaso['secciones'][number]['campos'],
+      campos: camposSnap as unknown as ContenidoEstructuradoCaso['secciones'][number]['campos'],
     });
     for (const c of campos) {
       if (Object.prototype.hasOwnProperty.call(valores, c.id)) {
@@ -248,7 +273,9 @@ export function estructurarContenido(
       }
 
       if (c.tipo === 'tabla') {
-        const columnas = c.columnas ?? [];
+        // columnas[0] = columna de etiquetas de fila (sus celdas son `filas`); las columnas de DATOS
+        // del caso son columnas[1..]. La matriz de valores del médico es `filas × columnasDatos`.
+        const columnas = (c.columnas ?? []).slice(1);
         const filas = c.filas ?? [];
         const datos = Array.isArray(v) ? (v as unknown[][]) : [];
         const celdas = filas.map((_, r) =>

@@ -28,7 +28,8 @@ const estructura = {
       id: 's2',
       tipo: 'hallazgos',
       titulo: 'Mediciones',
-      campos: [{ id: 'tab', tipo: 'tabla', nombre: 'Índices', columnas: ['PSV', 'IR'], filas: ['ACC', 'ACI'] }],
+      // columnas[0] = columna de etiquetas de fila (vacía); columnas[1..] = columnas de datos.
+      campos: [{ id: 'tab', tipo: 'tabla', nombre: 'Índices', columnas: ['', 'PSV', 'IR'], filas: ['ACC', 'ACI'] }],
     },
     { id: 's3', tipo: 'hallazgos', titulo: 'Imágenes', campos: [{ id: 'gal', tipo: 'galeria', nombre: 'Imágenes' }] },
   ],
@@ -169,7 +170,7 @@ describe('puente reporte→caso · SNAPSHOT para la columna contenido_estructura
           columnas: 1,
           campos: [
             { id: 'n', tipo: 'multitexto', nombre: 'Nota' },
-            { id: 't', tipo: 'tabla', nombre: 'T', columnas: ['A'], filas: ['f1'] },
+            { id: 't', tipo: 'tabla', nombre: 'T', columnas: ['', 'A'], filas: ['f1'] },
           ],
         },
       ],

@@ -1260,6 +1260,35 @@ async function seed(sql: Sql): Promise<void> {
   console.log('✓ Seed mock cargado.');
 }
 
+/**
+ * Modelo de tabla (§6.5): `columnas[0]` = columna de ETIQUETAS DE FILA (antes se inyectaba en el
+ * render como columna fantasma sin existir en `columnas`). Las PLANTILLAS_REALES se convirtieron con
+ * el modelo viejo (columnas = solo datos), así que al sembrar anteponemos "" a `columnas` de cada
+ * campo tabla — misma migración que la 0048 aplica a las plantillas ya guardadas. Idempotente por
+ * corrida: opera sobre la fuente (modelo viejo) en cada re-seed.
+ */
+function conColumnaEtiqueta(estructura: unknown): unknown {
+  if (!estructura || typeof estructura !== 'object') return estructura;
+  const e = estructura as { secciones?: unknown };
+  if (!Array.isArray(e.secciones)) return estructura;
+  return {
+    ...e,
+    secciones: e.secciones.map((s) => {
+      if (!s || typeof s !== 'object' || !Array.isArray((s as { campos?: unknown }).campos)) return s;
+      const sec = s as { campos: unknown[] };
+      return {
+        ...sec,
+        campos: sec.campos.map((c) => {
+          if (!c || typeof c !== 'object' || (c as { tipo?: unknown }).tipo !== 'tabla') return c;
+          const campo = c as { columnas?: unknown };
+          const columnas = Array.isArray(campo.columnas) ? campo.columnas : [];
+          return { ...campo, columnas: ['', ...columnas] };
+        }),
+      };
+    }),
+  };
+}
+
 /** Siembra las plantillas de reporte REALES (Fase 2, convertidas) — publicadas. */
 async function seedPlantillasReporte(sql: Sql): Promise<void> {
   const plantillas = PLANTILLAS_REALES;
@@ -1267,7 +1296,7 @@ async function seedPlantillasReporte(sql: Sql): Promise<void> {
   for (const p of plantillas) {
     await sql`
       insert into lxp.plantillas_reporte (nombre, tipo_estudio, estructura, publicado)
-      values (${p.nombre}, ${p.tipo}, ${sql.json(p.estructura as never)}, true)`;
+      values (${p.nombre}, ${p.tipo}, ${sql.json(conColumnaEtiqueta(p.estructura) as never)}, true)`;
   }
 }
 

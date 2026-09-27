@@ -33,6 +33,8 @@ type Campo = {
   /** dimensiones: nº de ejes (2|3) y decimales para formatear x × y × z. */
   ejes?: number;
   decimales?: number;
+  /** texto/multitexto: boilerplate predeterminado; se imprime si el médico no escribió nada. */
+  valorDefecto?: string;
   /** 1b-2: si es `false`, el campo NO sale en el PDF (solo captura). Ausente/true ⇒ sale. */
   enInforme?: boolean;
 };
@@ -45,7 +47,7 @@ type Seccion = {
   /** 1b-2: si es `false`, la sección entera se omite del PDF. Ausente/true ⇒ sale. */
   enInforme?: boolean;
 };
-type Estructura = { secciones?: Seccion[] };
+type Estructura = { secciones?: Seccion[]; incluyeImpresion?: boolean };
 type Contenido = { folio?: string; valores?: Record<string, unknown>; impresion?: string } | null;
 
 type FilaReporte = {
@@ -102,6 +104,13 @@ function valorGenerico(v: unknown): string {
 }
 
 /* ───────────────────────── lectores de valores (autocontenidos) ───────────────────────── */
+/** El valor del médico o, si está VACÍO/ausente, el `valorDefecto` (boilerplate) de la plantilla —
+ *  así el PDF imprime el predeterminado aunque el reporte no se haya re-guardado (mismo criterio que
+ *  el editor del médico: honra lo escrito y rellena lo vacío · §6.5). */
+function conDefecto(c: Campo, v: unknown): unknown {
+  const vacio = v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  return vacio && typeof c.valorDefecto === 'string' && c.valorDefecto !== '' ? c.valorDefecto : v;
+}
 function leerTexto(v: unknown): string {
   if (typeof v === 'string') return v;
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
@@ -285,7 +294,8 @@ export class ReportesPdfService {
     await this.membrete(doc, r, folio);
     this.datosEstudio(doc, estructura, paciente);
     await this.hallazgos(doc, estructura, valores, dicomPorCampo, galeriaPorRef);
-    this.impresionDiagnostica(doc, impresion);
+    // La plantilla puede EXCLUIR la impresión (el diseñador la quitó); ausente = incluida (retrocompat).
+    if (estructura.incluyeImpresion !== false) this.impresionDiagnostica(doc, impresion);
     this.firma(doc, paciente);
     this.pieDePagina(doc);
 
@@ -334,8 +344,9 @@ export class ReportesPdfService {
       vistos.add(c.id); // registrado aunque se oculte, para no re-agregarlo desde el catálogo
       if (c.enInforme === false) continue;
       // El encabezado puede tener campos no-string (sino/multiseleccion): formatéalos igual que
-      // en hallazgos para que salgan en la card de datos.
-      const raw = paciente[c.id];
+      // en hallazgos para que salgan en la card de datos. `conDefecto`: si el médico no escribió,
+      // cae al boilerplate de la plantilla (p.ej. multitexto de técnica en "Datos del estudio").
+      const raw = conDefecto(c, paciente[c.id]);
       const val =
         c.tipo === 'sino'
           ? typeof raw === 'boolean'
@@ -422,14 +433,14 @@ export class ReportesPdfService {
           continue;
         }
         if (c.tipo === 'imagen') {
-          await this.dibujarImagenCampo(doc, c, valores[c.id], dicomPorCampo);
+          await this.dibujarImagenCampo(doc, c, valores[c.id], dicomPorCampo, galeriaPorRef);
           continue;
         }
         if (c.tipo === 'galeria') {
           for (const img of leerGaleria(valores[c.id])) await this.dibujarGaleria(doc, img, galeriaPorRef);
           continue;
         }
-        this.campoTexto(doc, c, valores[c.id]);
+        this.campoTexto(doc, c, conDefecto(c, valores[c.id]));
       }
       doc.espacio(8);
     }
@@ -446,7 +457,8 @@ export class ReportesPdfService {
     if (c.tipo === 'tabla') {
       const filas = c.filas ?? [];
       const columnas = c.columnas ?? [];
-      const datos = leerTabla(valor, filas.length, columnas.length);
+      // columnas[0] = columna de etiquetas de fila; los datos ocupan columnas[1..].
+      const datos = leerTabla(valor, filas.length, Math.max(0, columnas.length - 1));
       const tieneDato = datos.some((f) => f.some((x) => x.trim() !== ''));
       if (!tieneDato) return;
       if (etiqueta) doc.texto(etiqueta, { size: 10.5, font: doc.bold, color: C.soft, gap: 2 });
@@ -497,10 +509,12 @@ export class ReportesPdfService {
   }
 
   private dibujarTabla(doc: Doc, columnas: string[], filas: string[], datos: string[][]) {
-    const nCols = columnas.length + 1; // 1ª columna = etiqueta de fila
+    // `columnas` YA incluye la 1ª columna (la de etiquetas de fila, `columnas[0]`); sus celdas son
+    // las `filas`. Los datos del médico ocupan columnas[1..] (ancho = columnas.length − 1).
+    const nCols = Math.max(1, columnas.length);
     const colW = CONTENT_W / nCols;
     const rowH = 16;
-    const encabezados = ['', ...columnas];
+    const encabezados = columnas;
     const cuerpo = filas.map((f, r) => [f, ...(datos[r] ?? [])]);
     const pintarFila = (celdas: string[], negrita: boolean, fondo?: boolean) => {
       doc.asegurar(rowH);
@@ -518,13 +532,26 @@ export class ReportesPdfService {
     doc.espacio(6);
   }
 
-  private async dibujarImagenCampo(doc: Doc, c: Campo, valor: unknown, dicomPorCampo: Map<string, string>) {
+  private async dibujarImagenCampo(
+    doc: Doc,
+    c: Campo,
+    valor: unknown,
+    dicomPorCampo: Map<string, string>,
+    galeriaPorRef: Map<string, string>,
+  ) {
     if (c.origen === 'referencia' && c.refUrl) {
       const bytes = await this.fetchBytes(c.refUrl);
       if (bytes) await this.embeber(doc, bytes, extDeUrl(c.refUrl), c.nombre);
       return;
     }
-    // origen dicom: el cliente mandó el PNG rasterizado del visor.
+    // origen 'dicom' = el médico SUBIÓ 1 imagen (galería de 1, ya anonimizada) → mismo render que la
+    // galería: jpg/png se firma server-side; .dcm lo rasterizó el cliente (galeriaPorRef).
+    const subidas = leerGaleria(valor);
+    if (subidas.length) {
+      for (const img of subidas) await this.dibujarGaleria(doc, img, galeriaPorRef);
+      return;
+    }
+    // Compat: reportes viejos con imagen DICOM referenciada de la bitácora (rasterizada por el cliente).
     const b64 = dicomPorCampo.get(c.id);
     if (b64) {
       const bytes = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ''), 'base64');

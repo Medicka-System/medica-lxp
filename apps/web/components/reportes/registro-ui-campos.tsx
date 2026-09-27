@@ -17,17 +17,18 @@
  * del médico lo inyecta por `renderVisorDicom`.
  */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Images, Info, Plus, X } from 'lucide-react';
+import { Calendar, Check, ChevronDown, ImageOff, ImagePlus, Info, Loader2, Plus, Upload, X } from 'lucide-react';
 import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
+import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import {
+  columnasDatos,
   fueraDeRango,
   leerBool,
   leerDimensiones,
   leerMultiseleccion,
-  leerRefDicom,
   leerTabla,
   leerTexto,
   type CampoPlantilla,
@@ -203,6 +204,138 @@ function EListaEditable({
   );
 }
 
+/* ═══════════════════ imagen de referencia fija (subir | link) ═══════════════════ */
+
+/**
+ * Muestra una imagen de REFERENCIA de la plantilla. `src` es un LINK http(s) (se usa tal cual) o
+ * una REF interna `media/imagenes/…` — subida al object storage (§5C) — que se firma bajo demanda
+ * (URL de vida corta, 1 h). Así el constructor, la vista previa y el editor del médico la ven igual
+ * sin persistir URLs firmadas que caducan: en BD se guarda la ref DURABLE (§6.5). No es imagen de
+ * paciente → sin Presidio (§10).
+ */
+function ImgReferencia({ src, alt, className }: { src?: string; alt: string; className: string }) {
+  const esRef = typeof src === 'string' && src.startsWith('media/imagenes/');
+  const [firmada, setFirmada] = useState<string | null>(null);
+  useEffect(() => {
+    if (!esRef || !src) return;
+    let vivo = true;
+    void firmarLecturaImagenReferencia([src]).then((urls) => {
+      if (vivo) setFirmada(urls[src] ?? null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [esRef, src]);
+  const url = esRef ? firmada : src;
+  if (!url) {
+    return (
+      <div className={`grid min-h-[120px] place-items-center bg-muted text-muted-foreground ${className}`}>
+        {esRef ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={1.75} /> : <ImageOff className="h-5 w-5" strokeWidth={1.5} />}
+      </div>
+    );
+  }
+  return <img src={url} alt={alt} className={className} />;
+}
+
+/**
+ * Editor de la IMAGEN DE REFERENCIA fija (§6.5, §5C): el diseñador SUBE un archivo (diagrama de la
+ * plantilla → object storage vía `/media/imagenes`, reusando el flujo del constructor de teoría; NO
+ * pasa por Presidio porque no es imagen de paciente · §10) o PEGA un link. En `refUrl` se guarda la
+ * ref durable (subida) o la URL (link).
+ */
+function EImagenReferencia({ campo, onCambio }: EditorCtx) {
+  const refUrl = campo.refUrl ?? '';
+  const [modo, setModo] = useState<'subir' | 'link'>(
+    refUrl && !refUrl.startsWith('media/imagenes/') ? 'link' : 'subir',
+  );
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function subir(file: File) {
+    setError(null);
+    const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase();
+    setSubiendo(true);
+    try {
+      const firma = await firmarSubidaImagenContenido(ext);
+      if (!firma.ok) {
+        setError(firma.error);
+        return;
+      }
+      const put = await fetch(firma.datos.urlSubida, {
+        method: 'PUT',
+        headers: { 'content-type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!put.ok) {
+        setError('No se pudo subir la imagen a object storage.');
+        return;
+      }
+      onCambio({ refUrl: firma.datos.ref });
+    } catch {
+      setError('Error al subir la imagen.');
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  return (
+    <ECampo label="Imagen de referencia">
+      <ESeg<'subir' | 'link'>
+        opciones={[
+          ['subir', 'Subir archivo'],
+          ['link', 'Pegar link'],
+        ]}
+        valor={modo}
+        onCambio={setModo}
+      />
+      {modo === 'subir' ? (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), inputRef.current?.click())}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files?.[0];
+            if (f) void subir(f);
+          }}
+          className={`mt-2 grid cursor-pointer place-items-center rounded-[9px] border-[1.5px] border-dashed border-border bg-card px-3 py-4 text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}
+        >
+          <span className="text-[11.5px] font-semibold text-secondary">
+            {subiendo ? <Loader2 className="mx-auto h-5 w-5 animate-spin" strokeWidth={1.75} /> : <Upload className="mx-auto h-5 w-5" strokeWidth={1.75} />}
+            {subiendo ? 'Subiendo…' : 'Sube un diagrama o haz click'}
+          </span>
+          <span className="mt-0.5 text-[10.5px] text-muted-foreground">JPG, PNG, WEBP o GIF</span>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void subir(f);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      ) : (
+        <input
+          value={refUrl}
+          onChange={(e) => onCambio({ refUrl: e.target.value })}
+          placeholder="https://…"
+          className={`${cfgInput} mt-2`}
+        />
+      )}
+      {error && <span className="mt-1.5 block text-[11px] font-semibold text-[color:var(--warning-foreground)]">{error}</span>}
+      {campo.refUrl && (
+        <ImgReferencia src={campo.refUrl} alt={campo.nombre || 'Imagen de referencia'} className="mt-2 max-h-[140px] w-full rounded-[8px] border border-border object-contain" />
+      )}
+    </ECampo>
+  );
+}
+
 /* Editor común numero/medida (min/max/decimales + rango normal + percentil + fórmula). */
 function EditorNumerico({ campo, onCambio }: EditorCtx) {
   const esMedida = campo.tipo === 'medida';
@@ -328,7 +461,7 @@ function NumeroControl({ campo, valor, deshabilitado, cambia, medida }: RenderCt
         disabled={deshabilitado}
         value={leerTexto(valor)}
         onChange={(e) => cambia(e.target.value)}
-        className={`${inputBase} h-11 rounded-r-none`}
+        className={`${inputBase} sin-spinner h-11 rounded-r-none`}
       />
       <span className="inline-flex items-center rounded-r-[10px] border border-l-0 border-border bg-muted px-3 text-[12.5px] font-semibold text-muted-foreground">
         {campo.unidad || '—'}
@@ -341,7 +474,7 @@ function NumeroControl({ campo, valor, deshabilitado, cambia, medida }: RenderCt
       disabled={deshabilitado}
       value={leerTexto(valor)}
       onChange={(e) => cambia(e.target.value)}
-      className={`${inputBase} mt-1.5 h-11`}
+      className={`${inputBase} sin-spinner mt-1.5 h-11`}
     />
   );
   return (
@@ -378,7 +511,7 @@ function DimensionesControl({ campo, valor, deshabilitado, cambia }: RenderCtx) 
             value={x === '' ? '' : x}
             onChange={(e) => set(i, e.target.value)}
             aria-label={`Eje ${i + 1}`}
-            className={`${inputBase} h-11 min-w-0 flex-1 text-center`}
+            className={`${inputBase} sin-spinner h-11 min-w-0 flex-1 text-center`}
           />
         </Fragment>
       ))}
@@ -528,20 +661,29 @@ function MultiseleccionControl({ campo, valor, deshabilitado, cambia }: RenderCt
 function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: CampoPlantilla; valor: unknown; deshabilitado: boolean; onCambio: (v: unknown) => void }) {
   const cols = campo.columnas ?? [];
   const filas = campo.filas ?? [];
-  const datos = leerTabla(valor, filas.length, cols.length);
+  // `columnas[0]` = columna de etiquetas de fila (celdas = `filas`, no editables); `columnas[1..]`
+  // = columnas de datos que el médico llena. La matriz de valores es `filas × columnasDatos`.
+  const dataCols = columnasDatos(campo);
+  const datos = leerTabla(valor, filas.length, dataCols.length);
   function editar(r: number, c: number, v: string) {
     const copia = datos.map((f) => [...f]);
     copia[r][c] = v;
     onCambio(copia);
+  }
+  // Sin columnas = tabla vacía: no hay nada que pintar (ni la columna de etiquetas existe).
+  if (cols.length === 0) {
+    return <p className="mt-1.5 text-[12px] text-muted-foreground">Tabla sin columnas.</p>;
   }
   return (
     <div className="mt-1.5 overflow-x-auto rounded-[10px] border border-border">
       <table className="w-full border-collapse text-[12.5px]">
         <thead>
           <tr className="bg-muted">
-            <th className="border-b border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground" />
             {cols.map((c, i) => (
-              <th key={i} className="border-b border-l border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground">
+              <th
+                key={i}
+                className={`border-b border-border px-2 py-1.5 text-left text-[11px] font-bold text-muted-foreground ${i > 0 ? 'border-l' : ''}`}
+              >
                 {c}
               </th>
             ))}
@@ -551,7 +693,7 @@ function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: C
           {filas.map((f, r) => (
             <tr key={r}>
               <th className="border-t border-border bg-muted/50 px-2 py-1 text-left text-[11.5px] font-semibold">{f}</th>
-              {cols.map((_, c) => (
+              {dataCols.map((_, c) => (
                 <td key={c} className="border-l border-t border-border p-0">
                   <input
                     type="text"
@@ -567,95 +709,6 @@ function TablaCampoControl({ campo, valor, deshabilitado, onCambio }: { campo: C
         </tbody>
       </table>
     </div>
-  );
-}
-
-function CampoImagenControl({
-  campo,
-  valor,
-  modo,
-  soloLectura,
-  onElegirEstudio,
-  onQuitarEstudio,
-  renderVisorDicom,
-}: {
-  campo: CampoPlantilla;
-  valor: unknown;
-  modo: ModoCampo;
-  soloLectura: boolean;
-  onElegirEstudio?: () => void;
-  onQuitarEstudio?: () => void;
-  renderVisorDicom?: (ref: RefDicom) => ReactNode;
-}) {
-  if (campo.origen === 'referencia') {
-    return campo.refUrl ? (
-      <img
-        src={campo.refUrl}
-        alt={campo.nombre || 'Imagen de referencia'}
-        className="mt-1.5 max-h-[320px] w-full rounded-[11px] border border-border object-contain"
-      />
-    ) : (
-      <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
-        <span>
-          <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
-          Imagen de referencia (sin URL)
-        </span>
-      </div>
-    );
-  }
-  const ref: RefDicom | null = leerRefDicom(valor);
-  if (modo === 'previa') {
-    return (
-      <div className="mt-1.5 grid h-[180px] place-items-center rounded-[11px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-center">
-        <span className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
-          <Images className="mx-auto h-5 w-5" strokeWidth={1.75} />
-          Hueco DICOM · el médico inserta aquí su estudio
-        </span>
-      </div>
-    );
-  }
-  if (ref) {
-    return (
-      <div className="mt-1.5">
-        {renderVisorDicom ? (
-          renderVisorDicom(ref)
-        ) : (
-          <div className="grid h-[280px] place-items-center rounded-xl border border-border bg-muted text-[12px] text-muted-foreground">
-            Estudio {ref.casoId.slice(0, 8)} · visor no disponible aquí
-          </div>
-        )}
-        {!soloLectura && (
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={onElegirEstudio} className={`inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}>
-              <Images aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Cambiar estudio
-            </button>
-            <button type="button" onClick={onQuitarEstudio} className={`inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted ${focusRing}`}>
-              <X aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Quitar
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (soloLectura) {
-    return (
-      <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
-        <span>
-          <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
-          Sin imagen insertada
-        </span>
-      </div>
-    );
-  }
-  return (
-    <button type="button" onClick={onElegirEstudio} className={`mt-1.5 grid h-[180px] w-full place-items-center rounded-[11px] border-[1.5px] border-dashed border-border bg-card text-center transition-colors hover:border-secondary hover:bg-accent ${focusRing}`}>
-      <span className="text-[12.5px] font-semibold text-secondary">
-        <Images className="mx-auto h-6 w-6" strokeWidth={1.75} />
-        Insertar imagen del estudio
-      </span>
-    </button>
   );
 }
 
@@ -843,30 +896,37 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     preview: (campo) => {
       const cols = campo.columnas ?? [];
       const filas = campo.filas ?? [];
-      // Grid de la spec: etiqueta 1.3fr · columnas 1fr · columna de acción 48px.
-      const grid = `1.3fr ${cols.map(() => '1fr').join(' ')} 48px`;
+      // Sin columnas = tabla vacía: sin columna fantasma, se ve vacía hasta que el diseñador agregue
+      // columnas (la 1a será la de etiquetas de fila) — todas nombrables/borrables en Config.
+      if (cols.length === 0) {
+        return (
+          <div className="rounded-[9px] border border-dashed border-border px-3 py-4 text-center text-[11.5px] text-muted-foreground">
+            Tabla vacía — agrega columnas en la configuración.
+          </div>
+        );
+      }
+      // `columnas[0]` = columna de etiquetas de fila (celdas = `filas`); `columnas[1..]` = datos. La
+      // tabla pinta EXACTAMENTE las columnas de la config (incluida la 0), sin columna inyectada.
+      const dataCols = columnasDatos(campo);
+      const grid = `1.3fr ${dataCols.map(() => '1fr').join(' ')}`;
       return (
         <div className="overflow-hidden rounded-[9px] border border-border text-[11.5px]">
           <div className="grid bg-muted" style={{ gridTemplateColumns: grid }}>
-            <span className="px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">Medida</span>
-            {cols.map((c, i) => (
+            <span className="px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">{cols[0]}</span>
+            {dataCols.map((c, i) => (
               <span key={i} className="border-l border-border px-[11px] py-[9px] font-bold text-[color:var(--foreground-soft)]">
                 {c}
               </span>
             ))}
-            <span className="grid place-items-center border-l border-border text-secondary">
-              <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
-            </span>
           </div>
           {filas.map((f, r) => (
             <div key={r} className="grid border-t border-border" style={{ gridTemplateColumns: grid }}>
               <span className="truncate px-[11px] py-2 font-semibold">{f}</span>
-              {cols.map((_, i) => (
+              {dataCols.map((_, i) => (
                 <span key={i} className="border-l border-border px-[11px] py-2 text-muted-foreground">
                   —
                 </span>
               ))}
-              <span className="border-l border-border" />
             </div>
           ))}
         </div>
@@ -976,12 +1036,40 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     ),
   },
   imagen: {
-    render: (ctx) => (
-      <CampoImagenControl campo={ctx.campo} valor={ctx.valor} modo={ctx.modo} soloLectura={ctx.soloLectura} onElegirEstudio={ctx.onElegirEstudio} onQuitarEstudio={ctx.onQuitarEstudio} renderVisorDicom={ctx.renderVisorDicom} />
-    ),
+    render: ({ campo, valor, modo, soloLectura, reporteId, cambia }) => {
+      // (1) Referencia FIJA de la plantilla (ilustración/diagrama). No es imagen de paciente.
+      if (campo.origen === 'referencia') {
+        return campo.refUrl ? (
+          <ImgReferencia
+            src={campo.refUrl}
+            alt={campo.nombre || 'Imagen de referencia'}
+            className="mt-1.5 max-h-[320px] w-full rounded-[11px] border border-border object-contain"
+          />
+        ) : (
+          <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border border-dashed border-border bg-muted text-center text-[12px] text-muted-foreground">
+            <span>
+              <ImageOff className="mx-auto h-5 w-5" strokeWidth={1.5} />
+              Imagen de referencia (sin URL)
+            </span>
+          </div>
+        );
+      }
+      // (2) Imagen del MÉDICO: SUBE UNA imagen (JPG/PNG/.dcm) — MISMO flujo que la galería (uploader
+      // + anonimización Presidio al subir + firma de lectura), LIMITADO A 1 (estudios de precisión).
+      return modo === 'llenar' && reporteId ? (
+        <GaleriaReporte reporteId={reporteId} max={1} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
+      ) : (
+        <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-center">
+          <span className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
+            <ImagePlus className="mx-auto h-5 w-5" strokeWidth={1.75} />
+            El médico sube aquí una imagen (JPG, PNG o .dcm)
+          </span>
+        </div>
+      );
+    },
     preview: (campo) =>
       campo.origen === 'referencia' && campo.refUrl ? (
-        <img src={campo.refUrl} alt={campo.nombre} className="max-h-[200px] w-full rounded-[10px] border border-border object-contain" />
+        <ImgReferencia src={campo.refUrl} alt={campo.nombre || 'Imagen de referencia'} className="max-h-[200px] w-full rounded-[10px] border border-border object-contain" />
       ) : (
         <div
           className="grid place-items-center rounded-[10px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
@@ -999,15 +1087,11 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
       <div className="flex flex-col gap-3">
         <ECampo label="Origen">
           <select value={campo.origen ?? 'dicom'} onChange={(e) => onCambio({ origen: e.target.value === 'referencia' ? 'referencia' : 'dicom' })} className={cfgInput}>
-            <option value="dicom">Estudio del médico (DICOM)</option>
+            <option value="dicom">El médico sube una imagen</option>
             <option value="referencia">Referencia fija de la plantilla</option>
           </select>
         </ECampo>
-        {campo.origen === 'referencia' && (
-          <ECampo label="URL de la imagen">
-            <input value={campo.refUrl ?? ''} onChange={(e) => onCambio({ refUrl: e.target.value })} placeholder="https://…" className={cfgInput} />
-          </ECampo>
-        )}
+        {campo.origen === 'referencia' && <EImagenReferencia campo={campo} onCambio={onCambio} />}
         <ECampo label="Proporción">
           <ESeg
             opciones={[

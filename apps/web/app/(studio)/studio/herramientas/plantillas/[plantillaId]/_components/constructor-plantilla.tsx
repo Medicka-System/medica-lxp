@@ -25,6 +25,7 @@ import {
   ChevronUp,
   Copy,
   Eye,
+  FileText,
   GripVertical,
   Hash,
   Heading,
@@ -134,7 +135,10 @@ const cfgInput =
 export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstructor }) {
   const [nombre, setNombre] = useState(plantilla.nombre);
   const [tipoEstudio, setTipoEstudio] = useState(plantilla.tipoEstudio);
-  const [impresionDefecto] = useState(plantilla.estructura.impresionDefecto ?? '');
+  const [impresionDefecto, setImpresionDefecto] = useState(plantilla.estructura.impresionDefecto ?? '');
+  // ¿Se incluye la sección de impresión? Ausente/true = sí (retrocompat). El diseñador la quita
+  // (botón borrar) y la vuelve a agregar desde la paleta.
+  const [incluyeImpresion, setIncluyeImpresion] = useState(plantilla.estructura.incluyeImpresion !== false);
   const [secciones, setSecciones] = useState<SeccionPlantilla[]>(() => {
     const base = plantilla.estructura.secciones;
     return base.some((s) => s.tipo === 'encabezado') ? base : [seccionEncabezadoPorDefecto(), ...base];
@@ -151,10 +155,14 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
 
   /* ── guardado (autosave 2 s + botón) ── */
   const guardar = useCallback(
-    (secs: SeccionPlantilla[], nom: string, tipo: string, impr: string) => {
+    (secs: SeccionPlantilla[], nom: string, tipo: string, impr: string, incluye: boolean) => {
       setGuardando(true);
       setError(null);
-      const estructura: EstructuraPlantilla = { secciones: secs, ...(impr.trim() ? { impresionDefecto: impr } : {}) };
+      const estructura: EstructuraPlantilla = {
+        secciones: secs,
+        ...(impr.trim() ? { impresionDefecto: impr } : {}),
+        ...(incluye ? {} : { incluyeImpresion: false }),
+      };
       void guardarEstructuraPlantilla(plantilla.id, { nombre: nom, tipoEstudio: tipo, estructura }).then((res) => {
         setGuardando(false);
         if (res.ok) {
@@ -170,9 +178,9 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
 
   useEffect(() => {
     if (!sucio) return;
-    const t = setTimeout(() => guardar(secciones, nombre, tipoEstudio, impresionDefecto), 2000);
+    const t = setTimeout(() => guardar(secciones, nombre, tipoEstudio, impresionDefecto, incluyeImpresion), 2000);
     return () => clearTimeout(t);
-  }, [sucio, secciones, nombre, tipoEstudio, impresionDefecto, guardar]);
+  }, [sucio, secciones, nombre, tipoEstudio, impresionDefecto, incluyeImpresion, guardar]);
   useEffect(() => {
     const t = setInterval(() => setGuardadoHace((s) => s + 1), 1000);
     return () => clearInterval(t);
@@ -381,11 +389,11 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
           setTipoEstudio(v);
           marcarSucio();
         }}
-        onGuardar={() => guardar(secciones, nombre, tipoEstudio, impresionDefecto)}
+        onGuardar={() => guardar(secciones, nombre, tipoEstudio, impresionDefecto, incluyeImpresion)}
         onVistaPrevia={() => {
           // Empuja el guardado (best-effort) y abre la vista previa en pestaña nueva; lee la
           // estructura ya guardada (el autoguardado de 2 s también la mantiene fresca).
-          guardar(secciones, nombre, tipoEstudio, impresionDefecto);
+          guardar(secciones, nombre, tipoEstudio, impresionDefecto, incluyeImpresion);
           window.open(`/studio/herramientas/plantillas/${plantilla.id}/vista-previa`, '_blank', 'noopener');
         }}
       />
@@ -398,7 +406,17 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
 
       <div className="flex min-h-0 flex-1">
         {/* 1 · Paleta */}
-        <Paleta busca={busca} setBusca={setBusca} onAgregar={agregarDesdePaleta} onDrag={iniciarDrag} />
+        <Paleta
+          busca={busca}
+          setBusca={setBusca}
+          onAgregar={agregarDesdePaleta}
+          onDrag={iniciarDrag}
+          impresionIncluida={incluyeImpresion}
+          onAgregarImpresion={() => {
+            setIncluyeImpresion(true);
+            setSucio(true);
+          }}
+        />
 
         {/* 2 · Lienzo */}
         <div
@@ -469,6 +487,38 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
               <Plus aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
               Agregar sección
             </button>
+
+            {/* Impresión diagnóstica: sección de cierre del reporte. El diseñador edita su texto
+                predeterminado (boilerplate) o la QUITA (botón); si la quitó, la vuelve a agregar desde
+                la paleta. Retrocompat: ausente = incluida (comportamiento histórico). */}
+            {incluyeImpresion && (
+              <section className="rounded-[12px] border border-border bg-card p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className={`${kicker} text-secondary`}>Impresión diagnóstica</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncluyeImpresion(false);
+                      setSucio(true);
+                    }}
+                    className={`ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-semibold text-muted-foreground transition-colors hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)] ${focusRing}`}
+                  >
+                    <Trash2 aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    Quitar
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={impresionDefecto}
+                  onChange={(e) => {
+                    setImpresionDefecto(e.target.value);
+                    setSucio(true);
+                  }}
+                  placeholder="Texto predeterminado de la impresión (el médico lo edita al llenar). Ej.: Conclusión | …"
+                  className="mt-3 w-full resize-y rounded-[10px] border border-border bg-muted p-3.5 text-[14px] leading-[1.7] text-foreground outline-none placeholder:text-muted-foreground focus:border-secondary"
+                />
+              </section>
+            )}
           </div>
         </div>
 
@@ -593,11 +643,15 @@ function Paleta({
   setBusca,
   onAgregar,
   onDrag,
+  impresionIncluida,
+  onAgregarImpresion,
 }: {
   busca: string;
   setBusca: (v: string) => void;
   onAgregar: (tipo: TipoCampo | 'seccion', preset?: Partial<CampoPlantilla>) => void;
   onDrag: (e: DragEvent, c: CargaDrag) => void;
+  impresionIncluida: boolean;
+  onAgregarImpresion: () => void;
 }) {
   const q = busca.trim().toLowerCase();
   const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => !q || i.nombre.toLowerCase().includes(q)) })).filter(
@@ -664,6 +718,22 @@ function Paleta({
               );
             })}
           </div>
+        </>
+      )}
+
+      {(!q || 'impresión diagnóstica'.includes(q)) && (
+        <>
+          <p className={`${kicker} mb-2 mt-[18px]`}>Cierre del reporte</p>
+          <button
+            type="button"
+            disabled={impresionIncluida}
+            onClick={onAgregarImpresion}
+            className={`flex h-10 w-full items-center gap-2.5 rounded-[10px] border border-border bg-card px-3 text-left text-[12px] font-semibold transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:opacity-55 disabled:hover:border-border disabled:hover:bg-card disabled:hover:text-foreground ${focusRing}`}
+          >
+            <FileText aria-hidden className="h-[15px] w-[15px] shrink-0" strokeWidth={1.75} />
+            Impresión diagnóstica
+            <span className={`${mono} ml-auto text-[10px] text-muted-foreground`}>{impresionIncluida ? 'ya está' : 'agregar'}</span>
+          </button>
         </>
       )}
 

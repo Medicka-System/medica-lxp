@@ -128,8 +128,14 @@ export type SeccionPlantilla = {
 
 export type EstructuraPlantilla = {
   secciones: SeccionPlantilla[];
-  /** Texto predeterminado de la card fija "Impresión diagnóstica" (boilerplate · Fase 2). */
+  /** Texto predeterminado de la sección "Impresión diagnóstica" (boilerplate · Fase 2). */
   impresionDefecto?: string;
+  /**
+   * ¿La plantilla INCLUYE la sección de impresión diagnóstica? AUSENTE o `true` = sí (comportamiento
+   * histórico · retrocompat). El diseñador la puede QUITAR (`false`) desde el constructor y volver a
+   * AGREGARLA desde la paleta. Solo controla su visibilidad; el resto del plumbing no cambia.
+   */
+  incluyeImpresion?: boolean;
 };
 
 /* ═══════════════════════ REGISTRO DE TIPOS DE CAMPO (fuente ÚNICA) ═══════════════════════ */
@@ -233,7 +239,10 @@ export const REGISTRO_CAMPOS: Record<TipoCampo, DefCampo> = {
   tabla: {
     label: 'Tabla',
     defaults: (c) => {
-      c.columnas = ['Longitudinal', 'AP', 'Transverso'];
+      // `columnas[0]` = columna de etiquetas de fila (header vacío por defecto, nombrable/borrable
+      // como cualquier otra); `columnas[1..]` = columnas de datos. La tabla y la config listan
+      // SIEMPRE las mismas columnas (incluida la 0). Las `filas` son las etiquetas de esa 1a columna.
+      c.columnas = ['', 'Longitudinal', 'AP', 'Transverso'];
       c.filas = ['Derecho', 'Izquierdo'];
     },
     formato: (c) => `tabla ${c.filas?.length ?? 0}×${c.columnas?.length ?? 0}`,
@@ -283,8 +292,9 @@ export const REGISTRO_CAMPOS: Record<TipoCampo, DefCampo> = {
     defaults: (c) => {
       c.origen = 'dicom';
     },
-    formato: (c) => (c.origen === 'referencia' ? 'imagen de referencia (fija)' : 'imagen del estudio (DICOM)'),
-    completo: (c, v) => (c.origen === 'referencia' ? true : leerRefDicom(v) !== null),
+    formato: (c) => (c.origen === 'referencia' ? 'imagen de referencia (fija)' : 'imagen que sube el médico'),
+    // origen 'dicom' = el médico SUBE 1 imagen (galería de 1): completo si hay al menos una imagen.
+    completo: (c, v) => (c.origen === 'referencia' ? true : leerGaleria(v).length > 0),
     normalizar: (o, c) => {
       c.origen = o.origen === 'referencia' ? 'referencia' : 'dicom';
       if (c.origen === 'referencia' && txt(o.refUrl)) c.refUrl = txt(o.refUrl);
@@ -404,8 +414,9 @@ export function contarImagenesReporte(e: EstructuraPlantilla, valores: Record<st
       else if (c.tipo === 'imagen') {
         if (c.origen === 'referencia') {
           if (c.refUrl) n += 1;
-        } else if (leerRefDicom(valores[c.id])) {
-          n += 1;
+        } else {
+          // origen 'dicom' = imagen que sube el médico (galería de 1, mismo formato que la galería).
+          n += leerGaleria(valores[c.id]).length;
         }
       }
     }
@@ -521,6 +532,8 @@ export function normalizarEstructura(raw: unknown): EstructuraPlantilla {
     : [];
   const est: EstructuraPlantilla = { secciones };
   if (typeof o.impresionDefecto === 'string' && o.impresionDefecto) est.impresionDefecto = o.impresionDefecto;
+  // Solo se persiste cuando el diseñador la EXCLUYE; ausente = incluida (retrocompat).
+  if (o.incluyeImpresion === false) est.incluyeImpresion = false;
   return est;
 }
 
@@ -543,6 +556,27 @@ export function inicialesDesde(estructura: EstructuraPlantilla): {
     }
   }
   return { valores, datosPaciente };
+}
+
+/**
+ * Mezcla los `valorDefecto` (boilerplate de la plantilla) sobre los valores YA guardados del
+ * reporte, rellenando SOLO los campos VACÍOS o AUSENTES. Se aplica al ABRIR el reporte (no solo al
+ * crearlo, `inicialesDesde`): así un default añadido/editado en la plantilla DESPUÉS de crear el
+ * reporte igual se precarga y el médico edita sobre esa base. Un valor ya escrito NUNCA se pisa.
+ */
+export function conDefectos(
+  estructura: EstructuraPlantilla,
+  valores: Record<string, unknown>,
+  datosPaciente: Record<string, unknown>,
+): { valores: Record<string, unknown>; datosPaciente: Record<string, string> } {
+  const ini = inicialesDesde(estructura);
+  const vacio = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  const outValores: Record<string, unknown> = { ...valores };
+  for (const [k, v] of Object.entries(ini.valores)) if (vacio(outValores[k])) outValores[k] = v;
+  const outPaciente: Record<string, string> = {};
+  for (const [k, v] of Object.entries(datosPaciente)) if (typeof v === 'string') outPaciente[k] = v;
+  for (const [k, v] of Object.entries(ini.datosPaciente)) if (vacio(outPaciente[k])) outPaciente[k] = v;
+  return { valores: outValores, datosPaciente: outPaciente };
 }
 
 /* ───────────────────── Valores del reporte (instancia del médico) ───────────────────── */
@@ -633,6 +667,14 @@ export function leerTabla(v: unknown, filas: number, columnas: number): ValorTab
     }
   }
   return base;
+}
+
+/**
+ * Columnas de DATOS de una tabla: TODAS menos `columnas[0]`, que es la columna de etiquetas de fila
+ * (§6.5). La matriz de valores del médico es `filas × columnasDatos`; la 1a columna muestra `filas`.
+ */
+export function columnasDatos(campo: CampoPlantilla): string[] {
+  return (campo.columnas ?? []).slice(1);
 }
 
 /** ¿El campo cuenta como "completo" para el checklist del reporte? — del registro. */
