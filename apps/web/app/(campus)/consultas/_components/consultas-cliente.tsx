@@ -103,12 +103,12 @@ export function ConsultasCliente({ data }: { data: ConsultasData }) {
     /* enfoca el composer · el textarea ya recibe foco al montar */
   };
 
-  const onIniciar = (contactoId: string) => {
+  const onIniciar = (contactoId: string, origenLeccionId: string | null) => {
     setNueva(false);
     const existente = conversaciones.find((c) => c.contacto.id === contactoId);
     if (existente) return abrir(existente.id);
     iniciar(async () => {
-      const r = await iniciarConsulta(contactoId);
+      const r = await iniciarConsulta(contactoId, origenLeccionId);
       if (r.ok && r.consultaId) {
         const contacto = data.contactos.find((c) => c.id === contactoId);
         if (contacto) {
@@ -151,7 +151,7 @@ export function ConsultasCliente({ data }: { data: ConsultasData }) {
         </section>
       )}
 
-      {nueva && <NuevaConversacion contactos={data.contactos} onElegir={onIniciar} onCerrar={() => setNueva(false)} />}
+      {nueva && <NuevaConversacion contactos={data.contactos} temas={data.temas} onIniciar={onIniciar} onCerrar={() => setNueva(false)} />}
     </div>
   );
 }

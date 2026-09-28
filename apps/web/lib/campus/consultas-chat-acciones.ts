@@ -41,8 +41,12 @@ export async function marcarLeidaConsulta(consultaId: string): Promise<void> {
   revalidatePath('/consultas');
 }
 
-/** Inicia (o reutiliza) una conversación con un contacto permitido. Devuelve su id. */
-export async function iniciarConsulta(contactoId: string): Promise<ResultadoAccion & { consultaId?: string }> {
+/** Inicia (o reutiliza) una conversación con un contacto permitido. Devuelve su id.
+ *  `origenLeccionId` (paso 2 del modal, solo docente/staff) fija el contexto académico. */
+export async function iniciarConsulta(
+  contactoId: string,
+  origenLeccionId?: string | null,
+): Promise<ResultadoAccion & { consultaId?: string }> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
@@ -62,10 +66,12 @@ export async function iniciarConsulta(contactoId: string): Promise<ResultadoAcci
 
       const asunto = `Consulta con ${contacto.nombre}`;
       const esDocente = contacto.tipo === 'docente';
+      // El tema (lección de origen) solo aplica a docente/staff; colega no lleva contexto.
+      const origen = contacto.tipo === 'colega' ? null : (origenLeccionId ?? null);
       const fila = (await sql<{ id: string }[]>`
-        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado)
+        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, origen_leccion_id, asunto, estado)
         values (${alumno.userId}, ${contactoId}, ${contacto.tipo}::lxp.consulta_tipo_contacto,
-                ${esDocente ? contactoId : null}, ${asunto}, 'abierta')
+                ${esDocente ? contactoId : null}, ${origen}, ${asunto}, 'abierta')
         returning id`)[0]!;
       return fila.id;
     });

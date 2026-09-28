@@ -61,11 +61,16 @@ export type Conversacion = {
   cerradaEl?: string;
 };
 
+/** Tema del paso 2 del modal (lección de origen) — solo para consultas a docente/staff. */
+export type Tema = { id: string; etiqueta: string };
+
 export type ConsultasData = {
   yo: { id: string; ini: string; nombre: string };
   conversaciones: Conversacion[];
   /** contactos disponibles para iniciar conversación, ya filtrados por permisos del alumno */
   contactos: Contacto[];
+  /** lecciones de los cursos inscritos, para el paso "tema" (docente/staff) */
+  temas: Tema[];
 };
 
 /* ─────────────── Mock de desarrollo (no usar en producción) ─────────────── */
@@ -80,6 +85,7 @@ const IT: Contacto = { id: "u1", ini: "IT", nombre: "Dr. Iván Torres", tipo: "c
 export const MOCK: ConsultasData = {
   yo: { id: "u0", ini: "SR", nombre: "Dra. Sofía Ramírez" },
   contactos: [AS, KL, CE, SP, KM, IT],
+  temas: [],
   conversaciones: [
     { id: "c1", contacto: AS, ultimoMensaje: { texto: "Sí: mídala en los dos polos. Le dejo la lectura…", deMi: false }, hora: "10:42", noLeidos: 2, estado: "respondida", origen: { etiqueta: "Módulo 4 · Lección 3 · Hidronefrosis", href: "/leccion/m4-l3", abierta: "22 sep" } },
     { id: "c2", contacto: CE, ultimoMensaje: { texto: "Su constancia de 500 h ya está en trámite.", deMi: false }, hora: "09:15", noLeidos: 0, estado: "abierta" },
