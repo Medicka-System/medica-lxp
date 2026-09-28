@@ -145,6 +145,9 @@ export type CasoValidacion = {
   estado: EstadoCasoValidacion;
   /** Devolución del docente ya asentada (aprobado/rechazado); `null` si sigue pendiente. */
   notaValidacion: string | null;
+  /** ¿El docente YA abrió este caso? `false` = nuevo/sin analizar → sube al top + puntito verde
+   *  parpadeante; se marca `true` al abrirlo (`marcarCasoVisto`). Realtime por refetch (§ polling). */
+  vistoDocente: boolean;
 };
 
 /**
@@ -204,6 +207,8 @@ export type EstudioAlumno = {
   eco?: SugerenciaEco;
   /** aprobado: comentario del docente · devuelto: feedback con lo que debe corregir. */
   nota?: string;
+  /** ¿El docente ya abrió este estudio? `false` = nuevo → puntito verde en la card de la rejilla. */
+  vistoDocente: boolean;
 };
 
 /** Cabecera del alumno en la rejilla de Validación (identidad + cifras). */

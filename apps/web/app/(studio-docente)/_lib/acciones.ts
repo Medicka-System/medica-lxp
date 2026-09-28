@@ -20,6 +20,26 @@ const HORAS_PROGRAMA = 1000;
 
 export type ResultadoAccion = { ok: true } | { ok: false; error: string };
 
+/**
+ * Marca un caso como VISTO por el docente (§5B · validación reactiva): apaga el puntito verde de
+ * "nuevo/sin analizar" al ABRIR el caso. CRUD simple `web → Supabase` bajo RLS (`bitacora_update`
+ * exige `es_docente_o_mas` · §2). Idempotente (`and not visto_docente`). NO revalida: el cliente
+ * actualiza optimista y el refetch periódico reconcilia; la persistencia evita que reaparezca al
+ * recargar.
+ */
+export async function marcarCasoVisto(casoId: string): Promise<ResultadoAccion> {
+  const { userId } = await requireDocente();
+  try {
+    await comoStaff(userId, (sql) =>
+      sql`update lxp.bitacora_casos set visto_docente = true where id = ${casoId} and not visto_docente`,
+    );
+    return { ok: true };
+  } catch (e) {
+    console.error('[marcarCasoVisto] fallo:', e);
+    return { ok: false, error: 'No se pudo marcar el caso como visto.' };
+  }
+}
+
 // ── Validación de casos ─────────────────────────────────────────────────────────
 /**
  * Aprueba o rechaza un caso de la bitácora. Escribe la decisión clínica en
