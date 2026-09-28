@@ -1,12 +1,13 @@
 'use client';
 
 /**
- * `FichaCasoCampos` — formulario CONTROLADO de la ficha del caso (§6 · mig 0025).
- * Reutilizable: lo usan el uploader de la bitácora (subir caso) y el editor inline
- * del detalle. Captura órgano, patología, dominio I-AIM, técnica, equipo, docente a
- * validar, etiquetas/#hashtags, viñeta clínica, hallazgos y diagnóstico presuntivo.
- * Los campos heredados del módulo (órgano, dominio) llegan prellenados en `value`.
- * Respeta §5A (tokens, geometría); sin hex hardcodeado.
+ * `FichaCasoCampos` — formulario CONTROLADO de la METADATA del caso (§6 · mig 0025 ·
+ * rediseño sobre el motor de reportes). Reutilizable: lo usan el uploader de la bitácora
+ * (subir caso) y el editor inline del detalle. Captura órgano, patología, dominio I-AIM,
+ * técnica, equipo, docente a validar y etiquetas/#hashtags. Los HALLAZGOS ya NO viven aquí
+ * (son el CUERPO estructurado del motor de reportes) ni la viñeta/diagnóstico (bloque
+ * pedagógico · ver `BloquePedagogicoCampos`). Los campos heredados del módulo (órgano,
+ * dominio) llegan prellenados en `value`. Respeta §5A (tokens, geometría); sin hex hardcodeado.
  */
 
 import { useState, type KeyboardEvent } from 'react';
@@ -196,49 +197,11 @@ export function FichaCasoCampos({
         <span className={etiquetaCampo}>Etiquetas</span>
         <EtiquetasInput valor={value.etiquetas} onChange={(v) => set('etiquetas', v)} disabled={disabled} />
       </div>
-
-      <label className="block">
-        <span className={etiquetaCampo}>Viñeta clínica</span>
-        <textarea
-          rows={3}
-          value={value.vineta}
-          onChange={(e) => set('vineta', e.target.value)}
-          disabled={disabled}
-          placeholder="Edad, motivo de consulta y contexto — sin datos que identifiquen al paciente."
-          className="mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60"
-        />
-      </label>
-
-      <label className="block">
-        <span className={etiquetaCampo}>Hallazgos</span>
-        <textarea
-          rows={4}
-          value={value.hallazgos}
-          onChange={(e) => set('hallazgos', e.target.value)}
-          disabled={disabled}
-          placeholder="Describa lo que vio: medidas, planos y lo que le hizo dudar."
-          className="mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60"
-        />
-      </label>
-
-      <label className="block">
-        <span className={etiquetaCampo}>
-          Diagnóstico presuntivo <span className="font-medium text-muted-foreground">· opcional</span>
-        </span>
-        <input
-          type="text"
-          value={value.presuntivo}
-          onChange={(e) => set('presuntivo', e.target.value)}
-          disabled={disabled}
-          placeholder="Su impresión, aunque no esté seguro."
-          className={campo}
-        />
-      </label>
     </div>
   );
 }
 
-/** Ficha vacía inicial (para el uploader). */
+/** Ficha (metadata) vacía inicial (para el uploader). */
 export function fichaVacia(): FichaCaso {
   return {
     organo: '',
@@ -248,8 +211,5 @@ export function fichaVacia(): FichaCaso {
     equipo: '',
     docenteId: null,
     etiquetas: [],
-    vineta: '',
-    hallazgos: '',
-    presuntivo: '',
   };
 }

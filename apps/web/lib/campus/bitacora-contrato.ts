@@ -78,8 +78,10 @@ export type DocenteOpcion = {
 };
 
 /**
- * Ficha completa del caso capturable/editable (§6 · mig 0025). Los campos heredables
- * del módulo (órgano, dominio) vienen prellenados si se sube desde un módulo.
+ * Ficha de METADATA del caso (§6 · mig 0025 · rediseño sobre el motor de reportes). Solo
+ * catalogación: los HALLAZGOS viven ahora en el CUERPO estructurado (motor de reportes) y
+ * la viñeta + diagnóstico presuntivo en el BLOQUE PEDAGÓGICO (ver `BloquePedagogico`). Los
+ * campos heredables del módulo (órgano, dominio) vienen prellenados si se sube desde un módulo.
  */
 export type FichaCaso = {
   organo: string;
@@ -89,8 +91,15 @@ export type FichaCaso = {
   equipo: string;
   docenteId: string | null;
   etiquetas: string[];
+};
+
+/**
+ * Bloque PEDAGÓGICO del caso — lo llena el alumno y es OBLIGATORIO (§6, nunca NULL): el
+ * contexto clínico (viñeta) + su interpretación (diagnóstico presuntivo, lo que el docente
+ * valida). Se exige también al enviar un reporte a la bitácora (puente reporte→caso).
+ */
+export type BloquePedagogico = {
   vineta: string;
-  hallazgos: string;
   presuntivo: string;
 };
 
