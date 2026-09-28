@@ -13,7 +13,7 @@
  * Pulsar la acción activa otra vez vuelve a modo texto.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   Bold,
@@ -25,14 +25,16 @@ import {
   Italic,
   List,
   ScanLine,
+  Search,
+  Sticker,
   Trash2,
   Upload,
   Users,
   X,
 } from "lucide-react";
-import type { CasoBitacora, ModoComposer, PerfilResumen } from "./tipos";
+import type { CasoBitacora, GifItem, ModoComposer, PerfilResumen } from "./tipos";
 import { Avatar, Chip, Estudio, Modal, focusRing, mono, softText } from "./ui";
-import { firmarSubidaMediaAteneo } from "@/lib/campus/ateneo-social-acciones";
+import { firmarSubidaMediaAteneo, gifsBuscar, gifsTrending } from "@/lib/campus/ateneo-social-acciones";
 
 // Límites de subida (Nivel 1): imagen ≤ 10 MB, video ≤ 50 MB.
 const MAX_IMAGEN = 10 * 1024 * 1024;
@@ -48,6 +50,7 @@ export const ACCIONES: {
   { modo: "caso", etiqueta: "Presentar caso", Icono: ScanLine, color: "var(--secondary)", fondo: "var(--accent)" },
   { modo: "pregunta", etiqueta: "Preguntar", Icono: CircleHelp, color: "var(--warning-foreground)", fondo: "var(--warning-surface)" },
   { modo: "media", etiqueta: "Imagen o video", Icono: ImageIcon, color: "var(--foreground-soft)", fondo: "var(--muted)" },
+  { modo: "gif", etiqueta: "GIF", Icono: Sticker, color: "var(--secondary)", fondo: "var(--accent)" },
   { modo: "encuesta", etiqueta: "Encuesta", Icono: BarChart3, color: "var(--info-foreground)", fondo: "var(--info-surface)" },
 ];
 
@@ -103,6 +106,7 @@ export type BorradorPost = ConAudiencia &
     | { modo: "caso"; texto: string; casoId: string }
     | { modo: "pregunta"; pregunta: string; contexto: string; temas: string[] }
     | { modo: "media"; texto: string; media: { tipo: "imagen" | "video"; ref: string }[] }
+    | { modo: "gif"; texto: string; gif: { url: string } }
     | { modo: "encuesta"; pregunta: string; opciones: string[]; cierraEnDias: number }
   );
 
@@ -131,6 +135,23 @@ export function ComposerModal({
   const [menuAud, setMenuAud] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [errorMedia, setErrorMedia] = useState<string | null>(null);
+  const [gifs, setGifs] = useState<GifItem[]>([]);
+  const [gifQ, setGifQ] = useState("");
+  const [gifSel, setGifSel] = useState<GifItem | null>(null);
+  const [gifCargando, setGifCargando] = useState(false);
+
+  // Al entrar al modo GIF, trae tendencias; la búsqueda es reactiva a gifQ (con debounce).
+  useEffect(() => {
+    if (modo !== "gif") return;
+    let vivo = true;
+    setGifCargando(true);
+    const q = gifQ.trim();
+    const t = setTimeout(async () => {
+      const res = q ? await gifsBuscar(q) : await gifsTrending();
+      if (vivo) { setGifs(res); setGifCargando(false); }
+    }, q ? 350 : 0);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [modo, gifQ]);
 
   const caso = misCasos.find((c) => c.id === casoId);
 
@@ -139,6 +160,7 @@ export function ComposerModal({
     (modo === "caso" && caso) ||
     (modo === "pregunta" && pregunta.trim()) ||
     (modo === "media" && archivos.length > 0) ||
+    (modo === "gif" && gifSel) ||
     (modo === "encuesta" && pregunta.trim() && opciones.filter((o) => o.trim()).length >= 2);
 
   const publicar = async () => {
@@ -146,6 +168,11 @@ export function ComposerModal({
     if (modo === "caso" && casoId) return onPublicar({ modo, texto, casoId, audiencia });
     if (modo === "pregunta") return onPublicar({ modo, pregunta, contexto: texto, temas, audiencia });
     if (modo === "encuesta") return onPublicar({ modo, pregunta, opciones: opciones.filter((o) => o.trim()), cierraEnDias: cierra, audiencia });
+    if (modo === "gif") {
+      if (!gifSel) return;
+      // No se sube nada: el GIF es un hotlink al CDN de Giphy (lo exige su ToS). Solo se persiste la URL.
+      return onPublicar({ modo: "gif", texto, gif: { url: gifSel.url }, audiencia });
+    }
     if (modo === "media") {
       // Sube cada archivo DIRECTO a storage con URL firmada pública (§2) ANTES de publicar;
       // solo se persiste el post con las refs ya subidas.
@@ -466,6 +493,56 @@ export function ComposerModal({
                 }}
               />
             </label>
+          </>
+        )}
+
+        {/* ── GIF (Giphy · hotlink al CDN, sin subida · §3) ── */}
+        {modo === "gif" && (
+          <>
+            <Editor placeholder="Agregue un comentario…" grande={false} />
+            <div className="relative mt-3">
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={1.75} />
+              <input
+                type="search"
+                value={gifQ}
+                onChange={(e) => setGifQ(e.target.value)}
+                placeholder="Buscar GIFs en GIPHY…"
+                aria-label="Buscar GIFs"
+                className={`h-11 w-full rounded-[11px] border-[1.5px] border-border bg-card pl-9 pr-3 text-[13px] font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground ${focusRing}`}
+              />
+            </div>
+            <div className="mt-3 max-h-[300px] overflow-y-auto rounded-[11px]">
+              {gifCargando && gifs.length === 0 ? (
+                <div className="grid h-24 place-items-center text-[12px] text-muted-foreground">Cargando GIFs…</div>
+              ) : gifs.length === 0 ? (
+                <div className="grid h-24 place-items-center text-[12px] text-muted-foreground">Sin resultados.</div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {gifs.map((g) => {
+                    const sel = gifSel?.id === g.id;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setGifSel(sel ? null : g)}
+                        aria-pressed={sel}
+                        className={`relative overflow-hidden rounded-[10px] bg-muted ${focusRing} ${sel ? "ring-2 ring-primary ring-offset-1" : ""}`}
+                        style={{ aspectRatio: "1" }}
+                      >
+                        <img src={g.preview} alt="" loading="lazy" className="h-full w-full object-cover" />
+                        {sel && (
+                          <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-primary text-white">
+                            <Check aria-hidden className="h-3 w-3" strokeWidth={2.6} />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* Atribución obligatoria (ToS de Giphy) */}
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Powered by GIPHY</p>
           </>
         )}
 

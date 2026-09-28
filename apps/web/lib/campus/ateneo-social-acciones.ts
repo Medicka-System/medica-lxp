@@ -6,7 +6,7 @@ import { comoAlumno } from '@/lib/db.server';
 import { cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
-import type { CasoBitacora, Comentario, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
+import type { CasoBitacora, Comentario, GifItem, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
 
 /**
  * ATENEO — server actions (§1/§2). CRUD del alumno bajo RLS (`comoAlumno`): las policies
@@ -45,6 +45,29 @@ export async function firmarSubidaMediaAteneo(
     console.error('[firmarSubidaMediaAteneo] fallo:', e);
     return { ok: false, error: 'No se pudo contactar el servicio de media (apps/api).' };
   }
+}
+
+/** GIFs de Giphy vía el proxy del `api` (la key vive en el api, nunca en el cliente · §3). */
+async function pedirGifs(path: string): Promise<GifItem[]> {
+  try {
+    const res = await fetch(`${apiBase()}${path}`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const d = (await res.json()) as { gifs?: GifItem[] };
+    return d.gifs ?? [];
+  } catch (e) {
+    console.error('[gifs] fallo:', e);
+    return [];
+  }
+}
+
+/** GIFs en tendencia (al abrir el picker). */
+export async function gifsTrending(): Promise<GifItem[]> {
+  return pedirGifs('/media/gifs/trending');
+}
+
+/** Busca GIFs por término (q vacío → tendencias, resuelto en el api). */
+export async function gifsBuscar(q: string): Promise<GifItem[]> {
+  return pedirGifs(`/media/gifs/buscar?q=${encodeURIComponent(q.trim())}`);
 }
 
 const TIPOS_REACCION = new Set<TipoReaccion>(['util', 'ojo', 'aclara', 'bien', 'duda', 'gracias']);
@@ -97,6 +120,17 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         if (media.length === 0 && !t) throw new Error('vacio');
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, media, estado, visibilidad)
           values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, ${sql.json(media)}, 'aprobado', ${vis})`;
+      } else if (b.modo === 'gif') {
+        // GIF de Giphy: HOTLINK al CDN (su ToS exige hotlink, no re-hospedar) → se guarda la
+        // URL externa tal cual en posts_ateneo.media {tipo:'gif',url}. Se acota a hosts giphy.com
+        // (no se persiste una URL arbitraria). ensamblarPosts la sirve sin firmar (es externa).
+        const t = b.texto.trim();
+        const url = (b.gif?.url ?? '').trim();
+        let host = '';
+        try { host = new URL(url).hostname; } catch { host = ''; }
+        if (!/^https:\/\//i.test(url) || !host.endsWith('giphy.com')) throw new Error('gif');
+        await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, media, estado, visibilidad)
+          values (${alumno.userId}, 'media', ${tituloDesde(t, 'GIF')}, ${t}, ${sql.json([{ tipo: 'gif', url }])}, 'aprobado', ${vis})`;
       } else if (b.modo === 'encuesta') {
         const q = b.pregunta.trim();
         const opciones = b.opciones.map((o) => o.trim()).filter(Boolean).slice(0, 4);

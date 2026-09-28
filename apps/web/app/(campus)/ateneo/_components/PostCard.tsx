@@ -401,8 +401,11 @@ export function PostCard({
     const [a, ...resto] = post.piezas ?? [];
     // Tile por pieza: VIDEO → <video controls> inline (content-type video/* preservado; no se
     // anida en <button>, sería HTML inválido). IMAGEN → botón que abre el detalle.
-    const tile = (p: { tipo: "imagen" | "video"; src?: string }, tamanoPlay?: number) =>
-      p.tipo === "video" && p.src ? (
+    const tile = (p: { tipo: "imagen" | "video" | "gif"; src?: string }, tamanoPlay?: number) =>
+      p.tipo === "gif" && p.src ? (
+        // GIF: imagen animada (hotlink Giphy) — <img> anima el .gif nativamente. Tile simple.
+        <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-contain" />
+      ) : p.tipo === "video" && p.src ? (
         <video controls preload="metadata" src={p.src} className="h-full w-full bg-sidebar object-cover" />
       ) : (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
