@@ -65,19 +65,20 @@ export async function validarCaso(input: {
   }
   try {
     await comoStaff(userId, async (sql) => {
-      await sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-          values (
-            ${input.casoId}, ${userId},
-            ${input.decision}::lxp.decision_validacion,
-            ${feedback || null}
-          )`;
-        await tx`
-          update lxp.bitacora_casos
-          set estado_validacion = ${input.decision}::lxp.estado_validacion
-          where id = ${input.casoId}`;
-      });
+      // `comoStaff` YA abre la transacción (sql.begin + claims + rol para RLS); se opera
+      // directo sobre `sql` (el objeto de transacción no expone .begin). INSERT + UPDATE
+      // van en la MISMA transacción de comoStaff → atomicidad intacta.
+      await sql`
+        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+        values (
+          ${input.casoId}, ${userId},
+          ${input.decision}::lxp.decision_validacion,
+          ${feedback || null}
+        )`;
+      await sql`
+        update lxp.bitacora_casos
+        set estado_validacion = ${input.decision}::lxp.estado_validacion
+        where id = ${input.casoId}`;
     });
   } catch {
     return { ok: false, error: 'No se pudo registrar la validación. Inténtalo de nuevo.' };
@@ -103,17 +104,16 @@ export async function aprobarCasosLote(
   if (!ids.length) return { ok: false, error: 'No hay casos listos que aprobar.' };
   try {
     await comoStaff(userId, async (sql) => {
-      await sql.begin(async (tx) => {
-        for (const casoId of ids) {
-          await tx`
-            insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-            values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
-          await tx`
-            update lxp.bitacora_casos
-            set estado_validacion = 'aprobado'::lxp.estado_validacion
-            where id = ${casoId} and estado_validacion = 'pendiente'`;
-        }
-      });
+      // comoStaff ya provee la transacción; el lote corre directo sobre `sql` (una sola tx).
+      for (const casoId of ids) {
+        await sql`
+          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+          values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
+        await sql`
+          update lxp.bitacora_casos
+          set estado_validacion = 'aprobado'::lxp.estado_validacion
+          where id = ${casoId} and estado_validacion = 'pendiente'`;
+      }
     });
   } catch {
     return { ok: false, error: 'No se pudo aprobar el lote. Inténtalo de nuevo.' };
@@ -145,15 +145,14 @@ export async function aprobarCaso(input: {
         from lxp.bitacora_casos where id = ${input.casoId} limit 1`;
       if (!caso) throw new Error('caso no encontrado');
 
-      await sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-          values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
-        await tx`
-          update lxp.bitacora_casos
-          set estado_validacion = 'aprobado'::lxp.estado_validacion
-          where id = ${input.casoId} and estado_validacion = 'pendiente'`;
-      });
+      // comoStaff ya provee la transacción; se opera directo sobre `sql` (una sola tx).
+      await sql`
+        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+        values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
+      await sql`
+        update lxp.bitacora_casos
+        set estado_validacion = 'aprobado'::lxp.estado_validacion
+        where id = ${input.casoId} and estado_validacion = 'pendiente'`;
 
       const [tot] = await sql<{ h: number }[]>`
         select coalesce(sum(horas_estimadas), 0)::float8 as h
