@@ -55,6 +55,15 @@ export type CasoBitacora = {
   poster?: string;
 };
 
+/** Snapshot OG de un enlace pegado en el composer (se congela al publicar, no se re-fetchea). */
+export type EnlacePreview = {
+  url: string;
+  titulo: string | null;
+  descripcion: string | null;
+  imagen: string | null;
+  sitio: string | null;
+};
+
 type PostBase = {
   id: string;
   autor: Persona;
@@ -63,6 +72,8 @@ type PostBase = {
   comentarios: number;
   compartidos: number;
   preview: Comentario[]; // 2–3 comentarios recientes/relevantes
+  // Tarjeta de enlace (OpenGraph) — ortogonal al tipo de post; se persiste como snapshot.
+  enlace?: EnlacePreview | null;
 };
 
 export type PostTexto = PostBase & { tipo: "texto"; texto: string };

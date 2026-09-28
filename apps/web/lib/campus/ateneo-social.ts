@@ -6,6 +6,7 @@ import type {
   AteneoData,
   CasoBitacora,
   Comentario,
+  EnlacePreview,
   Persona,
   Post,
   Reacciones,
@@ -72,6 +73,7 @@ type FilaPost = {
   cuerpo: string | null;
   temas: unknown;
   media: unknown;
+  enlace: unknown;
   cierra_en: Date | null;
   compartidos: number;
   created_at: Date;
@@ -216,6 +218,8 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       comentarios: f.n_comentarios,
       compartidos: f.compartidos,
       preview: previewPorPost.get(f.id) ?? [],
+      // Snapshot OG guardado al publicar; se sirve TAL CUAL (no se re-fetchea → sin SSRF en lectura).
+      enlace: f.enlace && typeof f.enlace === 'object' ? (f.enlace as EnlacePreview) : null,
     };
     if (f.tipo === 'caso') {
       const caso = f.caso_origen_id ? aCaso(f.caso_origen_id, f.titulo) : null;
@@ -279,7 +283,7 @@ async function cargarLote(
            (select rol::text from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_rol,
            (select especialidad from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_esp,
            (select sede from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_sede,
-           p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.cierra_en, p.compartidos, p.created_at,
+           p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.enlace, p.cierra_en, p.compartidos, p.created_at,
            p.caso_origen_id,
            (select count(*)::int from lxp.comentarios_ateneo c where c.post_id = p.id) as n_comentarios,
            (select count(*)::int from lxp.reacciones_ateneo r where r.post_id = p.id) as reac_total,
