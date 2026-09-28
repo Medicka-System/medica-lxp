@@ -56,6 +56,46 @@ export async function comoStaff<T>(
 }
 
 /**
+ * Flags de privacidad de un perfil (`preferencias.privacidad` · Bloque 4). Se leen con la
+ * conexión OWNER (sin `set local role`, igual que `resolverAlumnoDev`), porque la RLS
+ * `perfiles_select` (own-or-staff) OCULTA el perfil ajeno y estos gates deben poder
+ * consultar el flag de OTRO usuario (p.ej. al abrir su perfil o solicitarlo como colega).
+ * En el Sprint 11 esto será una función `SECURITY DEFINER` (como `lxp.nombre_de`); la
+ * superficie no cambia. Es una lectura READ-ONLY de un único propósito (gate de privacidad),
+ * NO `service_role`. Aplica los DEFAULTS (mismos que AJUSTES_MOCK) cuando el perfil aún no
+ * guardó preferencias.
+ */
+export type PrivacidadFlags = {
+  perfilVisible: boolean;
+  aceptarColegas: boolean;
+  casosABiblioteca: boolean;
+  mostrarEnLinea: boolean;
+};
+
+const PRIVACIDAD_DEFAULT: PrivacidadFlags = {
+  perfilVisible: true,
+  aceptarColegas: true,
+  casosABiblioteca: false,
+  mostrarEnLinea: true,
+};
+
+export async function privacidadDeVarios(userIds: string[]): Promise<Map<string, PrivacidadFlags>> {
+  const m = new Map<string, PrivacidadFlags>();
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (ids.length === 0) return m;
+  const sql = getSql(); // owner (sin set role) → puede leer el perfil ajeno que la RLS oculta
+  const rows = await sql<{ user_id: string; p: Partial<PrivacidadFlags> | null }[]>`
+    select user_id, preferencias->'privacidad' as p
+    from lxp.perfiles where user_id = any(${ids})`;
+  for (const r of rows) m.set(r.user_id, { ...PRIVACIDAD_DEFAULT, ...(r.p ?? {}) });
+  return m;
+}
+
+export async function privacidadDe(userId: string): Promise<PrivacidadFlags> {
+  return (await privacidadDeVarios([userId])).get(userId) ?? { ...PRIVACIDAD_DEFAULT };
+}
+
+/**
  * Bootstrap de sesión de DEV para el staff (hasta el auth real del Sprint 11):
  * resuelve al miembro del staff por email con una consulta directa (sin rol),
  * simulando lo que en producción vendría del JWT. Solo roles de plataforma LXP

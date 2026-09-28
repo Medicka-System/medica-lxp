@@ -1,5 +1,5 @@
 import 'server-only';
-import { comoAlumno } from '@/lib/db.server';
+import { comoAlumno, privacidadDeVarios } from '@/lib/db.server';
 import type { Sql } from '@/lib/db.server';
 import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import type {
@@ -384,23 +384,29 @@ export async function getAteneoSocial(
       where pf.user_id <> ${userId} and pf.rol in ('alumno','docente')
       order by pf.nombre
       limit 8`;
-    const sugerencias = sugFilas.map((s) => {
-      const estadoConexion = s.estado === 'colegas' ? ('colegas' as const) : s.estado === 'pendiente' ? ('pendiente' as const) : ('ninguna' as const);
-      const motivo = s.comunes > 0 ? `${s.comunes} colegas en común` : s.rol === 'docente' ? 'docente del campus' : 'del diplomado';
-      return {
-        id: s.user_id,
-        ini: ini(s.nombre),
-        nombre: s.nombre,
-        rol: (STAFF_ROLES.has(s.rol) ? 'docente' : 'alumno') as Persona['rol'],
-        meta: [s.esp, s.sede].filter(Boolean).join(' · ') || 'Campus Médica',
-        colegas: s.colegas,
-        casos: s.casos,
-        aportes: s.aportes,
-        motivo,
-        estadoConexion,
-        enComun: s.comunes > 0 ? { total: s.comunes, inis: [] } : undefined,
-      };
-    });
+    // Gate de privacidad (Bloque 4): excluye a quien ocultó su perfil (perfilVisible=false) y
+    // marca aceptaColegas (la UI oculta "Conectar" si es false).
+    const privSug = await privacidadDeVarios(sugFilas.map((s) => s.user_id));
+    const sugerencias = sugFilas
+      .filter((s) => privSug.get(s.user_id)?.perfilVisible !== false)
+      .map((s) => {
+        const estadoConexion = s.estado === 'colegas' ? ('colegas' as const) : s.estado === 'pendiente' ? ('pendiente' as const) : ('ninguna' as const);
+        const motivo = s.comunes > 0 ? `${s.comunes} colegas en común` : s.rol === 'docente' ? 'docente del campus' : 'del diplomado';
+        return {
+          id: s.user_id,
+          ini: ini(s.nombre),
+          nombre: s.nombre,
+          rol: (STAFF_ROLES.has(s.rol) ? 'docente' : 'alumno') as Persona['rol'],
+          meta: [s.esp, s.sede].filter(Boolean).join(' · ') || 'Campus Médica',
+          colegas: s.colegas,
+          casos: s.casos,
+          aportes: s.aportes,
+          motivo,
+          estadoConexion,
+          enComun: s.comunes > 0 ? { total: s.comunes, inis: [] } : undefined,
+          aceptaColegas: privSug.get(s.user_id)?.aceptarColegas ?? true,
+        };
+      });
 
     // Nº de colegas con al menos un post visible (badge del tab "Mis colegas").
     const colegasConPosts = colegaIds.length

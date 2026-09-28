@@ -117,9 +117,15 @@ export class ValidacionService {
       try {
         const banco = await promoverCasoABanco(this.db.sql, casoId);
         casoBancoId = banco.casoBancoId || undefined;
-        this.logger.log(
-          `Caso ${casoId} promovido al banco (${casoBancoId ?? 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
-        );
+        if (banco.omitido) {
+          this.logger.log(
+            `Caso ${casoId} NO promovido al banco: el alumno ${caso.id_alumno} no consintió (casosABiblioteca=false).`,
+          );
+        } else {
+          this.logger.log(
+            `Caso ${casoId} promovido al banco (${casoBancoId ?? 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
+          );
+        }
       } catch (e) {
         this.logger.error(`No se pudo promover el caso ${casoId} al banco: ${String(e)}`);
       }

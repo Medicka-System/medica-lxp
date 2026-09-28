@@ -84,7 +84,18 @@ export async function registrarValidacion(
 export async function promoverCasoABanco(
   sql: Sql,
   casoId: string,
-): Promise<{ casoBancoId: string; creado: boolean }> {
+): Promise<{ casoBancoId: string; creado: boolean; omitido?: boolean }> {
+  // Gate de privacidad (Bloque 4): la promoción a la Biblioteca es CONSENTIMIENTO del alumno
+  // (§10 — el caso ya va anonimizado, pero publicar su estudio en el acervo requiere permiso).
+  // `casosABiblioteca` es opt-in: default false → sin preferencia guardada NO se promueve.
+  const permiso = await sql<{ ok: boolean }[]>`
+    select coalesce((pf.preferencias->'privacidad'->>'casosABiblioteca')::boolean, false) as ok
+    from lxp.bitacora_casos b
+    join lxp.perfiles pf on pf.user_id = b.id_alumno
+    where b.id = ${casoId}
+    limit 1`;
+  if (!permiso[0]?.ok) return { casoBancoId: '', creado: false, omitido: true };
+
   // Título por defecto: patología → órgano → primeras palabras de los hallazgos.
   const insertadas = await sql<{ id: string }[]>`
     insert into lxp.casos_biblioteca
