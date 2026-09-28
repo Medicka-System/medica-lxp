@@ -387,6 +387,46 @@ async function main(): Promise<void> {
       ),
     );
 
+    // ── Read-receipts per-mensaje (mig 0051): marca leído los RECIBIDOS, nunca los propios ──
+    const conRR = (
+      await sql<{ id: string }[]>`
+        select q.id from lxp.consultas q
+        join lxp.consulta_mensajes cm on cm.consulta_id = q.id
+        where q.id_alumno = ${a1}
+        group by q.id
+        having count(*) filter (where cm.autor_id = q.id_alumno) > 0
+           and count(*) filter (where cm.autor_id <> q.id_alumno) > 0
+        limit 1`
+    )[0];
+    if (conRR) {
+      let rrRecibidos = false;
+      let rrPropioIntacto = false;
+      await comoRollback(sql, claimsA1, async (tx) => {
+        // a1 marca leídos los mensajes RECIBIDOS (autor <> a1): la policy lo permite.
+        const marcados = await tx<{ id: string }[]>`
+          update lxp.consulta_mensajes set leido_en = now()
+          where consulta_id = ${conRR.id} and autor_id <> ${a1} returning id`;
+        rrRecibidos = marcados.length > 0;
+        // a1 NO puede marcar sus PROPIOS (policy exige autor <> uid) → 0 filas afectadas.
+        const propios = await tx<{ id: string }[]>`
+          update lxp.consulta_mensajes set leido_en = now()
+          where consulta_id = ${conRR.id} and autor_id = ${a1} returning id`;
+        rrPropioIntacto = propios.length === 0;
+      });
+      check('a1 SÍ marca leído los mensajes RECIBIDOS de su consulta (read-receipt)', rrRecibidos);
+      check('a1 NO puede marcar leído sus PROPIOS mensajes (RLS autor <> uid)', rrPropioIntacto);
+
+      // Una consulta AJENA: a2 no participa → 0 filas afectadas (RLS participante).
+      let ajenaBloqueada = false;
+      await comoRollback(sql, claimsA2, async (tx) => {
+        const r = await tx<{ id: string }[]>`
+          update lxp.consulta_mensajes set leido_en = now()
+          where consulta_id = ${conRR.id} and autor_id <> ${a2} returning id`;
+        ajenaBloqueada = r.length === 0;
+      });
+      check('a2 NO puede marcar leído en una consulta ajena (RLS participante)', ajenaBloqueada);
+    }
+
     // ── 7) Progreso ANCLADO A LA LECCIÓN (mig 0028): completar cualquier tipo ──
     let a1Progreso = false;
     try {

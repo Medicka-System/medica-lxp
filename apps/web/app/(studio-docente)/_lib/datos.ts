@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
 import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
   ActividadRef,
@@ -1081,8 +1082,14 @@ export async function getConsultaDocenteDetalle(
     )[0];
     if (!r) return null;
 
-    const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date }[]>`
-      select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at
+    // Read-receipt per-mensaje (mig 0051): al ABRIR el hilo, el docente marca leídos los
+    // mensajes RECIBIDOS de la contraparte (autor <> él). Así el alumno ve ✓✓ en los suyos.
+    // La policy consulta_mensajes_update exige autor <> uid (no toca los propios del docente).
+    await sql`update lxp.consulta_mensajes set leido_en = now()
+      where consulta_id = ${consultaId} and autor_id <> ${userId} and leido_en is null`;
+
+    const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; leido_en: Date | null }[]>`
+      select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at, cm.leido_en
       from lxp.consulta_mensajes cm
       where cm.consulta_id = ${consultaId}
       order by cm.created_at asc`;
@@ -1108,8 +1115,9 @@ export async function getConsultaDocenteDetalle(
               },
             }
           : {}),
-        // "leído": el alumno leyó el hilo después de que el docente escribió (real, `alumno_leido_en`).
-        ...(deMi ? { leido: !!r.alumno_leido_en && r.alumno_leido_en.getTime() > m.created_at.getTime() } : {}),
+        // "leído" per-mensaje (mig 0051): el mensaje propio del docente está leído cuando la
+        // contraparte lo abrió (leido_en seteado por el otro lado).
+        ...(deMi ? { leido: !!m.leido_en } : {}),
       };
     });
 
@@ -1143,6 +1151,48 @@ export async function getConsultaDocenteDetalle(
       mensajes,
       eco,
     };
+  });
+}
+
+/**
+ * Contactos con los que el DOCENTE puede iniciar una consulta (reusa el modal del alumno):
+ * alumnos de sus grupos + staff + colegas docentes. Bajo RLS el roster CORA no es legible
+ * directo (§10) → función SECURITY DEFINER (mig 0053). Devuelve la forma `Contacto` del
+ * modal (tipo alumno/staff/colega para el AGRUPADO; el insert siempre usa tipo_contacto
+ * 'docente' porque el docente es la parte "contacto" del hilo).
+ */
+export async function getContactosDocente(userId: string): Promise<Contacto[]> {
+  return comoStaff(userId, async (sql) => {
+    const filas = await sql<
+      { user_id: string; nombre: string; rol: string; especialidad: string | null; sede: string | null; tipo: string }[]
+    >`
+      select user_id, nombre, rol, especialidad, sede, tipo
+      from lxp.contactos_consulta_docente(${userId})
+      order by tipo, nombre`;
+    const ini = (n: string) => {
+      const p = n.trim().split(/\s+/).filter((x) => !/^(dr|dra)\.?$/i.test(x));
+      const base = p.length ? p : n.trim().split(/\s+/);
+      return (base.slice(0, 2).map((x) => x[0] ?? '').join('') || n.slice(0, 2)).toUpperCase();
+    };
+    const vistos = new Set<string>([userId]);
+    const out: Contacto[] = [];
+    for (const f of filas) {
+      if (vistos.has(f.user_id)) continue;
+      vistos.add(f.user_id);
+      const tipo = (['alumno', 'staff', 'colega'].includes(f.tipo) ? f.tipo : 'alumno') as Contacto['tipo'];
+      const etiqueta = tipo === 'alumno' ? 'Alumno' : tipo === 'staff' ? 'Staff' : 'Colega';
+      const detalle = f.especialidad || (tipo === 'alumno' ? 'de sus grupos' : tipo === 'staff' ? 'Campus' : 'Docente');
+      out.push({
+        id: f.user_id,
+        ini: ini(f.nombre),
+        nombre: f.nombre,
+        tipo,
+        contexto: `${etiqueta} · ${detalle}`,
+        descripcion: [f.especialidad, f.sede].filter(Boolean).join(' · ') || undefined,
+        enLinea: false,
+      });
+    }
+    return out;
   });
 }
 

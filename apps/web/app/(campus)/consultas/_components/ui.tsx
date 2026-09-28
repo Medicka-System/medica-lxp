@@ -35,7 +35,9 @@ export function AvatarContacto({
       ? "bg-[color:var(--track)] text-[color:var(--foreground-soft)]"
       : tipo === "colega"
         ? "rounded-full bg-accent text-accent-foreground"
-        : "rounded-full bg-sidebar text-sidebar-foreground";
+        : tipo === "alumno"
+          ? "rounded-full bg-muted text-foreground"
+          : "rounded-full bg-sidebar text-sidebar-foreground";
   return (
     <span className="relative shrink-0 self-start leading-none">
       <span
@@ -64,6 +66,7 @@ export function ChipTipo({ tipo, texto }: { tipo: TipoContacto; texto: string })
     docente: "bg-sidebar text-sidebar-foreground",
     staff: `bg-[color:var(--track)] ${softText}`,
     colega: "bg-accent text-accent-foreground",
+    alumno: "bg-muted text-foreground",
   }[tipo];
   return (
     <span className={`inline-flex h-[19px] items-center whitespace-nowrap rounded-full px-[7px] text-[9.5px] font-bold ${cls}`}>

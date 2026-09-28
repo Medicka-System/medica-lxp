@@ -6,6 +6,7 @@ import { comoAlumno } from '@/lib/db.server';
 import type { ResultadoAccion } from './resultado';
 import type { Mensaje } from '@/app/(campus)/consultas/_components/tipos';
 import { contactosPermitidos, mensajesDeConsulta } from './consultas-chat';
+import { encolarNotificacion } from './notificaciones-cliente';
 
 /**
  * CONSULTAS — server actions del alumno (chat 1:1 · §2). CRUD bajo RLS (`comoAlumno`).
@@ -13,23 +14,26 @@ import { contactosPermitidos, mensajesDeConsulta } from './consultas-chat';
  * nuevo, escribiendo, presencia) → PENDIENTE DE REALTIME (fase 2), no implementados.
  */
 
-/** Carga el hilo de una consulta y la marca como leída (alumno_leido_en = now). */
+/** Carga el hilo de una consulta y marca leídos los mensajes recibidos (read-receipt). */
 export async function getMensajesConsulta(consultaId: string): Promise<Mensaje[]> {
   const alumno = await getSesionAlumno();
   return comoAlumno(alumno.userId, async (sql) => {
-    const msgs = await mensajesDeConsulta(sql, alumno.userId, consultaId);
-    // Marca leído (solo si soy el alumno de la consulta · RLS update).
-    await sql`update lxp.consultas set alumno_leido_en = now() where id = ${consultaId} and id_alumno = ${alumno.userId}`;
-    return msgs;
+    // Read-receipt per-mensaje (mig 0051): al abrir, marca leídos los mensajes RECIBIDOS
+    // (autor = el contacto). Los propios no se tocan (su leido_en lo setea el otro lado al
+    // abrir). La policy consulta_mensajes_update exige autor <> uid.
+    await sql`update lxp.consulta_mensajes set leido_en = now()
+      where consulta_id = ${consultaId} and autor_id <> ${alumno.userId} and leido_en is null`;
+    return mensajesDeConsulta(sql, alumno.userId, consultaId);
   });
 }
 
-/** Marca una consulta como leída (sin traer el hilo). */
+/** Marca los mensajes recibidos de una consulta como leídos (sin traer el hilo). */
 export async function marcarLeidaConsulta(consultaId: string): Promise<void> {
   const alumno = await getSesionAlumno();
   try {
     await comoAlumno(alumno.userId, async (sql) => {
-      await sql`update lxp.consultas set alumno_leido_en = now() where id = ${consultaId} and id_alumno = ${alumno.userId}`;
+      await sql`update lxp.consulta_mensajes set leido_en = now()
+        where consulta_id = ${consultaId} and autor_id <> ${alumno.userId} and leido_en is null`;
     });
   } catch {
     /* best-effort */
@@ -37,8 +41,12 @@ export async function marcarLeidaConsulta(consultaId: string): Promise<void> {
   revalidatePath('/consultas');
 }
 
-/** Inicia (o reutiliza) una conversación con un contacto permitido. Devuelve su id. */
-export async function iniciarConsulta(contactoId: string): Promise<ResultadoAccion & { consultaId?: string }> {
+/** Inicia (o reutiliza) una conversación con un contacto permitido. Devuelve su id.
+ *  `origenLeccionId` (paso 2 del modal, solo docente/staff) fija el contexto académico. */
+export async function iniciarConsulta(
+  contactoId: string,
+  origenLeccionId?: string | null,
+): Promise<ResultadoAccion & { consultaId?: string }> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
@@ -58,10 +66,12 @@ export async function iniciarConsulta(contactoId: string): Promise<ResultadoAcci
 
       const asunto = `Consulta con ${contacto.nombre}`;
       const esDocente = contacto.tipo === 'docente';
+      // El tema (lección de origen) solo aplica a docente/staff; colega no lleva contexto.
+      const origen = contacto.tipo === 'colega' ? null : (origenLeccionId ?? null);
       const fila = (await sql<{ id: string }[]>`
-        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado)
+        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, origen_leccion_id, asunto, estado)
         values (${alumno.userId}, ${contactoId}, ${contacto.tipo}::lxp.consulta_tipo_contacto,
-                ${esDocente ? contactoId : null}, ${asunto}, 'abierta')
+                ${esDocente ? contactoId : null}, ${origen}, ${asunto}, 'abierta')
         returning id`)[0]!;
       return fila.id;
     });
@@ -83,22 +93,35 @@ export async function enviarMensajeConsulta(
   const t = texto.trim();
   if (!t && adjuntos.length === 0) return { ok: false, error: 'Escribe un mensaje o adjunta un archivo.' };
   try {
-    const mensajeId = await comoAlumno(alumno.userId, async (sql) => {
+    const res = await comoAlumno(alumno.userId, async (sql) => {
       const m = (await sql<{ id: string }[]>`
         insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo, adjuntos)
         values (${consultaId}, ${alumno.userId}, ${t}, ${sql.json(adjuntos)})
         returning id`)[0]!;
       // Reabre si estaba cerrada + toca la consulta (marca leída para mí al enviar).
-      await sql`update lxp.consultas
+      const upd = (await sql<{ id_docente: string | null; asunto: string | null }[]>`
+        update lxp.consultas
         set updated_at = now(),
             alumno_leido_en = now(),
             estado = case when estado = 'cerrada' then 'abierta' else estado end,
             cerrada_el = case when estado = 'cerrada' then null else cerrada_el end
-        where id = ${consultaId} and id_alumno = ${alumno.userId}`;
-      return m.id;
+        where id = ${consultaId} and id_alumno = ${alumno.userId}
+        returning id_docente, asunto`)[0];
+      return { mensajeId: m.id, docenteId: upd?.id_docente ?? null, asunto: upd?.asunto ?? '' };
     });
+    // Aviso al docente asignado (side-effect de fondo · §8), portado del Sistema B:
+    // el CRUD ya quedó bajo RLS; encolar es best-effort y no bloquea (notificaciones-cliente).
+    if (res.docenteId) {
+      await encolarNotificacion({
+        userId: res.docenteId,
+        tipo: 'respuesta_consulta',
+        entidadTipo: 'consulta',
+        entidadId: consultaId,
+        datos: { asunto: res.asunto },
+      });
+    }
     revalidatePath('/consultas');
-    return { ok: true, mensajeId };
+    return { ok: true, mensajeId: res.mensajeId };
   } catch {
     return { ok: false, error: 'No se pudo enviar tu mensaje.' };
   }

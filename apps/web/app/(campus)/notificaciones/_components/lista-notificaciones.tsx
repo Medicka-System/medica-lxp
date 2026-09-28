@@ -56,7 +56,7 @@ function hrefDe(n: NotificacionItem): string | null {
     case 'dominio_iaim':
       return '/dominio';
     case 'consulta':
-      return '/herramientas/consultas';
+      return '/consultas';
     default:
       return null;
   }

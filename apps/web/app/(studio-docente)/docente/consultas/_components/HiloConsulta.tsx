@@ -11,6 +11,8 @@
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
+  Check,
+  CheckCheck,
   ChevronRight,
   Clock,
   FileText,
@@ -200,9 +202,12 @@ export function HiloConsulta({
                     <p className="rounded-[14px] rounded-br-[4px] bg-sidebar px-3.5 py-2.5 text-[13.5px] leading-relaxed text-sidebar-foreground">
                       {m.texto}
                     </p>
-                    <span className={`${mono} mt-1 block text-right text-[10.5px] text-muted-foreground`}>
+                    <span className={`${mono} mt-1 flex items-center justify-end gap-1 text-[10.5px] ${m.leido ? 'text-secondary' : 'text-muted-foreground'}`}>
                       {m.hora}
-                      {m.leido ? ' · leído' : ''}
+                      {m.leido
+                        ? <CheckCheck aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} />
+                        : <Check aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} />}
+                      {m.leido ? 'leído' : 'enviado'}
                     </span>
                   </div>
                 </div>

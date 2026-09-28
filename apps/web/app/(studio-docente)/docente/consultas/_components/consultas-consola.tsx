@@ -15,20 +15,32 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { cambiarEstadoConsulta, responderConsulta } from '../../../_lib/acciones';
+import { cambiarEstadoConsulta, iniciarConsultaDocente, responderConsulta } from '../../../_lib/acciones';
 import type { ConsultaDetalleDoc, ConsultasDocenteData, RecursoEnlazable } from '../../../_lib/contrato';
+import { NuevaConversacion, type GrupoContacto } from '@/app/(campus)/consultas/_components/NuevaConversacion';
+import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
 import { ListaConsultas } from './ListaConsultas';
 import { HiloConsulta } from './HiloConsulta';
 import { PanelEcoConsultas } from './PanelEcoConsultas';
 
+// Grupos del modal para el DOCENTE (mismo componente que el alumno, otros contactos).
+const GRUPOS_DOCENTE: GrupoContacto[] = [
+  { tipo: 'alumno', titulo: 'Mis alumnos', ayuda: 'Los inscritos en sus grupos. Abra un canal 1:1 para darles seguimiento.' },
+  { tipo: 'staff', titulo: 'Staff del campus', ayuda: 'Control escolar, coordinación y soporte.' },
+  { tipo: 'colega', titulo: 'Colegas docentes', ayuda: 'Otros docentes del campus.' },
+];
+
 export function ConsultasConsola({
   data,
   activa,
+  contactos,
 }: {
   data: ConsultasDocenteData;
   activa: ConsultaDetalleDoc | null;
+  contactos: Contacto[];
 }) {
   const router = useRouter();
+  const [nueva, setNueva] = useState(false);
   const [filtro, setFiltro] = useState<'sin-responder' | 'todas'>('sin-responder');
   const [busca, setBusca] = useState('');
   const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null);
@@ -62,6 +74,19 @@ export function ConsultasConsola({
     setVerBorrador(false);
     setRespuesta('');
     router.push(`/docente/consultas?c=${id}`, { scroll: false });
+  }
+
+  // El docente inicia una consulta (sin paso de tema): crea/reutiliza el hilo y lo abre;
+  // el primer mensaje lo escribe en el composer (como el flujo del alumno).
+  function iniciarNueva(contactoId: string) {
+    setNueva(false);
+    startTransition(async () => {
+      const r = await iniciarConsultaDocente(contactoId);
+      if (r.ok && r.consultaId) {
+        setRespuesta('');
+        router.push(`/docente/consultas?c=${r.consultaId}`, { scroll: false });
+      }
+    });
   }
 
   function responder() {
@@ -118,6 +143,7 @@ export function ConsultasConsola({
         busca={busca}
         setBusca={setBusca}
         onAbrir={abrir}
+        onNueva={() => setNueva(true)}
         visibles={visibles}
       />
       <HiloConsulta
@@ -143,6 +169,16 @@ export function ConsultasConsola({
         onResponderATodos={() => setAviso('Responderles a varios a la vez es una acción de Eco · pendiente de su endpoint conversacional (§7A).')}
         onLlevarAlForo={() => setAviso('Llevar la duda al foro del grupo es una acción de Eco · pendiente de su endpoint (§7A).')}
       />
+      {nueva && (
+        <NuevaConversacion
+          contactos={contactos}
+          temas={[]}
+          grupos={GRUPOS_DOCENTE}
+          conTema={false}
+          onIniciar={(id) => iniciarNueva(id)}
+          onCerrar={() => setNueva(false)}
+        />
+      )}
     </div>
   );
 }

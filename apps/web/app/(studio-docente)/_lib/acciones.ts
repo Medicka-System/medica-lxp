@@ -65,19 +65,20 @@ export async function validarCaso(input: {
   }
   try {
     await comoStaff(userId, async (sql) => {
-      await sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-          values (
-            ${input.casoId}, ${userId},
-            ${input.decision}::lxp.decision_validacion,
-            ${feedback || null}
-          )`;
-        await tx`
-          update lxp.bitacora_casos
-          set estado_validacion = ${input.decision}::lxp.estado_validacion
-          where id = ${input.casoId}`;
-      });
+      // `comoStaff` YA abre la transacción (sql.begin + claims + rol para RLS); se opera
+      // directo sobre `sql` (el objeto de transacción no expone .begin). INSERT + UPDATE
+      // van en la MISMA transacción de comoStaff → atomicidad intacta.
+      await sql`
+        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+        values (
+          ${input.casoId}, ${userId},
+          ${input.decision}::lxp.decision_validacion,
+          ${feedback || null}
+        )`;
+      await sql`
+        update lxp.bitacora_casos
+        set estado_validacion = ${input.decision}::lxp.estado_validacion
+        where id = ${input.casoId}`;
     });
   } catch {
     return { ok: false, error: 'No se pudo registrar la validación. Inténtalo de nuevo.' };
@@ -103,17 +104,16 @@ export async function aprobarCasosLote(
   if (!ids.length) return { ok: false, error: 'No hay casos listos que aprobar.' };
   try {
     await comoStaff(userId, async (sql) => {
-      await sql.begin(async (tx) => {
-        for (const casoId of ids) {
-          await tx`
-            insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-            values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
-          await tx`
-            update lxp.bitacora_casos
-            set estado_validacion = 'aprobado'::lxp.estado_validacion
-            where id = ${casoId} and estado_validacion = 'pendiente'`;
-        }
-      });
+      // comoStaff ya provee la transacción; el lote corre directo sobre `sql` (una sola tx).
+      for (const casoId of ids) {
+        await sql`
+          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+          values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
+        await sql`
+          update lxp.bitacora_casos
+          set estado_validacion = 'aprobado'::lxp.estado_validacion
+          where id = ${casoId} and estado_validacion = 'pendiente'`;
+      }
     });
   } catch {
     return { ok: false, error: 'No se pudo aprobar el lote. Inténtalo de nuevo.' };
@@ -145,15 +145,14 @@ export async function aprobarCaso(input: {
         from lxp.bitacora_casos where id = ${input.casoId} limit 1`;
       if (!caso) throw new Error('caso no encontrado');
 
-      await sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-          values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
-        await tx`
-          update lxp.bitacora_casos
-          set estado_validacion = 'aprobado'::lxp.estado_validacion
-          where id = ${input.casoId} and estado_validacion = 'pendiente'`;
-      });
+      // comoStaff ya provee la transacción; se opera directo sobre `sql` (una sola tx).
+      await sql`
+        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
+        values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
+      await sql`
+        update lxp.bitacora_casos
+        set estado_validacion = 'aprobado'::lxp.estado_validacion
+        where id = ${input.casoId} and estado_validacion = 'pendiente'`;
 
       const [tot] = await sql<{ h: number }[]>`
         select coalesce(sum(horas_estimadas), 0)::float8 as h
@@ -252,18 +251,19 @@ export async function responderConsulta(input: {
   let asunto = '';
   try {
     ({ alumnoId, asunto } = await comoStaff(userId, async (sql) => {
-      return sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo)
-          values (${input.consultaId}, ${userId}, ${cuerpo})`;
-        // Tomar la consulta si aún no tiene docente asignado (canal 1:1).
-        const rows = await tx<{ id_alumno: string; asunto: string }[]>`
-          update lxp.consultas
-          set id_docente = coalesce(id_docente, ${userId})
-          where id = ${input.consultaId}
-          returning id_alumno, asunto`;
-        return { alumnoId: rows[0]?.id_alumno ?? '', asunto: rows[0]?.asunto ?? '' };
-      }) as Promise<{ alumnoId: string; asunto: string }>;
+      // `comoStaff` YA abre la transacción (sql.begin con claims+rol para RLS); aquí se
+      // opera directo sobre ese `sql`. Anidar otro `sql.begin` fallaba con
+      // "tx.begin is not a function" (el objeto de transacción no expone .begin).
+      await sql`
+        insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo)
+        values (${input.consultaId}, ${userId}, ${cuerpo})`;
+      // Tomar la consulta si aún no tiene docente asignado (canal 1:1).
+      const rows = await sql<{ id_alumno: string; asunto: string }[]>`
+        update lxp.consultas
+        set id_docente = coalesce(id_docente, ${userId})
+        where id = ${input.consultaId}
+        returning id_alumno, asunto`;
+      return { alumnoId: rows[0]?.id_alumno ?? '', asunto: rows[0]?.asunto ?? '' };
     }));
   } catch {
     return { ok: false, error: 'No se pudo enviar la respuesta. Inténtalo de nuevo.' };
@@ -299,6 +299,42 @@ export async function cambiarEstadoConsulta(input: {
   revalidatePath('/docente/consultas');
   revalidatePath(`/docente/consultas/${input.consultaId}`);
   return { ok: true };
+}
+
+/**
+ * El docente INICIA una consulta (reusa el modal, sin paso de tema). El docente es la parte
+ * "contacto" (contacto_id/id_docente) y el destinatario es id_alumno — así el otro lado la ve
+ * por id_alumno y el docente por su bandeja (contacto_id/id_docente). Reutiliza si ya existe.
+ * El primer mensaje lo escribe el docente en el composer (como en el flujo del alumno).
+ */
+export async function iniciarConsultaDocente(
+  contactoId: string,
+): Promise<ResultadoAccion & { consultaId?: string }> {
+  const { userId } = await requireDocente();
+  try {
+    const consultaId = await comoStaff(userId, async (sql) => {
+      // El contacto debe estar en el set permitido (alumno de sus grupos / staff / colega).
+      const permitido = (await sql<{ user_id: string }[]>`
+        select user_id from lxp.contactos_consulta_docente(${userId}) where user_id = ${contactoId} limit 1`)[0];
+      if (!permitido) throw new Error('no-permitido');
+      // ¿Ya existe un hilo docente↔contacto? (el docente es contacto_id/id_docente).
+      const ex = (await sql<{ id: string }[]>`
+        select id from lxp.consultas
+        where id_alumno = ${contactoId} and (contacto_id = ${userId} or id_docente = ${userId})
+        order by created_at desc limit 1`)[0];
+      if (ex) return ex.id;
+      const nombre = (await sql<{ n: string | null }[]>`select lxp.nombre_de(${contactoId}) as n`)[0]?.n ?? 'contacto';
+      const fila = (await sql<{ id: string }[]>`
+        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado)
+        values (${contactoId}, ${userId}, 'docente'::lxp.consulta_tipo_contacto, ${userId}, ${`Consulta con ${nombre}`}, 'abierta')
+        returning id`)[0]!;
+      return fila.id;
+    });
+    revalidatePath('/docente/consultas');
+    return { ok: true, consultaId };
+  } catch {
+    return { ok: false, error: 'No se pudo iniciar la conversación. Inténtalo de nuevo.' };
+  }
 }
 
 // ── Moderación del Ateneo (verdad clínica = docente · §5B) ───────────────────────

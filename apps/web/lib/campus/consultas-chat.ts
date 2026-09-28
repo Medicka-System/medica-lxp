@@ -81,29 +81,37 @@ function aContacto(p: FilaPerfil, tipo: TipoContacto, contextoExtra?: string): C
 
 /** Contactos permitidos: docentes de sus grupos + staff del campus + colegas del Ateneo. */
 export async function contactosPermitidos(sql: Sql, userId: string): Promise<Contacto[]> {
-  // Docentes de los grupos (de programas publicados · Sprint 11 endurece a inscripción real).
-  const docentes = await sql<FilaPerfil[]>`
-    select distinct pf.user_id, pf.nombre, pf.rol::text as rol, pf.especialidad, pf.sede
-    from lxp.grupos g
-    join lxp.perfiles pf on pf.user_id = g.docente_id
-    where g.docente_id is not null`;
-  // Staff del campus (control escolar / soporte · rol admin/super_admin).
-  const staff = await sql<FilaPerfil[]>`
-    select user_id, nombre, rol::text as rol, especialidad, sede
-    from lxp.perfiles where rol in ('admin', 'super_admin') order by nombre`;
-  // Colegas: conexiones del Ateneo (mig 0032).
-  const colegas = await sql<FilaPerfil[]>`
-    select pf.user_id, pf.nombre, pf.rol::text as rol, pf.especialidad, pf.sede
-    from lxp.conexiones_ateneo cx
-    join lxp.perfiles pf on pf.user_id = (case when cx.solicitante_id = ${userId} then cx.receptor_id else cx.solicitante_id end)
-    where cx.estado = 'colegas' and (cx.solicitante_id = ${userId} or cx.receptor_id = ${userId})`;
-
+  // Fix "modal vacío" (mig 0052): bajo RLS el alumno solo ve su propio perfil, así que
+  // armar los contactos con SELECT directo devolvía 0. La función SECURITY DEFINER lee
+  // docentes de sus grupos + staff + colegas (acotada a que el llamador sea el alumno).
+  const filas = await sql<(FilaPerfil & { tipo: string })[]>`
+    select user_id, nombre, rol, especialidad, sede, tipo
+    from lxp.contactos_consulta_alumno(${userId})`;
   const vistos = new Set<string>([userId]);
   const out: Contacto[] = [];
-  for (const d of docentes) if (!vistos.has(d.user_id)) { vistos.add(d.user_id); out.push(aContacto(d, 'docente')); }
-  for (const s of staff) if (!vistos.has(s.user_id)) { vistos.add(s.user_id); out.push(aContacto(s, 'staff')); }
-  for (const c of colegas) if (!vistos.has(c.user_id)) { vistos.add(c.user_id); out.push(aContacto(c, tipoDeRol(c.rol) === 'staff' ? 'staff' : tipoDeRol(c.rol) === 'docente' ? 'docente' : 'colega', 'Ateneo')); }
+  for (const f of filas) {
+    if (vistos.has(f.user_id)) continue;
+    vistos.add(f.user_id);
+    const tipo = (['docente', 'staff', 'colega'].includes(f.tipo) ? f.tipo : tipoDeRol(f.rol)) as TipoContacto;
+    out.push(aContacto(f, tipo, tipo === 'colega' ? 'Ateneo' : undefined));
+  }
   return out;
+}
+
+/**
+ * Temas para el PASO 2 del modal (solo docente/staff): las lecciones de los cursos en que
+ * el alumno está inscrito (CORA → lxp.grupos → programa → módulos → lecciones). El alumno
+ * lee lecciones/módulos/programas bajo RLS (`using true`); sus grupos vía cora_grupos_de.
+ */
+export async function temasConsulta(sql: Sql, userId: string): Promise<{ id: string; etiqueta: string }[]> {
+  const filas = await sql<{ id: string; mod_orden: number; lec_orden: number; nombre: string }[]>`
+    select lec.id, mo.orden as mod_orden, lec.orden as lec_orden, lec.nombre
+    from lxp.cora_grupos_de(${userId}) cg
+    join lxp.grupos g on g.cora_grupo_id = cg.grupo_id
+    join lxp.modulos mo on mo.programa_id = g.programa_id
+    join lxp.lecciones lec on lec.modulo_id = mo.id
+    order by mo.orden, lec.orden`;
+  return filas.map((f) => ({ id: f.id, etiqueta: `M${f.mod_orden}·L${f.lec_orden} · ${f.nombre}` }));
 }
 
 export async function getConsultasChat(userId: string): Promise<ConsultasData> {
@@ -145,7 +153,7 @@ export async function getConsultasChat(userId: string): Promise<ConsultasData> {
              (select cm.created_at from lxp.consulta_mensajes cm where cm.consulta_id = q.id order by cm.created_at desc limit 1) as ultimo_en,
              (select count(*)::int from lxp.consulta_mensajes cm
                 where cm.consulta_id = q.id and cm.autor_id <> ${userId}
-                  and cm.created_at > coalesce(q.alumno_leido_en, 'epoch'::timestamptz)) as no_leidos
+                  and cm.leido_en is null) as no_leidos
       from lxp.consultas q
       left join lxp.lecciones lec on lec.id = q.origen_leccion_id
       where q.id_alumno = ${userId}
@@ -178,12 +186,16 @@ export async function getConsultasChat(userId: string): Promise<ConsultasData> {
         };
       });
 
-    const contactos = await contactosPermitidos(sql, userId);
+    const [contactos, temas] = await Promise.all([
+      contactosPermitidos(sql, userId),
+      temasConsulta(sql, userId),
+    ]);
 
     return {
       yo: { id: userId, ini: iniDe(yoNombre), nombre: yoNombre },
       conversaciones,
       contactos,
+      temas,
     };
   });
 }
@@ -197,7 +209,7 @@ export async function contarConsultasNoLeidas(userId: string): Promise<number> {
         and exists (
           select 1 from lxp.consulta_mensajes cm
           where cm.consulta_id = q.id and cm.autor_id <> ${userId}
-            and cm.created_at > coalesce(q.alumno_leido_en, 'epoch'::timestamptz)
+            and cm.leido_en is null
         )`;
     return r[0]?.n ?? 0;
   });
@@ -205,9 +217,8 @@ export async function contarConsultasNoLeidas(userId: string): Promise<number> {
 
 /** Mensajes de una consulta (para cargar el hilo al abrir · bajo RLS). */
 export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: string): Promise<Mensaje[]> {
-  const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; alumno_leido_en: Date | null }[]>`
-    select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at,
-           (select alumno_leido_en from lxp.consultas q where q.id = cm.consulta_id) as alumno_leido_en
+  const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; leido_en: Date | null }[]>`
+    select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at, cm.leido_en
     from lxp.consulta_mensajes cm
     where cm.consulta_id = ${consultaId}
     order by cm.created_at asc`;
@@ -222,8 +233,8 @@ export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: s
           url: a.url,
         }))
       : undefined;
-    // "leído": el mensaje propio se marca leído si el contacto ya abrió después (no lo
-    // sabemos sin tracking del contacto) → aproximación: propio y no el último → leído.
+    // Read-receipt REAL per-mensaje (mig 0051): el mensaje propio muestra ✓✓ "leído"
+    // cuando la contraparte lo abrió (leido_en seteado), ✓ "enviado" si aún no.
     return {
       id: m.id,
       deMi,
@@ -231,7 +242,7 @@ export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: s
       adjuntos: adjuntos && adjuntos.length ? adjuntos : undefined,
       hora: hhmm(m.created_at),
       dia: diaMensaje(m.created_at),
-      estado: deMi ? 'enviado' : undefined,
+      estado: deMi ? (m.leido_en ? 'leido' : 'enviado') : undefined,
     };
   });
 }
