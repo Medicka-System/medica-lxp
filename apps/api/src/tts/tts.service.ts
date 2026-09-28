@@ -135,7 +135,7 @@ export class TtsService {
       error: fila.error,
     };
     if (fila.estado === 'listo' && fila.recurso_ref) {
-      base.urlReproduccion = this.storage.firmarLectura(fila.recurso_ref);
+      base.urlReproduccion = this.storage.firmarLectura(fila.recurso_ref, undefined, true); // PÚBLICA: el navegador reproduce el TTS
     }
     return base;
   }

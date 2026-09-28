@@ -36,7 +36,7 @@ export class MediaService {
   async solicitarSubidaVideo(datos: SolicitarVideo): Promise<SolicitudSubidaVideo> {
     const fila = await insertarVideoProcesando(this.db.sql, datos);
     const recursoRef = claveVideo(fila.id);
-    const urlSubida = this.storage.firmarSubida(recursoRef);
+    const urlSubida = this.storage.firmarSubida(recursoRef, undefined, true); // PÚBLICA: el navegador sube el video
     return { videotecaId: fila.id, recursoRef, urlSubida };
   }
 
@@ -67,7 +67,7 @@ export class MediaService {
         `Video ${videotecaId} no está listo (estado ${fila.estado}).`,
       );
     }
-    const urlReproduccion = this.storage.firmarLectura(fila.recurso_ref);
+    const urlReproduccion = this.storage.firmarLectura(fila.recurso_ref, undefined, true); // PÚBLICA: el navegador reproduce
     return { videotecaId, urlReproduccion };
   }
 }
