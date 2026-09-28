@@ -7,9 +7,12 @@ import type {
   AjustesData,
   CertificadoPerfil,
   InsigniaItem,
+  LecturaPref,
   PerfilData,
+  TemaLectura,
 } from '@/app/(campus)/cuenta/_components/tipos';
 import { AJUSTES_MOCK } from '@/app/(campus)/cuenta/_components/tipos';
+import { contraer } from '@/app/(campus)/cuenta/_components/notif-taxonomia';
 
 /**
  * Lectura de Mi perfil y Ajustes (§ /perfil · /ajustes). TODO corre con RLS vía
@@ -172,12 +175,37 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
   });
 }
 
+/**
+ * Preferencia de LECTURA del servidor (perfiles.preferencias.lectura), ligera, para hidratar el
+ * modo lectura del shell en el arranque (cross-device). Cae a los defaults si no hay nada.
+ */
+export async function getLecturaPref(
+  userId: string,
+): Promise<{ tema: TemaLectura; tamano: number; reducirAnimaciones: boolean }> {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<{ lectura: LecturaPref | null }[]>`
+      select preferencias->'lectura' as lectura from lxp.perfiles where user_id = ${userId}`;
+    const l = rows[0]?.lectura;
+    return {
+      tema: l?.tema ?? AJUSTES_MOCK.lectura.tema,
+      tamano: typeof l?.tamano === 'number' ? l.tamano : AJUSTES_MOCK.lectura.tamano,
+      reducirAnimaciones: l?.reducirAnimaciones ?? AJUSTES_MOCK.lectura.reducirAnimaciones,
+    };
+  });
+}
+
 export async function getAjustesData(userId: string): Promise<AjustesData> {
   return comoAlumno(userId, async (sql) => {
     const rows = await sql<{ preferencias: Partial<AjustesData> | null; email: string | null }[]>`
       select preferencias, email from lxp.perfiles where user_id = ${userId}`;
     const guardadas = rows[0]?.preferencias ?? {};
     const email = rows[0]?.email;
+
+    // Notificaciones: del MOTOR real (preferencias_notificaciones), no de perfiles.preferencias.
+    // Se contraen los overrides por tipo a los toggles por categoría (defaults del contrato).
+    const notifRows = await sql<{ preferencias: import('@campus/shared').PreferenciasNotificacion }[]>`
+      select preferencias from lxp.preferencias_notificaciones where id_usuario = ${userId} limit 1`;
+    const notificaciones = contraer(notifRows[0]?.preferencias ?? {});
 
     // Defaults (forma) + lo guardado en preferencias. `cuenta` viene de auth
     // (Supabase · Sprint 11): aquí es demo, con el correo real en Google.
@@ -189,7 +217,7 @@ export async function getAjustesData(userId: string): Promise<AjustesData> {
     };
 
     return {
-      avisos: guardadas.avisos ?? AJUSTES_MOCK.avisos,
+      notificaciones,
       resumenSemanal: guardadas.resumenSemanal ?? AJUSTES_MOCK.resumenSemanal,
       noMolestar: guardadas.noMolestar ?? AJUSTES_MOCK.noMolestar,
       privacidad: guardadas.privacidad ?? AJUSTES_MOCK.privacidad,

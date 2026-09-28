@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Check } from 'lucide-react';
-import type { AjustesData, Canal, SeccionAjustes } from '../cuenta/_components/tipos';
+import type { AjustesData, PreferenciasPerfil, SeccionAjustes } from '../cuenta/_components/tipos';
 import {
   CuentaAcceso,
   IdiomaRegion,
@@ -21,7 +21,10 @@ import {
   Notificaciones,
   Privacidad,
 } from '../cuenta/_components/AjustesSecciones';
+import { expandir, type CanalOptIn, type CategoriaNotif } from '../cuenta/_components/notif-taxonomia';
+import { CLAVE_TEMA, CLAVE_FS, CLAVE_REDUCIR } from '@/components/campus/modo-lectura';
 import { guardarPreferencias } from '@/lib/campus/perfil-acciones';
+import { guardarPreferencias as guardarNotifPrefs } from '@/lib/campus/notificaciones-acciones';
 
 const OFFSET = 84; // header fijo (68) + aire
 
@@ -38,24 +41,36 @@ export function AjustesCliente({ data }: { data: AjustesData }) {
     idioma: null,
   });
 
-  /** Persiste solo lo guardable (sin `cuenta`, que es de auth · Sprint 11). */
-  const persistir = (next: AjustesData) => {
-    const { cuenta: _cuenta, ...prefs } = next;
-    void _cuenta;
+  /**
+   * Guarda un dominio de perfil (privacidad|lectura|idioma) con MERGE POR DOMINIO: envía solo
+   * el parche a `guardarPreferencias` (jsonb_set por clave → dos pestañas no se pisan). Optimista.
+   */
+  const cambiarPerfil = (parche: Partial<PreferenciasPerfil>) => {
+    setA((x) => ({ ...x, ...parche }));
     startTransition(async () => {
-      await guardarPreferencias(prefs);
+      await guardarPreferencias(parche);
     });
-  };
-
-  /** Guardado optimista + toast 1.6 s. */
-  const cambiar = (parche: Partial<AjustesData>) => {
-    const next = { ...a, ...parche };
-    setA(next);
-    persistir(next);
     setToast(true);
   };
 
-  /** Cambio local que NO persiste en preferencias (cuenta = auth · Sprint 11). */
+  /**
+   * Notificaciones → MOTOR real: actualiza el toggle de la categoría y persiste TODAS las
+   * categorías expandidas a sus tipos en `lxp.preferencias_notificaciones` (lo que consume
+   * `canalesParaTipo`). In-app no se toca (siempre on).
+   */
+  const cambiarNotif = (categoria: CategoriaNotif, canal: CanalOptIn, v: boolean) => {
+    const next = {
+      ...a.notificaciones,
+      [categoria]: { ...a.notificaciones[categoria], [canal]: v },
+    };
+    setA((x) => ({ ...x, notificaciones: next }));
+    startTransition(async () => {
+      await guardarNotifPrefs(expandir(next));
+    });
+    setToast(true);
+  };
+
+  /** Cambio local que NO persiste (cuenta = auth · Sprint 11). */
   const cambiarLocal = (parche: Partial<AjustesData>) => setA((x) => ({ ...x, ...parche }));
 
   // ── STUBS de auth (Supabase · Sprint 11) ──
@@ -81,10 +96,12 @@ export function AjustesCliente({ data }: { data: AjustesData }) {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // El tema de lectura se aplica también fuera (lo lee la pantalla de lección).
+  // Se escribe a las MISMAS claves que lee el modo lectura global (ModoLectura), para que el
+  // cambio afecte de verdad las lecciones (antes escribía claves huérfanas 'lectura-tema/…').
   useEffect(() => {
-    localStorage.setItem('lectura-tema', a.lectura.tema);
-    localStorage.setItem('lectura-tamano', String(a.lectura.tamano));
+    localStorage.setItem(CLAVE_TEMA, a.lectura.tema);
+    localStorage.setItem(CLAVE_FS, String(a.lectura.tamano));
+    localStorage.setItem(CLAVE_REDUCIR, a.lectura.reducirAnimaciones ? '1' : '0');
     document.documentElement.toggleAttribute('data-reducir-animaciones', a.lectura.reducirAnimaciones);
   }, [a.lectura]);
 
@@ -127,24 +144,13 @@ export function AjustesCliente({ data }: { data: AjustesData }) {
 
         <div className="flex min-w-0 flex-col gap-5">
           <section id="notificaciones" ref={anclar('notificaciones')}>
-            <Notificaciones
-              data={a}
-              onCanal={(avisoId: string, canal: Canal, v: boolean) =>
-                cambiar({
-                  avisos: a.avisos.map((x) =>
-                    x.id === avisoId ? { ...x, canales: { ...x.canales, [canal]: v } } : x,
-                  ),
-                })
-              }
-              onResumen={(v) => cambiar({ resumenSemanal: v })}
-              onNoMolestar={(p) => cambiar({ noMolestar: { ...a.noMolestar, ...p } })}
-            />
+            <Notificaciones data={a} onCategoria={cambiarNotif} />
           </section>
           <section id="privacidad" ref={anclar('privacidad')}>
-            <Privacidad data={a.privacidad} onCambio={(p) => cambiar({ privacidad: { ...a.privacidad, ...p } })} />
+            <Privacidad data={a.privacidad} onCambio={(p) => cambiarPerfil({ privacidad: { ...a.privacidad, ...p } })} />
           </section>
           <section id="lectura" ref={anclar('lectura')}>
-            <Lectura data={a.lectura} onCambio={(p) => cambiar({ lectura: { ...a.lectura, ...p } })} />
+            <Lectura data={a.lectura} onCambio={(p) => cambiarPerfil({ lectura: { ...a.lectura, ...p } })} />
           </section>
           <section id="cuenta" ref={anclar('cuenta')}>
             <CuentaAcceso
@@ -156,7 +162,7 @@ export function AjustesCliente({ data }: { data: AjustesData }) {
             />
           </section>
           <section id="idioma" ref={anclar('idioma')}>
-            <IdiomaRegion data={a.idioma} onCambio={(p) => cambiar({ idioma: { ...a.idioma, ...p } })} />
+            <IdiomaRegion data={a.idioma} onCambio={(p) => cambiarPerfil({ idioma: { ...a.idioma, ...p } })} />
           </section>
         </div>
       </div>

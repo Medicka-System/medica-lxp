@@ -86,13 +86,13 @@ export type PerfilData = {
 
 export type Canal = 'app' | 'correo' | 'whatsapp';
 
-/** Un aviso × sus canales (in-app siempre activo → no se guarda). */
-export type AvisoPref = {
-  id: string;
-  titulo: string;
-  detalle: string;
-  canales: { app: boolean; correo: boolean; whatsapp: boolean };
-};
+/**
+ * Toggles de notificación por CATEGORÍA (§4.2). Alimentan el motor real
+ * (`lxp.preferencias_notificaciones`, mig 0020) vía notif-taxonomia.expandir. In-app
+ * siempre on (contrato); aquí solo viven Correo/WhatsApp por categoría.
+ */
+export type { NotifToggles } from './notif-taxonomia';
+import type { NotifToggles } from './notif-taxonomia';
 
 export type NoMolestar = { activo: boolean; desde: string; hasta: string };
 
@@ -141,7 +141,9 @@ export type IdiomaPref = {
 };
 
 export type AjustesData = {
-  avisos: AvisoPref[];
+  /** Notificaciones → motor real (preferencias_notificaciones), NO perfiles.preferencias. */
+  notificaciones: NotifToggles;
+  /** Deshabilitados "próximamente" (sus productores no existen): solo se muestran. */
   resumenSemanal: boolean;
   noMolestar: NoMolestar;
   privacidad: PrivacidadPref;
@@ -152,8 +154,13 @@ export type AjustesData = {
 
 export type SeccionAjustes = 'notificaciones' | 'privacidad' | 'lectura' | 'cuenta' | 'idioma';
 
-/** La parte de Ajustes que SÍ se persiste en lxp.perfiles.preferencias (sin `cuenta`). */
-export type PreferenciasGuardables = Omit<AjustesData, 'cuenta'>;
+/**
+ * Lo que se persiste en `lxp.perfiles.preferencias` (jsonb) — SOLO estos dominios. Las
+ * notificaciones viven en su propio store (preferencias_notificaciones); `cuenta` es de auth
+ * (Sprint 11); resumen/no-molestar están deshabilitados (sin productor). `guardarPreferencias`
+ * hace MERGE POR DOMINIO con un `Partial` de esto.
+ */
+export type PreferenciasPerfil = Pick<AjustesData, 'privacidad' | 'lectura' | 'idioma'>;
 
 export const TAMANOS_LECTURA = [15, 16.5, 18, 20] as const;
 
@@ -218,44 +225,15 @@ export const PERFIL_MOCK: PerfilData = {
 };
 
 export const AJUSTES_MOCK: AjustesData = {
-  avisos: [
-    {
-      id: 'caso',
-      titulo: 'Caso validado o rechazado',
-      detalle: 'Cuando su docente revisa un caso de la bitácora.',
-      canales: { app: true, correo: true, whatsapp: false },
-    },
-    {
-      id: 'clase',
-      titulo: 'Clase por empezar',
-      detalle: '15 minutos antes de una clase en vivo.',
-      canales: { app: true, correo: false, whatsapp: true },
-    },
-    {
-      id: 'entrega',
-      titulo: 'Entrega por vencer',
-      detalle: '24 h y 2 h antes de la fecha límite.',
-      canales: { app: true, correo: true, whatsapp: false },
-    },
-    {
-      id: 'consulta',
-      titulo: 'Respuesta a mi consulta',
-      detalle: 'Cuando un docente responde en Consultas.',
-      canales: { app: true, correo: true, whatsapp: false },
-    },
-    {
-      id: 'ateneo',
-      titulo: 'Comentarios en mis posts del Ateneo',
-      detalle: 'Se agrupan para no saturar.',
-      canales: { app: true, correo: false, whatsapp: false },
-    },
-    {
-      id: 'anuncios',
-      titulo: 'Anuncios de la escuela',
-      detalle: 'Los urgentes llegan siempre.',
-      canales: { app: true, correo: true, whatsapp: false },
-    },
-  ],
+  // Forma/fallback; los valores reales salen de preferencias_notificaciones (getAjustesData).
+  notificaciones: {
+    misCasos: { correo: true, whatsapp: false },
+    consultas: { correo: true, whatsapp: false },
+    entregas: { correo: true, whatsapp: false },
+    logros: { correo: true, whatsapp: true },
+    aprendizaje: { correo: true, whatsapp: false },
+    anuncios: { correo: true, whatsapp: false },
+  },
   resumenSemanal: true,
   noMolestar: { activo: false, desde: '22:00', hasta: '07:00' },
   privacidad: {

@@ -1,13 +1,11 @@
-import { getSesionAlumno } from '@/lib/session';
-import { getPreferencias } from '@/lib/campus/notificaciones-datos';
-import { FormPreferencias } from './_components/form-preferencias';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Preferencias de notificación · Campus Médica' };
-
-/** Preferencias de notificación del alumno (§8 job #12 · Sprint 8.5). */
-export default async function PreferenciasNotificacionPage() {
-  const alumno = await getSesionAlumno();
-  const guardadas = await getPreferencias(alumno.userId);
-  return <FormPreferencias guardadas={guardadas} />;
+/**
+ * FUENTE ÚNICA de preferencias: /ajustes#notificaciones. Esta ruta se conserva como
+ * REDIRECT (no borrado duro) para no romper enlaces existentes; el formulario propio
+ * (`_components/form-preferencias`) queda inactivo. Las preferencias reales viven en
+ * lxp.preferencias_notificaciones y se editan desde /ajustes.
+ */
+export default function PreferenciasNotificacionPage() {
+  redirect('/ajustes#notificaciones');
 }
