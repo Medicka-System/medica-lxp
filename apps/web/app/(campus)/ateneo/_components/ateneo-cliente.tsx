@@ -1,20 +1,21 @@
 'use client';
 
 /**
- * Ateneo — red social del alumno (cliente). Composición del mock cableada a datos y
- * acciones REALES: reacción y voto son OPTIMISTAS (ajuste local + server + revertir si
- * falla); publicar/comentar/conectar recargan con router.refresh(). El hilo del detalle
- * se pide bajo demanda. "Abrir caso" navega al visor Cornerstone3D del caso.
+ * Ateneo — red social del alumno (cliente). Composición cableada a datos y acciones REALES.
+ * Feed PAGINADO por cursor (scroll infinito · sentinel + IntersectionObserver + "cargar más"),
+ * en 3 conjuntos server-side: Todo el Ateneo / Mis colegas / Mi grupo (mig 0055). Skeletons en
+ * la carga inicial de un feed y en el lote siguiente (sin shimmer si prefers-reduced-motion).
+ * Reacción/voto OPTIMISTAS; publicar/comentar/conectar recargan el feed o el hilo.
  */
 
-import { useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { ComposerModal, EntradaComposer, type BorradorPost } from './Composer';
 import { DetallePost } from './DetallePost';
 import { PostCard } from './PostCard';
-import { PerfilColega, RailSocial, type ListaPerfil } from './Social';
-import type { AteneoData, Comentario, ModoComposer, Post, TipoReaccion, PerfilResumen } from './tipos';
-import { focusRing, mono } from './ui';
+import { PerfilColega, RailSocial, ListaPerfilModal, type ListaPerfil } from './Social';
+import type { AteneoData, Comentario, ListaPerfilData, ModoComposer, PerfilColegaData, Post, TipoReaccion } from './tipos';
+import type { CursorFeed, FeedAteneo } from '@/lib/campus/ateneo-social';
+import { FeedSkeleton, PostCardSkeleton, focusRing, mono } from './ui';
 import {
   publicarPostAteneo,
   reaccionarAteneo,
@@ -24,32 +25,102 @@ import {
   conectarColega,
   buscarColegas,
   getHiloAteneo,
+  getFeedAteneo,
+  getListaPerfil,
+  getPerfilColega,
 } from '@/lib/campus/ateneo-social-acciones';
 
-type Feed = 'global' | 'colegas';
 type Filtro = 'todo' | 'caso' | 'pregunta' | 'encuesta';
 
-export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds: string[] }) {
-  const router = useRouter();
+const FEEDS: { id: FeedAteneo; t: string }[] = [
+  { id: 'global', t: 'Todo el Ateneo' },
+  { id: 'colegas', t: 'Mis colegas' },
+  { id: 'grupo', t: 'Mi grupo' },
+];
+
+export function AteneoCliente({
+  data,
+  siguienteCursor,
+}: {
+  data: AteneoData;
+  colegaIds: string[];
+  siguienteCursor: CursorFeed | null;
+}) {
   const { yo, misCasos, colegasConPosts } = data;
   const [posts, setPosts] = useState<Post[]>(data.posts);
-  const [sugerencias, setSugerencias] = useState(data.sugerencias);
-  const [feed, setFeed] = useState<Feed>('global');
+  const [cursor, setCursor] = useState<CursorFeed | null>(siguienteCursor);
+  const [feed, setFeed] = useState<FeedAteneo>('global');
+  const [cargandoMas, setCargandoMas] = useState(false);
+  const [cambiandoFeed, setCambiandoFeed] = useState(false);
   const [filtro, setFiltro] = useState<Filtro>('todo');
+  const [sugerencias, setSugerencias] = useState(data.sugerencias);
   const [composer, setComposer] = useState<ModoComposer | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
   const [hilo, setHilo] = useState<Comentario[]>([]);
-  const [perfilId, setPerfilId] = useState<string | null>(null);
+  const [lista, setLista] = useState<ListaPerfil | null>(null);
+  const [listaData, setListaData] = useState<ListaPerfilData | null>(null);
+  const [perfil, setPerfil] = useState<PerfilColegaData | null>(null);
   const [, iniciar] = useTransition();
 
-  // La copia local `posts` se re-sincroniza si el server manda datos nuevos.
-  const colegasSet = useMemo(() => new Set(colegaIds), [colegaIds]);
+  // ── Feed paginado ──────────────────────────────────────────────────────────
+  const cambiarFeed = (f: FeedAteneo) => {
+    if (f === feed) return;
+    setFeed(f);
+    setCambiandoFeed(true);
+    getFeedAteneo(f, null)
+      .then((r) => {
+        setPosts(r.posts);
+        setCursor(r.siguienteCursor);
+      })
+      .catch(() => {})
+      .finally(() => setCambiandoFeed(false));
+  };
 
+  const recargarFeed = useCallback(() => {
+    getFeedAteneo(feed, null)
+      .then((r) => {
+        setPosts(r.posts);
+        setCursor(r.siguienteCursor);
+      })
+      .catch(() => {});
+  }, [feed]);
+
+  const cargarMas = useCallback(() => {
+    if (cargandoMas || cursor === null) return;
+    setCargandoMas(true);
+    getFeedAteneo(feed, cursor)
+      .then((r) => {
+        setPosts((ps) => {
+          const vistos = new Set(ps.map((p) => p.id));
+          return [...ps, ...r.posts.filter((p) => !vistos.has(p.id))];
+        });
+        setCursor(r.siguienteCursor);
+      })
+      .catch(() => {})
+      .finally(() => setCargandoMas(false));
+  }, [feed, cursor, cargandoMas]);
+
+  // Sentinel + IntersectionObserver: dispara `cargarMas` al acercarse al final.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || cursor === null || cambiandoFeed) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) cargarMas();
+      },
+      { rootMargin: '600px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [cargarMas, cursor, cambiandoFeed]);
+
+  // ── Interacciones (optimistas) ──────────────────────────────────────────────
   const onPublicar = (b: BorradorPost) => {
     setComposer(null);
     iniciar(async () => {
       const r = await publicarPostAteneo(b);
-      if (r.ok) router.refresh();
+      if (r.ok) recargarFeed();
     });
   };
 
@@ -64,7 +135,7 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
     );
     iniciar(async () => {
       const res = await reaccionarAteneo(id, r);
-      if (!res.ok) router.refresh(); // revertir al estado real
+      if (!res.ok) recargarFeed();
     });
   };
 
@@ -81,7 +152,7 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
     );
     iniciar(async () => {
       const res = await votarEncuesta(postId, opcionId);
-      if (!res.ok) router.refresh();
+      if (!res.ok) recargarFeed();
     });
   };
 
@@ -98,13 +169,11 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
       if (r.ok) {
         const nuevo = await getHiloAteneo(postId);
         setHilo(nuevo);
-        router.refresh();
+        recargarFeed();
       }
     });
   };
 
-  // "Abrir en el visor" abre la publicación COMPLETA (con el visor DICOM real embebido),
-  // igual que "Comentar" — NO navega a la bitácora.
   const onAbrirCaso = (casoId: string) => {
     const post = posts.find((p) => p.tipo === 'caso' && p.caso.id === casoId);
     if (post) {
@@ -116,7 +185,7 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
   const onBuscarColegas = (q: string) => {
     iniciar(async () => {
       const res = await buscarColegas(q);
-      if (res.length) setSugerencias(res.map((s) => ({ ...s, colegas: s.colegas })));
+      setSugerencias(res.map((s) => ({ ...s })));
     });
   };
 
@@ -124,21 +193,24 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
     setSugerencias((ss) =>
       ss.map((s) => (s.id === id ? { ...s, estadoConexion: s.estadoConexion === 'ninguna' ? 'pendiente' : 'colegas' } : s)),
     );
+    setPerfil((pf) => (pf && pf.perfil.id === id ? { ...pf, perfil: { ...pf.perfil, estadoConexion: pf.perfil.estadoConexion === 'ninguna' ? 'pendiente' : 'colegas' } } : pf));
     iniciar(async () => {
       const r = await conectarColega(id);
-      if (r.ok && r.estado) {
-        setSugerencias((ss) => ss.map((s) => (s.id === id ? { ...s, estadoConexion: r.estado! } : s)));
-      } else {
-        router.refresh();
-      }
+      if (!r.ok) recargarFeed();
     });
   };
 
-  const onVerLista = (_l: ListaPerfil) => {
-    // Las listas completas (colegas/casos/aportes) se cargan bajo demanda · pendiente.
+  // A · listas del perfil propio (bajo demanda).
+  const onVerLista = (l: ListaPerfil) => {
+    setLista(l);
+    setListaData(null);
+    getListaPerfil(l).then(setListaData).catch(() => setListaData(null));
   };
-  const onMensaje = (_id: string) => {
-    // Mensajería directa · pendiente.
+
+  // C · perfil de CUALQUIER autor del feed (o sugerido).
+  const abrirPerfil = (userId: string) => {
+    if (userId === yo.id) return; // el perfil propio se ve por sus cifras (A)
+    getPerfilColega(userId).then((p) => { if (p) setPerfil(p); }).catch(() => {});
   };
 
   const abrirDetalle = (postId: string) => {
@@ -146,16 +218,10 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
     getHiloAteneo(postId).then(setHilo).catch(() => setHilo([]));
   };
 
-  const visibles = useMemo(
-    () =>
-      posts.filter(
-        (p) => (filtro === 'todo' || p.tipo === filtro) && (feed === 'global' || colegasSet.has(p.autor.id)),
-      ),
-    [posts, filtro, feed, colegasSet],
-  );
+  // El filtro por TIPO es sobre lo ya cargado (el feed sigue paginando al scrollear).
+  const visibles = useMemo(() => posts.filter((p) => filtro === 'todo' || p.tipo === filtro), [posts, filtro]);
 
   const postAbierto = posts.find((p) => p.id === abierto);
-  const perfil: (PerfilResumen & { motivo: string }) | undefined = sugerencias.find((s) => s.id === perfilId);
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-5 py-7 sm:px-6 lg:px-8">
@@ -165,19 +231,14 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
 
           <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
             <div role="tablist" aria-label="Feed" className="flex gap-1 rounded-full border border-border bg-card p-1">
-              {(
-                [
-                  ['global', 'Todo el Ateneo'],
-                  ['colegas', 'Mis colegas'],
-                ] as const
-              ).map(([id, t]) => (
+              {FEEDS.map(({ id, t }) => (
                 <button
                   key={id}
                   type="button"
                   role="tab"
                   aria-selected={feed === id}
-                  onClick={() => setFeed(id)}
-                  className={`inline-flex h-[38px] items-center gap-[7px] rounded-full px-[18px] text-[13px] transition-colors ${
+                  onClick={() => cambiarFeed(id)}
+                  className={`inline-flex h-[38px] items-center gap-[7px] rounded-full px-[16px] text-[13px] transition-colors ${
                     feed === id ? 'bg-sidebar font-bold text-sidebar-foreground' : 'font-semibold text-muted-foreground'
                   } ${focusRing}`}
                 >
@@ -214,29 +275,61 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
             </span>
           </div>
 
-          <ul className="mt-4 flex flex-col gap-4">
-            {visibles.map((p) => (
-              <li key={p.id}>
-                <PostCard
-                  post={p}
-                  yo={yo}
-                  onAbrir={abrirDetalle}
-                  onReaccionar={onReaccionar}
-                  onCompartir={onCompartir}
-                  onVotar={onVotar}
-                  onAbrirCaso={onAbrirCaso}
-                />
-              </li>
-            ))}
-          </ul>
-
-          {visibles.length === 0 && (
-            <div className="mt-4 rounded-[14px] border border-border bg-card px-6 py-10 text-center">
-              <p className="text-[14.5px] font-bold">Nada por aquí todavía</p>
-              <p className="mx-auto mt-2 max-w-[44ch] text-[13px] leading-relaxed text-[color:var(--foreground-soft)]">
-                {feed === 'colegas' ? 'Sus colegas aún no publican con este filtro. Pruebe «Todo el Ateneo».' : 'Cambie el filtro o sea el primero en publicar.'}
-              </p>
+          {cambiandoFeed ? (
+            <div className="mt-4">
+              <FeedSkeleton n={3} />
             </div>
+          ) : (
+            <>
+              <ul className="mt-4 flex flex-col gap-4">
+                {visibles.map((p) => (
+                  <li key={p.id}>
+                    <PostCard
+                      post={p}
+                      yo={yo}
+                      onAbrir={abrirDetalle}
+                      onReaccionar={onReaccionar}
+                      onCompartir={onCompartir}
+                      onVotar={onVotar}
+                      onAbrirCaso={onAbrirCaso}
+                      onAbrirPerfil={abrirPerfil}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              {cargandoMas && (
+                <div className="mt-4">
+                  <PostCardSkeleton />
+                </div>
+              )}
+
+              {/* Sentinel de scroll infinito + fallback "cargar más". */}
+              {cursor !== null && !cargandoMas && (
+                <div ref={sentinelRef} className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={cargarMas}
+                    className={`h-10 rounded-full border border-border bg-card px-5 text-[12.5px] font-semibold text-secondary ${focusRing}`}
+                  >
+                    Cargar más
+                  </button>
+                </div>
+              )}
+
+              {visibles.length === 0 && (
+                <div className="mt-4 rounded-[14px] border border-border bg-card px-6 py-10 text-center">
+                  <p className="text-[14.5px] font-bold">Nada por aquí todavía</p>
+                  <p className="mx-auto mt-2 max-w-[44ch] text-[13px] leading-relaxed text-[color:var(--foreground-soft)]">
+                    {feed === 'colegas'
+                      ? 'Sus colegas aún no publican. Pruebe «Todo el Ateneo».'
+                      : feed === 'grupo'
+                        ? 'Su grupo aún no publica. Pruebe «Todo el Ateneo».'
+                        : 'Cambie el filtro o sea el primero en publicar.'}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -245,7 +338,7 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
           sugerencias={sugerencias}
           onVerLista={onVerLista}
           onBuscar={onBuscarColegas}
-          onAbrirPerfil={setPerfilId}
+          onAbrirPerfil={abrirPerfil}
           onConectar={onConectar}
           onVerTodos={() => onBuscarColegas('')}
         />
@@ -269,13 +362,26 @@ export function AteneoCliente({ data, colegaIds }: { data: AteneoData; colegaIds
         />
       )}
 
+      {lista && (
+        <ListaPerfilModal
+          tipo={lista}
+          data={listaData}
+          cargando={listaData === null}
+          onCerrar={() => setLista(null)}
+          onAbrirCaso={(id) => {
+            setLista(null);
+            onAbrirCaso(id);
+          }}
+        />
+      )}
+
       {perfil && (
         <PerfilColega
-          perfil={perfil}
-          casos={[]}
-          onCerrar={() => setPerfilId(null)}
+          perfil={perfil.perfil}
+          casos={perfil.casos.map((c) => ({ id: c.id, titulo: c.titulo, meta: `${c.organo} · ${c.dominio}`, validado: c.validado }))}
+          onCerrar={() => setPerfil(null)}
           onConectar={onConectar}
-          onMensaje={onMensaje}
+          onMensaje={() => {}}
           onAbrirCaso={onAbrirCaso}
         />
       )}

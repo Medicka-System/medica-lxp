@@ -9,11 +9,90 @@
  */
 
 import { useState } from "react";
-import { Check, ChevronRight, MessageSquare, Plus, Search, Users } from "lucide-react";
-import type { PerfilResumen } from "./tipos";
-import { Avatar, Estudio, Modal, card, focusRing, kicker, mono } from "./ui";
+import { Check, ChevronRight, FileText, MessageSquare, Plus, Search, Users } from "lucide-react";
+import type { ListaPerfilData, PerfilResumen } from "./tipos";
+import { Avatar, Estudio, Modal, card, focusRing, kicker, mono, softText } from "./ui";
 
 export type ListaPerfil = "colegas" | "casos" | "aportes";
+
+const TITULO_LISTA: Record<ListaPerfil, string> = { casos: "Casos presentados", colegas: "Mis colegas", aportes: "Mis aportes" };
+
+/** Modal con la lista completa de una cifra del perfil propio (A), cargada bajo demanda. */
+export function ListaPerfilModal({
+  tipo,
+  data,
+  cargando,
+  onCerrar,
+  onAbrirCaso,
+}: {
+  tipo: ListaPerfil;
+  data: ListaPerfilData | null;
+  cargando: boolean;
+  onCerrar: () => void;
+  onAbrirCaso: (id: string) => void;
+}) {
+  const listo = !cargando && data !== null && data.tipo === tipo;
+  return (
+    <Modal titulo={TITULO_LISTA[tipo]} onCerrar={onCerrar} ancho={520}>
+      <div className="px-4 py-4">
+        {!listo ? (
+          <p className="py-10 text-center text-[12.5px] text-muted-foreground">Cargando…</p>
+        ) : data!.tipo === "casos" ? (
+          data!.casos.length ? (
+            <ul className="flex flex-col gap-2">
+              {data!.casos.map((c) => (
+                <li key={c.id}>
+                  <button type="button" onClick={() => onAbrirCaso(c.id)} className={`flex w-full items-center gap-2.5 rounded-[11px] border border-border bg-card p-2.5 text-left hover:border-primary ${focusRing}`}>
+                    <span className="w-16 shrink-0 overflow-hidden rounded-[7px]"><Estudio ratio="16 / 10" play={false} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-bold">{c.titulo}</span>
+                      <span className={`${mono} mt-[3px] block text-[10.5px] text-muted-foreground`}>{c.organo} · {c.dominio}</span>
+                    </span>
+                    {c.validado && <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-accent px-[7px] text-[10px] font-bold text-accent-foreground"><Check aria-hidden className="h-2.5 w-2.5" strokeWidth={2.8} />Validado</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-10 text-center text-[12.5px] text-muted-foreground">Aún no ha presentado casos al Ateneo.</p>
+          )
+        ) : data!.tipo === "colegas" ? (
+          data!.colegas.length ? (
+            <ul className="flex flex-col gap-1">
+              {data!.colegas.map((p) => (
+                <li key={p.id} className="flex items-center gap-2.5 rounded-[11px] px-2 py-2">
+                  <Avatar p={p} size={36} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-bold">{p.nombre}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{p.meta}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-10 text-center text-[12.5px] text-muted-foreground">Aún no tiene colegas. Conecte desde «Buscar colegas».</p>
+          )
+        ) : data!.aportes.length ? (
+          <ul className="flex flex-col gap-2">
+            {data!.aportes.map((a) => (
+              <li key={a.id} className="flex gap-2.5 rounded-[11px] border border-border bg-card px-3 py-2.5">
+                <span aria-hidden className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-muted ${softText}`}>
+                  {a.clase === "comentario" ? <MessageSquare className="h-3.5 w-3.5" strokeWidth={1.75} /> : <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`${mono} block text-[10px] uppercase tracking-[0.1em] text-muted-foreground`}>{a.clase} · {a.cuando}</span>
+                  <span className={`mt-0.5 block text-[12.5px] ${softText}`}>{a.texto || "—"}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-10 text-center text-[12.5px] text-muted-foreground">Aún no ha aportado en el Ateneo.</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 function Cifra({ n, etiqueta, onClick, activa }: { n: number; etiqueta: string; onClick: () => void; activa?: boolean }) {
   return (

@@ -13,6 +13,6 @@ export const dynamic = 'force-dynamic';
  */
 export default async function AteneoDocentePage() {
   const { userId } = await requireDocente();
-  const { data, colegaIds } = await getAteneoSocial(userId);
-  return <AteneoCliente data={data} colegaIds={colegaIds} />;
+  const { data, colegaIds, siguienteCursor } = await getAteneoSocial(userId);
+  return <AteneoCliente data={data} colegaIds={colegaIds} siguienteCursor={siguienteCursor} />;
 }

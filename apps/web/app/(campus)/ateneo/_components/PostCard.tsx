@@ -191,13 +191,24 @@ export function PreviewComentarios({
 
 /* ───────────── cabecera común ───────────── */
 
-function Cabecera({ post, chip }: { post: Post; chip?: React.ReactNode }) {
+function Cabecera({ post, chip, onAbrirPerfil }: { post: Post; chip?: React.ReactNode; onAbrirPerfil?: (id: string) => void }) {
+  const abrir = onAbrirPerfil ? () => onAbrirPerfil(post.autor.id) : undefined;
   return (
     <div className="flex items-center gap-3">
-      <Avatar p={post.autor} size={42} />
+      {abrir ? (
+        <button type="button" onClick={abrir} aria-label={`Ver perfil de ${post.autor.nombre}`} className={`shrink-0 rounded-full ${focusRing}`}>
+          <Avatar p={post.autor} size={42} />
+        </button>
+      ) : (
+        <Avatar p={post.autor} size={42} />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[14px] font-bold">{post.autor.nombre}</span>
+          {abrir ? (
+            <button type="button" onClick={abrir} className={`text-[14px] font-bold hover:underline ${focusRing}`}>{post.autor.nombre}</button>
+          ) : (
+            <span className="text-[14px] font-bold">{post.autor.nombre}</span>
+          )}
           {post.autor.rol === "docente" && <ChipDocente />}
           {chip}
         </div>
@@ -271,6 +282,7 @@ export function PostCard({
   onCompartir,
   onVotar,
   onAbrirCaso,
+  onAbrirPerfil,
   visorCaso,
 }: {
   post: Post;
@@ -280,6 +292,8 @@ export function PostCard({
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
   onAbrirCaso: (casoId: string) => void;
+  /** Abre el perfil del autor (C). Opcional: sin él, la cabecera no es clicable. */
+  onAbrirPerfil?: (userId: string) => void;
   /** Visor DICOM real embebido (solo en el detalle): reemplaza el placeholder. */
   visorCaso?: React.ReactNode;
 }) {
@@ -296,7 +310,7 @@ export function PostCard({
       <article className={`${card} overflow-hidden`}>
         <div aria-hidden className="h-[5px] bg-secondary" />
         <div className="px-5 py-[18px]">
-          <Cabecera post={post} chip={<Chip tono="caso" icono={<ScanLine aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Caso presentado</Chip>} />
+          <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip tono="caso" icono={<ScanLine aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Caso presentado</Chip>} />
           <p className="mt-3.5 text-[16.5px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{post.titulo}</p>
           <p className={`mt-1.5 text-[13.5px] leading-relaxed ${softText}`}>{post.texto}</p>
           {visorCaso ? (
@@ -332,7 +346,7 @@ export function PostCard({
     const sinResp = post.comentarios === 0;
     return (
       <article className={`${card} border-l-4 border-l-[color:var(--warning)] py-[18px] pl-[18px] pr-5`}>
-        <Cabecera post={post} chip={<Chip tono="pregunta" icono={<CircleHelp aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Pregunta</Chip>} />
+        <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip tono="pregunta" icono={<CircleHelp aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Pregunta</Chip>} />
         <div className="mt-3.5 rounded-xl bg-[color:var(--warning-surface)] px-[18px] py-4">
           <p className="text-[17px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{post.pregunta}</p>
           {post.contexto && <p className={`mt-2 text-[13px] leading-relaxed ${softText}`}>{post.contexto}</p>}
@@ -354,7 +368,7 @@ export function PostCard({
   if (post.tipo === "encuesta")
     return (
       <article className={`${card} px-5 py-[18px]`}>
-        <Cabecera post={post} chip={<Chip tono="encuesta" icono={<BarChart3 aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Encuesta</Chip>} />
+        <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip tono="encuesta" icono={<BarChart3 aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Encuesta</Chip>} />
         <Encuesta post={post} onVotar={onVotar} />
         {interacciones}
         {preview}
@@ -365,7 +379,7 @@ export function PostCard({
     const [a, ...resto] = post.piezas ?? [];
     return (
       <article className={`${card} px-5 py-[18px]`}>
-        <Cabecera post={post} chip={<Chip icono={<ImageIcon aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>{post.piezas.length} {post.piezas.length === 1 ? "pieza" : "piezas"}</Chip>} />
+        <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip icono={<ImageIcon aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>{post.piezas.length} {post.piezas.length === 1 ? "pieza" : "piezas"}</Chip>} />
         <p className={`mt-3.5 text-[14px] leading-relaxed ${softText}`}>{post.texto}</p>
         {/* Grilla de medios: SOLO si hay al menos una pieza (si no, el post queda como texto). */}
         {a && (
@@ -388,7 +402,7 @@ export function PostCard({
 
   return (
     <article className={`${card} px-5 py-[18px]`}>
-      <Cabecera post={post} />
+      <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} />
       <p className={`mt-3.5 text-[14.5px] leading-[1.7] ${softText}`} style={{ textWrap: "pretty" }}>{post.texto}</p>
       {interacciones}
       {preview}

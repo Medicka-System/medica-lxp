@@ -134,6 +134,39 @@ export function Estudio({
   );
 }
 
+/** Skeleton de una tarjeta del feed (carga inicial y lote siguiente). El shimmer se apaga
+ *  solo con `prefers-reduced-motion` (motion-safe:). */
+export function PostCardSkeleton() {
+  const barra = "rounded bg-muted motion-safe:animate-pulse";
+  return (
+    <div className={`${card} px-5 py-[18px]`} aria-hidden>
+      <div className="flex items-center gap-3">
+        <span className={`h-10 w-10 shrink-0 rounded-full bg-muted motion-safe:animate-pulse`} />
+        <div className="min-w-0 flex-1 space-y-2">
+          <span className={`block h-3 w-40 ${barra}`} />
+          <span className={`block h-2.5 w-24 ${barra}`} />
+        </div>
+      </div>
+      <div className="mt-3.5 space-y-2">
+        <span className={`block h-3 w-full ${barra}`} />
+        <span className={`block h-3 w-4/5 ${barra}`} />
+      </div>
+      <span className={`mt-3 block h-[170px] w-full rounded-[10px] bg-muted motion-safe:animate-pulse`} />
+    </div>
+  );
+}
+
+/** Varias tarjetas skeleton (lista). */
+export function FeedSkeleton({ n = 3 }: { n?: number }) {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-label="Cargando publicaciones">
+      {Array.from({ length: n }).map((_, i) => (
+        <PostCardSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
 /**
  * Modal base. El overlay se mide contra el viewport (fixed) y el diálogo se topa con max-h,
  * así el cuerpo scrollea y el pie (publicar / comentar) siempre queda visible.
