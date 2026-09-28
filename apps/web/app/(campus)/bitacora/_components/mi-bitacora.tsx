@@ -367,7 +367,11 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
   // Thumbnail = PRIMER frame del estudio, renderizado en CLIENTE (DICOM wadouri o JPG/PNG web)
   // con el MISMO pipeline que la consola de validación del docente (useThumbEstudio →
   // renderMiniaturasDetalle). Solo cuando el estudio ya está anonimizado y tiene series.
-  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1);
+  // Raster 768×576 (≥ contenedor ~605×156, ~2× retina) para que la card no se vea pixelada.
+  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1, {
+    ancho: 768,
+    alto: 576,
+  });
   const etiquetaEstudio =
     c.organo ??
     (c.estudioEstado === 'procesando'

@@ -541,8 +541,14 @@ export type MiniaturaDetalle = { url: string; ancho: number; alto: number };
  */
 export async function renderMiniaturasDetalle(
   imageIds: string[],
+  // Tamaño del canvas offscreen = RESOLUCIÓN del raster. Default 160×120 (tira de series /
+  // validación). El consumidor que muestra la miniatura GRANDE (card de Mi Bitácora) pide un
+  // tamaño ≥ su contenedor (idealmente 2× retina) para que no se vea pixelada.
+  opts: { ancho?: number; alto?: number } = {},
 ): Promise<(MiniaturaDetalle | null)[]> {
-  return renderLotePool(imageIds, { ancho: 160, alto: 120, timeoutMs: 8000 }, (viewport) => {
+  const ancho = opts.ancho ?? 160;
+  const alto = opts.alto ?? 120;
+  return renderLotePool(imageIds, { ancho, alto, timeoutMs: 8000 }, (viewport) => {
     const canvas = viewport.getCanvas();
     const url = canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
     if (!url) return null;

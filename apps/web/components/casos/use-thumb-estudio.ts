@@ -22,12 +22,17 @@ export type ThumbEstudioEstado =
 /**
  * Renderiza la miniatura del primer frame del estudio del caso. `activo=false` (p. ej. el
  * estudio aún no está anonimizado o no tiene series) deja el estado en `vacio` sin pedir nada.
+ * `tamano` fija la RESOLUCIÓN del raster (canvas offscreen): omítelo para el tamaño mini
+ * (tira de series / validación); pásalo ≥ contenedor (2× retina) donde la miniatura se ve grande.
  */
 export function useThumbEstudio(
   casoId: string,
   tabla: TablaEstudioDicom,
   activo = true,
+  tamano?: { ancho: number; alto: number },
 ): ThumbEstudioEstado {
+  const anchoRaster = tamano?.ancho;
+  const altoRaster = tamano?.alto;
   const [estado, setEstado] = useState<ThumbEstudioEstado>(
     activo ? { fase: 'cargando' } : { fase: 'vacio' },
   );
@@ -53,7 +58,10 @@ export function useThumbEstudio(
         const { imageIdWeb } = await import('@/components/dicom/engine/web-image-loader');
         const imageId = esImagen ? imageIdWeb(serie.urlLectura) : `wadouri:${serie.urlLectura}`;
         const { renderMiniaturasDetalle } = await import('@/components/dicom/engine/motor-cornerstone');
-        const [mini] = await renderMiniaturasDetalle([imageId]);
+        const [mini] = await renderMiniaturasDetalle(
+          [imageId],
+          anchoRaster && altoRaster ? { ancho: anchoRaster, alto: altoRaster } : {},
+        );
         if (!vivo) return;
         setEstado(
           mini ? { fase: 'listo', url: mini.url, ancho: mini.ancho, alto: mini.alto } : { fase: 'vacio' },
@@ -65,7 +73,7 @@ export function useThumbEstudio(
     return () => {
       vivo = false;
     };
-  }, [casoId, tabla, activo]);
+  }, [casoId, tabla, activo, anchoRaster, altoRaster]);
 
   return estado;
 }
