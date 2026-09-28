@@ -53,6 +53,7 @@ import {
   aprobarCasosLote,
   cargarCasoValidacion,
   cargarEstudiosAlumno,
+  marcarCasoVisto,
   validarCaso,
 } from '../../../_lib/acciones';
 import {
@@ -121,6 +122,13 @@ function FilaCola({
           seleccionado ? 'border-primary bg-accent' : 'border-transparent group-hover:bg-muted'
         }`}
       />
+      {/* Puntito verde PARPADEANTE = caso nuevo/sin analizar; se apaga al abrirlo (visto_docente). */}
+      {!c.vistoDocente && (
+        <span
+          aria-label="Caso nuevo sin analizar"
+          className="pointer-events-none absolute left-1.5 top-1.5 z-10 h-2.5 w-2.5 animate-pulse rounded-full bg-green-500 ring-2 ring-green-500/30"
+        />
+      )}
       <div className="pointer-events-none relative flex gap-[11px] p-3">
         <span
           aria-hidden
@@ -230,6 +238,25 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
     setPendientes(casos);
   }, [casos]);
 
+  // "Tiempo real" por REFETCH (patrón existente del proyecto = `router.refresh`; no hay SDK de
+  // Supabase Realtime en el web): sondea la cola cada 12 s y al volver el foco a la pestaña. El
+  // server re-lee `getCasosPorValidar` y la bandeja se REORDENA/MARCA sola (caso nuevo al top +
+  // "sin analizar" + puntito verde) SIN que el docente refresque. No sondea en medio de una
+  // mutación (no pisa una acción en curso). Suscripción limpia: cleanup del interval + listener.
+  const ocupado = enviando || aprobandoLote || analizando;
+  useEffect(() => {
+    if (ocupado) return;
+    const refrescar = () => {
+      if (document.visibilityState === 'visible') router.refresh();
+    };
+    const id = setInterval(refrescar, 12_000);
+    document.addEventListener('visibilitychange', refrescar);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', refrescar);
+    };
+  }, [router, ocupado]);
+
   // Carga la rejilla del alumno cuando cambia ?alumno (link/atrás del navegador incluidos).
   useEffect(() => {
     if (!alumnoParam) {
@@ -298,17 +325,20 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   // Cola SEPARADA por la propuesta REAL de Eco (§7A · `lxp.eco_propuestas`): listos para
   // confirmar vs requieren criterio vs aún sin analizar. Dentro de cada grupo, primero el
   // que lleva más tiempo esperando. Sin mocks: la clasificación sale de `caso.eco`.
-  const porMasEspera = (a: CasoValidacion, b: CasoValidacion) => b.horasEnCola - a.horasEnCola;
+  // Orden dentro de cada bucket: primero los NUEVOS (sin ver por el docente → suben al top y llevan
+  // puntito verde · realtime por refetch), luego por más tiempo esperando.
+  const porNuevoYEspera = (a: CasoValidacion, b: CasoValidacion) =>
+    Number(a.vistoDocente) - Number(b.vistoDocente) || b.horasEnCola - a.horasEnCola;
   const listos = useMemo(
-    () => listaFiltrada.filter((c) => bucketEco(c) === 'listo').sort(porMasEspera),
+    () => listaFiltrada.filter((c) => bucketEco(c) === 'listo').sort(porNuevoYEspera),
     [listaFiltrada],
   );
   const criterio = useMemo(
-    () => listaFiltrada.filter((c) => bucketEco(c) === 'criterio').sort(porMasEspera),
+    () => listaFiltrada.filter((c) => bucketEco(c) === 'criterio').sort(porNuevoYEspera),
     [listaFiltrada],
   );
   const sinAnalizar = useMemo(
-    () => listaFiltrada.filter((c) => bucketEco(c) === 'sin_analizar').sort(porMasEspera),
+    () => listaFiltrada.filter((c) => bucketEco(c) === 'sin_analizar').sort(porNuevoYEspera),
     [listaFiltrada],
   );
 
@@ -326,6 +356,18 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
 
   function abrirCaso(casoId: string, lectura: boolean) {
     setCasoSel({ casoId, soloLectura: lectura });
+    // Al ABRIR se marca visto: apaga el puntito verde. Solo si estaba sin ver (en la bandeja o en la
+    // rejilla del alumno). Optimista en AMBAS vistas (quita el "nuevo" ya) + persistido con
+    // `marcarCasoVisto` (idempotente) para que NO reaparezca al recargar.
+    const eraNuevo =
+      pendientes.some((c) => c.id === casoId && !c.vistoDocente) ||
+      (datosAlumno?.estudios.some((e) => e.id === casoId && !e.vistoDocente) ?? false);
+    if (!eraNuevo) return;
+    setPendientes((prev) => prev.map((c) => (c.id === casoId ? { ...c, vistoDocente: true } : c)));
+    setDatosAlumno((prev) =>
+      prev ? { ...prev, estudios: prev.estudios.map((e) => (e.id === casoId ? { ...e, vistoDocente: true } : e)) } : prev,
+    );
+    void marcarCasoVisto(casoId);
   }
 
   function volverAlAlumno() {

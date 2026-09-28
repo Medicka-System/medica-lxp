@@ -37,10 +37,17 @@ export function CardEstudio({ estudio, onAbrir }: { estudio: EstudioAlumno; onAb
 
   return (
     <article
-      className={`flex w-full flex-col overflow-hidden rounded-[14px] border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)] transition-[border-color,box-shadow] hover:border-primary hover:shadow-[0_8px_24px_rgba(15,45,82,0.10)] ${
+      className={`relative flex w-full flex-col overflow-hidden rounded-[14px] border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)] transition-[border-color,box-shadow] hover:border-primary hover:shadow-[0_8px_24px_rgba(15,45,82,0.10)] ${
         urgente ? "border-[color:var(--warning-border)]" : "border-border"
       }`}
     >
+      {/* Puntito verde PARPADEANTE (esquina sup-izq) = caso nuevo/sin analizar; se apaga al abrirlo. */}
+      {pendiente && !e.vistoDocente && (
+        <span
+          aria-label="Caso nuevo sin analizar"
+          className="pointer-events-none absolute left-2 top-2 z-10 h-2.5 w-2.5 animate-pulse rounded-full bg-green-500 ring-2 ring-green-500/40"
+        />
+      )}
       <MiniaturaEstudio casoId={e.id} titulo={e.titulo} onAbrir={onAbrir} />
 
       <div className="flex flex-1 flex-col px-[15px] pb-[15px] pt-3.5">

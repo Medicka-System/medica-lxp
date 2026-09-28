@@ -274,10 +274,11 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
         estudio_estado: string | null;
         series: number;
         cine_loop: boolean;
+        visto_docente: boolean;
       } & FilaEco)[]
     >`
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
-             c.diagnostico_presuntivo, c.contenido_estructurado,
+             c.diagnostico_presuntivo, c.contenido_estructurado, c.visto_docente,
              c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
@@ -324,6 +325,7 @@ export async function getCasosPorValidar(userId: string): Promise<CasoValidacion
       // La cola por validar es siempre `pendiente`; sin devolución asentada todavía.
       estado: 'pendiente' as const,
       notaValidacion: null,
+      vistoDocente: r.visto_docente,
     }));
   });
 }
@@ -371,9 +373,10 @@ export async function getEstudiosAlumno(
         frames: number;
         imagenes: number;
         feedback: string | null;
+        visto_docente: boolean;
       }[]
     >`
-      select c.id, c.diagnostico_presuntivo, c.organo, c.hallazgos,
+      select c.id, c.diagnostico_presuntivo, c.organo, c.hallazgos, c.visto_docente,
              m.nombre as modulo, m.orden as modulo_orden, g.nombre as grupo,
              c.created_at, c.estado_validacion::text as estado_validacion,
              c.horas_estimadas::float8 as horas,
@@ -410,6 +413,7 @@ export async function getEstudiosAlumno(
         imagenes: r.imagenes,
         estado,
         horas: r.horas,
+        vistoDocente: r.visto_docente,
         ...(estado === 'pendiente'
           ? { horasEsperando: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)) }
           : {}),
@@ -472,10 +476,11 @@ export async function getCasoValidacion(
         cine_loop: boolean;
         estado_validacion: string;
         feedback: string | null;
+        visto_docente: boolean;
       } & FilaEco)[]
     >`
       select c.id, c.grupo_id, c.id_alumno as alumno_id, c.organo, c.dominio_iaim, c.hallazgos,
-             c.diagnostico_presuntivo, c.contenido_estructurado, c.horas_estimadas::float8 as horas, c.created_at,
+             c.diagnostico_presuntivo, c.contenido_estructurado, c.visto_docente, c.horas_estimadas::float8 as horas, c.created_at,
              a.nombre as alumno, m.nombre as modulo, g.nombre as grupo, c.estudio_dicom_ref as dicom_ref,
              c.estudio_series, c.estudio_estado::text as estudio_estado,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
@@ -527,6 +532,7 @@ export async function getCasoValidacion(
       eco: mapearEco(r),
       estado: r.estado_validacion === 'aprobado' ? 'aprobado' : r.estado_validacion === 'rechazado' ? 'rechazado' : 'pendiente',
       notaValidacion: r.feedback,
+      vistoDocente: r.visto_docente,
     };
   });
 }
