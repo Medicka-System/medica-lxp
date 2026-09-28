@@ -122,9 +122,10 @@ Piso mínimo del constructor de contenido del diseñador (§5B / §5C). **Todas 
 esta §3**; ver §5C para qué editor usa cada bloque. Fija cada una a su última estable al instalar.
 
 - **Editor rico (teoría + foro):** `@tiptap/react`, `@tiptap/starter-kit`, extensiones `table`
-  (+ `table-cell` / `table-header` / `table-row`), `image`, `link`, `youtube`, `placeholder`,
-  `character-count`, `highlight`, `mathematics` (KaTeX inline); `katex`; `mammoth` (importar
-  Word → HTML).
+  (el `TableKit` de `@tiptap/extension-table` ya trae `table-cell` / `table-header` / `table-row` —
+  no se declaran como deps directas), `image`, `youtube`, `placeholder`, `character-count`,
+  `highlight`, `mathematics` (KaTeX inline); `katex`; `mammoth` (importar Word → HTML). El editor de
+  ENLACES (`link`) lo provee StarterKit v3 — tampoco es dep directa.
 - **Drag & drop:** `@dnd-kit/core`, `@dnd-kit/sortable`.
 - **Audio / TTS:** `wavesurfer.js` (onda visual) + **adaptador TTS INTERCAMBIABLE** — OpenAI para
   arrancar, ElevenLabs como upgrade **por config** (mismo patrón modelo-agnóstico que Eco, §3/§7A:
