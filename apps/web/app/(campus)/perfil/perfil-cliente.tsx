@@ -2,9 +2,14 @@
 
 /**
  * Campus · MI PERFIL — quién es y cómo va (§3 de la spec). Ficha con portada.
- * Vive dentro del shell del campus. Cablea los bloques a las server actions
- * (guardarSobreMi / guardarContacto) y a la navegación; onCambiarFoto queda como
- * stub documentado (subida a storage con firma pública · Sprint 11).
+ * Vive dentro del shell del campus.
+ *
+ * - Modo edición (Fase 2): "Editar perfil" desbloquea Sobre mí + Datos de contacto,
+ *   hace scroll + foco al primer campo de contacto; al guardar (server actions
+ *   comoAlumno) persiste y RE-BLOQUEA, reactivando el botón.
+ * - "Ver como me ven" (Fase 3): reutiliza el modal PerfilColega del Ateneo con el
+ *   propio id (esPropio: sin conectar/mensaje, con banner + volver).
+ * - Foto y portada (Fase 4): uploader público de media (firma → PUT → persistir ref).
  */
 
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -20,13 +25,34 @@ import {
   PortadaPerfil,
   SobreMi,
 } from '../cuenta/_components/PerfilBloques';
-import { guardarContacto, guardarSobreMi } from '@/lib/campus/perfil-acciones';
+import { PerfilColega } from '../ateneo/_components/Social';
+import type { PerfilColegaData } from '../ateneo/_components/tipos';
+import {
+  firmarSubidaPerfil,
+  guardarAvatar,
+  guardarContacto,
+  guardarPortada,
+  guardarSobreMi,
+} from '@/lib/campus/perfil-acciones';
+import { getPerfilColega } from '@/lib/campus/ateneo-social-acciones';
 
 export function MiPerfilCliente({ data }: { data: PerfilData }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Modo edición (Fase 2): cada sección se bloquea/desbloquea; el botón "Editar
+  // perfil" abre ambas y se desactiva mientras alguna esté abierta.
+  const [editSobre, setEditSobre] = useState(false);
+  const [editContacto, setEditContacto] = useState(false);
+  const editando = editSobre || editContacto;
+  const focoPendiente = useRef(false);
+
+  // Vista pública (Fase 3).
+  const [perfilPublico, setPerfilPublico] = useState<PerfilColegaData | null>(null);
+
+  const fotoRef = useRef<HTMLInputElement>(null);
+  const portadaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!aviso) return;
@@ -34,63 +60,119 @@ export function MiPerfilCliente({ data }: { data: PerfilData }) {
     return () => clearTimeout(t);
   }, [aviso]);
 
+  // Al entrar en edición desde "Editar perfil": scroll + foco al primer campo de
+  // contacto una vez el DOM ya lo renderiza como editable.
+  useEffect(() => {
+    if (editContacto && focoPendiente.current) {
+      focoPendiente.current = false;
+      const cont = document.getElementById('contacto');
+      cont?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      cont?.querySelector('input')?.focus();
+    }
+  }, [editContacto]);
+
+  const onEditarPerfil = () => {
+    focoPendiente.current = true;
+    setEditSobre(true);
+    setEditContacto(true);
+  };
+
   // ── Navegación / cifras ──
-  const onEditar = () => document.getElementById('contacto')?.querySelector('input')?.focus();
-  const onVerComoMeVen = () => router.push(`/ateneo?vista=publica&perfil=${data.alumno.id}`);
   const onAbrirCifra = (c: Cifra) => router.push(c.href);
   const onEscribirControlEscolar = () => router.push('/consultas?nueva=staff&area=control-escolar');
 
-  // ── STUB: subir foto (storage con firma pública, patrón split localhost:9000 ·
-  //    Sprint 11). Abre el selector para sentirse funcional; la subida real
-  //    (firmar PUT → subir → actualizar avatar_url) se cablea con el media service. ──
-  const onCambiarFoto = () => fileRef.current?.click();
-  const onArchivoElegido = () => {
-    setAviso('La foto de perfil se conectará al servicio de media (pendiente).');
-    if (fileRef.current) fileRef.current.value = '';
+  // ── Ver como me ven (Fase 3) ──
+  const onVerComoMeVen = () => {
+    startTransition(async () => {
+      const p = await getPerfilColega(data.alumno.id);
+      if (p) setPerfilPublico(p);
+      else setAviso('No se pudo abrir tu perfil público.');
+    });
   };
 
-  // ── Guardado ──
+  // ── Foto / portada (Fase 4) ──
+  const subirImagen = async (file: File, tipo: 'avatar' | 'portada') => {
+    setAviso(tipo === 'avatar' ? 'Subiendo foto…' : 'Subiendo portada…');
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const firma = await firmarSubidaPerfil(ext);
+    if (!firma.ok) return setAviso(firma.error);
+    const put = await fetch(firma.urlSubida, {
+      method: 'PUT',
+      headers: { 'content-type': file.type || 'application/octet-stream' },
+      body: file,
+    }).catch(() => null);
+    if (!put || !put.ok) return setAviso('No se pudo subir la imagen. Inténtalo de nuevo.');
+    const r = tipo === 'avatar' ? await guardarAvatar(firma.ref) : await guardarPortada(firma.ref);
+    if (!r.ok) return setAviso(r.error);
+    setAviso(tipo === 'avatar' ? 'Foto actualizada' : 'Portada actualizada');
+    router.refresh();
+  };
+  const onCambiarFoto = () => fotoRef.current?.click();
+  const onCambiarPortada = () => portadaRef.current?.click();
+  const onArchivo = (tipo: 'avatar' | 'portada') => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) void subirImagen(f, tipo);
+    e.target.value = '';
+  };
+
+  // ── Guardado (Fase 2) ──
   const onGuardarSobreMi = (texto: string, intereses: string[]) => {
     startTransition(async () => {
       const r = await guardarSobreMi(texto, intereses);
-      setAviso(r.ok ? 'Guardado' : r.error);
+      if (!r.ok) return setAviso(r.error);
+      setEditSobre(false);
+      setAviso('Guardado');
     });
   };
   const onGuardarContacto = (c: Contacto) => {
     startTransition(async () => {
       const r = await guardarContacto(c);
-      if (!r.ok) setAviso(r.error);
-      else setAviso(r.verificacionCorreo ? 'Te enviamos un enlace para verificar el nuevo correo.' : 'Guardado');
+      if (!r.ok) return setAviso(r.error);
+      setEditContacto(false);
+      setAviso(r.verificacionCorreo ? 'Te enviamos un enlace para verificar el nuevo correo.' : 'Guardado');
     });
   };
 
+  const contextoPublico = [data.contacto.especialidad, data.cora.programa, data.cora.grupo]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <div className="mx-auto w-full max-w-[1240px] px-5 pb-10 pt-6 sm:px-6 lg:px-8">
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onArchivoElegido}
-        aria-hidden
-      />
+      <input ref={fotoRef} type="file" accept="image/*" className="hidden" onChange={onArchivo('avatar')} aria-hidden />
+      <input ref={portadaRef} type="file" accept="image/*" className="hidden" onChange={onArchivo('portada')} aria-hidden />
 
       <PortadaPerfil
         alumno={data.alumno}
         cora={data.cora}
         cifras={data.cifras}
         especialidad={data.contacto.especialidad}
-        onEditar={onEditar}
+        editando={editando}
+        onEditar={onEditarPerfil}
         onVerComoMeVen={onVerComoMeVen}
         onCambiarFoto={onCambiarFoto}
+        onCambiarPortada={onCambiarPortada}
         onAbrirCifra={onAbrirCifra}
       />
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-5">
-          <SobreMi texto={data.sobreMi} intereses={data.intereses} onGuardar={onGuardarSobreMi} />
+          <SobreMi
+            texto={data.sobreMi}
+            intereses={data.intereses}
+            editando={editSobre}
+            onEditar={() => setEditSobre(true)}
+            onGuardar={onGuardarSobreMi}
+            onCancelar={() => setEditSobre(false)}
+          />
           <div id="contacto">
-            <ContactoForm contacto={data.contacto} onGuardar={onGuardarContacto} />
+            <ContactoForm
+              contacto={data.contacto}
+              editando={editContacto}
+              onEditar={() => setEditContacto(true)}
+              onGuardar={onGuardarContacto}
+              onCancelar={() => setEditContacto(false)}
+            />
           </div>
           <DatosAcademicos cora={data.cora} onEscribirControlEscolar={onEscribirControlEscolar} />
         </div>
@@ -109,6 +191,27 @@ export function MiPerfilCliente({ data }: { data: PerfilData }) {
           />
         </aside>
       </div>
+
+      {/* Ver como me ven — reutiliza el modal del Ateneo en modo propio (Fase 3) */}
+      {perfilPublico && (
+        <PerfilColega
+          perfil={perfilPublico.perfil}
+          casos={perfilPublico.casos.map((c) => ({
+            id: c.id,
+            titulo: c.titulo,
+            meta: `${c.organo} · ${c.dominio}`,
+            validado: c.validado,
+          }))}
+          onCerrar={() => setPerfilPublico(null)}
+          onConectar={() => {}}
+          onMensaje={() => {}}
+          onAbrirCaso={() => router.push('/bitacora')}
+          esPropio
+          contexto={contextoPublico}
+          sobreMi={data.sobreMi}
+          insignias={data.insignias.map((b) => ({ id: b.id, nombre: b.nombre, obtenida: b.obtenida }))}
+        />
+      )}
 
       {/* Confirmación discreta */}
       <div

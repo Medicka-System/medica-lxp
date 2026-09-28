@@ -116,3 +116,66 @@ export async function guardarPreferencias(prefs: PreferenciasGuardables): Promis
   }
   return { ok: true };
 }
+
+// ══ Foto y portada (uploader público de media · §2, mismo patrón que el Ateneo) ══
+
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+export type ResultadoFirma =
+  | { ok: true; ref: string; urlSubida: string }
+  | { ok: false; error: string };
+
+/**
+ * Firma la SUBIDA (PUT directo del navegador) de una imagen de perfil contra el
+ * endpoint público del `api` (STORAGE_ENDPOINT_PUBLICO · §2). El `api` es el único
+ * firmante S3; aquí solo se consume. Devuelve la `ref` a persistir y la `urlSubida`.
+ */
+export async function firmarSubidaPerfil(ext: string): Promise<ResultadoFirma> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: EN_PAUSA };
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `El servicio de media rechazó la solicitud (HTTP ${res.status}).` };
+    const d = (await res.json()) as { ref: string; urlSubida: string };
+    return { ok: true, ref: d.ref, urlSubida: d.urlSubida };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar el servicio de media (apps/api).' };
+  }
+}
+
+/** Persiste la ref de la foto de perfil (avatar) ya subida al storage. */
+export async function guardarAvatar(ref: string): Promise<ResultadoPerfil> {
+  return guardarRefImagen('avatar_url', ref);
+}
+
+/** Persiste la ref de la portada ya subida al storage. */
+export async function guardarPortada(ref: string): Promise<ResultadoPerfil> {
+  return guardarRefImagen('portada_url', ref);
+}
+
+async function guardarRefImagen(columna: 'avatar_url' | 'portada_url', ref: string): Promise<ResultadoPerfil> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: EN_PAUSA };
+  // Solo aceptamos refs del uploader de imágenes (evita inyectar URLs arbitrarias).
+  if (!ref.startsWith('media/imagenes/')) return { ok: false, error: 'Referencia de imagen no válida.' };
+  try {
+    await comoAlumno(alumno.userId, async (sql) => {
+      // `columna` es un literal cerrado (no viene del cliente) → seguro interpolarla.
+      await sql`
+        update lxp.perfiles
+        set ${sql(columna)} = ${ref}
+        where user_id = ${alumno.userId}`;
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo guardar la imagen.' };
+  }
+  revalidatePath('/perfil');
+  return { ok: true };
+}
