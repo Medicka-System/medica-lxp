@@ -9,9 +9,16 @@ import { StorageService } from '../dicom/storage.service';
  * los flujos de paciente: bitácora, biblioteca de casos y reportes · §10). Subida DIRECTA:
  * se firma un PUT a la clave FINAL y el navegador sube el archivo tal cual a object storage
  * (§2 — el binario nunca pasa por el `api`). La propiedad la gatea el web (`requireAutoria`).
+ *
+ * También sirve de MEDIA DE CONTENIDO general (imagen + video ligero) para el Ateneo
+ * (posts de media, sin PII/redactor): el video preserva su extensión real y su content-type
+ * lo fija el PUT del navegador (la firma solo cubre el host, no el content-type · §3).
  */
 
-const EXT_OK = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+const EXT_OK = new Set([
+  'jpg', 'jpeg', 'png', 'webp', 'gif', // imagen
+  'mp4', 'webm', 'mov', 'm4v', 'ogg', // video (Ateneo · sin anonimizador)
+]);
 
 @Injectable()
 export class MediaImagenesService {
