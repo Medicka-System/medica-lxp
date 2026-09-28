@@ -34,12 +34,17 @@ import {
   type FaseDicom,
 } from '@/components/casos/subida-dicom';
 import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
+import { BloquePedagogicoCampos, bloquePedagogicoVacio } from '@/components/casos/bloque-pedagogico';
+import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
+import { cuerpoCasoInicial } from '@/lib/reportes/plantilla-caso-defecto';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
 import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
+import type { ContenidoEstructuradoCaso } from '@campus/shared';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
   type BitacoraData,
+  type BloquePedagogico,
   type CasoBitacora,
   type DocenteOpcion,
   type EstadoCaso,
@@ -69,10 +74,16 @@ function SheetSubirCaso({
   const router = useRouter();
   const [moduloId, setModuloId] = useState(modulos[0]?.id ?? '');
   const [ficha, setFicha] = useState<FichaCaso>(fichaVacia());
+  const [pedagogico, setPedagogico] = useState<BloquePedagogico>(bloquePedagogicoVacio());
+  const [cuerpo, setCuerpo] = useState<ContenidoEstructuradoCaso>(cuerpoCasoInicial());
   const [archivos, setArchivos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fase, setFase] = useState<FaseDicom>('idle');
   const [faseMsg, setFaseMsg] = useState('');
+
+  const cambiarValorCuerpo = (campoId: string, valor: unknown) =>
+    setCuerpo((c) => ({ ...c, valores: { ...(c.valores ?? {}), [campoId]: valor } }));
+  const cambiarImpresionCuerpo = (valor: string) => setCuerpo((c) => ({ ...c, impresion: valor }));
 
   const modulo = modulos.find((m) => m.id === moduloId) ?? null;
   const ocupado = fase === 'creando' || fase === 'subiendo' || fase === 'procesando';
@@ -89,7 +100,13 @@ function SheetSubirCaso({
   const enviar = async () => {
     setError(null);
     setFase('creando');
-    const r = await subirCaso({ moduloId, ...ficha });
+    const r = await subirCaso({
+      moduloId,
+      ...ficha,
+      vineta: pedagogico.vineta,
+      presuntivo: pedagogico.presuntivo,
+      contenidoEstructurado: cuerpo,
+    });
     if (!r.ok) {
       setError(r.error);
       setFase('idle');
@@ -178,6 +195,25 @@ function SheetSubirCaso({
             </div>
           )}
 
+          {/* CUERPO estructurado (motor de reportes): el mismo CampoReporte del reporte. */}
+          <div className="mt-5">
+            <span className="block text-[11.5px] font-semibold">Hallazgos del estudio</span>
+            <div className="mt-2">
+              <ContenidoEstructuradoCasoVista
+                contenido={cuerpo}
+                modo="llenar"
+                onCambioValor={cambiarValorCuerpo}
+                onCambioImpresion={cambiarImpresionCuerpo}
+              />
+            </div>
+          </div>
+
+          {/* BLOQUE PEDAGÓGICO: viñeta + diagnóstico presuntivo (obligatorios). */}
+          <div className="mt-5">
+            <BloquePedagogicoCampos value={pedagogico} onChange={setPedagogico} />
+          </div>
+
+          {/* FICHA (metadata) del caso. */}
           <div className="mt-5">
             <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
           </div>
