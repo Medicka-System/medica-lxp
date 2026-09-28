@@ -19,8 +19,13 @@ export class ReportesCasoController {
   ) {}
 
   @Post(':id/generar-caso')
-  generarCaso(@Param('id') id: string) {
-    return this.svc.generarCaso(id);
+  generarCaso(
+    @Param('id') id: string,
+    @Body() body: { vineta?: string; presuntivo?: string },
+  ) {
+    // Bloque pedagógico OBLIGATORIO (§6): el caso nace con viñeta + diagnóstico presuntivo
+    // (nunca NULL). El web ya los captura en el modal del puente; el service revalida.
+    return this.svc.generarCaso(id, body?.vineta ?? '', body?.presuntivo ?? '');
   }
 
   /**
