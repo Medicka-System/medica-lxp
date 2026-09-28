@@ -5,6 +5,7 @@ import {
   RenderingEngine,
   Enums as CoreEnums,
   eventTarget,
+  imageLoader,
   metaData,
   type Types,
 } from '@cornerstonejs/core';
@@ -196,6 +197,13 @@ export class MotorCornerstone implements MotorVisor {
   ): Promise<void> {
     const viewport = this.stackViewport();
     try {
+      // Pre-decodifica y CACHEA la imagen inicial ANTES de `setStack`. El loader `web:` (JPG/PNG)
+      // decodifica async (fetch + createImageBitmap); `setStack` no espera de forma fiable ese decode,
+      // así que el viewport se pintaba en NEGRO en el primer montaje y solo aparecía al re-entrar (ya
+      // cacheada). Con la imagen en la caché de Cornerstone, `setStack` la muestra de inmediato.
+      // Best-effort: si la pre-carga falla, `setStack` reintenta (no rompe el camino `.dcm`).
+      const inicial = imageIds[indiceInicial] ?? imageIds[0];
+      if (inicial) await imageLoader.loadAndCacheImage(inicial).catch(() => undefined);
       await viewport.setStack(imageIds, indiceInicial);
       if (regionUS) this.encuadrarRegion(viewport, regionUS);
       viewport.render();
@@ -452,6 +460,9 @@ async function renderLotePool<T>(
         const i = cursor++; // sincrónico → cada lane toma un índice distinto (JS mono-hilo)
         if (i >= imageIds.length) break;
         try {
+          // Pre-decodifica y CACHEA antes de `setStack` (mismo fix que el viewport principal): el
+          // loader `web:` decodifica async y la miniatura salía en negro/vacía en la 1a pasada.
+          await conTiempoLimite(imageLoader.loadAndCacheImage(imageIds[i]!), opts.timeoutMs).catch(() => undefined);
           await conTiempoLimite(viewport.setStack([imageIds[i]!], 0), opts.timeoutMs);
           viewport.render();
           await esperarPintado();
