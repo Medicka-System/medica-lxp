@@ -220,7 +220,7 @@ function SheetSubirCaso({
                     {faseMsg ||
                       (fase === 'anonimizado'
                         ? 'La PII del paciente se removió; ya puede verse en el visor.'
-                        : 'Las series van directo a storage; el worker las anonimiza (§10).')}
+                        : 'Las series van directo a storage; el worker las anonimiza.')}
                   </p>
                 </div>
               </div>
