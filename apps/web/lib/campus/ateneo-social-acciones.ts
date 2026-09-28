@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
+import { cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
-import type { Comentario, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
+import type { CasoBitacora, Comentario, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
 
 /**
  * ATENEO — server actions (§1/§2). CRUD del alumno bajo RLS (`comoAlumno`): las policies
@@ -13,6 +14,38 @@ import type { Comentario, PerfilResumen, TipoReaccion } from '@/app/(campus)/ate
  * validación docente vive en el CASO de origen (bitácora), no en el post. Reacción y
  * voto son idempotentes (una fila por usuario, cambiable).
  */
+
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+/**
+ * Firma la subida DIRECTA de un medio del Ateneo (imagen/video) a object storage,
+ * REUSANDO el uploader público de media de contenido (`/media/imagenes/firmar-subida`):
+ * mismo patrón que reportes/media (signed URL contra STORAGE_ENDPOINT_PUBLICO, SigV4 al
+ * host público · §2 web→storage directo, sin proxy). El Ateneo NO tiene anonimizador: son
+ * imagen/video, no DICOM/paciente (§10). El navegador hace el PUT del binario a `urlSubida`.
+ */
+export async function firmarSubidaMediaAteneo(
+  ext: string,
+): Promise<{ ok: true; ref: string; urlSubida: string } | { ok: false; error: string }> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `El servicio de media rechazó la solicitud (HTTP ${res.status}).` };
+    const d = (await res.json()) as { ref: string; urlSubida: string };
+    return { ok: true, ref: d.ref, urlSubida: d.urlSubida };
+  } catch (e) {
+    console.error('[firmarSubidaMediaAteneo] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio de media (apps/api).' };
+  }
+}
 
 const TIPOS_REACCION = new Set<TipoReaccion>(['util', 'ojo', 'aclara', 'bien', 'duda', 'gracias']);
 const REL = 86_400_000;
@@ -53,10 +86,17 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, temas, estado, visibilidad)
           values (${alumno.userId}, 'pregunta', ${q}, ${b.contexto.trim() || null}, ${sql.json(temas)}, 'aprobado', ${vis})`;
       } else if (b.modo === 'media') {
-        // Subida real de archivos: PENDIENTE (§ declarado). Se publica el texto sin media.
+        // Media YA subida por el composer (imagen/video · media/imagenes/*, público, SIN
+        // anonimizador). Se persiste la ref en posts_ateneo.media con la forma {tipo,url}
+        // que lee ensamblarPosts (allí `url`=ref se firma a URL de lectura). Máx 8.
         const t = b.texto.trim();
-        await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
-          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, 'aprobado', ${vis})`;
+        const media = (b.media ?? [])
+          .filter((m) => m && typeof m.ref === 'string' && m.ref.startsWith('media/imagenes/'))
+          .slice(0, 8)
+          .map((m) => ({ tipo: m.tipo === 'video' ? 'video' : 'imagen', url: m.ref }));
+        if (media.length === 0 && !t) throw new Error('vacio');
+        await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, media, estado, visibilidad)
+          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, ${sql.json(media)}, 'aprobado', ${vis})`;
       } else if (b.modo === 'encuesta') {
         const q = b.pregunta.trim();
         const opciones = b.opciones.map((o) => o.trim()).filter(Boolean).slice(0, 4);
@@ -234,6 +274,111 @@ export async function getHiloAteneo(postId: string): Promise<Comentario[]> {
       texto: c.cuerpo,
       cuando: rel(c.created_at),
     }));
+  });
+}
+
+/** Un LOTE del feed (global/colegas/grupo) por cursor keyset — infinite scroll (§ prod). */
+export async function getFeedAteneo(feed: FeedAteneo, cursor: CursorFeed | null): Promise<LoteFeed> {
+  const alumno = await getSesionAlumno();
+  return cargarFeedAteneo(alumno.userId, feed, cursor);
+}
+
+const DOM_LABEL: Record<string, string> = {
+  indicacion: 'Indicación', adquisicion: 'Adquisición', interpretacion: 'Interpretación', decision_medica: 'Decisión médica',
+};
+function aCasoDeBitacora(c: { id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; created_at: Date }): CasoBitacora {
+  const series = Array.isArray(c.estudio_series) ? (c.estudio_series as { frames?: unknown[] }[]) : [];
+  return {
+    id: c.id,
+    titulo: c.hallazgos?.slice(0, 80) || 'Estudio de la bitácora',
+    area: c.organo ?? 'Ultrasonido',
+    organo: c.organo ?? '—',
+    dominio: c.dominio_iaim ? DOM_LABEL[c.dominio_iaim] ?? c.dominio_iaim : '—',
+    piezas: series.length,
+    loops: series.filter((s) => Array.isArray(s.frames) && s.frames.length > 1).length,
+    fecha: `${c.created_at.getUTCDate()}`,
+    validado: c.estado === 'aprobado',
+  };
+}
+
+/** Lista completa de una cifra del perfil PROPIO (A): casos / colegas / aportes. */
+export async function getListaPerfil(tipo: 'casos' | 'colegas' | 'aportes'): Promise<ListaPerfilData> {
+  const alumno = await getSesionAlumno();
+  const uid = alumno.userId;
+  return comoAlumno(uid, async (sql) => {
+    if (tipo === 'colegas') {
+      // Nombres vía nombre_de (SECURITY DEFINER): perfiles_select oculta el perfil ajeno.
+      const filas = await sql<{ id: string; nombre: string | null }[]>`
+        select cn.otro as id, lxp.nombre_de(cn.otro) as nombre
+        from (
+          select case when solicitante_id = ${uid} then receptor_id else solicitante_id end as otro
+          from lxp.conexiones_ateneo
+          where estado = 'colegas' and (solicitante_id = ${uid} or receptor_id = ${uid})
+        ) cn
+        order by nombre`;
+      const colegas: Persona[] = filas.map((f) => {
+        const n = f.nombre ?? 'Colega';
+        return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo' };
+      });
+      return { tipo, colegas };
+    }
+    if (tipo === 'aportes') {
+      const filas = await sql<{ id: string; clase: string; texto: string | null; created_at: Date; post_id: string }[]>`
+        select id, 'publicación' as clase, coalesce(cuerpo, vineta, titulo) as texto, created_at, id as post_id
+        from lxp.posts_ateneo where autor_id = ${uid}
+        union all
+        select c.id, 'comentario' as clase, c.cuerpo as texto, c.created_at, c.post_id
+        from lxp.comentarios_ateneo c where c.autor_id = ${uid}
+        order by created_at desc limit 60`;
+      const aportes: ItemAporte[] = filas.map((f) => ({
+        id: f.id,
+        clase: (f.clase === 'comentario' ? 'comentario' : 'publicación') as ItemAporte['clase'],
+        texto: (f.texto ?? '').slice(0, 160),
+        cuando: rel(f.created_at),
+        postId: f.post_id,
+      }));
+      return { tipo, aportes };
+    }
+    // casos: mis casos de bitácora (RLS: propios).
+    const filas = await sql<{ id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; created_at: Date }[]>`
+      select id, organo, dominio_iaim, hallazgos, estado_validacion::text as estado, estudio_series, created_at
+      from lxp.bitacora_casos where id_alumno = ${uid} order by created_at desc limit 60`;
+    return { tipo, casos: filas.map(aCasoDeBitacora) };
+  });
+}
+
+/** Perfil de un colega (C): resumen con contadores reales + sus casos presentados visibles. */
+export async function getPerfilColega(userId: string): Promise<PerfilColegaData | null> {
+  const alumno = await getSesionAlumno();
+  const uid = alumno.userId;
+  return comoAlumno(uid, async (sql) => {
+    const base = (await sql<{ nombre: string | null; estado: string | null; colegas: number; casos: number; aportes: number }[]>`
+      select lxp.nombre_de(${userId}) as nombre,
+             (select estado::text from lxp.conexiones_ateneo cx
+                where (cx.solicitante_id = ${uid} and cx.receptor_id = ${userId})
+                   or (cx.receptor_id = ${uid} and cx.solicitante_id = ${userId}) limit 1) as estado,
+             st.colegas, st.casos, st.aportes
+      from lxp.ateneo_perfil_stats(${userId}) st`)[0];
+    if (!base || !base.nombre) return null;
+    // Casos PRESENTADOS visibles: sus posts tipo caso (la RLS de posts aplica la visibilidad).
+    const postsCaso = await sql<{ id: string; titulo: string; cuerpo: string | null; caso_origen_id: string | null; created_at: Date }[]>`
+      select id, titulo, cuerpo, caso_origen_id, created_at
+      from lxp.posts_ateneo where autor_id = ${userId} and tipo = 'caso'
+      order by created_at desc limit 40`;
+    const casos: CasoBitacora[] = postsCaso.map((p) => ({
+      id: p.caso_origen_id ?? p.id,
+      titulo: (p.titulo || p.cuerpo || 'Caso presentado').slice(0, 80),
+      area: 'Ateneo', organo: '—', dominio: '—', piezas: 0, loops: 0, fecha: '', validado: false,
+    }));
+    const estadoConexion = (base.estado === 'colegas' ? 'colegas' : base.estado === 'pendiente' ? 'pendiente' : 'ninguna') as PerfilResumen['estadoConexion'];
+    return {
+      perfil: {
+        id: userId, ini: inic(base.nombre), nombre: base.nombre, rol: 'alumno' as const,
+        meta: 'Colega del Ateneo', colegas: base.colegas, casos: base.casos, aportes: base.aportes,
+        estadoConexion, motivo: '',
+      },
+      casos,
+    };
   });
 }
 

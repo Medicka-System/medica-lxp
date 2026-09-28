@@ -11,6 +11,6 @@ export const dynamic = 'force-dynamic';
  */
 export default async function AteneoPage() {
   const alumno = await getSesionAlumno();
-  const { data, colegaIds } = await getAteneoSocial(alumno.userId);
-  return <AteneoCliente data={data} colegaIds={colegaIds} />;
+  const { data, colegaIds, siguienteCursor } = await getAteneoSocial(alumno.userId);
+  return <AteneoCliente data={data} colegaIds={colegaIds} siguienteCursor={siguienteCursor} />;
 }
