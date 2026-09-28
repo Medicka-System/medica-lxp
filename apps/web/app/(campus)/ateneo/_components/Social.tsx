@@ -9,8 +9,11 @@
  */
 
 import { useState } from "react";
-import { Check, ChevronRight, FileText, MessageSquare, Plus, Search, Users } from "lucide-react";
+import { ArrowLeft, Award, Check, ChevronRight, Eye, FileText, MessageSquare, Plus, Search, Users } from "lucide-react";
 import type { ListaPerfilData, PerfilResumen } from "./tipos";
+
+/** Insignia mínima para la vista pública (modo propio · "ver como me ven"). */
+export type InsigniaPublica = { id: string; nombre: string; obtenida: boolean };
 import { Avatar, Estudio, Modal, card, focusRing, kicker, mono, softText } from "./ui";
 
 export type ListaPerfil = "colegas" | "casos" | "aportes";
@@ -224,6 +227,10 @@ export function PerfilColega({
   onConectar,
   onMensaje,
   onAbrirCaso,
+  esPropio = false,
+  contexto,
+  sobreMi,
+  insignias,
 }: {
   perfil: PerfilResumen;
   casos: { id: string; titulo: string; meta: string; validado: boolean }[];
@@ -231,10 +238,16 @@ export function PerfilColega({
   onConectar: (id: string) => void;
   onMensaje: (id: string) => void;
   onAbrirCaso: (id: string) => void;
+  /** Modo "ver como me ven": es el propio perfil → sin conectar/mensaje, con banner + volver. */
+  esPropio?: boolean;
+  contexto?: string;
+  sobreMi?: string;
+  insignias?: InsigniaPublica[];
 }) {
   const [lista, setLista] = useState<ListaPerfil>("casos");
+  const obtenidas = (insignias ?? []).filter((i) => i.obtenida);
   return (
-    <Modal titulo={`Perfil de ${perfil.nombre}`} onCerrar={onCerrar} ancho={560}>
+    <Modal titulo={esPropio ? "Así se ve tu perfil público" : `Perfil de ${perfil.nombre}`} onCerrar={onCerrar} ancho={560}>
       <div className="relative h-[86px]" style={{ background: "var(--sidebar)" }}>
         <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
       </div>
@@ -245,8 +258,8 @@ export function PerfilColega({
         <div className="mt-2.5 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[19px] font-extrabold">{perfil.nombre}</p>
-            <p className="mt-0.5 text-[12.5px] text-muted-foreground">{perfil.meta}</p>
-            {perfil.enComun && (
+            <p className="mt-0.5 text-[12.5px] text-muted-foreground">{contexto ?? perfil.meta}</p>
+            {!esPropio && perfil.enComun && (
               <p className="mt-1.5 inline-flex items-center gap-1.5 text-[12px] font-semibold text-secondary">
                 <Users aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.75} />
                 {perfil.enComun.total} colegas en común · {perfil.enComun.inis.join(", ")}
@@ -254,27 +267,68 @@ export function PerfilColega({
               </p>
             )}
           </div>
-          <span className="flex gap-2">
-            {perfil.estadoConexion === "colegas" ? (
-              <span className="inline-flex h-11 items-center gap-1.5 rounded-[10px] bg-accent px-4 text-[13px] font-bold text-accent-foreground">
-                <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />
-                Colegas
-              </span>
-            ) : perfil.estadoConexion === "pendiente" ? (
-              <span className="inline-flex h-11 items-center rounded-[10px] border border-border bg-muted px-4 text-[13px] font-semibold text-muted-foreground">
-                Solicitud enviada
-              </span>
-            ) : (
-              <button type="button" onClick={() => onConectar(perfil.id)} className={`inline-flex h-11 items-center gap-[7px] rounded-[10px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] ${focusRing}`}>
-                <Plus aria-hidden className="h-[15px] w-[15px]" strokeWidth={2.4} />
-                Conectar
+          {!esPropio && (
+            <span className="flex gap-2">
+              {perfil.estadoConexion === "colegas" ? (
+                <span className="inline-flex h-11 items-center gap-1.5 rounded-[10px] bg-accent px-4 text-[13px] font-bold text-accent-foreground">
+                  <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />
+                  Colegas
+                </span>
+              ) : perfil.estadoConexion === "pendiente" ? (
+                <span className="inline-flex h-11 items-center rounded-[10px] border border-border bg-muted px-4 text-[13px] font-semibold text-muted-foreground">
+                  Solicitud enviada
+                </span>
+              ) : (
+                <button type="button" onClick={() => onConectar(perfil.id)} className={`inline-flex h-11 items-center gap-[7px] rounded-[10px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] ${focusRing}`}>
+                  <Plus aria-hidden className="h-[15px] w-[15px]" strokeWidth={2.4} />
+                  Conectar
+                </button>
+              )}
+              <button type="button" onClick={() => onMensaje(perfil.id)} aria-label="Enviar mensaje" className={`grid h-11 w-11 place-items-center rounded-[10px] border border-border bg-card text-[color:var(--foreground-soft)] ${focusRing}`}>
+                <MessageSquare aria-hidden className="h-4 w-4" strokeWidth={1.75} />
               </button>
-            )}
-            <button type="button" onClick={() => onMensaje(perfil.id)} aria-label="Enviar mensaje" className={`grid h-11 w-11 place-items-center rounded-[10px] border border-border bg-card text-[color:var(--foreground-soft)] ${focusRing}`}>
-              <MessageSquare aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          </span>
+            </span>
+          )}
         </div>
+
+        {/* Modo propio: banner "así te ven" + volver a Mi perfil */}
+        {esPropio && (
+          <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-[11px] bg-accent px-3.5 py-3">
+            <Eye aria-hidden className="h-4 w-4 shrink-0 text-secondary" strokeWidth={1.75} />
+            <p className="min-w-0 flex-1 text-[12.5px] font-semibold text-accent-foreground">
+              Estás viendo tu perfil público, como lo ven tus colegas del Ateneo.
+            </p>
+            <button
+              type="button"
+              onClick={onCerrar}
+              className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12px] font-semibold text-secondary ${focusRing}`}
+            >
+              <ArrowLeft aria-hidden className="h-[14px] w-[14px]" strokeWidth={2} />
+              Volver a Mi perfil
+            </button>
+          </div>
+        )}
+
+        {/* Modo propio: Sobre mí + Insignias (lo que ve un colega) */}
+        {esPropio && sobreMi && (
+          <div className="mt-3.5">
+            <p className={`${kicker} text-muted-foreground`}>Sobre mí</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-[color:var(--foreground-soft)] [text-wrap:pretty]">{sobreMi}</p>
+          </div>
+        )}
+        {esPropio && obtenidas.length > 0 && (
+          <div className="mt-3.5">
+            <p className={`${kicker} text-muted-foreground`}>Insignias</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {obtenidas.map((b) => (
+                <span key={b.id} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-[12px] font-semibold text-accent-foreground">
+                  <Award aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                  {b.nombre}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div role="tablist" className="mt-[18px] grid grid-cols-3 gap-1.5">
           {(
