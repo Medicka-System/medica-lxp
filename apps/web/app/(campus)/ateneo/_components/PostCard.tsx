@@ -11,7 +11,7 @@
  *   texto     → el caso base.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   Check,
@@ -57,7 +57,7 @@ export function SelectorReacciones({
               on ? "bg-accent" : ""
             } ${focusRing}`}
           >
-            <EmojiReaccion tipo={k} size={26} />
+            <EmojiReaccion tipo={k} size={32} />
             <span className={`whitespace-nowrap text-[9.5px] font-semibold ${on ? "text-accent-foreground" : "text-muted-foreground"}`}>
               {r.etiqueta}
             </span>
@@ -83,6 +83,30 @@ export function BarraInteracciones({
 }) {
   const [abierto, setAbierto] = useState(false);
   const mia = post.reacciones.mia;
+  const popRef = useRef<HTMLDivElement>(null);
+  const botonRef = useRef<HTMLButtonElement>(null);
+
+  // Picker por CLICK/TAP (hover no existe en táctil y dejaba el menú colgado). Cierra por:
+  // seleccionar, clic fuera o Esc. Estado `abierto` controlado; Esc devuelve el foco al botón.
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!popRef.current?.contains(t) && !botonRef.current?.contains(t)) setAbierto(false);
+    };
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setAbierto(false);
+        botonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", fuera);
+    document.addEventListener("keydown", tecla);
+    return () => {
+      document.removeEventListener("pointerdown", fuera);
+      document.removeEventListener("keydown", tecla);
+    };
+  }, [abierto]);
 
   return (
     <>
@@ -93,10 +117,10 @@ export function BarraInteracciones({
               <span
                 key={k}
                 aria-hidden
-                className={`grid h-[22px] w-[22px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1.5" : ""}`}
+                className={`grid h-[26px] w-[26px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1.5" : ""}`}
                 style={{ background: REACCIONES[k].fondo }}
               >
-                <EmojiReaccion tipo={k} size={14} animar={false} />
+                <EmojiReaccion tipo={k} size={17} animar={false} />
               </span>
             ))}
           </span>
@@ -109,7 +133,7 @@ export function BarraInteracciones({
 
       <div className="relative mt-2.5 grid grid-cols-3 gap-1 border-t border-border pt-1.5">
         {abierto && (
-          <div className="absolute bottom-12 left-0 z-10" onMouseLeave={() => setAbierto(false)}>
+          <div ref={popRef} className="absolute bottom-12 left-0 z-10">
             <SelectorReacciones
               actual={mia}
               onElegir={(r) => {
@@ -120,20 +144,17 @@ export function BarraInteracciones({
           </div>
         )}
         <button
+          ref={botonRef}
           type="button"
           aria-pressed={!!mia}
           aria-haspopup="menu"
-          onClick={() => onReaccionar(post.id, mia ? null : "util")}
-          onMouseEnter={() => setAbierto(true)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setAbierto(true);
-          }}
+          aria-expanded={abierto}
+          onClick={() => setAbierto((o) => !o)}
           className={`inline-flex h-10 items-center justify-center gap-[7px] rounded-[9px] text-[13px] transition-colors hover:bg-muted ${
             mia ? "font-bold text-secondary" : `font-semibold ${softText}`
           } ${focusRing}`}
         >
-          {mia ? <EmojiReaccion tipo={mia} size={18} /> : <ThumbsUp aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
+          {mia ? <EmojiReaccion tipo={mia} size={22} /> : <ThumbsUp aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
           {mia ? REACCIONES[mia].etiqueta : "Reaccionar"}
         </button>
         <button type="button" onClick={() => onComentar(post.id)} className={`inline-flex h-10 items-center justify-center gap-[7px] rounded-[9px] text-[13px] font-semibold ${softText} transition-colors hover:bg-muted ${focusRing}`}>
@@ -378,22 +399,28 @@ export function PostCard({
 
   if (post.tipo === "media") {
     const [a, ...resto] = post.piezas ?? [];
+    // Tile por pieza: VIDEO → <video controls> inline (content-type video/* preservado; no se
+    // anida en <button>, sería HTML inválido). IMAGEN → botón que abre el detalle.
+    const tile = (p: { tipo: "imagen" | "video"; src?: string }, tamanoPlay?: number) =>
+      p.tipo === "video" && p.src ? (
+        <video controls preload="metadata" src={p.src} className="h-full w-full bg-sidebar object-cover" />
+      ) : (
+        <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
+          <Estudio ratio="auto" poster={p.src} play={p.tipo === "video"} tamanoPlay={tamanoPlay} />
+        </button>
+      );
     return (
       <article className={`${card} px-5 py-[18px]`}>
         <Cabecera onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip icono={<ImageIcon aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>{post.piezas.length} {post.piezas.length === 1 ? "pieza" : "piezas"}</Chip>} />
         <p className={`mt-3.5 text-[14px] leading-relaxed ${softText}`}>{post.texto}</p>
         {/* Grilla de medios: SOLO si hay al menos una pieza (si no, el post queda como texto). */}
         {a && (
-          <button type="button" onClick={() => onAbrir(post.id)} className={`mt-3 grid h-[250px] w-full gap-1.5 overflow-hidden rounded-[10px] ${resto.length ? "grid-cols-[2fr_1fr] grid-rows-2" : ""} ${focusRing}`}>
-            <span className={`overflow-hidden rounded-[10px] ${resto.length ? "row-span-2" : ""}`}>
-              <Estudio ratio="auto" poster={a.src} play={a.tipo === "video"} />
-            </span>
+          <div className={`mt-3 grid h-[250px] w-full gap-1.5 overflow-hidden rounded-[10px] ${resto.length ? "grid-cols-[2fr_1fr] grid-rows-2" : ""}`}>
+            <span className={`overflow-hidden rounded-[10px] ${resto.length ? "row-span-2" : ""}`}>{tile(a)}</span>
             {resto.slice(0, 2).map((p, i) => (
-              <span key={i} className="overflow-hidden rounded-[10px]">
-                <Estudio ratio="auto" poster={p.src} play={p.tipo === "video"} tamanoPlay={40} />
-              </span>
+              <span key={i} className="overflow-hidden rounded-[10px]">{tile(p, 40)}</span>
             ))}
-          </button>
+          </div>
         )}
         {interacciones}
         {preview}
