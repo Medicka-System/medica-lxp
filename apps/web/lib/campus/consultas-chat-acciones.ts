@@ -6,6 +6,7 @@ import { comoAlumno } from '@/lib/db.server';
 import type { ResultadoAccion } from './resultado';
 import type { Mensaje } from '@/app/(campus)/consultas/_components/tipos';
 import { contactosPermitidos, mensajesDeConsulta } from './consultas-chat';
+import { encolarNotificacion } from './notificaciones-cliente';
 
 /**
  * CONSULTAS — server actions del alumno (chat 1:1 · §2). CRUD bajo RLS (`comoAlumno`).
@@ -83,22 +84,35 @@ export async function enviarMensajeConsulta(
   const t = texto.trim();
   if (!t && adjuntos.length === 0) return { ok: false, error: 'Escribe un mensaje o adjunta un archivo.' };
   try {
-    const mensajeId = await comoAlumno(alumno.userId, async (sql) => {
+    const res = await comoAlumno(alumno.userId, async (sql) => {
       const m = (await sql<{ id: string }[]>`
         insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo, adjuntos)
         values (${consultaId}, ${alumno.userId}, ${t}, ${sql.json(adjuntos)})
         returning id`)[0]!;
       // Reabre si estaba cerrada + toca la consulta (marca leída para mí al enviar).
-      await sql`update lxp.consultas
+      const upd = (await sql<{ id_docente: string | null; asunto: string | null }[]>`
+        update lxp.consultas
         set updated_at = now(),
             alumno_leido_en = now(),
             estado = case when estado = 'cerrada' then 'abierta' else estado end,
             cerrada_el = case when estado = 'cerrada' then null else cerrada_el end
-        where id = ${consultaId} and id_alumno = ${alumno.userId}`;
-      return m.id;
+        where id = ${consultaId} and id_alumno = ${alumno.userId}
+        returning id_docente, asunto`)[0];
+      return { mensajeId: m.id, docenteId: upd?.id_docente ?? null, asunto: upd?.asunto ?? '' };
     });
+    // Aviso al docente asignado (side-effect de fondo · §8), portado del Sistema B:
+    // el CRUD ya quedó bajo RLS; encolar es best-effort y no bloquea (notificaciones-cliente).
+    if (res.docenteId) {
+      await encolarNotificacion({
+        userId: res.docenteId,
+        tipo: 'respuesta_consulta',
+        entidadTipo: 'consulta',
+        entidadId: consultaId,
+        datos: { asunto: res.asunto },
+      });
+    }
     revalidatePath('/consultas');
-    return { ok: true, mensajeId };
+    return { ok: true, mensajeId: res.mensajeId };
   } catch {
     return { ok: false, error: 'No se pudo enviar tu mensaje.' };
   }
