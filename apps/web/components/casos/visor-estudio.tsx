@@ -58,11 +58,18 @@ function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
       if (esImagen) {
         // Imagen web (JPG/PNG): loader `web:`, un solo frame, SIN calibración (no mm),
         // sin cine ni auto-encuadre (no hay región de ultrasonido).
+        // MINIATURA = la propia URL de la imagen (el navegador la decodifica en un `<img>`,
+        // INDEPENDIENTE del visor Cornerstone). Antes se rasterizaba por Cornerstone en una lane
+        // aparte y el viewport + la lane compartían el MISMO `IImage` cacheado en contextos WebGL
+        // distintos → se robaban el bitmap/textura decodificados y uno de los dos salía en NEGRO
+        // (se turnaban según el orden de render). Con el thumb servido por el navegador, el visor
+        // es el ÚNICO consumidor del `web:` en Cornerstone → sin colisión.
         return {
           id: `${casoId}-s${i}`,
           descripcion: `Imagen ${i + 1}`,
           modalidad: s.modalidad || 'IMG',
           tipo: 'imagen' as const,
+          miniaturaUrl: s.urlLectura,
           ...(s.series_uid ? { metadatos: { series_uid: s.series_uid } } : {}),
           frames: [{ imageId: imageIdWeb(s.urlLectura), indice: 0 }],
         };
@@ -142,20 +149,32 @@ export function VisorEstudio({
         setEstudio(armado);
         setEstado('listo');
 
-        // Miniaturas REALES por serie (Cornerstone renderiza el 1er frame). No bloquea
-        // el visor grande: merge sólo cambia `miniaturaUrl` (no los imageIds), así que
-        // `useVisorDicom` no recarga la serie activa.
+        // Miniaturas de las series .dcm: Cornerstone rasteriza el 1er frame (no tienen raster
+        // server-side). Las imágenes WEB (JPG/PNG) NO se rasterizan aquí — ya traen su
+        // `miniaturaUrl` (la propia URL, decodificada por el navegador) para NO compartir el
+        // `IImage` cacheado con el viewport (evita la carrera del bitmap · ver `armarEstudio`).
+        // No bloquea el visor grande: el merge sólo cambia `miniaturaUrl` (no los imageIds).
         try {
-          const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
-          const urls = await renderMiniaturas(armado.series.map((s) => s.frames[0]!.imageId));
-          if (!vivo) return;
-          setEstudio((prev) =>
-            prev && prev.id === armado.id
-              ? { ...prev, series: prev.series.map((s, i) => ({ ...s, miniaturaUrl: urls[i] ?? s.miniaturaUrl })) }
-              : prev,
-          );
+          const dcm = armado.series
+            .map((s, i) => ({ imageId: s.frames[0]!.imageId, i }))
+            .filter(({ i }) => armado.series[i]!.tipo === 'dicom');
+          if (dcm.length > 0) {
+            const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
+            const urls = await renderMiniaturas(dcm.map((d) => d.imageId));
+            if (!vivo) return;
+            const porIndice = new Map<number, string>();
+            dcm.forEach((d, k) => {
+              const u = urls[k];
+              if (u) porIndice.set(d.i, u);
+            });
+            setEstudio((prev) =>
+              prev && prev.id === armado.id
+                ? { ...prev, series: prev.series.map((s, i) => (porIndice.has(i) ? { ...s, miniaturaUrl: porIndice.get(i)! } : s)) }
+                : prev,
+            );
+          }
         } catch {
-          /* miniaturas son un adorno: si fallan, el selector cae a su ícono */
+          /* miniaturas .dcm son un adorno: si fallan, el selector cae a su ícono */
         }
       } else {
         setError(r.ok ? 'El estudio no tiene series.' : r.error);
