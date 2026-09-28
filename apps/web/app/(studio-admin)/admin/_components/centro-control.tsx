@@ -364,7 +364,7 @@ export function CentroControl({ data }: { data: CentroControlData }) {
           <button
             type="button"
             disabled
-            title="Abrir CORA — se conecta con la integración del ERP (§11)"
+            title="Abrir CORA — se conecta con la integración del ERP."
             className={`mt-2.5 inline-flex h-10 w-full cursor-not-allowed items-center justify-center gap-2 rounded-[10px] border border-border bg-card text-[12.5px] font-semibold text-muted-foreground opacity-70 ${focusRing}`}
           >
             <ExternalLink aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />

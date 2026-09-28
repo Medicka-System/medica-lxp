@@ -144,6 +144,9 @@ importers:
       '@lumieducation/h5p-react':
         specifier: ^10.0.4
         version: 10.0.4
+      '@lumieducation/h5p-server':
+        specifier: ^10.0.4
+        version: 10.0.4
       '@tiptap/extension-character-count':
         specifier: ^3.31.3
         version: 3.31.3(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))
@@ -280,6 +283,9 @@ importers:
       postcss:
         specifier: ^8.4.49
         version: 8.5.28
+      postcss-load-config:
+        specifier: ^6.0.1
+        version: 6.0.1(jiti@1.21.7)(postcss@8.5.28)(tsx@4.23.13)
       rimraf:
         specifier: ^6.0.1
         version: 6.1.3
