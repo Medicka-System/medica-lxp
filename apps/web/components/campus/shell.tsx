@@ -15,10 +15,7 @@ import {
   Bell,
   ChevronsLeft,
   ChevronsRight,
-  LogOut,
   Search,
-  Settings,
-  User,
   X,
 } from 'lucide-react';
 import { mono, kickerMini } from '@/components/tokens';
@@ -26,6 +23,7 @@ import { iniciales } from '@/components/avatar';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components/campus/nav-config';
 import { ModoLecturaContext } from '@/components/campus/modo-lectura';
+import { MenuCuenta } from '@/app/(campus)/cuenta/_components/MenuCuenta';
 
 const focusDark =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--sidebar)]';
@@ -127,14 +125,23 @@ export function CampusShell({
   const [cuentaAbierta, setCuentaAbierta] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
   const cuentaRef = useRef<HTMLDivElement>(null);
+  const avatarBtnRef = useRef<HTMLButtonElement>(null);
   const ini = iniciales(usuario.nombre);
+
+  // Cierra el menú de cuenta y devuelve el foco al avatar (§5 de la spec).
+  const cerrarCuenta = (devolverFoco = false) => {
+    setCuentaAbierta(false);
+    if (devolverFoco) avatarBtnRef.current?.focus();
+  };
 
   useEffect(() => {
     if (!cuentaAbierta) return;
     const cerrar = (e: MouseEvent) => {
       if (cuentaRef.current && !cuentaRef.current.contains(e.target as Node)) setCuentaAbierta(false);
     };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setCuentaAbierta(false);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrarCuenta(true);
+    };
     document.addEventListener('mousedown', cerrar);
     document.addEventListener('keydown', esc);
     return () => {
@@ -143,8 +150,16 @@ export function CampusShell({
     };
   }, [cuentaAbierta]);
 
-  // Cierra la hoja "Más" al navegar.
-  useEffect(() => setMasAbierto(false), [pathname]);
+  // Cierra la hoja "Más" y el menú de cuenta al navegar.
+  useEffect(() => {
+    setMasAbierto(false);
+    setCuentaAbierta(false);
+  }, [pathname]);
+
+  // STUB de cierre de sesión (Supabase auth.signOut · Sprint 11).
+  const onCerrarSesion = () => {
+    // supabase.auth.signOut() → redirigir al login
+  };
 
   return (
     <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors duration-[750ms] motion-reduce:transition-none">
@@ -242,6 +257,7 @@ export function CampusShell({
 
               <div className="relative" ref={cuentaRef}>
                 <button
+                  ref={avatarBtnRef}
                   type="button"
                   onClick={() => setCuentaAbierta((v) => !v)}
                   aria-haspopup="menu"
@@ -258,24 +274,11 @@ export function CampusShell({
                 </button>
 
                 {cuentaAbierta && (
-                  <div role="menu" aria-label="Menú de cuenta" className="absolute right-0 top-[calc(100%+8px)] w-[248px] overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-[0_12px_32px_rgba(17,24,39,0.14)]">
-                    <div className="px-3 py-2.5">
-                      <p className="text-[13.5px] font-bold">{usuario.nombre}</p>
-                      <p className={`mt-0.5 text-[11px] text-muted-foreground ${mono}`}>{usuario.matricula}</p>
-                    </div>
-                    <div aria-hidden className="mx-1 my-1 h-px bg-border" />
-                    {[{ etiqueta: 'Mi perfil', icono: User }, { etiqueta: 'Ajustes', icono: Settings }].map(({ etiqueta, icono: Icono }) => (
-                      <button key={etiqueta} type="button" role="menuitem" className={`flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[14px] font-medium transition-colors hover:bg-accent ${focusLight}`}>
-                        <Icono className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={1.75} />
-                        {etiqueta}
-                      </button>
-                    ))}
-                    <div aria-hidden className="mx-1 my-1 h-px bg-border" />
-                    <button type="button" role="menuitem" className={`flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[14px] font-semibold text-secondary transition-colors hover:bg-accent ${focusLight}`}>
-                      <LogOut className="h-[18px] w-[18px]" strokeWidth={1.75} />
-                      Cerrar sesión
-                    </button>
-                  </div>
+                  <MenuCuenta
+                    usuario={{ nombre: usuario.nombre, matricula: usuario.matricula }}
+                    onCerrar={() => cerrarCuenta(false)}
+                    onCerrarSesion={onCerrarSesion}
+                  />
                 )}
               </div>
             </div>
