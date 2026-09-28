@@ -118,11 +118,15 @@ services:
       LRS_ENDPOINT: http://lrs:8080/xapi
       LRS_KEY: ${LRS_KEY:-campuslxp}
       LRS_SECRET: ${LRS_SECRET:-campuslxp_dev_secret}
-      # Object storage (§3/§9): el `api` FIRMA subidas/lecturas contra MinIO. En la red
-      # compose el endpoint interno es http://minio:9000 (ver .env para el modo híbrido:
-      # con `pnpm dev` en host, STORAGE_ENDPOINT=http://localhost:9000 para que la URL
-      # firmada apunte a un host que el navegador también alcance).
+      # Object storage (§3/§9): el `api` FIRMA subidas/lecturas contra MinIO. Split de host:
+      #  · STORAGE_ENDPOINT (interno): lo usan el worker y el `api` server-side (/procesar de
+      #    imágenes de reporte) DENTRO de Docker → http://minio:9000.
+      #  · STORAGE_ENDPOINT_PUBLICO: host que verá el NAVEGADOR en las URLs firmadas que se le
+      #    entregan (upload/lectura directos). Con `pnpm dev` en el HOST → http://localhost:9000
+      #    (el browser no resuelve `minio`). La firma SigV4 va contra el host que se use, así que
+      #    cada URL se firma para SU destino. En prod (todo en Docker/R2) ambos = mismo host real.
       STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_ENDPOINT_PUBLICO: ${STORAGE_ENDPOINT_PUBLICO:-http://localhost:9000}
       STORAGE_REGION: ${STORAGE_REGION:-auto}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-campus-lxp-media}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-lxpminio}
@@ -134,6 +138,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # RAG: servicio de embeddings self-hosted (BGE-M3 · §3), red interna del compose.
       EMBEDDINGS_URL: http://embeddings:8001
+      # Redactor Presidio (§10): el `api` lo llama en /procesar de imágenes de reporte
+      # (igual que el worker en DICOM). Endpoint interno de la red compose.
+      REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
     ports:
       - '${API_PORT:-8000}:8000'
     depends_on:
@@ -143,6 +150,8 @@ services:
         condition: service_healthy
       lrs:
         condition: service_started
+      redactor-dicom:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD

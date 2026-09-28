@@ -101,7 +101,8 @@ export class IngestaService {
       modalidad: s.modalidad,
       frames: s.frames,
       // `ref` por serie (multi-serie); compat con estudios viejos de una sola ref.
-      urlLectura: this.storage.firmarLectura(s.ref ?? caso.estudio_dicom_ref ?? this.storage.claveAnonimizado(casoId, i)),
+      // PÚBLICA: el VISOR (navegador) lee el anonimizado directo de storage.
+      urlLectura: this.storage.firmarLectura(s.ref ?? caso.estudio_dicom_ref ?? this.storage.claveAnonimizado(casoId, i), undefined, true),
       tipo: s.tipo === 'imagen' ? 'imagen' : 'dicom',
       pixelSpacing: s.pixel_spacing ?? null,
       region: s.region ?? null,
@@ -126,7 +127,8 @@ export class IngestaService {
       return {
         indice: a.indice,
         refCrudo,
-        urlSubida: this.storage.firmarSubida(refCrudo),
+        // PÚBLICA: el navegador sube cada fuente cruda directo a storage.
+        urlSubida: this.storage.firmarSubida(refCrudo, undefined, true),
         esZip: a.esZip,
       };
     });

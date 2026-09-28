@@ -34,7 +34,8 @@ export class ReportesImagenesService {
     const e = EXT_OK.has(ext) ? ext : 'jpg';
     const id = randomUUID();
     const refCrudo = this.storage.claveReporteCrudo(rid, id, e);
-    return { id, ext: e, refCrudo, urlSubida: this.storage.firmarSubida(refCrudo) };
+    // PÚBLICA: el navegador sube el crudo directo a storage.
+    return { id, ext: e, refCrudo, urlSubida: this.storage.firmarSubida(refCrudo, undefined, true) };
   }
 
   /**
@@ -54,11 +55,14 @@ export class ReportesImagenesService {
     const refCrudo = this.storage.claveReporteCrudo(rid, iid, e);
     const refFinal = this.storage.claveReporteImagen(rid, iid, e);
 
+    // INTERNAS: el propio `api` (server-side, dentro de Docker) lee el crudo, sube el
+    // redactado y borra el crudo → endpoint interno (minio:9000), default.
     const crudo = await this.leerBinario(this.storage.firmarLectura(refCrudo));
     const { buffer, revisionManual } = await this.redactar(Buffer.from(crudo), contentTypeDe(e));
     await this.subirBinario(this.storage.firmarSubida(refFinal), buffer, contentTypeDe(e));
     await this.borrar(this.storage.firmarBorrado(refCrudo));
-    return { ref: refFinal, ext: e, revisionManual, urlLectura: this.storage.firmarLectura(refFinal) };
+    // PÚBLICA: la URL de lectura se le devuelve al navegador para mostrar la imagen.
+    return { ref: refFinal, ext: e, revisionManual, urlLectura: this.storage.firmarLectura(refFinal, undefined, true) };
   }
 
   /** Firma la lectura de varias imágenes de la galería (solo claves de imagen de reporte). */
@@ -66,7 +70,8 @@ export class ReportesImagenesService {
     const urls: Record<string, string> = {};
     for (const ref of refs ?? []) {
       if (typeof ref === 'string' && ref.startsWith('reportes/imagenes/')) {
-        urls[ref] = this.storage.firmarLectura(ref);
+        // PÚBLICA: la galería del reporte se muestra en el navegador.
+        urls[ref] = this.storage.firmarLectura(ref, undefined, true);
       }
     }
     return { urls };
