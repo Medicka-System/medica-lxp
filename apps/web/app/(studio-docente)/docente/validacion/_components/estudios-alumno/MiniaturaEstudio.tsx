@@ -9,17 +9,11 @@
  * (preset, transductor, escala) que NO se tapa. Skeleton mientras carga; ícono si no hay imagen.
  */
 
-import { useEffect, useState } from 'react';
 import { ImageOff } from 'lucide-react';
-import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
+import { useThumbEstudio } from '@/components/casos/use-thumb-estudio';
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
-
-type Estado =
-  | { fase: 'cargando' }
-  | { fase: 'listo'; url: string; ancho: number; alto: number }
-  | { fase: 'vacio' };
 
 export function MiniaturaEstudio({
   casoId,
@@ -30,38 +24,9 @@ export function MiniaturaEstudio({
   titulo: string;
   onAbrir: (id: string) => void;
 }) {
-  // Proporción por defecto 755/570 (≈1.32:1, la nativa del estudio) mientras se mide la real
-  // desde la metadata DICOM, para no saltar el layout (§ spec Claude Design · card de estudio).
-  const [estado, setEstado] = useState<Estado>({ fase: 'cargando' });
-
-  useEffect(() => {
-    let vivo = true;
-    setEstado({ fase: 'cargando' });
-    (async () => {
-      try {
-        const r = await lecturaEstudioDicom(casoId, 'bitacora_casos');
-        if (!vivo) return;
-        const serie = r.ok ? r.datos.series[0] : null;
-        if (!serie) {
-          setEstado({ fase: 'vacio' });
-          return;
-        }
-        // El primer frame de la primera serie: DICOM (wadouri) o imagen web (web:).
-        const esImagen = serie.tipo === 'imagen';
-        const { imageIdWeb } = await import('@/components/dicom/engine/web-image-loader');
-        const imageId = esImagen ? imageIdWeb(serie.urlLectura) : `wadouri:${serie.urlLectura}`;
-        const { renderMiniaturasDetalle } = await import('@/components/dicom/engine/motor-cornerstone');
-        const [mini] = await renderMiniaturasDetalle([imageId]);
-        if (!vivo) return;
-        setEstado(mini ? { fase: 'listo', url: mini.url, ancho: mini.ancho, alto: mini.alto } : { fase: 'vacio' });
-      } catch {
-        if (vivo) setEstado({ fase: 'vacio' });
-      }
-    })();
-    return () => {
-      vivo = false;
-    };
-  }, [casoId]);
+  // Miniatura en cliente (DICOM/JPG/PNG) vía el hook compartido; proporción por defecto
+  // 755/570 (≈1.32:1) mientras se mide la real, para no saltar el layout.
+  const estado = useThumbEstudio(casoId, 'bitacora_casos');
 
   const aspecto = estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '755 / 570';
 

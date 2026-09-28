@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { CampoReporte, claseSpan } from '@/components/reportes/campo-reporte';
+import { BloquePedagogicoCampos, bloquePedagogicoVacio } from '@/components/casos/bloque-pedagogico';
+import type { BloquePedagogico } from '@/lib/campus/bitacora-contrato';
 import {
   campoCompleto,
   campoPacienteDesdeCatalogo,
@@ -156,6 +158,8 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
   const [impresion, setImpresion] = useState(reporte.contenido.impresion);
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [casoDialog, setCasoDialog] = useState(false);
+  // Bloque pedagógico OBLIGATORIO del puente reporte→caso (viñeta + diagnóstico presuntivo).
+  const [casoPed, setCasoPed] = useState<BloquePedagogico>(bloquePedagogicoVacio());
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [mailDialog, setMailDialog] = useState(false);
   const [mailTo, setMailTo] = useState('');
@@ -425,12 +429,22 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
     })();
   }
   const onPdf = descargarPdf;
+  const casoPedCompleto = casoPed.vineta.trim() !== '' && casoPed.presuntivo.trim() !== '';
   function onCaso() {
+    // Gate del bloque pedagógico: sin viñeta + diagnóstico no se envía (el dominio revalida).
+    if (!casoPedCompleto) {
+      setMensaje({ tipo: 'error', texto: 'Escribe la viñeta clínica y el diagnóstico presuntivo del caso.' });
+      return;
+    }
     setMensaje(null);
     iniciar(async () => {
-      const res = await guardarComoCaso(reporte.id);
-      setCasoDialog(false);
+      const res = await guardarComoCaso(reporte.id, {
+        vineta: casoPed.vineta,
+        presuntivo: casoPed.presuntivo,
+      });
       if (res.ok) {
+        setCasoDialog(false);
+        setCasoPed(bloquePedagogicoVacio());
         setMensaje({
           tipo: 'ok',
           texto: res.yaExistia
@@ -719,7 +733,7 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
             </p>
             <button
               type="button"
-              onClick={onCaso}
+              onClick={() => setCasoDialog(true)}
               disabled={pendiente}
               className={`mt-3.5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border bg-card text-[13.5px] font-bold text-secondary transition-colors hover:bg-[color:var(--track)] disabled:opacity-60 ${focusRing}`}
               style={{ borderColor: 'color-mix(in oklab, var(--secondary) 35%, white)' }}
@@ -757,6 +771,15 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
                 </p>
               </div>
             </div>
+
+            {/* Bloque pedagógico OBLIGATORIO: el caso nace con viñeta + diagnóstico (§6, nunca NULL). */}
+            <div className="mt-5">
+              <p className="text-[12.5px] font-semibold">Para tu bitácora, agrega:</p>
+              <div className="mt-3">
+                <BloquePedagogicoCampos value={casoPed} onChange={setCasoPed} disabled={pendiente} />
+              </div>
+            </div>
+
             <div className="mt-5 flex justify-end gap-2.5">
               <button
                 type="button"
@@ -769,7 +792,7 @@ export function EditorReporte({ reporte }: { reporte: ReporteDetalle }) {
               <button
                 type="button"
                 onClick={onCaso}
-                disabled={pendiente}
+                disabled={pendiente || !casoPedCompleto}
                 className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
               >
                 <NotebookText aria-hidden className="h-4 w-4" strokeWidth={1.9} />

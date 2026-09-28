@@ -17,8 +17,10 @@ import { VisorEstudio } from '@/components/casos/visor-estudio';
 import { VisorDicomPlaceholder } from '../../../_components/visor-dicom';
 import { VistaCasoEstudio } from '@/components/casos/vista-caso-estudio';
 import { FichaCasoCampos } from '@/components/casos/ficha-campos';
+import { BloquePedagogicoCampos } from '@/components/casos/bloque-pedagogico';
 import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
-import { tieneContenidoEstructurado } from '@campus/shared';
+import { tieneContenidoEstructurado, type ContenidoEstructuradoCaso } from '@campus/shared';
+import { cuerpoCasoDesdeHallazgosLegado } from '@/lib/reportes/plantilla-caso-defecto';
 import {
   SelectorArchivosDicom,
   ejecutarSubidaMulti,
@@ -30,6 +32,7 @@ import { quitarSerieDicom } from '@/lib/dicom/acciones';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
+  type BloquePedagogico,
   type CasoDetalleBitacora,
   type DocenteOpcion,
   type EstadoCaso,
@@ -53,10 +56,19 @@ function fichaDeCaso(c: CasoDetalleBitacora): FichaCaso {
     equipo: c.equipo ?? '',
     docenteId: c.docenteId,
     etiquetas: c.etiquetas,
-    vineta: c.vineta ?? '',
-    hallazgos: c.hallazgos ?? '',
-    presuntivo: c.presuntivo ?? '',
   };
+}
+
+function pedagogicoDeCaso(c: CasoDetalleBitacora): BloquePedagogico {
+  return { vineta: c.vineta ?? '', presuntivo: c.presuntivo ?? '' };
+}
+
+/** Cuerpo editable del caso: el snapshot estructurado si existe; si no (caso legado), la
+ *  plantilla por defecto precargada con el texto `hallazgos` viejo. */
+function cuerpoDeCaso(c: CasoDetalleBitacora): ContenidoEstructuradoCaso {
+  return tieneContenidoEstructurado(c.contenidoEstructurado)
+    ? c.contenidoEstructurado!
+    : cuerpoCasoDesdeHallazgosLegado(c.hallazgos);
 }
 
 export function CasoDetalleBitacoraCliente({
@@ -72,6 +84,8 @@ export function CasoDetalleBitacoraCliente({
 
   const [editando, setEditando] = useState(false);
   const [ficha, setFicha] = useState<FichaCaso>(fichaDeCaso(caso));
+  const [pedagogico, setPedagogico] = useState<BloquePedagogico>(pedagogicoDeCaso(caso));
+  const [cuerpo, setCuerpo] = useState<ContenidoEstructuradoCaso>(cuerpoDeCaso(caso));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verNonce, setVerNonce] = useState(0);
@@ -86,7 +100,12 @@ export function CasoDetalleBitacoraCliente({
   const guardar = async () => {
     setError(null);
     setGuardando(true);
-    const r = await actualizarCaso(caso.id, ficha);
+    const r = await actualizarCaso(caso.id, {
+      ...ficha,
+      vineta: pedagogico.vineta,
+      presuntivo: pedagogico.presuntivo,
+      contenidoEstructurado: cuerpo,
+    });
     setGuardando(false);
     if (!r.ok) {
       setError(r.error);
@@ -95,6 +114,11 @@ export function CasoDetalleBitacoraCliente({
     setEditando(false);
     router.refresh();
   };
+
+  /** Actualiza un valor de un campo del cuerpo estructurado (edición con CampoReporte). */
+  const cambiarValorCuerpo = (campoId: string, valor: unknown) =>
+    setCuerpo((c) => ({ ...c, valores: { ...(c.valores ?? {}), [campoId]: valor } }));
+  const cambiarImpresionCuerpo = (valor: string) => setCuerpo((c) => ({ ...c, impresion: valor }));
 
   const agregarSeries = async () => {
     if (archivos.length === 0) return;
@@ -242,28 +266,53 @@ export function CasoDetalleBitacoraCliente({
   /* ── Edición EN SITIO (modo edición): desbloquea los campos del caso en el ÁREA PRINCIPAL, donde se
         ven los datos (no en un panel lateral). Las series/imágenes se gestionan con `gestorSeries`
         (arriba, también en sitio). Guardar persiste; Cancelar descarta y re-bloquea. ── */
+  const cancelarEdicion = () => {
+    setFicha(fichaDeCaso(caso));
+    setPedagogico(pedagogicoDeCaso(caso));
+    setCuerpo(cuerpoDeCaso(caso));
+    setEditando(false);
+    setError(null);
+  };
+
   const editorClinica = (
-    <section className={`${card} p-6`}>
-      <p className={`${kicker} text-muted-foreground`}>Editar caso</p>
-      <div className="mt-4">
-        <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} disabled={guardando} />
-      </div>
+    <>
+      {/* CUERPO estructurado — se edita con el MISMO CampoReporte que el reporte (§6.5).
+          Caso-de-reporte: su snapshot editable; caso manual/legado: plantilla por defecto. */}
+      <ContenidoEstructuradoCasoVista
+        contenido={cuerpo}
+        modo="llenar"
+        onCambioValor={cambiarValorCuerpo}
+        onCambioImpresion={cambiarImpresionCuerpo}
+      />
+
+      {/* BLOQUE PEDAGÓGICO — viñeta + diagnóstico presuntivo (obligatorios). */}
+      <section className={`${card} p-6`}>
+        <p className={`${kicker} text-muted-foreground`}>Viñeta y diagnóstico</p>
+        <div className="mt-4">
+          <BloquePedagogicoCampos value={pedagogico} onChange={setPedagogico} disabled={guardando} />
+        </div>
+      </section>
+
+      {/* FICHA (metadata) — catalogación del caso. */}
+      <section className={`${card} p-6`}>
+        <p className={`${kicker} text-muted-foreground`}>Datos del caso</p>
+        <div className="mt-4">
+          <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} disabled={guardando} />
+        </div>
+      </section>
+
       {error && (
         <p
           role="alert"
-          className="mt-4 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
+          className="rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
         >
           {error}
         </p>
       )}
-      <div className="mt-5 flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5">
         <button
           type="button"
-          onClick={() => {
-            setFicha(fichaDeCaso(caso));
-            setEditando(false);
-            setError(null);
-          }}
+          onClick={cancelarEdicion}
           disabled={guardando}
           className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
         >
@@ -279,7 +328,7 @@ export function CasoDetalleBitacoraCliente({
           Guardar cambios
         </button>
       </div>
-    </section>
+    </>
   );
 
   return (

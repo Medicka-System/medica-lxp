@@ -11,7 +11,7 @@
  * (Sprint 4.7) y la validación/horas acreditadas son dominio (ver bitacora-contrato).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -34,8 +34,14 @@ import {
   type FaseDicom,
 } from '@/components/casos/subida-dicom';
 import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
+import { EditorRico } from '@/components/editor-rico';
+import {
+  cuerpoCasoDesdeEstructura,
+  PLANTILLA_CASO_DEFECTO,
+  CAMPO_HALLAZGOS_DEFECTO,
+} from '@/lib/reportes/plantilla-caso-defecto';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
-import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
+import { useThumbEstudio } from '@/components/casos/use-thumb-estudio';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
@@ -55,6 +61,13 @@ const claseEstado: Record<EstadoCaso, string> = {
     'border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] text-[color:var(--destructive-foreground)]',
 };
 
+/* Estilos planos label+control del modal "Subir caso" (mismos que la ficha · §5A). */
+const etiquetaCampo = 'block text-[11.5px] font-semibold';
+const inputCampo =
+  'mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60';
+const textareaCampo =
+  'mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60';
+
 /* ─────────────────── Hoja corta de subida ─────────────────── */
 
 function SheetSubirCaso({
@@ -69,6 +82,10 @@ function SheetSubirCaso({
   const router = useRouter();
   const [moduloId, setModuloId] = useState(modulos[0]?.id ?? '');
   const [ficha, setFicha] = useState<FichaCaso>(fichaVacia());
+  const [vineta, setVineta] = useState('');
+  const [hallazgosHtml, setHallazgosHtml] = useState('');
+  const [impresion, setImpresion] = useState('');
+  const [presuntivo, setPresuntivo] = useState('');
   const [archivos, setArchivos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fase, setFase] = useState<FaseDicom>('idle');
@@ -89,7 +106,20 @@ function SheetSubirCaso({
   const enviar = async () => {
     setError(null);
     setFase('creando');
-    const r = await subirCaso({ moduloId, ...ficha });
+    // El cuerpo = plantilla por defecto con el HALLAZGOS rico (HTML) + la impresión. El índice
+    // plano `hallazgos` lo deriva subirCaso (aplanarContenidoCaso, que quita el HTML).
+    const cuerpo = cuerpoCasoDesdeEstructura(
+      PLANTILLA_CASO_DEFECTO,
+      { [CAMPO_HALLAZGOS_DEFECTO]: hallazgosHtml },
+      impresion,
+    );
+    const r = await subirCaso({
+      moduloId,
+      ...ficha,
+      vineta,
+      presuntivo,
+      contenidoEstructurado: cuerpo,
+    });
     if (!r.ok) {
       setError(r.error);
       setFase('idle');
@@ -117,7 +147,7 @@ function SheetSubirCaso({
       className="fixed inset-0 z-50 grid place-items-end p-0 sm:place-items-center sm:p-10"
       style={{ background: 'rgba(15,45,82,.42)' }}
     >
-      <div className="w-full max-w-[560px] overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl">
+      <div className="w-full max-w-[760px] overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl">
         <div className="flex items-center gap-3 border-b border-border px-6 py-5">
           <div className="min-w-0">
             <p className="text-[18px] font-extrabold tracking-[-0.015em]">Subir caso</p>
@@ -178,9 +208,60 @@ function SheetSubirCaso({
             </div>
           )}
 
+          {/* Viñeta clínica (contexto · obligatoria). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Viñeta clínica</span>
+            <textarea
+              rows={3}
+              value={vineta}
+              onChange={(e) => setVineta(e.target.value)}
+              placeholder="Edad, motivo de consulta y contexto — sin datos que identifiquen al paciente."
+              className={textareaCampo}
+            />
+          </label>
+
+          {/* Ficha (metadata) en dos columnas: órgano, patología, dominio, docente, técnica, equipo, etiquetas. */}
           <div className="mt-5">
             <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
           </div>
+
+          {/* Hallazgos — texto RICO (formato + pegar de Word con tablas). Editor limpio, sin placeholder. */}
+          <div className="mt-5">
+            <span className={etiquetaCampo}>Hallazgos</span>
+            <div className="mt-[7px]">
+              <EditorRico
+                contenidoInicial={hallazgosHtml}
+                editable
+                minAlto={180}
+                ariaLabel="Hallazgos del estudio"
+                onChange={setHallazgosHtml}
+              />
+            </div>
+          </div>
+
+          {/* Impresión diagnóstica (textarea normal). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Impresión diagnóstica</span>
+            <textarea
+              rows={3}
+              value={impresion}
+              onChange={(e) => setImpresion(e.target.value)}
+              placeholder="Conclusión clínica del estudio."
+              className={textareaCampo}
+            />
+          </label>
+
+          {/* Diagnóstico presuntivo (obligatorio · lo que valida el docente). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Diagnóstico presuntivo</span>
+            <input
+              type="text"
+              value={presuntivo}
+              onChange={(e) => setPresuntivo(e.target.value)}
+              placeholder="Su impresión, aunque no esté seguro."
+              className={inputCampo}
+            />
+          </label>
 
           <div className="mt-5">
             <span className="block text-[11.5px] font-semibold">
@@ -282,22 +363,14 @@ function SheetSubirCaso({
 
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
   const tieneEstudio = c.estudioEstado === 'anonimizado';
-  // Thumbnail = PRIMERA imagen del estudio (solo JPG/PNG, que se muestran directo; el .dcm necesita
-  // el visor Cornerstone y no se puede miniaturizar barato en la lista → cae al placeholder). Se
-  // carga perezoso por tarjeta (firma URL vía el api) solo cuando el estudio ya está anonimizado.
-  const [thumb, setThumb] = useState<string | null>(null);
-  useEffect(() => {
-    if (!tieneEstudio || c.piezas < 1) return;
-    let vivo = true;
-    void lecturaEstudioDicom(c.id, 'bitacora_casos').then((res) => {
-      if (!vivo || !res.ok) return;
-      const primera = res.datos.series[0];
-      if (primera?.tipo === 'imagen' && primera.urlLectura) setThumb(primera.urlLectura);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [c.id, tieneEstudio, c.piezas]);
+  // Thumbnail = PRIMER frame del estudio, renderizado en CLIENTE (DICOM wadouri o JPG/PNG web)
+  // con el MISMO pipeline que la consola de validación del docente (useThumbEstudio →
+  // renderMiniaturasDetalle). Solo cuando el estudio ya está anonimizado y tiene series.
+  // Raster 768×576 (≥ contenedor ~605×156, ~2× retina) para que la card no se vea pixelada.
+  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1, {
+    ancho: 768,
+    alto: 576,
+  });
   const etiquetaEstudio =
     c.organo ??
     (c.estudioEstado === 'procesando'
@@ -317,9 +390,9 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
       }`}
     >
       <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
-        {thumb ? (
-          // <img> directo: es una URL FIRMADA efímera de object storage (no un asset local para next/image).
-          <img src={thumb} alt="" className="h-[156px] w-full object-cover" />
+        {thumb.fase === 'listo' ? (
+          // <img> directo: el hook ya rasterizó el primer frame a un PNG (data URL) en cliente.
+          <img src={thumb.url} alt="" className="h-[156px] w-full object-cover" />
         ) : (
           <VisorDicomPlaceholder
             etiqueta={etiquetaEstudio}

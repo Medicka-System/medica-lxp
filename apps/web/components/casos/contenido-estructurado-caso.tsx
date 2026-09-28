@@ -17,9 +17,44 @@
  */
 
 import { CampoReporte, claseSpan, type ModoCampo } from '@/components/reportes/campo-reporte';
+import { EditorRico, ContenidoRico } from '@/components/editor-rico';
 import { card, kickerWide as kicker, softText } from '@/components/tokens';
-import { normalizarEstructura } from '@/lib/reportes/estructura';
+import { normalizarEstructura, type CampoPlantilla } from '@/lib/reportes/estructura';
 import type { ContenidoEstructuradoCaso } from '@campus/shared';
+
+/** Campo RICO (HTML): editor TipTap en `llenar`, visor en `previa`. Reusa EditorRico/ContenidoRico. */
+function CampoRico({
+  campo,
+  valor,
+  editable,
+  onCambio,
+}: {
+  campo: CampoPlantilla;
+  valor: unknown;
+  editable: boolean;
+  onCambio?: (html: string) => void;
+}) {
+  const html = typeof valor === 'string' ? valor : '';
+  return (
+    <div className="block">
+      <span className="text-[11.5px] font-semibold text-foreground">{campo.nombre || 'Hallazgos'}</span>
+      <div className="mt-[7px]">
+        {editable ? (
+          <EditorRico
+            contenidoInicial={html}
+            editable
+            placeholder={campo.guia}
+            minAlto={180}
+            ariaLabel={campo.nombre || 'Hallazgos'}
+            onChange={onCambio}
+          />
+        ) : (
+          <ContenidoRico html={html} />
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** Grid de la sección (mismas clases que el editor del reporte → mismo look). */
 const GRID_COLS: Record<number, string> = {
@@ -70,12 +105,21 @@ export function ContenidoEstructuradoCasoVista({
           <div className={`mt-3.5 grid gap-3.5 ${GRID_COLS[s.columnas] ?? GRID_COLS[1]}`}>
             {s.campos.map((c) => (
               <div key={c.id} className={claseSpan(c, s.columnas)}>
-                <CampoReporte
-                  campo={c}
-                  valor={valores[c.id]}
-                  modo={modo}
-                  onCambio={onCambioValor ? (v) => onCambioValor(c.id, v) : undefined}
-                />
+                {c.rico ? (
+                  <CampoRico
+                    campo={c}
+                    valor={valores[c.id]}
+                    editable={editable}
+                    onCambio={onCambioValor ? (html) => onCambioValor(c.id, html) : undefined}
+                  />
+                ) : (
+                  <CampoReporte
+                    campo={c}
+                    valor={valores[c.id]}
+                    modo={modo}
+                    onCambio={onCambioValor ? (v) => onCambioValor(c.id, v) : undefined}
+                  />
+                )}
               </div>
             ))}
           </div>

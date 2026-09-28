@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   QUEUE_PROCESAR_DICOM,
   aplanarContenidoCaso,
@@ -342,14 +342,25 @@ export function esCampoPacientePII(c: Campo): boolean {
   return false;
 }
 
-/** Scrub de PII conocida (nombre/expediente/solicitante del paciente) en texto libre (§10). */
+/**
+ * Scrub de PII REAL del PACIENTE en texto libre (§10): SOLO el nombre y el expediente. NO el
+ * médico solicitante (no es PII del paciente) — quitarlo arrasaba texto clínico sin necesidad.
+ *
+ * Anti-sobre-redacción (BUG 1): un valor de UNA sola palabra y corto (p. ej. el nombre de
+ * prueba "Test") coincidía con texto clínico legítimo y borraba la impresión/hallazgos enteros.
+ * Solo se redacta un valor si parece un identificador real: un NOMBRE trae apellido (espacio) o
+ * un EXPEDIENTE tiene ≥6 caracteres. Los nombres/expedientes reales ("Juan Pérez López",
+ * "654321") se siguen removiendo; el texto clínico ("Test", "normal", "quiste") se conserva.
+ */
 export function scrubPII(texto: string, datosPaciente: Record<string, unknown>): string {
   let out = texto;
-  for (const clave of ['paciente', 'expediente', 'solicitante']) {
+  for (const clave of ['paciente', 'expediente']) {
     const v = datosPaciente[clave];
     if (typeof v !== 'string') continue;
     const t = v.trim();
-    if (t.length < 3) continue;
+    // Descarta tokens cortos de una sola palabra: no son identificables como PII y arrasarían
+    // texto clínico que coincida por casualidad (§10 protege la PII vía campo excluido + píxeles).
+    if (t.length < 4 || (!/\s/.test(t) && t.length < 6)) continue;
     const escapado = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(escapado, 'gi'), '[dato removido]');
   }
@@ -377,7 +388,11 @@ export class ReportesCasoService {
     private readonly storage: StorageService,
   ) {}
 
-  async generarCaso(reporteId: string): Promise<{ casoId: string; yaExistia: boolean; conEstudio: boolean }> {
+  async generarCaso(
+    reporteId: string,
+    vinetaEntrada: string,
+    presuntivoEntrada: string,
+  ): Promise<{ casoId: string; yaExistia: boolean; conEstudio: boolean }> {
     const sql = this.db.sql;
     const [r] = await sql<FilaReporte[]>`
       select r.id, r.id_medico, r.datos_paciente, r.contenido, r.caso_generado_id,
@@ -391,6 +406,17 @@ export class ReportesCasoService {
       limit 1`;
     if (!r) throw new NotFoundException('Reporte no encontrado.');
     if (r.caso_generado_id) return { casoId: r.caso_generado_id, yaExistia: true, conEstudio: false };
+
+    // Bloque pedagógico OBLIGATORIO (§6): viñeta (contexto) + diagnóstico presuntivo (la
+    // interpretación que el docente valida). Cierra el hueco por el que los casos-de-reporte
+    // quedaban con esos campos NULL. Se validan solo al CREAR (tras la idempotencia).
+    const vineta = (vinetaEntrada ?? '').trim();
+    const presuntivo = (presuntivoEntrada ?? '').trim();
+    if (!vineta || !presuntivo) {
+      throw new BadRequestException(
+        'El caso requiere viñeta clínica y diagnóstico presuntivo antes de enviarse a la bitácora.',
+      );
+    }
 
     const estructura: Estructura = r.estructura ?? {};
     const valores = r.contenido?.valores ?? {};
@@ -418,9 +444,10 @@ export class ReportesCasoService {
     const casoId = await sql.begin(async (tx) => {
       const [caso] = await tx<{ id: string }[]>`
         insert into lxp.bitacora_casos
-          (id_alumno, organo, dominio_iaim, hallazgos, contenido_estructurado,
-           horas_estimadas, estado_validacion, origen, estudio_estado)
+          (id_alumno, organo, dominio_iaim, hallazgos, diagnostico_presuntivo, vineta,
+           contenido_estructurado, horas_estimadas, estado_validacion, origen, estudio_estado)
         values (${r.id_medico}, ${organo}, ${dominio}::lxp.dominio_iaim, ${hallazgos},
+                ${presuntivo}, ${vineta},
                 ${contenidoEstructurado ? tx.json(contenidoEstructurado as never) : null},
                 0, 'pendiente', 'alumno',
                 ${imagenes.length ? 'recibido' : null}::lxp.estudio_dicom_estado)

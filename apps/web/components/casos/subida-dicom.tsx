@@ -255,7 +255,7 @@ export function SelectorArchivosDicom({
           <p className="mt-3 text-[14px] font-bold">Arrastre las series del estudio, imágenes o un .zip</p>
           <p className="mt-1 text-[12.5px] text-muted-foreground">
             Varios <strong>.dcm</strong>, imágenes <strong>JPG/PNG</strong> del equipo, o un{' '}
-            <strong>.zip</strong> con el estudio completo. Se anonimizan al procesarse (§10) · sin
+            <strong>.zip</strong> con el estudio completo. Se anonimizan al procesarse · sin
             datos del paciente.
           </p>
           <button
