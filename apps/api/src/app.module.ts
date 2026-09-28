@@ -25,6 +25,7 @@ import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { AutoevaluacionModule } from './autoevaluacion/autoevaluacion.module';
 import { EntregasModule } from './entregas/entregas.module';
 import { ReportesModule } from './reportes/reportes.module';
+import { EnlacesModule } from './enlaces/enlaces.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ReportesModule } from './reportes/reportes.module';
     AutoevaluacionModule,
     EntregasModule,
     ReportesModule,
+    EnlacesModule,
   ],
 })
 export class AppModule {}

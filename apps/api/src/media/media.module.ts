@@ -6,6 +6,8 @@ import { MediaImagenesController } from './media-imagenes.controller';
 import { MediaImagenesService } from './media-imagenes.service';
 import { MediaArchivosController } from './media-archivos.controller';
 import { MediaArchivosService } from './media-archivos.service';
+import { GifsController } from './gifs.controller';
+import { GifsService } from './gifs.service';
 
 /**
  * Media (§3/§9 · Sprint 6 + biblioteca §5C). Usa DbModule (global) y reusa
@@ -14,7 +16,7 @@ import { MediaArchivosService } from './media-archivos.service';
  * storage. Contenido educativo → NO pasa por Presidio (§10, solo flujos de paciente).
  */
 @Module({
-  controllers: [MediaController, MediaImagenesController, MediaArchivosController],
-  providers: [MediaService, StorageService, MediaImagenesService, MediaArchivosService],
+  controllers: [MediaController, MediaImagenesController, MediaArchivosController, GifsController],
+  providers: [MediaService, StorageService, MediaImagenesService, MediaArchivosService, GifsService],
 })
 export class MediaModule {}

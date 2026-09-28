@@ -55,6 +55,15 @@ export type CasoBitacora = {
   poster?: string;
 };
 
+/** Snapshot OG de un enlace pegado en el composer (se congela al publicar, no se re-fetchea). */
+export type EnlacePreview = {
+  url: string;
+  titulo: string | null;
+  descripcion: string | null;
+  imagen: string | null;
+  sitio: string | null;
+};
+
 type PostBase = {
   id: string;
   autor: Persona;
@@ -63,6 +72,8 @@ type PostBase = {
   comentarios: number;
   compartidos: number;
   preview: Comentario[]; // 2–3 comentarios recientes/relevantes
+  // Tarjeta de enlace (OpenGraph) — ortogonal al tipo de post; se persiste como snapshot.
+  enlace?: EnlacePreview | null;
 };
 
 export type PostTexto = PostBase & { tipo: "texto"; texto: string };
@@ -77,8 +88,12 @@ export type PostPregunta = PostBase & {
 export type PostMedia = PostBase & {
   tipo: "media";
   texto: string;
-  piezas: { tipo: "imagen" | "video"; src?: string }[];
+  // "gif" = hotlink al CDN de Giphy (src = URL externa tal cual, no ref de storage).
+  piezas: { tipo: "imagen" | "video" | "gif"; src?: string }[];
 };
+
+/** Un GIF de Giphy en el picker (lo entrega el proxy /media/gifs del api). */
+export type GifItem = { id: string; url: string; preview: string; width: number; height: number };
 export type PostEncuesta = PostBase & {
   tipo: "encuesta";
   pregunta: string;
@@ -89,7 +104,7 @@ export type PostEncuesta = PostBase & {
 
 export type Post = PostTexto | PostCaso | PostPregunta | PostMedia | PostEncuesta;
 
-export type ModoComposer = "texto" | "caso" | "pregunta" | "media" | "encuesta";
+export type ModoComposer = "texto" | "caso" | "pregunta" | "media" | "encuesta" | "gif";
 
 export type PerfilResumen = Persona & {
   colegas: number;

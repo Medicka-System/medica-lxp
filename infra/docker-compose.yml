@@ -141,6 +141,9 @@ services:
       # Redactor Presidio (§10): el `api` lo llama en /procesar de imágenes de reporte
       # (igual que el worker en DICOM). Endpoint interno de la red compose.
       REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
+      # Giphy (§3): key del proxy de GIFs del Ateneo. Vive SOLO en el `api` (nunca en el
+      # cliente). Sin key → /media/gifs responde 503 (picker muestra el estado, no crashea).
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
     ports:
       - '${API_PORT:-8000}:8000'
     depends_on:

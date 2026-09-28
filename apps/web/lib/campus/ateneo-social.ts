@@ -6,6 +6,7 @@ import type {
   AteneoData,
   CasoBitacora,
   Comentario,
+  EnlacePreview,
   Persona,
   Post,
   Reacciones,
@@ -72,6 +73,7 @@ type FilaPost = {
   cuerpo: string | null;
   temas: unknown;
   media: unknown;
+  enlace: unknown;
   cierra_en: Date | null;
   compartidos: number;
   created_at: Date;
@@ -118,10 +120,14 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
   const idsCaso = filas.map((f) => f.caso_origen_id).filter((x): x is string => !!x);
 
   // Media (imagen/video): las refs `media/imagenes/*` guardadas se firman a URLs de lectura
-  // (públicas, vida corta) para el grid de PostCard. Reusa el firmante del dominio (§2).
+  // (públicas, vida corta) para el grid de PostCard. Los GIF (hotlink Giphy) se EXCLUYEN: son
+  // URLs externas que se sirven tal cual (no se firman). Reusa el firmante del dominio (§2).
   const mediaRefs = filas
     .filter((f) => f.tipo === 'media')
-    .flatMap((f) => (Array.isArray(f.media) ? (f.media as { url?: string }[]) : []).map((m) => m.url).filter((u): u is string => !!u));
+    .flatMap((f) => (Array.isArray(f.media) ? (f.media as { tipo?: string; url?: string }[]) : [])
+      .filter((m) => m.tipo !== 'gif')
+      .map((m) => m.url)
+      .filter((u): u is string => !!u));
   const urlPorRef = mediaRefs.length ? await firmarLecturaImagenes(mediaRefs) : {};
 
   const reacTipos = await sql<{ post_id: string; tipo: string; n: number }[]>`
@@ -212,6 +218,8 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       comentarios: f.n_comentarios,
       compartidos: f.compartidos,
       preview: previewPorPost.get(f.id) ?? [],
+      // Snapshot OG guardado al publicar; se sirve TAL CUAL (no se re-fetchea → sin SSRF en lectura).
+      enlace: f.enlace && typeof f.enlace === 'object' ? (f.enlace as EnlacePreview) : null,
     };
     if (f.tipo === 'caso') {
       const caso = f.caso_origen_id ? aCaso(f.caso_origen_id, f.titulo) : null;
@@ -222,11 +230,14 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       return { ...base, tipo: 'pregunta', pregunta: f.titulo, contexto: f.cuerpo ?? undefined, temas, seguidores: f.reac_total };
     }
     if (f.tipo === 'media') {
-      const piezas = (Array.isArray(f.media) ? (f.media as { tipo?: string; url?: string }[]) : []).map((m) => ({
-        tipo: (m.tipo === 'video' ? 'video' : 'imagen') as 'imagen' | 'video',
-        // `url` guardada = ref `media/imagenes/*`; se muestra su URL firmada de lectura.
-        src: typeof m.url === 'string' ? urlPorRef[m.url] ?? undefined : undefined,
-      }));
+      const piezas = (Array.isArray(f.media) ? (f.media as { tipo?: string; url?: string }[]) : []).map((m) => {
+        const tipo = (m.tipo === 'video' ? 'video' : m.tipo === 'gif' ? 'gif' : 'imagen') as 'imagen' | 'video' | 'gif';
+        // GIF: hotlink externo (Giphy) tal cual. Imagen/video: `url`=ref → URL firmada.
+        const src = tipo === 'gif'
+          ? (typeof m.url === 'string' ? m.url : undefined)
+          : (typeof m.url === 'string' ? urlPorRef[m.url] ?? undefined : undefined);
+        return { tipo, src };
+      });
       return { ...base, tipo: 'media', texto: f.cuerpo ?? '', piezas };
     }
     if (f.tipo === 'encuesta') {
@@ -272,7 +283,7 @@ async function cargarLote(
            (select rol::text from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_rol,
            (select especialidad from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_esp,
            (select sede from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_sede,
-           p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.cierra_en, p.compartidos, p.created_at,
+           p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.enlace, p.cierra_en, p.compartidos, p.created_at,
            p.caso_origen_id,
            (select count(*)::int from lxp.comentarios_ateneo c where c.post_id = p.id) as n_comentarios,
            (select count(*)::int from lxp.reacciones_ateneo r where r.post_id = p.id) as reac_total,

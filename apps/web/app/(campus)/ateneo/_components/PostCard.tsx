@@ -24,7 +24,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import { REACCIONES } from "./tipos";
-import type { Comentario, Persona, Post, PostEncuesta, TipoReaccion } from "./tipos";
+import type { Comentario, EnlacePreview, Persona, Post, PostEncuesta, TipoReaccion } from "./tipos";
 import { EmojiReaccion } from "./EmojiReaccion";
 import { Avatar, Chip, ChipDocente, Estudio, card, focusRing, mono, softText } from "./ui";
 
@@ -65,6 +65,33 @@ export function SelectorReacciones({
         );
       })}
     </div>
+  );
+}
+
+/* ───────────── tarjeta de enlace (OpenGraph) ───────────── */
+
+/**
+ * Tarjeta de previsualización de un enlace. Renderiza el SNAPSHOT `post.enlace` guardado al
+ * publicar (no re-fetchea → sin SSRF en lectura, estable si el link cambia). Separada del grid
+ * de media. La og:image es pública y https → se muestra con <img>.
+ */
+function EnlaceCard({ e }: { e: EnlacePreview }) {
+  return (
+    <a
+      href={e.url}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      className={`mt-3 flex overflow-hidden rounded-[11px] border border-border bg-card transition-colors hover:bg-accent ${focusRing}`}
+    >
+      {e.imagen && (
+        <img src={e.imagen} alt="" loading="lazy" className="h-[92px] w-[92px] shrink-0 bg-muted object-cover sm:h-[104px] sm:w-[128px]" />
+      )}
+      <div className="min-w-0 flex-1 px-3.5 py-2.5">
+        {e.sitio && <p className="truncate text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">{e.sitio}</p>}
+        {e.titulo && <p className="mt-0.5 line-clamp-2 text-[13.5px] font-bold leading-snug text-foreground">{e.titulo}</p>}
+        {e.descripcion && <p className={`mt-1 line-clamp-2 text-[12px] leading-relaxed ${softText}`}>{e.descripcion}</p>}
+      </div>
+    </a>
   );
 }
 
@@ -320,7 +347,10 @@ export function PostCard({
   visorCaso?: React.ReactNode;
 }) {
   const interacciones = (
-    <BarraInteracciones post={post} onReaccionar={onReaccionar} onComentar={onAbrir} onCompartir={onCompartir} />
+    <>
+      {post.enlace && <EnlaceCard e={post.enlace} />}
+      <BarraInteracciones post={post} onReaccionar={onReaccionar} onComentar={onAbrir} onCompartir={onCompartir} />
+    </>
   );
   const preview =
     post.preview.length > 0 ? (
@@ -401,8 +431,11 @@ export function PostCard({
     const [a, ...resto] = post.piezas ?? [];
     // Tile por pieza: VIDEO → <video controls> inline (content-type video/* preservado; no se
     // anida en <button>, sería HTML inválido). IMAGEN → botón que abre el detalle.
-    const tile = (p: { tipo: "imagen" | "video"; src?: string }, tamanoPlay?: number) =>
-      p.tipo === "video" && p.src ? (
+    const tile = (p: { tipo: "imagen" | "video" | "gif"; src?: string }, tamanoPlay?: number) =>
+      p.tipo === "gif" && p.src ? (
+        // GIF: imagen animada (hotlink Giphy) — <img> anima el .gif nativamente. Tile simple.
+        <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-contain" />
+      ) : p.tipo === "video" && p.src ? (
         <video controls preload="metadata" src={p.src} className="h-full w-full bg-sidebar object-cover" />
       ) : (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
