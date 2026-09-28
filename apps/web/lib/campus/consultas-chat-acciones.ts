@@ -14,23 +14,26 @@ import { encolarNotificacion } from './notificaciones-cliente';
  * nuevo, escribiendo, presencia) → PENDIENTE DE REALTIME (fase 2), no implementados.
  */
 
-/** Carga el hilo de una consulta y la marca como leída (alumno_leido_en = now). */
+/** Carga el hilo de una consulta y marca leídos los mensajes recibidos (read-receipt). */
 export async function getMensajesConsulta(consultaId: string): Promise<Mensaje[]> {
   const alumno = await getSesionAlumno();
   return comoAlumno(alumno.userId, async (sql) => {
-    const msgs = await mensajesDeConsulta(sql, alumno.userId, consultaId);
-    // Marca leído (solo si soy el alumno de la consulta · RLS update).
-    await sql`update lxp.consultas set alumno_leido_en = now() where id = ${consultaId} and id_alumno = ${alumno.userId}`;
-    return msgs;
+    // Read-receipt per-mensaje (mig 0051): al abrir, marca leídos los mensajes RECIBIDOS
+    // (autor = el contacto). Los propios no se tocan (su leido_en lo setea el otro lado al
+    // abrir). La policy consulta_mensajes_update exige autor <> uid.
+    await sql`update lxp.consulta_mensajes set leido_en = now()
+      where consulta_id = ${consultaId} and autor_id <> ${alumno.userId} and leido_en is null`;
+    return mensajesDeConsulta(sql, alumno.userId, consultaId);
   });
 }
 
-/** Marca una consulta como leída (sin traer el hilo). */
+/** Marca los mensajes recibidos de una consulta como leídos (sin traer el hilo). */
 export async function marcarLeidaConsulta(consultaId: string): Promise<void> {
   const alumno = await getSesionAlumno();
   try {
     await comoAlumno(alumno.userId, async (sql) => {
-      await sql`update lxp.consultas set alumno_leido_en = now() where id = ${consultaId} and id_alumno = ${alumno.userId}`;
+      await sql`update lxp.consulta_mensajes set leido_en = now()
+        where consulta_id = ${consultaId} and autor_id <> ${alumno.userId} and leido_en is null`;
     });
   } catch {
     /* best-effort */

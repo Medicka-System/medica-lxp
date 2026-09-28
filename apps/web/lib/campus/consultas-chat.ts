@@ -145,7 +145,7 @@ export async function getConsultasChat(userId: string): Promise<ConsultasData> {
              (select cm.created_at from lxp.consulta_mensajes cm where cm.consulta_id = q.id order by cm.created_at desc limit 1) as ultimo_en,
              (select count(*)::int from lxp.consulta_mensajes cm
                 where cm.consulta_id = q.id and cm.autor_id <> ${userId}
-                  and cm.created_at > coalesce(q.alumno_leido_en, 'epoch'::timestamptz)) as no_leidos
+                  and cm.leido_en is null) as no_leidos
       from lxp.consultas q
       left join lxp.lecciones lec on lec.id = q.origen_leccion_id
       where q.id_alumno = ${userId}
@@ -197,7 +197,7 @@ export async function contarConsultasNoLeidas(userId: string): Promise<number> {
         and exists (
           select 1 from lxp.consulta_mensajes cm
           where cm.consulta_id = q.id and cm.autor_id <> ${userId}
-            and cm.created_at > coalesce(q.alumno_leido_en, 'epoch'::timestamptz)
+            and cm.leido_en is null
         )`;
     return r[0]?.n ?? 0;
   });
@@ -205,9 +205,8 @@ export async function contarConsultasNoLeidas(userId: string): Promise<number> {
 
 /** Mensajes de una consulta (para cargar el hilo al abrir · bajo RLS). */
 export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: string): Promise<Mensaje[]> {
-  const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; alumno_leido_en: Date | null }[]>`
-    select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at,
-           (select alumno_leido_en from lxp.consultas q where q.id = cm.consulta_id) as alumno_leido_en
+  const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; leido_en: Date | null }[]>`
+    select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at, cm.leido_en
     from lxp.consulta_mensajes cm
     where cm.consulta_id = ${consultaId}
     order by cm.created_at asc`;
@@ -222,8 +221,8 @@ export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: s
           url: a.url,
         }))
       : undefined;
-    // "leído": el mensaje propio se marca leído si el contacto ya abrió después (no lo
-    // sabemos sin tracking del contacto) → aproximación: propio y no el último → leído.
+    // Read-receipt REAL per-mensaje (mig 0051): el mensaje propio muestra ✓✓ "leído"
+    // cuando la contraparte lo abrió (leido_en seteado), ✓ "enviado" si aún no.
     return {
       id: m.id,
       deMi,
@@ -231,7 +230,7 @@ export async function mensajesDeConsulta(sql: Sql, userId: string, consultaId: s
       adjuntos: adjuntos && adjuntos.length ? adjuntos : undefined,
       hora: hhmm(m.created_at),
       dia: diaMensaje(m.created_at),
-      estado: deMi ? 'enviado' : undefined,
+      estado: deMi ? (m.leido_en ? 'leido' : 'enviado') : undefined,
     };
   });
 }

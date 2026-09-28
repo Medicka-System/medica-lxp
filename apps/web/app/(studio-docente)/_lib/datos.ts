@@ -1081,8 +1081,14 @@ export async function getConsultaDocenteDetalle(
     )[0];
     if (!r) return null;
 
-    const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date }[]>`
-      select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at
+    // Read-receipt per-mensaje (mig 0051): al ABRIR el hilo, el docente marca leídos los
+    // mensajes RECIBIDOS de la contraparte (autor <> él). Así el alumno ve ✓✓ en los suyos.
+    // La policy consulta_mensajes_update exige autor <> uid (no toca los propios del docente).
+    await sql`update lxp.consulta_mensajes set leido_en = now()
+      where consulta_id = ${consultaId} and autor_id <> ${userId} and leido_en is null`;
+
+    const filas = await sql<{ id: string; autor_id: string; cuerpo: string; adjuntos: unknown; created_at: Date; leido_en: Date | null }[]>`
+      select cm.id, cm.autor_id, cm.cuerpo, cm.adjuntos, cm.created_at, cm.leido_en
       from lxp.consulta_mensajes cm
       where cm.consulta_id = ${consultaId}
       order by cm.created_at asc`;
@@ -1108,8 +1114,9 @@ export async function getConsultaDocenteDetalle(
               },
             }
           : {}),
-        // "leído": el alumno leyó el hilo después de que el docente escribió (real, `alumno_leido_en`).
-        ...(deMi ? { leido: !!r.alumno_leido_en && r.alumno_leido_en.getTime() > m.created_at.getTime() } : {}),
+        // "leído" per-mensaje (mig 0051): el mensaje propio del docente está leído cuando la
+        // contraparte lo abrió (leido_en seteado por el otro lado).
+        ...(deMi ? { leido: !!m.leido_en } : {}),
       };
     });
 
