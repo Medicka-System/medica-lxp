@@ -65,6 +65,8 @@ export type CampoPlantilla = {
   filas?: string[];
   /** Campo de solo lectura autollenado (ej. expediente): visible pero no editable. */
   bloqueado?: boolean;
+  /** `multitexto` RICO (solo en casos manuales): el valor es HTML del editor TipTap. */
+  rico?: boolean;
   /**
    * Contenido PREDETERMINADO del campo (texto/multitexto): el boilerplate clínico que
    * trae la plantilla (Familia A · Fase 2) con los `xx`/`___` intactos. Se copia a

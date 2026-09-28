@@ -34,17 +34,18 @@ import {
   type FaseDicom,
 } from '@/components/casos/subida-dicom';
 import { FichaCasoCampos, fichaVacia } from '@/components/casos/ficha-campos';
-import { BloquePedagogicoCampos, bloquePedagogicoVacio } from '@/components/casos/bloque-pedagogico';
-import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
-import { cuerpoCasoInicial } from '@/lib/reportes/plantilla-caso-defecto';
+import { EditorRico } from '@/components/editor-rico';
+import {
+  cuerpoCasoDesdeEstructura,
+  PLANTILLA_CASO_DEFECTO,
+  CAMPO_HALLAZGOS_DEFECTO,
+} from '@/lib/reportes/plantilla-caso-defecto';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
 import { useThumbEstudio } from '@/components/casos/use-thumb-estudio';
-import type { ContenidoEstructuradoCaso } from '@campus/shared';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
   type BitacoraData,
-  type BloquePedagogico,
   type CasoBitacora,
   type DocenteOpcion,
   type EstadoCaso,
@@ -60,6 +61,13 @@ const claseEstado: Record<EstadoCaso, string> = {
     'border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] text-[color:var(--destructive-foreground)]',
 };
 
+/* Estilos planos label+control del modal "Subir caso" (mismos que la ficha · §5A). */
+const etiquetaCampo = 'block text-[11.5px] font-semibold';
+const inputCampo =
+  'mt-[7px] h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60';
+const textareaCampo =
+  'mt-[7px] w-full resize-y rounded-[10px] border border-border bg-card px-3.5 py-3 text-[14px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary disabled:opacity-60';
+
 /* ─────────────────── Hoja corta de subida ─────────────────── */
 
 function SheetSubirCaso({
@@ -74,16 +82,14 @@ function SheetSubirCaso({
   const router = useRouter();
   const [moduloId, setModuloId] = useState(modulos[0]?.id ?? '');
   const [ficha, setFicha] = useState<FichaCaso>(fichaVacia());
-  const [pedagogico, setPedagogico] = useState<BloquePedagogico>(bloquePedagogicoVacio());
-  const [cuerpo, setCuerpo] = useState<ContenidoEstructuradoCaso>(cuerpoCasoInicial());
+  const [vineta, setVineta] = useState('');
+  const [hallazgosHtml, setHallazgosHtml] = useState('');
+  const [impresion, setImpresion] = useState('');
+  const [presuntivo, setPresuntivo] = useState('');
   const [archivos, setArchivos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fase, setFase] = useState<FaseDicom>('idle');
   const [faseMsg, setFaseMsg] = useState('');
-
-  const cambiarValorCuerpo = (campoId: string, valor: unknown) =>
-    setCuerpo((c) => ({ ...c, valores: { ...(c.valores ?? {}), [campoId]: valor } }));
-  const cambiarImpresionCuerpo = (valor: string) => setCuerpo((c) => ({ ...c, impresion: valor }));
 
   const modulo = modulos.find((m) => m.id === moduloId) ?? null;
   const ocupado = fase === 'creando' || fase === 'subiendo' || fase === 'procesando';
@@ -100,11 +106,18 @@ function SheetSubirCaso({
   const enviar = async () => {
     setError(null);
     setFase('creando');
+    // El cuerpo = plantilla por defecto con el HALLAZGOS rico (HTML) + la impresión. El índice
+    // plano `hallazgos` lo deriva subirCaso (aplanarContenidoCaso, que quita el HTML).
+    const cuerpo = cuerpoCasoDesdeEstructura(
+      PLANTILLA_CASO_DEFECTO,
+      { [CAMPO_HALLAZGOS_DEFECTO]: hallazgosHtml },
+      impresion,
+    );
     const r = await subirCaso({
       moduloId,
       ...ficha,
-      vineta: pedagogico.vineta,
-      presuntivo: pedagogico.presuntivo,
+      vineta,
+      presuntivo,
       contenidoEstructurado: cuerpo,
     });
     if (!r.ok) {
@@ -134,7 +147,7 @@ function SheetSubirCaso({
       className="fixed inset-0 z-50 grid place-items-end p-0 sm:place-items-center sm:p-10"
       style={{ background: 'rgba(15,45,82,.42)' }}
     >
-      <div className="w-full max-w-[560px] overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl">
+      <div className="w-full max-w-[760px] overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl">
         <div className="flex items-center gap-3 border-b border-border px-6 py-5">
           <div className="min-w-0">
             <p className="text-[18px] font-extrabold tracking-[-0.015em]">Subir caso</p>
@@ -195,28 +208,61 @@ function SheetSubirCaso({
             </div>
           )}
 
-          {/* CUERPO estructurado (motor de reportes): el mismo CampoReporte del reporte. */}
+          {/* Viñeta clínica (contexto · obligatoria). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Viñeta clínica</span>
+            <textarea
+              rows={3}
+              value={vineta}
+              onChange={(e) => setVineta(e.target.value)}
+              placeholder="Edad, motivo de consulta y contexto — sin datos que identifiquen al paciente."
+              className={textareaCampo}
+            />
+          </label>
+
+          {/* Ficha (metadata) en UNA columna: órgano, patología, dominio, docente, técnica, equipo, etiquetas. */}
           <div className="mt-5">
-            <span className="block text-[11.5px] font-semibold">Hallazgos del estudio</span>
-            <div className="mt-2">
-              <ContenidoEstructuradoCasoVista
-                contenido={cuerpo}
-                modo="llenar"
-                onCambioValor={cambiarValorCuerpo}
-                onCambioImpresion={cambiarImpresionCuerpo}
+            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} columna />
+          </div>
+
+          {/* Hallazgos — texto RICO (formato + pegar de Word con tablas). */}
+          <div className="mt-5">
+            <span className={etiquetaCampo}>Hallazgos</span>
+            <div className="mt-[7px]">
+              <EditorRico
+                contenidoInicial={hallazgosHtml}
+                editable
+                minAlto={180}
+                ariaLabel="Hallazgos del estudio"
+                placeholder="Describa lo que vio: medidas, planos y lo que le hizo dudar. Puede pegar de Word."
+                onChange={setHallazgosHtml}
               />
             </div>
           </div>
 
-          {/* BLOQUE PEDAGÓGICO: viñeta + diagnóstico presuntivo (obligatorios). */}
-          <div className="mt-5">
-            <BloquePedagogicoCampos value={pedagogico} onChange={setPedagogico} />
-          </div>
+          {/* Impresión diagnóstica (textarea normal). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Impresión diagnóstica</span>
+            <textarea
+              rows={3}
+              value={impresion}
+              onChange={(e) => setImpresion(e.target.value)}
+              placeholder="Conclusión clínica del estudio."
+              className={textareaCampo}
+            />
+          </label>
 
-          {/* FICHA (metadata) del caso. */}
-          <div className="mt-5">
-            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
-          </div>
+          {/* Diagnóstico presuntivo (obligatorio · lo que valida el docente). */}
+          <label className="mt-5 block">
+            <span className={etiquetaCampo}>Diagnóstico presuntivo</span>
+            <input
+              type="text"
+              value={presuntivo}
+              onChange={(e) => setPresuntivo(e.target.value)}
+              placeholder="Su impresión, aunque no esté seguro."
+              className={inputCampo}
+            />
+          </label>
 
           <div className="mt-5">
             <span className="block text-[11.5px] font-semibold">

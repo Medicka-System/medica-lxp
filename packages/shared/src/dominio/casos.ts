@@ -37,6 +37,8 @@ export const campoContenidoCasoSchema = z.object({
   refUrl: z.string().optional(),
   guia: z.string().optional(),
   bloqueado: z.boolean().optional(),
+  /** `multitexto` RICO: el valor es HTML (editor TipTap). El índice derivado lo aplana a texto. */
+  rico: z.boolean().optional(),
 });
 export type CampoContenidoCaso = z.infer<typeof campoContenidoCasoSchema>;
 
@@ -82,6 +84,32 @@ function valorTexto(v: unknown): string {
   if (typeof v === 'string') return v.trim();
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return '';
+}
+
+/**
+ * Convierte HTML (del editor rico) a TEXTO PLANO para el índice derivado (card / búsqueda /
+ * Eco / Ateneo). No es un sanitizador de seguridad: solo quita etiquetas, decodifica las
+ * entidades comunes y normaliza saltos de línea. Los bloques (p/div/li/tr/br/encabezados)
+ * pasan a salto de línea para conservar la legibilidad de la primera línea (título de card).
+ */
+export function textoPlanoDeHtml(html: string): string {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== '')) // colapsa líneas vacías repetidas
+    .join('\n')
+    .trim();
 }
 
 type PieGaleria = { pie?: string };
@@ -152,10 +180,11 @@ export function aplanarContenidoCaso(contenido: ContenidoEstructuradoCaso | null
         if (linea) lineas.push(linea);
         continue;
       }
-      const txt = valorTexto(v);
+      // Campo RICO (HTML del editor): se aplana a texto plano para el índice derivado.
+      const txt = c.rico ? textoPlanoDeHtml(valorTexto(v)) : valorTexto(v);
       if (!txt) continue;
       const unidad = c.tipo === 'medida' && c.unidad ? ` ${c.unidad}` : '';
-      lineas.push(c.tipo === 'multitexto' && soloCampo ? txt : `${nombre}: ${txt}${unidad}`);
+      lineas.push((c.tipo === 'multitexto' || c.rico) && soloCampo ? txt : `${nombre}: ${txt}${unidad}`);
     }
     if (lineas.length) {
       const titulo = (s.titulo ?? '').trim();

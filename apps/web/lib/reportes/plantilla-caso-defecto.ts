@@ -37,6 +37,9 @@ export const PLANTILLA_CASO_DEFECTO: EstructuraPlantilla = {
         {
           id: CAMPO_HALLAZGOS_DEFECTO,
           tipo: 'multitexto',
+          // RICO: el valor es HTML (editor TipTap · formato + pegar de Word con tablas). El índice
+          // plano derivado (aplanarContenidoCaso) le quita el HTML para card/búsqueda/Eco/Ateneo.
+          rico: true,
           nombre: 'Hallazgos del estudio',
           guia: 'Describa lo que vio: medidas, planos y lo que le hizo dudar.',
         },
