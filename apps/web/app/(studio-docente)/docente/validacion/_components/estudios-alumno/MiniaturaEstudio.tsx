@@ -25,8 +25,9 @@ export function MiniaturaEstudio({
   onAbrir: (id: string) => void;
 }) {
   // Miniatura en cliente (DICOM/JPG/PNG) vía el hook compartido; proporción por defecto
-  // 755/570 (≈1.32:1) mientras se mide la real, para no saltar el layout.
-  const estado = useThumbEstudio(casoId, 'bitacora_casos');
+  // 755/570 (≈1.32:1) mientras se mide la real, para no saltar el layout. Se rasteriza a
+  // 768×576 (misma resolución que la card del alumno) para que no se vea pixelada aquí.
+  const estado = useThumbEstudio(casoId, 'bitacora_casos', true, { ancho: 768, alto: 576 });
 
   const aspecto = estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '755 / 570';
 

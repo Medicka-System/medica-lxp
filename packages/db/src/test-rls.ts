@@ -388,14 +388,15 @@ async function main(): Promise<void> {
     );
 
     // ── Read-receipts per-mensaje (mig 0051): marca leído los RECIBIDOS, nunca los propios ──
+    // Se elige una consulta DETERMINISTA del seed por su clave estable (id_alumno + asunto),
+    // NO por orden: la de a1 con el docente ('Dónde medir la cortical'), que el seed llena con
+    // 1 mensaje propio de a1 + 2 del docente → ambas direcciones garantizadas. Así el test es
+    // 48/48 estable aunque existan consultas ajenas (drift) que antes podían colarse por el
+    // `limit 1` sin orden.
     const conRR = (
       await sql<{ id: string }[]>`
-        select q.id from lxp.consultas q
-        join lxp.consulta_mensajes cm on cm.consulta_id = q.id
-        where q.id_alumno = ${a1}
-        group by q.id
-        having count(*) filter (where cm.autor_id = q.id_alumno) > 0
-           and count(*) filter (where cm.autor_id <> q.id_alumno) > 0
+        select id from lxp.consultas
+        where id_alumno = ${a1} and asunto = 'Dónde medir la cortical'
         limit 1`
     )[0];
     if (conRR) {
