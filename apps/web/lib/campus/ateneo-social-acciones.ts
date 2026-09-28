@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
-import { comoAlumno } from '@/lib/db.server';
+import { comoAlumno, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
 import { cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
@@ -267,6 +267,9 @@ export async function conectarColega(otroId: string): Promise<ResultadoAccion & 
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   if (otroId === alumno.userId) return { ok: false, error: 'No puedes conectarte contigo.' };
   let estado: 'pendiente' | 'colegas' = 'pendiente';
+  // Gate de privacidad (Bloque 4): si el colega NO acepta solicitudes, no se puede ENVIAR una
+  // nueva (aceptar una que YO recibí sí es válido — eso se resuelve abajo, no crea solicitud).
+  const priv = await privacidadDe(otroId);
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       const ex = (await sql<{ solicitante_id: string; receptor_id: string; estado: string }[]>`
@@ -275,6 +278,7 @@ export async function conectarColega(otroId: string): Promise<ResultadoAccion & 
            or (solicitante_id = ${otroId} and receptor_id = ${alumno.userId})
         limit 1`)[0];
       if (!ex) {
+        if (!priv.aceptarColegas) throw new Error('no-acepta');
         await sql`insert into lxp.conexiones_ateneo (solicitante_id, receptor_id, estado)
           values (${alumno.userId}, ${otroId}, 'pendiente')`;
         estado = 'pendiente';
@@ -286,7 +290,10 @@ export async function conectarColega(otroId: string): Promise<ResultadoAccion & 
         estado = ex.estado === 'colegas' ? 'colegas' : 'pendiente';
       }
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === 'no-acepta') {
+      return { ok: false, error: 'Este colega no acepta solicitudes de conexión.' };
+    }
     return { ok: false, error: 'No se pudo enviar la solicitud.' };
   }
   revalidatePath('/ateneo');
@@ -308,18 +315,23 @@ export async function buscarColegas(q: string): Promise<(PerfilResumen & { motiv
       where pf.user_id <> ${alumno.userId} and pf.rol in ('alumno','docente')
         and (${q.trim() === ''} or pf.nombre ilike ${term} or coalesce(pf.especialidad,'') ilike ${term} or coalesce(pf.sede,'') ilike ${term})
       order by pf.nombre limit 12`;
-    return filas.map((s) => ({
-      id: s.user_id,
-      ini: inic(s.nombre),
-      nombre: s.nombre,
-      rol: (s.rol === 'alumno' ? 'alumno' : 'docente') as 'alumno' | 'docente',
-      meta: [s.esp, s.sede].filter(Boolean).join(' · ') || 'Campus Médica',
-      colegas: 0,
-      casos: s.casos,
-      aportes: 0,
-      motivo: s.rol === 'docente' ? 'docente del campus' : 'del diplomado',
-      estadoConexion: s.estado === 'colegas' ? 'colegas' : s.estado === 'pendiente' ? 'pendiente' : 'ninguna',
-    }));
+    // Gate de privacidad (Bloque 4): quien tenga perfilVisible=false NO aparece en la búsqueda.
+    const priv = await privacidadDeVarios(filas.map((f) => f.user_id));
+    return filas
+      .filter((s) => priv.get(s.user_id)?.perfilVisible !== false)
+      .map((s) => ({
+        id: s.user_id,
+        ini: inic(s.nombre),
+        nombre: s.nombre,
+        rol: (s.rol === 'alumno' ? 'alumno' : 'docente') as 'alumno' | 'docente',
+        meta: [s.esp, s.sede].filter(Boolean).join(' · ') || 'Campus Médica',
+        colegas: 0,
+        casos: s.casos,
+        aportes: 0,
+        motivo: s.rol === 'docente' ? 'docente del campus' : 'del diplomado',
+        estadoConexion: (s.estado === 'colegas' ? 'colegas' : s.estado === 'pendiente' ? 'pendiente' : 'ninguna') as PerfilResumen['estadoConexion'],
+        aceptaColegas: priv.get(s.user_id)?.aceptarColegas ?? true,
+      }));
   });
 }
 
@@ -432,6 +444,10 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
              st.colegas, st.casos, st.aportes
       from lxp.ateneo_perfil_stats(${userId}) st`)[0];
     if (!base || !base.nombre) return null;
+    // Gate de privacidad (Bloque 4): si el colega ocultó su perfil, NO es abrible por otros
+    // (sus posts siguen en el feed, pero su perfil devuelve null → el modal no abre).
+    const priv = await privacidadDe(userId);
+    if (!priv.perfilVisible) return null;
     // Casos PRESENTADOS visibles: sus posts tipo caso (la RLS de posts aplica la visibilidad).
     const postsCaso = await sql<{ id: string; titulo: string; cuerpo: string | null; caso_origen_id: string | null; created_at: Date }[]>`
       select id, titulo, cuerpo, caso_origen_id, created_at
@@ -448,6 +464,7 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
         id: userId, ini: inic(base.nombre), nombre: base.nombre, rol: 'alumno' as const,
         meta: 'Colega del Ateneo', colegas: base.colegas, casos: base.casos, aportes: base.aportes,
         estadoConexion, motivo: '',
+        aceptaColegas: priv.aceptarColegas, // Bloque 4: la UI oculta "Conectar" si es false
       },
       casos,
     };

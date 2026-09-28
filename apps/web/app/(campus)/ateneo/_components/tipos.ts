@@ -112,6 +112,8 @@ export type PerfilResumen = Persona & {
   aportes: number;
   enComun?: { total: number; inis: string[] };
   estadoConexion?: "ninguna" | "pendiente" | "colegas";
+  /** Privacidad (Bloque 4): si el colega acepta solicitudes. undefined = sí (compat). */
+  aceptaColegas?: boolean;
 };
 
 export type AteneoData = {

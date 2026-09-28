@@ -278,6 +278,11 @@ export function PerfilColega({
                 <span className="inline-flex h-11 items-center rounded-[10px] border border-border bg-muted px-4 text-[13px] font-semibold text-muted-foreground">
                   Solicitud enviada
                 </span>
+              ) : perfil.aceptaColegas === false ? (
+                // Privacidad (Bloque 4): el colega no acepta solicitudes → "Conectar" deshabilitado.
+                <span className="inline-flex h-11 items-center rounded-[10px] border border-border bg-muted px-4 text-[13px] font-semibold text-muted-foreground" title="Este colega no acepta solicitudes de conexión.">
+                  No acepta solicitudes
+                </span>
               ) : (
                 <button type="button" onClick={() => onConectar(perfil.id)} className={`inline-flex h-11 items-center gap-[7px] rounded-[10px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] ${focusRing}`}>
                   <Plus aria-hidden className="h-[15px] w-[15px]" strokeWidth={2.4} />
