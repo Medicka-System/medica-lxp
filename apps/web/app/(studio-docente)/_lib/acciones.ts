@@ -252,18 +252,19 @@ export async function responderConsulta(input: {
   let asunto = '';
   try {
     ({ alumnoId, asunto } = await comoStaff(userId, async (sql) => {
-      return sql.begin(async (tx) => {
-        await tx`
-          insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo)
-          values (${input.consultaId}, ${userId}, ${cuerpo})`;
-        // Tomar la consulta si aún no tiene docente asignado (canal 1:1).
-        const rows = await tx<{ id_alumno: string; asunto: string }[]>`
-          update lxp.consultas
-          set id_docente = coalesce(id_docente, ${userId})
-          where id = ${input.consultaId}
-          returning id_alumno, asunto`;
-        return { alumnoId: rows[0]?.id_alumno ?? '', asunto: rows[0]?.asunto ?? '' };
-      }) as Promise<{ alumnoId: string; asunto: string }>;
+      // `comoStaff` YA abre la transacción (sql.begin con claims+rol para RLS); aquí se
+      // opera directo sobre ese `sql`. Anidar otro `sql.begin` fallaba con
+      // "tx.begin is not a function" (el objeto de transacción no expone .begin).
+      await sql`
+        insert into lxp.consulta_mensajes (consulta_id, autor_id, cuerpo)
+        values (${input.consultaId}, ${userId}, ${cuerpo})`;
+      // Tomar la consulta si aún no tiene docente asignado (canal 1:1).
+      const rows = await sql<{ id_alumno: string; asunto: string }[]>`
+        update lxp.consultas
+        set id_docente = coalesce(id_docente, ${userId})
+        where id = ${input.consultaId}
+        returning id_alumno, asunto`;
+      return { alumnoId: rows[0]?.id_alumno ?? '', asunto: rows[0]?.asunto ?? '' };
     }));
   } catch {
     return { ok: false, error: 'No se pudo enviar la respuesta. Inténtalo de nuevo.' };
