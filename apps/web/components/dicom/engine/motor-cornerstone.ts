@@ -150,6 +150,8 @@ export class MotorCornerstone implements MotorVisor {
   private toolGroup: ReturnType<typeof ToolGroupManager.createToolGroup> | null = null;
   private herramientaPrimaria = '';
   private elemento: HTMLDivElement | null = null;
+  /** Blindaje de teardown: `destruir()` es idempotente (doble cleanup / React StrictMode). */
+  private destruido = false;
 
   async montar(elemento: HTMLElement): Promise<void> {
     await inicializarCornerstone();
@@ -340,13 +342,33 @@ export class MotorCornerstone implements MotorVisor {
     viewport.render();
   }
 
+  /**
+   * Teardown IDEMPOTENTE y TOLERANTE. Llamarlo 2+ veces (doble cleanup del efecto / React
+   * StrictMode) es no-op. `engine?.destroy()` solo cubre `null`, no un engine ya destruido: en ese
+   * caso Cornerstone hace `Object.keys` sobre estructuras ya liberadas y lanza "Cannot convert
+   * undefined or null to object". Guardamos con `hasBeenDestroyed` + un flag propio, y envolvemos
+   * cada paso en try/catch para que un teardown nunca tumbe la app (se loguea, no se propaga).
+   */
   destruir(): void {
-    if (this.toolGroup) {
-      ToolGroupManager.destroyToolGroup(this.toolGroupId);
+    if (this.destruido) return;
+    this.destruido = true;
+    try {
+      if (this.toolGroup) ToolGroupManager.destroyToolGroup(this.toolGroupId);
+    } catch (e) {
+      console.warn('[MotorCornerstone] destroyToolGroup falló (teardown tolerante):', e);
+    } finally {
       this.toolGroup = null;
     }
-    this.engine?.destroy();
-    this.engine = null;
+    try {
+      const engine = this.engine;
+      // No re-destruir un engine ya destruido (o a medio inicializar): `hasBeenDestroyed` es la
+      // bandera de Cornerstone; el `?.` de antes no la miraba y re-destruía → crash.
+      if (engine && !(engine as { hasBeenDestroyed?: boolean }).hasBeenDestroyed) engine.destroy();
+    } catch (e) {
+      console.warn('[MotorCornerstone] engine.destroy falló (teardown tolerante):', e);
+    } finally {
+      this.engine = null;
+    }
   }
 
   private stackViewport(): Types.IStackViewport {
