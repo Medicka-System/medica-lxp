@@ -3,16 +3,23 @@
  * tipos y el modelo (`reacciones_ateneo`, 1 por usuario) NO cambian — el emoji sigue viniendo
  * de `REACCIONES[tipo].emoji` en `tipos.ts`.
  *
- * Cada asset es un Lottie LIGERO (~1 KB) generado por `lottieDeEmoji`: una capa de TEXTO con
- * el glifo emoji + un rebote de escala en bucle. Se autora aquí (no se descarga de lottiefiles)
- * para no depender de red en el build. Para pasar a animaciones premium de lottiefiles, basta
- * reemplazar las entradas de `LOTTIE_REACCION` por el JSON importado del .lottie/.json — el
- * player (`EmojiReaccion`) no cambia.
+ * Cinco tipos usan ASSETS REALES de lottiefiles (`./lottie/*.json`, animaciones vectoriales).
+ * `ojo` (Buen ojo) aún no tiene asset → conserva el placeholder generado por `lottieDeEmoji`
+ * (una capa de TEXTO con el glifo 👁️ + rebote de escala en bucle). El player (`EmojiReaccion`)
+ * no cambia: solo lee de este mapa, cuyas llaves son el enum `lxp.reaccion_ateneo_tipo`
+ * ('util','ojo','aclara','bien','duda','gracias' · mig 0032) = `TipoReaccion` de `tipos.ts`.
  *
- * El módulo lo consume solo el componente cliente `EmojiReaccion` (lazy), así que su peso no
- * entra al bundle inicial.
+ * El módulo lo consume solo el componente cliente `EmojiReaccion`; lottie-web se carga lazy
+ * aparte, así que el bundle inicial no paga el player (sí el JSON de los assets, en el chunk
+ * de la ruta Ateneo).
  */
 import { REACCIONES, type TipoReaccion } from './tipos';
+// Assets reales (lottiefiles). Nombre de archivo = etiqueta; la LLAVE del mapa = enum.
+import bienhechoLottie from './lottie/bienhecho.json'; // → bien  (👏 Bien hecho)
+import graciasLottie from './lottie/gracias.json'; //     → gracias (💖 Gracias)
+import lodudoLottie from './lottie/lodudo.json'; //       → duda  (🤨 Lo dudo)
+import meaclaraLottie from './lottie/meaclara.json'; //   → aclara (💡 Me aclara)
+import utilLottie from './lottie/util.json'; //           → util  (👍 Útil)
 
 /** Familia con emojis a color en los tres SO (lottie-web pinta el `<text>` con esta font). */
 const FONT_EMOJI =
@@ -84,7 +91,17 @@ export function lottieDeEmoji(char: string): object {
   };
 }
 
-/** Un asset Lottie por tipo de reacción (derivado del glifo de `REACCIONES`). */
-export const LOTTIE_REACCION: Record<TipoReaccion, object> = Object.fromEntries(
-  (Object.keys(REACCIONES) as TipoReaccion[]).map((k) => [k, lottieDeEmoji(REACCIONES[k].emoji)]),
-) as Record<TipoReaccion, object>;
+/**
+ * Un asset Lottie por tipo de reacción. Las LLAVES son EXACTAMENTE el enum
+ * `lxp.reaccion_ateneo_tipo` (mig 0032). Cinco cargan su .json real; `ojo` mantiene el
+ * placeholder (rebote del glifo 👁️) hasta que exista su asset.
+ */
+export const LOTTIE_REACCION: Record<TipoReaccion, object> = {
+  util: utilLottie,
+  aclara: meaclaraLottie,
+  bien: bienhechoLottie,
+  duda: lodudoLottie,
+  gracias: graciasLottie,
+  // Sin asset real todavía → placeholder (NO se toca su comportamiento).
+  ojo: lottieDeEmoji(REACCIONES.ojo.emoji),
+};
