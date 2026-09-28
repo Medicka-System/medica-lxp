@@ -32,6 +32,11 @@ import {
 } from "lucide-react";
 import type { CasoBitacora, ModoComposer, PerfilResumen } from "./tipos";
 import { Avatar, Chip, Estudio, Modal, focusRing, mono, softText } from "./ui";
+import { firmarSubidaMediaAteneo } from "@/lib/campus/ateneo-social-acciones";
+
+// Límites de subida (Nivel 1): imagen ≤ 10 MB, video ≤ 50 MB.
+const MAX_IMAGEN = 10 * 1024 * 1024;
+const MAX_VIDEO = 50 * 1024 * 1024;
 
 export const ACCIONES: {
   modo: Exclude<ModoComposer, "texto">;
@@ -97,7 +102,7 @@ export type BorradorPost = ConAudiencia &
     | { modo: "texto"; texto: string }
     | { modo: "caso"; texto: string; casoId: string }
     | { modo: "pregunta"; pregunta: string; contexto: string; temas: string[] }
-    | { modo: "media"; texto: string; archivos: File[] }
+    | { modo: "media"; texto: string; media: { tipo: "imagen" | "video"; ref: string }[] }
     | { modo: "encuesta"; pregunta: string; opciones: string[]; cierraEnDias: number }
   );
 
@@ -121,9 +126,11 @@ export function ComposerModal({
   const [temas, setTemas] = useState<string[]>([]);
   const [opciones, setOpciones] = useState<string[]>(["", ""]);
   const [cierra, setCierra] = useState(3);
-  const [archivos, setArchivos] = useState<{ nombre: string; progreso: number }[]>([]);
+  const [archivos, setArchivos] = useState<{ file: File; nombre: string; tipo: "imagen" | "video"; progreso: number }[]>([]);
   const [audiencia, setAudiencia] = useState<Audiencia>("ateneo");
   const [menuAud, setMenuAud] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
+  const [errorMedia, setErrorMedia] = useState<string | null>(null);
 
   const caso = misCasos.find((c) => c.id === casoId);
 
@@ -134,13 +141,35 @@ export function ComposerModal({
     (modo === "media" && archivos.length > 0) ||
     (modo === "encuesta" && pregunta.trim() && opciones.filter((o) => o.trim()).length >= 2);
 
-  const publicar = () => {
-    if (!puedePublicar) return;
-    if (modo === "caso" && casoId) onPublicar({ modo, texto, casoId, audiencia });
-    else if (modo === "pregunta") onPublicar({ modo, pregunta, contexto: texto, temas, audiencia });
-    else if (modo === "encuesta") onPublicar({ modo, pregunta, opciones: opciones.filter((o) => o.trim()), cierraEnDias: cierra, audiencia });
-    else if (modo === "media") onPublicar({ modo, texto, archivos: [], audiencia });
-    else onPublicar({ modo: "texto", texto, audiencia });
+  const publicar = async () => {
+    if (!puedePublicar || subiendo) return;
+    if (modo === "caso" && casoId) return onPublicar({ modo, texto, casoId, audiencia });
+    if (modo === "pregunta") return onPublicar({ modo, pregunta, contexto: texto, temas, audiencia });
+    if (modo === "encuesta") return onPublicar({ modo, pregunta, opciones: opciones.filter((o) => o.trim()), cierraEnDias: cierra, audiencia });
+    if (modo === "media") {
+      // Sube cada archivo DIRECTO a storage con URL firmada pública (§2) ANTES de publicar;
+      // solo se persiste el post con las refs ya subidas.
+      setSubiendo(true);
+      setErrorMedia(null);
+      const media: { tipo: "imagen" | "video"; ref: string }[] = [];
+      for (let i = 0; i < archivos.length; i++) {
+        const a = archivos[i]!;
+        const ext = (a.nombre.split(".").pop() || (a.tipo === "video" ? "mp4" : "jpg")).toLowerCase();
+        const firma = await firmarSubidaMediaAteneo(ext);
+        if (!firma.ok) { setErrorMedia(firma.error); setSubiendo(false); return; }
+        const put = await fetch(firma.urlSubida, {
+          method: "PUT",
+          headers: { "content-type": a.file.type || "application/octet-stream" },
+          body: a.file,
+        }).catch(() => null);
+        if (!put || !put.ok) { setErrorMedia("No se pudo subir un archivo. Inténtelo de nuevo."); setSubiendo(false); return; }
+        setArchivos((s) => s.map((x, j) => (j === i ? { ...x, progreso: 100 } : x)));
+        media.push({ tipo: a.tipo, ref: firma.ref });
+      }
+      setSubiendo(false);
+      return onPublicar({ modo: "media", texto, media, audiencia });
+    }
+    onPublicar({ modo: "texto", texto, audiencia });
   };
 
   const Editor = ({ placeholder, grande = true }: { placeholder: string; grande?: boolean }) => (
@@ -207,13 +236,16 @@ export function ComposerModal({
             </span>
           </div>
           <div className="px-5 pb-[18px] pt-3.5">
+            {errorMedia && (
+              <p className="mb-2 text-[12px] font-medium text-[color:var(--warning-foreground)]">{errorMedia}</p>
+            )}
             <button
               type="button"
               onClick={publicar}
-              disabled={!puedePublicar}
+              disabled={!puedePublicar || subiendo}
               className={`h-12 w-full rounded-[11px] bg-primary text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground ${focusRing}`}
             >
-              Publicar
+              {subiendo ? "Subiendo…" : "Publicar"}
             </button>
           </div>
         </>
@@ -417,9 +449,21 @@ export function ComposerModal({
                 accept="image/*,video/*"
                 multiple
                 className="sr-only"
-                onChange={(e) =>
-                  setArchivos((s) => [...s, ...Array.from(e.target.files ?? []).map((f) => ({ nombre: f.name, progreso: 100 }))])
-                }
+                onChange={(e) => {
+                  const nuevos = Array.from(e.target.files ?? []).flatMap((f) => {
+                    const esImg = f.type.startsWith("image/");
+                    const esVid = f.type.startsWith("video/");
+                    if (!esImg && !esVid) return []; // solo imagen/video (sin DICOM/.zip)
+                    if (f.size > (esVid ? MAX_VIDEO : MAX_IMAGEN)) {
+                      setErrorMedia(`"${f.name}" supera el máximo (${esVid ? "50" : "10"} MB).`);
+                      return [];
+                    }
+                    return [{ file: f, nombre: f.name, tipo: (esVid ? "video" : "imagen") as "imagen" | "video", progreso: 100 }];
+                  });
+                  if (nuevos.length) setErrorMedia(null);
+                  setArchivos((s) => [...s, ...nuevos].slice(0, 8));
+                  e.target.value = "";
+                }}
               />
             </label>
           </>

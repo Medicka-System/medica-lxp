@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import type { Sql } from '@/lib/db.server';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import type {
   AteneoData,
   CasoBitacora,
@@ -116,6 +117,13 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
   if (ids.length === 0) return [];
   const idsCaso = filas.map((f) => f.caso_origen_id).filter((x): x is string => !!x);
 
+  // Media (imagen/video): las refs `media/imagenes/*` guardadas se firman a URLs de lectura
+  // (públicas, vida corta) para el grid de PostCard. Reusa el firmante del dominio (§2).
+  const mediaRefs = filas
+    .filter((f) => f.tipo === 'media')
+    .flatMap((f) => (Array.isArray(f.media) ? (f.media as { url?: string }[]) : []).map((m) => m.url).filter((u): u is string => !!u));
+  const urlPorRef = mediaRefs.length ? await firmarLecturaImagenes(mediaRefs) : {};
+
   const reacTipos = await sql<{ post_id: string; tipo: string; n: number }[]>`
     select post_id, tipo::text as tipo, count(*)::int as n
     from lxp.reacciones_ateneo where post_id = any(${ids})
@@ -216,7 +224,8 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
     if (f.tipo === 'media') {
       const piezas = (Array.isArray(f.media) ? (f.media as { tipo?: string; url?: string }[]) : []).map((m) => ({
         tipo: (m.tipo === 'video' ? 'video' : 'imagen') as 'imagen' | 'video',
-        src: typeof m.url === 'string' ? m.url : undefined,
+        // `url` guardada = ref `media/imagenes/*`; se muestra su URL firmada de lectura.
+        src: typeof m.url === 'string' ? urlPorRef[m.url] ?? undefined : undefined,
       }));
       return { ...base, tipo: 'media', texto: f.cuerpo ?? '', piezas };
     }

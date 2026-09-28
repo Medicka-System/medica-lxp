@@ -15,6 +15,38 @@ import type { CasoBitacora, Comentario, ItemAporte, ListaPerfilData, PerfilColeg
  * voto son idempotentes (una fila por usuario, cambiable).
  */
 
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+/**
+ * Firma la subida DIRECTA de un medio del Ateneo (imagen/video) a object storage,
+ * REUSANDO el uploader público de media de contenido (`/media/imagenes/firmar-subida`):
+ * mismo patrón que reportes/media (signed URL contra STORAGE_ENDPOINT_PUBLICO, SigV4 al
+ * host público · §2 web→storage directo, sin proxy). El Ateneo NO tiene anonimizador: son
+ * imagen/video, no DICOM/paciente (§10). El navegador hace el PUT del binario a `urlSubida`.
+ */
+export async function firmarSubidaMediaAteneo(
+  ext: string,
+): Promise<{ ok: true; ref: string; urlSubida: string } | { ok: false; error: string }> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  try {
+    const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ext }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `El servicio de media rechazó la solicitud (HTTP ${res.status}).` };
+    const d = (await res.json()) as { ref: string; urlSubida: string };
+    return { ok: true, ref: d.ref, urlSubida: d.urlSubida };
+  } catch (e) {
+    console.error('[firmarSubidaMediaAteneo] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio de media (apps/api).' };
+  }
+}
+
 const TIPOS_REACCION = new Set<TipoReaccion>(['util', 'ojo', 'aclara', 'bien', 'duda', 'gracias']);
 const REL = 86_400_000;
 
@@ -54,10 +86,17 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, temas, estado, visibilidad)
           values (${alumno.userId}, 'pregunta', ${q}, ${b.contexto.trim() || null}, ${sql.json(temas)}, 'aprobado', ${vis})`;
       } else if (b.modo === 'media') {
-        // Subida real de archivos: PENDIENTE (§ declarado). Se publica el texto sin media.
+        // Media YA subida por el composer (imagen/video · media/imagenes/*, público, SIN
+        // anonimizador). Se persiste la ref en posts_ateneo.media con la forma {tipo,url}
+        // que lee ensamblarPosts (allí `url`=ref se firma a URL de lectura). Máx 8.
         const t = b.texto.trim();
-        await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, estado, visibilidad)
-          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, 'aprobado', ${vis})`;
+        const media = (b.media ?? [])
+          .filter((m) => m && typeof m.ref === 'string' && m.ref.startsWith('media/imagenes/'))
+          .slice(0, 8)
+          .map((m) => ({ tipo: m.tipo === 'video' ? 'video' : 'imagen', url: m.ref }));
+        if (media.length === 0 && !t) throw new Error('vacio');
+        await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, media, estado, visibilidad)
+          values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, ${sql.json(media)}, 'aprobado', ${vis})`;
       } else if (b.modo === 'encuesta') {
         const q = b.pregunta.trim();
         const opciones = b.opciones.map((o) => o.trim()).filter(Boolean).slice(0, 4);
