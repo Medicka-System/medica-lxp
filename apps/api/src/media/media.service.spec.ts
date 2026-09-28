@@ -27,7 +27,8 @@ describe('MediaService', () => {
     expect(r.videotecaId).toBe('v1');
     expect(r.recursoRef).toBe(claveVideo('v1'));
     expect(r.urlSubida).toBe('http://storage/put-firmado');
-    expect(storage.firmarSubida).toHaveBeenCalledWith(claveVideo('v1'));
+    // publico=true: la URL de subida del video la usa el NAVEGADOR (endpoint público).
+    expect(storage.firmarSubida).toHaveBeenCalledWith(claveVideo('v1'), undefined, true);
   });
 
   it('confirma el video y lo deja listo', async () => {
@@ -42,7 +43,8 @@ describe('MediaService', () => {
     const media = new MediaService(db, storage);
     const r = await media.firmarReproduccion('v1');
     expect(r.urlReproduccion).toBe('http://storage/get-firmado');
-    expect(storage.firmarLectura).toHaveBeenCalledWith(claveVideo('v1'));
+    // publico=true: la URL de reproducción la usa el NAVEGADOR (endpoint público).
+    expect(storage.firmarLectura).toHaveBeenCalledWith(claveVideo('v1'), undefined, true);
   });
 
   it('reproducir falla si el video no está listo', async () => {

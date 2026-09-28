@@ -13,6 +13,12 @@ const EXPIRA_SEG = 3600;
 @Injectable()
 export class StorageService {
   private readonly endpoint = process.env.STORAGE_ENDPOINT ?? 'http://localhost:9000';
+  // Endpoint PÚBLICO: host que verá el NAVEGADOR en las URLs firmadas que se le entregan
+  // (upload/lectura directos). En local, el web corre en el host → `localhost:9000`, mientras
+  // que el `endpoint` interno (`minio:9000`) lo usan el worker y el `api` (/procesar) dentro
+  // de Docker. Si no se define, cae al interno (producción: mismo host real, sin split · §3).
+  // La firma SigV4 va contra el host que se use aquí → cada URL se firma para SU destino.
+  private readonly endpointPublico = process.env.STORAGE_ENDPOINT_PUBLICO ?? this.endpoint;
   private readonly region = process.env.STORAGE_REGION ?? 'auto';
   private readonly bucket = process.env.STORAGE_BUCKET ?? 'campus-lxp-media';
   private readonly accessKey = process.env.STORAGE_ACCESS_KEY_ID ?? '';
@@ -64,10 +70,14 @@ export class StorageService {
     return `media/archivos/${id}.${e}`;
   }
 
-  private firmar(metodo: MetodoS3, key: string, ahora: Date): string {
+  /**
+   * `publico=true` firma con el endpoint que verá el NAVEGADOR (host); `false` (default)
+   * con el interno de Docker (worker / `api` server-side). Ver `endpointPublico`.
+   */
+  private firmar(metodo: MetodoS3, key: string, ahora: Date, publico: boolean): string {
     return presignS3({
       metodo,
-      endpoint: this.endpoint,
+      endpoint: publico ? this.endpointPublico : this.endpoint,
       region: this.region,
       bucket: this.bucket,
       key,
@@ -78,15 +88,15 @@ export class StorageService {
     });
   }
 
-  firmarSubida(key: string, ahora = new Date()): string {
-    return this.firmar('PUT', key, ahora);
+  firmarSubida(key: string, ahora = new Date(), publico = false): string {
+    return this.firmar('PUT', key, ahora, publico);
   }
 
-  firmarLectura(key: string, ahora = new Date()): string {
-    return this.firmar('GET', key, ahora);
+  firmarLectura(key: string, ahora = new Date(), publico = false): string {
+    return this.firmar('GET', key, ahora, publico);
   }
 
-  firmarBorrado(key: string, ahora = new Date()): string {
-    return this.firmar('DELETE', key, ahora);
+  firmarBorrado(key: string, ahora = new Date(), publico = false): string {
+    return this.firmar('DELETE', key, ahora, publico);
   }
 }

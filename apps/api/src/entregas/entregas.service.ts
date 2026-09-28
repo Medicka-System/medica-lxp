@@ -44,7 +44,8 @@ export class EntregasService {
     const alumnoId = this.validarId(input.alumnoId, 'alumnoId');
     const nombre = typeof input.nombre === 'string' && input.nombre.trim() ? input.nombre.trim() : 'archivo';
     const key = this.clave(leccionId, alumnoId, nombre);
-    return { key, urlSubida: this.storage.firmarSubida(key) };
+    // PÚBLICA: el navegador del alumno sube el adjunto directo a storage.
+    return { key, urlSubida: this.storage.firmarSubida(key, undefined, true) };
   }
 
   /** Firma la lectura (GET) de vida corta del adjunto ya subido. */
@@ -53,6 +54,6 @@ export class EntregasService {
     if (!key.startsWith('entregas/')) {
       throw new BadRequestException('key fuera del espacio de entregas.');
     }
-    return { url: this.storage.firmarLectura(key) };
+    return { url: this.storage.firmarLectura(key, undefined, true) }; // PÚBLICA: descarga desde el navegador
   }
 }

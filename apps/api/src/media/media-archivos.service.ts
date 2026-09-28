@@ -23,12 +23,13 @@ export class MediaArchivosService {
     const e = EXT_OK.has(ext) ? ext : 'pdf';
     const id = randomUUID();
     const ref = this.storage.claveArchivo(id, e);
+    // PÚBLICAS: el navegador (diseñador) sube y lee el documento directo a storage.
     return {
       id,
       ext: e,
       ref,
-      urlSubida: this.storage.firmarSubida(ref),
-      urlLectura: this.storage.firmarLectura(ref),
+      urlSubida: this.storage.firmarSubida(ref, undefined, true),
+      urlLectura: this.storage.firmarLectura(ref, undefined, true),
     };
   }
 
@@ -38,7 +39,7 @@ export class MediaArchivosService {
     const urls: Record<string, string> = {};
     for (const ref of refs) {
       if (typeof ref === 'string' && ref.startsWith('media/archivos/')) {
-        urls[ref] = this.storage.firmarLectura(ref);
+        urls[ref] = this.storage.firmarLectura(ref, undefined, true); // PÚBLICA (navegador)
       }
     }
     return { urls };

@@ -22,12 +22,13 @@ export class MediaImagenesService {
     const e = EXT_OK.has(ext) ? ext : 'jpg';
     const id = randomUUID();
     const ref = this.storage.claveImagenContenido(id, e);
+    // PÚBLICAS: el navegador (diseñador) sube y lee la imagen directo a storage.
     return {
       id,
       ext: e,
       ref,
-      urlSubida: this.storage.firmarSubida(ref),
-      urlLectura: this.storage.firmarLectura(ref),
+      urlSubida: this.storage.firmarSubida(ref, undefined, true),
+      urlLectura: this.storage.firmarLectura(ref, undefined, true),
     };
   }
 
@@ -37,7 +38,7 @@ export class MediaImagenesService {
     const urls: Record<string, string> = {};
     for (const ref of refs) {
       if (typeof ref === 'string' && ref.startsWith('media/imagenes/')) {
-        urls[ref] = this.storage.firmarLectura(ref);
+        urls[ref] = this.storage.firmarLectura(ref, undefined, true); // PÚBLICA (navegador)
       }
     }
     return { urls };
