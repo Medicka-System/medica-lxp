@@ -239,6 +239,49 @@ export function CasoDetalleBitacoraCliente({
     </>
   );
 
+  /* ── Edición EN SITIO (modo edición): desbloquea los campos del caso en el ÁREA PRINCIPAL, donde se
+        ven los datos (no en un panel lateral). Las series/imágenes se gestionan con `gestorSeries`
+        (arriba, también en sitio). Guardar persiste; Cancelar descarta y re-bloquea. ── */
+  const editorClinica = (
+    <section className={`${card} p-6`}>
+      <p className={`${kicker} text-muted-foreground`}>Editar caso</p>
+      <div className="mt-4">
+        <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} disabled={guardando} />
+      </div>
+      {error && (
+        <p
+          role="alert"
+          className="mt-4 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
+        >
+          {error}
+        </p>
+      )}
+      <div className="mt-5 flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => {
+            setFicha(fichaDeCaso(caso));
+            setEditando(false);
+            setError(null);
+          }}
+          disabled={guardando}
+          className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={guardando}
+          className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+        >
+          {guardando && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />}
+          Guardar cambios
+        </button>
+      </div>
+    </section>
+  );
+
   return (
     <VistaCasoEstudio
       volverHref="/bitacora"
@@ -253,53 +296,23 @@ export function CasoDetalleBitacoraCliente({
         )
       }
       debajoDelVisor={
-        <>
-          {gestorSeries}
-          {!editando && clinicaLectura}
-        </>
+        editando ? (
+          <>
+            {gestorSeries}
+            {editorClinica}
+          </>
+        ) : (
+          clinicaLectura
+        )
       }
       panel={
-        editando ? (
-          <section className={`${card} p-6`}>
-            <p className={`${kicker} text-muted-foreground`}>Editar caso</p>
-            <div className="mt-4">
-              <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} disabled={guardando} />
-            </div>
-            {error && (
-              <p
-                role="alert"
-                className="mt-4 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
-              >
-                {error}
-              </p>
-            )}
-            <div className="mt-5 flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setFicha(fichaDeCaso(caso));
-                  setEditando(false);
-                  setError(null);
-                }}
-                disabled={guardando}
-                className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={guardar}
-                disabled={guardando}
-                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
-              >
-                {guardando && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />}
-                Guardar cambios
-              </button>
-            </div>
-          </section>
-        ) : (
-          <PanelLectura caso={caso} listo={listo} editable={editable} onEditar={() => setEditando(true)} />
-        )
+        <PanelLectura
+          caso={caso}
+          listo={listo}
+          editable={editable}
+          editando={editando}
+          onEditar={() => setEditando(true)}
+        />
       }
     />
   );
@@ -311,11 +324,14 @@ function PanelLectura({
   caso,
   listo,
   editable,
+  editando,
   onEditar,
 }: {
   caso: CasoDetalleBitacora;
   listo: boolean;
   editable: boolean;
+  /** En modo edición el botón "Editar" se oculta (la edición ocurre in situ, con Guardar/Cancelar). */
+  editando: boolean;
   onEditar: () => void;
 }) {
   const ficha: [string, string | null][] = [
@@ -340,7 +356,7 @@ function PanelLectura({
           >
             {ETIQUETA_ESTADO[caso.estado]}
           </span>
-          {editable && (
+          {editable && !editando && (
             <button
               type="button"
               onClick={onEditar}
@@ -457,7 +473,7 @@ function PanelLectura({
         <section className="rounded-xl bg-muted p-5">
           <p className={`text-[12.5px] leading-relaxed ${softText}`}>
             Puede <strong>editar</strong> este caso y ajustar sus series mientras esté en revisión. Al
-            acreditarse, queda fijo. Los estudios se guardan siempre <strong>anonimizados</strong> (§10).
+            acreditarse, queda fijo. Los estudios se guardan siempre <strong>anonimizados</strong>.
           </p>
         </section>
       )}
