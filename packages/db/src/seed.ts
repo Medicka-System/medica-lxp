@@ -830,6 +830,13 @@ async function seed(sql: Sql): Promise<void> {
   // ── Ateneo (red social · §1): perfiles con especialidad/sede, posts de cada tipo,
   //    reacciones, encuesta con votos, hilo anidado y colegas (mig 0032). ──────────
   await sql`update lxp.perfiles set especialidad = 'Ultrasonografía', sede = 'Guadalajara' where user_id = ${alumnos.a1}`;
+  // Bio + intereses + WhatsApp de a1 para poblar Mi perfil (/perfil · mig 0055).
+  await sql`
+    update lxp.perfiles
+    set sobre_mi = ${'Médica general en formación POCUS. Me interesa el ultrasonido a pie de cama en urgencias y el seguimiento obstétrico. Practico en el Hospital Civil de Guadalajara.'},
+        intereses = ${sql.array(['#pocus', '#obstetricia', '#urgencias', '#abdomen'])},
+        whatsapp = ${'+52 33 1234 5678'}
+    where user_id = ${alumnos.a1}`;
   await sql`update lxp.perfiles set especialidad = 'Urgencias', sede = 'Puebla' where user_id = ${alumnos.a2}`;
   await sql`update lxp.perfiles set especialidad = 'Medicina interna', sede = 'Monterrey' where user_id = ${alumnos.a3}`;
   await sql`update lxp.perfiles set especialidad = 'Renal y abdomen', sede = 'Docente' where user_id = ${docente}`;
