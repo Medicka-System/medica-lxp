@@ -238,16 +238,24 @@ export type ResultadoCaso =
  * (dcmjs) + PÍXELES (Presidio) + escribir la traza §10. Aquí solo se gatea propiedad (RLS) y
  * se dispara. El docente decide luego qué curar (bitácora→validación→biblioteca).
  */
-export async function guardarComoCaso(id: string): Promise<ResultadoCaso> {
+export async function guardarComoCaso(
+  id: string,
+  datos: { vineta: string; presuntivo: string },
+): Promise<ResultadoCaso> {
   const alumno = await getSesionAlumno();
   const propio = await comoAlumno(alumno.userId, (sql) =>
     sql<{ id: string }[]>`select id from lxp.reportes where id = ${id} and id_medico = ${alumno.userId} limit 1`,
   );
   if (propio.length === 0) return { ok: false, error: 'Ese reporte no es tuyo.' };
+  const vineta = datos.vineta.trim();
+  const presuntivo = datos.presuntivo.trim();
+  if (!vineta) return { ok: false, error: 'Escribe la viñeta clínica antes de enviar el caso a la bitácora.' };
+  if (!presuntivo) return { ok: false, error: 'Escribe el diagnóstico presuntivo antes de enviar el caso.' };
   try {
     const res = await fetch(`${apiBase()}/reportes/${encodeURIComponent(id)}/generar-caso`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ vineta, presuntivo }),
       cache: 'no-store',
     });
     if (!res.ok) return { ok: false, error: `No se pudo generar el caso (HTTP ${res.status}).` };
