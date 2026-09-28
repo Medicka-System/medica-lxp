@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { getDominioData } from '@/lib/datos';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { getReconocimiento } from './certificados-datos';
 import type {
   AjustesData,
@@ -50,6 +51,7 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
     const perfilRows = await sql<
       {
         avatar_url: string | null;
+        portada_url: string | null;
         especialidad: string | null;
         sede: string | null;
         sobre_mi: string | null;
@@ -59,7 +61,7 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
         created_at: Date;
       }[]
     >`
-      select avatar_url, especialidad, sede, sobre_mi, intereses, whatsapp, email, created_at
+      select avatar_url, portada_url, especialidad, sede, sobre_mi, intereses, whatsapp, email, created_at
       from lxp.perfiles where user_id = ${sesion.userId}`;
     const p = perfilRows[0];
 
@@ -69,15 +71,30 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
 
     const casos = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where id_alumno = ${sesion.userId}`)[0]?.n ?? 0;
+    const casosValidados = (await sql<{ n: number }[]>`
+      select count(*)::int as n from lxp.bitacora_casos
+      where id_alumno = ${sesion.userId} and estado_validacion = 'aprobado'`)[0]?.n ?? 0;
     const colegas = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.conexiones_ateneo
       where estado = 'colegas' and (solicitante_id = ${sesion.userId} or receptor_id = ${sesion.userId})`)[0]?.n ?? 0;
+    const solicitudes = (await sql<{ n: number }[]>`
+      select count(*)::int as n from lxp.conexiones_ateneo
+      where receptor_id = ${sesion.userId} and estado = 'pendiente'`)[0]?.n ?? 0;
     const aportes = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.comentarios_ateneo where autor_id = ${sesion.userId}`)[0]?.n ?? 0;
+    const aportesSemana = (await sql<{ n: number }[]>`
+      select count(*)::int as n from lxp.comentarios_ateneo
+      where autor_id = ${sesion.userId} and created_at >= now() - interval '7 days'`)[0]?.n ?? 0;
+
+    // Firma la lectura (vida corta) de avatar/portada (refs media/imagenes/* · §2).
+    const urls = await firmarLecturaImagenes([p?.avatar_url, p?.portada_url]);
+    const avatarUrl = (p?.avatar_url && urls[p.avatar_url]) || null;
+    const portadaUrl = (p?.portada_url && urls[p.portada_url]) || null;
 
     const especialidad = p?.especialidad ?? 'Ultrasonografía';
     const sede = p?.sede ?? 'Campus Médica';
     const horas = dominio.horas.acreditadas;
+    const pctHoras = Math.round((horas / 1000) * 100);
 
     const insignias: InsigniaItem[] = reconocimiento.badges.map((b, i) => ({
       id: `${b.clave}-${i}`,
@@ -98,8 +115,8 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
       alumno: {
         id: sesion.userId,
         nombre: sesion.nombre,
-        avatarUrl: p?.avatar_url ?? null,
-        portadaUrl: null,
+        avatarUrl,
+        portadaUrl,
         sede,
         enCampusDesde: fmtMesAno.format(new Date(p?.created_at ?? Date.now())),
       },
@@ -109,10 +126,28 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
         grupo,
       },
       cifras: [
-        { id: 'horas', valor: String(horas), etiqueta: 'Horas de práctica', detalle: 'de 1000 h', href: '/dominio' },
-        { id: 'casos', valor: String(casos), etiqueta: 'Casos subidos', detalle: 'a la bitácora', href: '/bitacora' },
-        { id: 'colegas', valor: String(colegas), etiqueta: 'Colegas', detalle: 'en el Ateneo', href: '/ateneo?vista=colegas' },
-        { id: 'aportes', valor: String(aportes), etiqueta: 'Aportes', detalle: 'en la comunidad', href: '/ateneo?vista=aportes' },
+        { id: 'horas', valor: String(horas), etiqueta: 'h acreditadas', detalle: `de 1000 · ${pctHoras}%`, href: '/dominio' },
+        {
+          id: 'casos',
+          valor: String(casos),
+          etiqueta: 'casos presentados',
+          detalle: casosValidados > 0 ? `${casosValidados} validados` : 'sin validar aún',
+          href: '/bitacora',
+        },
+        {
+          id: 'colegas',
+          valor: String(colegas),
+          etiqueta: 'colegas',
+          detalle: solicitudes > 0 ? `${solicitudes} solicitudes` : 'sin solicitudes',
+          href: '/ateneo?vista=colegas',
+        },
+        {
+          id: 'aportes',
+          valor: String(aportes),
+          etiqueta: 'aportes al Ateneo',
+          detalle: aportesSemana > 0 ? `${aportesSemana} esta semana` : 'sin aportes esta semana',
+          href: '/ateneo?vista=aportes',
+        },
       ],
       sobreMi: p?.sobre_mi ?? '',
       intereses: p?.intereses ?? [],

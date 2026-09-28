@@ -6,11 +6,10 @@
  * Tokens de globals.css; mono (tabular) en cifras/matrícula/folios.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Camera,
-  ChevronRight,
   Clock,
   Eye,
   Flame,
@@ -18,11 +17,14 @@ import {
   GraduationCap,
   MapPin,
   Medal,
+  MessageCircle,
   MessagesSquare,
   MessageSquare,
   Pencil,
+  ScanLine,
   Stethoscope,
   Trophy,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -37,7 +39,15 @@ import type {
   DominioPerfil,
   InsigniaItem,
 } from './tipos';
-import { AvatarPerfil, Barra, Campo, inputBase } from './ui';
+import { Barra, Campo, inputBase } from './ui';
+
+/** Un ícono lucide por cifra (§C de la spec del header). */
+const ICONO_CIFRA: Record<Cifra['id'], LucideIcon> = {
+  horas: Clock,
+  casos: ScanLine,
+  colegas: Users,
+  aportes: MessageCircle,
+};
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
@@ -54,153 +64,199 @@ const ICONOS_INSIGNIA: Record<string, LucideIcon> = {
   Award,
 };
 
-// ══ 3.1 · Portada ═══════════════════════════════════════════════════════════
+// ══ 3.1 · Portada (header · spec frame 42a) ═════════════════════════════════
+// Bordes de las celdas de KPI: en 4 col (lg) todas menos la 1ª llevan divisor
+// izquierdo; en 2 col (<lg) el divisor va en las celdas impares y la 2ª fila
+// (i≥2) suma divisor superior.
+const BORDE_KPI = [
+  '',
+  'border-l border-border',
+  'border-t border-border lg:border-t-0 lg:border-l',
+  'border-l border-t border-border lg:border-t-0',
+];
+
 export function PortadaPerfil({
   alumno,
   cora,
   cifras,
   especialidad,
+  editando = false,
   onEditar,
   onVerComoMeVen,
   onCambiarFoto,
+  onCambiarPortada,
   onAbrirCifra,
 }: {
   alumno: AlumnoPerfil;
   cora: CoraDatos;
   cifras: Cifra[];
   especialidad: string;
+  editando?: boolean;
   onEditar: () => void;
   onVerComoMeVen: () => void;
   onCambiarFoto: () => void;
+  onCambiarPortada: () => void;
   onAbrirCifra: (c: Cifra) => void;
 }) {
   const ini = iniciales(alumno.nombre);
+  const contexto = [especialidad, cora.programa, cora.grupo].filter(Boolean).join(' · ');
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-rest">
-      {/* Banda navy con un solo degradado radial teal (o portada) */}
-      <div
-        className="relative h-[132px] bg-sidebar"
-        style={
-          alumno.portadaUrl
-            ? { backgroundImage: `url(${alumno.portadaUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-            : {
-                backgroundImage:
-                  'radial-gradient(120% 160% at 85% 0%, color-mix(in srgb, var(--secondary) 62%, transparent), transparent 62%)',
-              }
-        }
-      />
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-rest">
+      {/* A · Banda de portada */}
+      <div className="relative h-24 bg-sidebar sm:h-[120px]">
+        {alumno.portadaUrl ? (
+          <img src={alumno.portadaUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(120% 160% at 88% 0%, color-mix(in srgb, var(--secondary) 60%, transparent) 0%, transparent 62%)',
+            }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={onCambiarPortada}
+          className={`absolute right-4 top-4 inline-flex h-[34px] items-center gap-[7px] rounded-[9px] border border-white/30 bg-[color:var(--sidebar)]/40 px-3 text-[12px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/15 ${focus}`}
+        >
+          <Camera aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Cambiar portada
+        </button>
+      </div>
 
-      <div className="px-5 pb-5 sm:px-6">
-        <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
-          {/* Avatar + cambiar foto */}
-          <div className="relative w-fit">
-            <AvatarPerfil ini={ini} url={alumno.avatarUrl} size={96} anillo />
-            <button
-              type="button"
-              onClick={onCambiarFoto}
-              aria-label="Cambiar foto"
-              className={`absolute bottom-0.5 right-0.5 grid h-8 w-8 place-items-center rounded-full border-2 border-card bg-sidebar text-sidebar-foreground transition-colors hover:bg-secondary ${focus}`}
-            >
-              <Camera className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            </button>
-          </div>
+      {/* B · Fila de identidad */}
+      <div className="flex flex-wrap items-start gap-5 px-7 pb-[22px] max-sm:px-5">
+        {/* B1 · Avatar */}
+        <div className="relative -mt-10 shrink-0 sm:-mt-[46px]">
+          <span
+            aria-hidden
+            className="grid h-20 w-20 place-items-center overflow-hidden rounded-full border-4 border-card bg-sidebar text-[26px] font-extrabold text-sidebar-foreground sm:h-24 sm:w-24 sm:text-[30px]"
+          >
+            {alumno.avatarUrl ? (
+              <img src={alumno.avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className={mono}>{ini}</span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={onCambiarFoto}
+            aria-label="Cambiar foto"
+            className={`absolute bottom-0.5 right-0 grid h-8 w-8 place-items-center rounded-full border-2 border-card bg-primary text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-secondary-foreground ${focus}`}
+          >
+            <Camera aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          </button>
+        </div>
 
-          {/* Identidad */}
-          <div className="min-w-0 flex-1 sm:pb-1">
-            <h1 className="truncate text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-foreground">
-              {alumno.nombre}
-            </h1>
-            <p className="mt-0.5 truncate text-[13px] text-foreground-soft">
-              {[especialidad, cora.programa, cora.grupo].filter(Boolean).join(' · ')}
-            </p>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
-              <span className={mono}>{cora.matricula}</span>
-              <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
-                {alumno.sede}
-              </span>
-              <span aria-hidden>·</span>
-              <span>en el campus desde {alumno.enCampusDesde}</span>
-            </p>
-          </div>
-
-          {/* Acciones */}
-          <div className="flex shrink-0 items-center gap-2 sm:pb-1">
-            <button
-              type="button"
-              onClick={onVerComoMeVen}
-              className={`inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-secondary ${focus}`}
-            >
-              <Eye className="h-[17px] w-[17px]" strokeWidth={1.75} />
-              <span className="hidden sm:inline">Ver como me ven</span>
-            </button>
-            <button
-              type="button"
-              onClick={onEditar}
-              className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-secondary-foreground ${focus}`}
-            >
-              <Pencil className="h-[17px] w-[17px]" strokeWidth={1.75} />
-              Editar perfil
-            </button>
+        {/* B2 · Identidad */}
+        <div className="min-w-0 flex-1 pt-4">
+          <h1 className="truncate text-[20px] font-extrabold leading-[1.2] tracking-[-0.02em] text-foreground sm:text-[24px]">
+            {alumno.nombre}
+          </h1>
+          {contexto && <p className="mt-[5px] truncate text-[13px] text-foreground-soft">{contexto}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[12px] text-muted-foreground">
+            <span className={`${mono} font-semibold`}>{cora.matricula}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.75} />
+              {alumno.sede}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.75} />
+              en el campus desde {alumno.enCampusDesde}
+            </span>
           </div>
         </div>
 
-        {/* Cuatro cifras */}
-        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-5 sm:grid-cols-4">
-          {cifras.map((c) => (
+        {/* B3 · Acciones */}
+        <div className="flex shrink-0 gap-2 pt-4 max-sm:w-full">
+          <button
+            type="button"
+            onClick={onVerComoMeVen}
+            className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-secondary max-sm:flex-1 max-sm:justify-center ${focus}`}
+          >
+            <Eye aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            Ver como me ven
+          </button>
+          <button
+            type="button"
+            onClick={onEditar}
+            disabled={editando}
+            className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-[15px] text-[12.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-secondary-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground max-sm:flex-1 max-sm:justify-center ${focus}`}
+          >
+            <Pencil aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            {editando ? 'Editando…' : 'Editar perfil'}
+          </button>
+        </div>
+      </div>
+
+      {/* C · Barra de cifras (KPIs) */}
+      <div className="grid grid-cols-2 border-t border-border lg:grid-cols-4">
+        {cifras.map((c, i) => {
+          const Icono = ICONO_CIFRA[c.id] ?? Clock;
+          return (
             <button
               key={c.id}
               type="button"
               onClick={() => onAbrirCifra(c)}
-              className={`group flex items-start justify-between rounded-xl border border-border px-4 py-3.5 text-left transition-colors hover:border-primary hover:bg-accent ${focus}`}
+              aria-label={`${c.valor} ${c.etiqueta}, ${c.detalle}`}
+              className={`flex items-center gap-[13px] px-[22px] py-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-secondary max-sm:px-4 ${BORDE_KPI[i] ?? ''}`}
             >
-              <span className="min-w-0">
-                <span className={`block text-[22px] font-extrabold leading-none text-foreground ${mono}`}>{c.valor}</span>
-                <span className="mt-1.5 block text-[12.5px] font-semibold text-foreground">{c.etiqueta}</span>
-                <span className="block text-[11.5px] text-muted-foreground">{c.detalle}</span>
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-accent text-secondary">
+                <Icono aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </span>
-              <ChevronRight
-                className="h-[18px] w-[18px] shrink-0 text-muted-foreground transition-colors group-hover:text-secondary"
-                strokeWidth={1.75}
-              />
+              <span className="min-w-0">
+                <span className="flex items-baseline gap-[7px]">
+                  <span className={`text-[22px] font-extrabold leading-none text-foreground ${mono}`}>{c.valor}</span>
+                  <span className="truncate text-[12px] font-semibold text-foreground-soft">{c.etiqueta}</span>
+                </span>
+                <span className="mt-1 block text-[11px] text-muted-foreground">{c.detalle}</span>
+              </span>
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 
-// ══ 3.2 · Sobre mí ══════════════════════════════════════════════════════════
+// ══ 3.2 · Sobre mí (editable, controlado por el modo edición · Fase 2) ═══════
 export function SobreMi({
   texto,
   intereses,
+  editando,
+  onEditar,
   onGuardar,
+  onCancelar,
 }: {
   texto: string;
   intereses: string[];
+  editando: boolean;
+  onEditar: () => void;
   onGuardar: (texto: string, intereses: string[]) => void;
+  onCancelar: () => void;
 }) {
-  const [editando, setEditando] = useState(false);
   const [borrador, setBorrador] = useState(texto);
   const [tags, setTags] = useState<string[]>(intereses);
   const [nuevo, setNuevo] = useState('');
 
-  const iniciar = () => {
-    setBorrador(texto);
-    setTags(intereses);
-    setEditando(true);
-  };
+  // Al entrar en edición (desde aquí o desde "Editar perfil"), parte del valor real.
+  useEffect(() => {
+    if (editando) {
+      setBorrador(texto);
+      setTags(intereses);
+      setNuevo('');
+    }
+  }, [editando, texto, intereses]);
+
   const agregar = () => {
     const t = ('#' + nuevo.replace(/^#/, '').trim()).toLowerCase();
     if (t.length > 1 && tags.length < 8 && !tags.includes(t)) setTags((x) => [...x, t]);
     setNuevo('');
   };
-  const guardar = () => {
-    onGuardar(borrador.trim(), tags);
-    setEditando(false);
-  };
+  const guardar = () => onGuardar(borrador.trim(), tags);
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-rest">
@@ -210,7 +266,7 @@ export function SobreMi({
         {!editando && (
           <button
             type="button"
-            onClick={iniciar}
+            onClick={onEditar}
             className={`ml-auto rounded-[8px] px-2 py-1 text-[12.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focus}`}
           >
             Editar
@@ -265,7 +321,7 @@ export function SobreMi({
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setEditando(false)}
+              onClick={onCancelar}
               className={`h-9 rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground-soft transition-colors hover:bg-muted ${focus}`}
             >
               Descartar
@@ -302,15 +358,26 @@ export function SobreMi({
   );
 }
 
-// ══ 3.3 · Datos de contacto (editable) ══════════════════════════════════════
+// ══ 3.3 · Datos de contacto (editable, bloqueado hasta editar · Fase 2) ══════
 export function ContactoForm({
   contacto,
+  editando,
+  onEditar,
   onGuardar,
+  onCancelar,
 }: {
   contacto: Contacto;
+  editando: boolean;
+  onEditar: () => void;
   onGuardar: (c: Contacto) => void;
+  onCancelar: () => void;
 }) {
   const [c, setC] = useState<Contacto>(contacto);
+  // Al entrar en edición, parte del valor real (por si cambió tras un guardado).
+  useEffect(() => {
+    if (editando) setC(contacto);
+  }, [editando, contacto]);
+
   const correoValido = RE_CORREO.test(c.correo.trim());
   const cambiado = useMemo(
     () =>
@@ -322,67 +389,90 @@ export function ContactoForm({
   );
   const set = (k: keyof Contacto, v: string) => setC((x) => ({ ...x, [k]: v }));
 
+  const campos: { k: keyof Contacto; label: string; mono?: boolean }[] = [
+    { k: 'nombre', label: 'Nombre para mostrar' },
+    { k: 'especialidad', label: 'Especialidad' },
+    { k: 'correo', label: 'Correo' },
+    { k: 'whatsapp', label: 'WhatsApp', mono: true },
+  ];
+
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-rest">
       <header className="flex items-center gap-2">
         <h2 className="text-[15px] font-bold text-foreground">Datos de contacto</h2>
         <span className="text-[11.5px] text-muted-foreground">puede editarlos usted</span>
+        {!editando && (
+          <button
+            type="button"
+            onClick={onEditar}
+            className={`ml-auto rounded-[8px] px-2 py-1 text-[12.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focus}`}
+          >
+            Editar
+          </button>
+        )}
       </header>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Campo label="Nombre para mostrar">
-          <input className={inputBase} value={c.nombre} onChange={(e) => set('nombre', e.target.value)} />
-        </Campo>
-        <Campo label="Especialidad">
-          <input className={inputBase} value={c.especialidad} onChange={(e) => set('especialidad', e.target.value)} />
-        </Campo>
-        <Campo
-          label="Correo"
-          nota={correoValido ? 'Aquí llegan avisos y el enlace para entrar.' : undefined}
-        >
-          <input
-            type="email"
-            className={`${inputBase} ${
-              !correoValido && c.correo.length > 0
-                ? 'border-[color:var(--warning-border)] focus:border-[color:var(--warning-border)]'
-                : ''
-            }`}
-            value={c.correo}
-            onChange={(e) => set('correo', e.target.value)}
-          />
-          {!correoValido && c.correo.length > 0 && (
-            <span className="mt-1 block text-[11.5px] font-semibold text-[color:var(--warning-foreground)]">
-              Escriba un correo válido.
-            </span>
-          )}
-        </Campo>
-        <Campo label="WhatsApp" nota="Solo para avisos urgentes, si los activa en Ajustes.">
-          <input
-            className={`${inputBase} ${mono}`}
-            value={c.whatsapp}
-            onChange={(e) => set('whatsapp', e.target.value)}
-          />
-        </Campo>
-      </div>
+      {editando ? (
+        <>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Campo label="Nombre para mostrar">
+              <input className={inputBase} value={c.nombre} onChange={(e) => set('nombre', e.target.value)} />
+            </Campo>
+            <Campo label="Especialidad">
+              <input className={inputBase} value={c.especialidad} onChange={(e) => set('especialidad', e.target.value)} />
+            </Campo>
+            <Campo label="Correo" nota={correoValido ? 'Aquí llegan avisos y el enlace para entrar.' : undefined}>
+              <input
+                type="email"
+                className={`${inputBase} ${
+                  !correoValido && c.correo.length > 0
+                    ? 'border-[color:var(--warning-border)] focus:border-[color:var(--warning-border)]'
+                    : ''
+                }`}
+                value={c.correo}
+                onChange={(e) => set('correo', e.target.value)}
+              />
+              {!correoValido && c.correo.length > 0 && (
+                <span className="mt-1 block text-[11.5px] font-semibold text-[color:var(--warning-foreground)]">
+                  Escriba un correo válido.
+                </span>
+              )}
+            </Campo>
+            <Campo label="WhatsApp" nota="Solo para avisos urgentes, si los activa en Ajustes.">
+              <input className={`${inputBase} ${mono}`} value={c.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} />
+            </Campo>
+          </div>
 
-      <div className="mt-4 flex justify-end gap-2 border-t border-border pt-4">
-        <button
-          type="button"
-          disabled={!cambiado}
-          onClick={() => setC(contacto)}
-          className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13px] font-semibold text-foreground-soft transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${focus}`}
-        >
-          Descartar
-        </button>
-        <button
-          type="button"
-          disabled={!cambiado || !correoValido}
-          onClick={() => onGuardar(c)}
-          className={`h-11 rounded-[10px] bg-primary px-5 text-[13px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-secondary-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground ${focus}`}
-        >
-          Guardar cambios
-        </button>
-      </div>
+          <div className="mt-4 flex justify-end gap-2 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={onCancelar}
+              className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13px] font-semibold text-foreground-soft transition-colors hover:bg-muted ${focus}`}
+            >
+              Descartar
+            </button>
+            <button
+              type="button"
+              disabled={!cambiado || !correoValido}
+              onClick={() => onGuardar(c)}
+              className={`h-11 rounded-[10px] bg-primary px-5 text-[13px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-secondary-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground ${focus}`}
+            >
+              Guardar cambios
+            </button>
+          </div>
+        </>
+      ) : (
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          {campos.map((f) => (
+            <div key={f.k}>
+              <dt className="text-[12px] font-semibold text-foreground-soft">{f.label}</dt>
+              <dd className={`mt-1.5 truncate text-[13.5px] text-foreground ${f.mono ? mono : ''}`}>
+                {contacto[f.k] || <span className="text-muted-foreground">—</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </section>
   );
 }
