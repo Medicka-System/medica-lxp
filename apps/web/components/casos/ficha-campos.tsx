@@ -92,22 +92,17 @@ export function FichaCasoCampos({
   onChange,
   docentes,
   disabled = false,
-  columna = false,
 }: {
   value: FichaCaso;
   onChange: (v: FichaCaso) => void;
   docentes: DocenteOpcion[];
   disabled?: boolean;
-  /** `true`: una sola columna (modal "Subir caso"); por defecto rejilla de 2 (detalle). */
-  columna?: boolean;
 }) {
   const set = <K extends keyof FichaCaso>(k: K, v: FichaCaso[K]) => onChange({ ...value, [k]: v });
-  // Filas de 2 campos en el detalle; apiladas (1 columna) en el modal.
-  const filaCols = columna ? 'grid gap-4' : 'grid gap-4 sm:grid-cols-2';
 
   return (
     <div className="flex flex-col gap-4">
-      <div className={filaCols}>
+      <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className={etiquetaCampo}>Órgano / región</span>
           <input
@@ -132,7 +127,7 @@ export function FichaCasoCampos({
         </label>
       </div>
 
-      <div className={filaCols}>
+      <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className={etiquetaCampo}>Dominio I-AIM</span>
           <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
@@ -173,7 +168,7 @@ export function FichaCasoCampos({
         </label>
       </div>
 
-      <div className={filaCols}>
+      <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className={etiquetaCampo}>Técnica</span>
           <input

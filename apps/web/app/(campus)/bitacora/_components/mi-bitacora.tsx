@@ -220,12 +220,12 @@ function SheetSubirCaso({
             />
           </label>
 
-          {/* Ficha (metadata) en UNA columna: órgano, patología, dominio, docente, técnica, equipo, etiquetas. */}
+          {/* Ficha (metadata) en dos columnas: órgano, patología, dominio, docente, técnica, equipo, etiquetas. */}
           <div className="mt-5">
-            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} columna />
+            <FichaCasoCampos value={ficha} onChange={setFicha} docentes={docentes} />
           </div>
 
-          {/* Hallazgos — texto RICO (formato + pegar de Word con tablas). */}
+          {/* Hallazgos — texto RICO (formato + pegar de Word con tablas). Editor limpio, sin placeholder. */}
           <div className="mt-5">
             <span className={etiquetaCampo}>Hallazgos</span>
             <div className="mt-[7px]">
@@ -234,7 +234,6 @@ function SheetSubirCaso({
                 editable
                 minAlto={180}
                 ariaLabel="Hallazgos del estudio"
-                placeholder="Describa lo que vio: medidas, planos y lo que le hizo dudar. Puede pegar de Word."
                 onChange={setHallazgosHtml}
               />
             </div>
