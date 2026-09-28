@@ -7,7 +7,7 @@
  * + fondo cálido); lo respondido con palomita teal; lo cerrado, apagado.
  */
 
-import { Check, ChevronDown, Lock, Search } from 'lucide-react';
+import { Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
 import { mono, softText, focusRing, Avatar } from './ui';
 import type { ConsultaResumen } from '../../../_lib/contrato';
 
@@ -24,6 +24,7 @@ export type ListaConsultasProps = {
   busca: string;
   setBusca: (v: string) => void;
   onAbrir: (id: string) => void;
+  onNueva: () => void;
   visibles: ConsultaResumen[];
 };
 
@@ -38,6 +39,7 @@ export function ListaConsultas({
   busca,
   setBusca,
   onAbrir,
+  onNueva,
   visibles,
 }: ListaConsultasProps) {
   return (
@@ -50,6 +52,14 @@ export function ListaConsultas({
               {sinResponder} sin responder
             </span>
           )}
+          <button
+            type="button"
+            onClick={onNueva}
+            className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] bg-primary px-2.5 text-[12px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+          >
+            <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.4} />
+            Nueva
+          </button>
         </div>
 
         <label className="mt-2.5 flex h-[38px] items-center gap-2 rounded-[9px] border border-border bg-muted px-3 transition-colors focus-within:border-secondary">

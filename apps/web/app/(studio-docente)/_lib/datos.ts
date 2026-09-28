@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
 import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
   ActividadRef,
@@ -1150,6 +1151,48 @@ export async function getConsultaDocenteDetalle(
       mensajes,
       eco,
     };
+  });
+}
+
+/**
+ * Contactos con los que el DOCENTE puede iniciar una consulta (reusa el modal del alumno):
+ * alumnos de sus grupos + staff + colegas docentes. Bajo RLS el roster CORA no es legible
+ * directo (§10) → función SECURITY DEFINER (mig 0053). Devuelve la forma `Contacto` del
+ * modal (tipo alumno/staff/colega para el AGRUPADO; el insert siempre usa tipo_contacto
+ * 'docente' porque el docente es la parte "contacto" del hilo).
+ */
+export async function getContactosDocente(userId: string): Promise<Contacto[]> {
+  return comoStaff(userId, async (sql) => {
+    const filas = await sql<
+      { user_id: string; nombre: string; rol: string; especialidad: string | null; sede: string | null; tipo: string }[]
+    >`
+      select user_id, nombre, rol, especialidad, sede, tipo
+      from lxp.contactos_consulta_docente(${userId})
+      order by tipo, nombre`;
+    const ini = (n: string) => {
+      const p = n.trim().split(/\s+/).filter((x) => !/^(dr|dra)\.?$/i.test(x));
+      const base = p.length ? p : n.trim().split(/\s+/);
+      return (base.slice(0, 2).map((x) => x[0] ?? '').join('') || n.slice(0, 2)).toUpperCase();
+    };
+    const vistos = new Set<string>([userId]);
+    const out: Contacto[] = [];
+    for (const f of filas) {
+      if (vistos.has(f.user_id)) continue;
+      vistos.add(f.user_id);
+      const tipo = (['alumno', 'staff', 'colega'].includes(f.tipo) ? f.tipo : 'alumno') as Contacto['tipo'];
+      const etiqueta = tipo === 'alumno' ? 'Alumno' : tipo === 'staff' ? 'Staff' : 'Colega';
+      const detalle = f.especialidad || (tipo === 'alumno' ? 'de sus grupos' : tipo === 'staff' ? 'Campus' : 'Docente');
+      out.push({
+        id: f.user_id,
+        ini: ini(f.nombre),
+        nombre: f.nombre,
+        tipo,
+        contexto: `${etiqueta} · ${detalle}`,
+        descripcion: [f.especialidad, f.sede].filter(Boolean).join(' · ') || undefined,
+        enLinea: false,
+      });
+    }
+    return out;
   });
 }
 

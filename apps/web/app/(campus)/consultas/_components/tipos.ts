@@ -7,7 +7,8 @@
  * Los datos vienen de la BD vía props (`ConsultasData`). MOCK solo sirve para desarrollo.
  */
 
-export type TipoContacto = "docente" | "staff" | "colega";
+// 'alumno' se usa cuando el DOCENTE inicia (reusa el modal): sus contactos incluyen alumnos.
+export type TipoContacto = "docente" | "staff" | "colega" | "alumno";
 
 /** Solo docente y staff tienen ciclo de consulta; entre colegas es `null`. */
 export type EstadoConsulta = "abierta" | "respondida" | "cerrada";

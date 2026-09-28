@@ -301,6 +301,42 @@ export async function cambiarEstadoConsulta(input: {
   return { ok: true };
 }
 
+/**
+ * El docente INICIA una consulta (reusa el modal, sin paso de tema). El docente es la parte
+ * "contacto" (contacto_id/id_docente) y el destinatario es id_alumno — así el otro lado la ve
+ * por id_alumno y el docente por su bandeja (contacto_id/id_docente). Reutiliza si ya existe.
+ * El primer mensaje lo escribe el docente en el composer (como en el flujo del alumno).
+ */
+export async function iniciarConsultaDocente(
+  contactoId: string,
+): Promise<ResultadoAccion & { consultaId?: string }> {
+  const { userId } = await requireDocente();
+  try {
+    const consultaId = await comoStaff(userId, async (sql) => {
+      // El contacto debe estar en el set permitido (alumno de sus grupos / staff / colega).
+      const permitido = (await sql<{ user_id: string }[]>`
+        select user_id from lxp.contactos_consulta_docente(${userId}) where user_id = ${contactoId} limit 1`)[0];
+      if (!permitido) throw new Error('no-permitido');
+      // ¿Ya existe un hilo docente↔contacto? (el docente es contacto_id/id_docente).
+      const ex = (await sql<{ id: string }[]>`
+        select id from lxp.consultas
+        where id_alumno = ${contactoId} and (contacto_id = ${userId} or id_docente = ${userId})
+        order by created_at desc limit 1`)[0];
+      if (ex) return ex.id;
+      const nombre = (await sql<{ n: string | null }[]>`select lxp.nombre_de(${contactoId}) as n`)[0]?.n ?? 'contacto';
+      const fila = (await sql<{ id: string }[]>`
+        insert into lxp.consultas (id_alumno, contacto_id, tipo_contacto, id_docente, asunto, estado)
+        values (${contactoId}, ${userId}, 'docente'::lxp.consulta_tipo_contacto, ${userId}, ${`Consulta con ${nombre}`}, 'abierta')
+        returning id`)[0]!;
+      return fila.id;
+    });
+    revalidatePath('/docente/consultas');
+    return { ok: true, consultaId };
+  } catch {
+    return { ok: false, error: 'No se pudo iniciar la conversación. Inténtalo de nuevo.' };
+  }
+}
+
 // ── Moderación del Ateneo (verdad clínica = docente · §5B) ───────────────────────
 /** Aprueba o rechaza un post del Ateneo (moderación clínica). RLS: `posts_ateneo_update`. */
 export async function moderarPost(input: {

@@ -1,5 +1,5 @@
 import { requireDocente } from '../../_lib/session';
-import { getConsultasDocente, getConsultaDocenteDetalle } from '../../_lib/datos';
+import { getConsultasDocente, getConsultaDocenteDetalle, getContactosDocente } from '../../_lib/datos';
 import { ConsultasConsola } from './_components/consultas-consola';
 
 export const dynamic = 'force-dynamic';
@@ -17,8 +17,11 @@ export default async function ConsultasPage({
 }) {
   const { userId } = await requireDocente();
   const { c } = await searchParams;
-  const data = await getConsultasDocente(userId);
+  const [data, contactos] = await Promise.all([
+    getConsultasDocente(userId),
+    getContactosDocente(userId),
+  ]);
   const activaId = c ?? data.conversaciones[0]?.id ?? null;
   const activa = activaId ? await getConsultaDocenteDetalle(userId, activaId) : null;
-  return <ConsultasConsola data={data} activa={activa} />;
+  return <ConsultasConsola data={data} activa={activa} contactos={contactos} />;
 }
