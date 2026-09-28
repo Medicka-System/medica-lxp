@@ -5,6 +5,12 @@ export function fechaCorta(d: Date): string {
   return `${d.getDate()} ${MESES[d.getMonth()] ?? ''}`;
 }
 
+/** "27/09/2026 14:05" — fecha completa DD/MM/AAAA HH:MM (mismo formato local que el PDF). */
+export function fechaLargaHora(d: Date): string {
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
 /** "hace 2 h" / "ayer" / "18 sep" — antigüedad legible. */
 export function haceCuanto(d: Date, ahora: Date = new Date()): string {
   const min = Math.round((ahora.getTime() - d.getTime()) / 60000);

@@ -96,6 +96,8 @@ export type FichaCaso = {
 
 export type CasoBitacora = {
   id: string;
+  /** Título de la tarjeta: para casos de un reporte, "Plantilla · Tipo de estudio"; si no, el hallazgo corto. */
+  titulo: string;
   hallazgoCorto: string;
   modulo: string | null;
   organo: string | null;
@@ -127,6 +129,10 @@ export type CasoDetalleBitacora = {
   docenteId: string | null;
   docente: string | null;
   fecha: Date;
+  /** Expediente del estudio (de "Datos del estudio", ahora que viaja al caso · §10). null si no hay. */
+  expediente: string | null;
+  /** Tipo de estudio del reporte de origen (fuente del snapshot). null si el caso no vino de un reporte. */
+  tipoEstudio: string | null;
   estado: EstadoCaso;
   estudioEstado: EstudioEstado;
   series: number;

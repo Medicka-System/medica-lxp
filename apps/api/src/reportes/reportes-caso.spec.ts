@@ -1,6 +1,7 @@
 import {
   aplanarHallazgos,
   dominioDe,
+  esCampoPacientePII,
   estructurarContenido,
   imagenesDe,
   organoDe,
@@ -194,5 +195,60 @@ describe('puente reporte→caso · SNAPSHOT para la columna contenido_estructura
   it('dominioDe: un reporte es una interpretación por defecto (editable al curar)', () => {
     expect(dominioDe('Renal', 'Riñón')).toBe('interpretacion');
     expect(dominioDe(null, null)).toBe('interpretacion');
+  });
+
+  it('DATOS DEL ESTUDIO viajan al caso EXCEPTO Nombre y Fecha de nacimiento (§10)', () => {
+    const est = {
+      secciones: [
+        {
+          id: 's0',
+          tipo: 'encabezado',
+          titulo: 'Datos del estudio',
+          columnas: 3,
+          campos: [
+            { id: 'paciente', tipo: 'texto', nombre: 'Paciente' }, // EXCLUIDO (nombre)
+            { id: 'fnac', tipo: 'fecha', nombre: 'Fecha de nacimiento' }, // EXCLUIDO
+            { id: 'expediente', tipo: 'texto', nombre: 'Expediente' }, // sí va
+            { id: 'solicitante', tipo: 'texto', nombre: 'Médico tratante' }, // sí va
+            { id: 'fechaEstudio', tipo: 'fecha', nombre: 'Fecha del estudio' }, // sí va
+            { id: 'fum', tipo: 'fecha', nombre: 'FUM' }, // sí va
+          ],
+        },
+        { id: 's1', tipo: 'hallazgos', titulo: 'Hallazgos', columnas: 1, campos: [{ id: 'h', tipo: 'multitexto', nombre: 'Hallazgos' }] },
+      ],
+    };
+    const dp = {
+      paciente: 'Juan Pérez',
+      fnac: '1990-05-10',
+      expediente: 'EXP-123',
+      solicitante: 'Dra. Ruiz',
+      fechaEstudio: '2026-09-27',
+      fum: '2026-01-01',
+    };
+    const s = snapshotContenidoCaso(est, { h: 'Normal.' }, '', dp, { tipo: 'reporte' });
+    // La sección de encabezado ahora SÍ está (con los campos permitidos).
+    const enc = s.secciones.find((x) => x.id === 's0')!;
+    expect(enc).toBeDefined();
+    const ids = enc.campos.map((c) => c.id);
+    expect(ids).toEqual(['expediente', 'solicitante', 'fechaEstudio', 'fum']); // sin paciente ni fnac
+    // Valores: los permitidos viajan VERBATIM desde datos_paciente; los dos PII no.
+    expect(s.valores.expediente).toBe('EXP-123');
+    expect(s.valores.solicitante).toBe('Dra. Ruiz');
+    expect(s.valores.fechaEstudio).toBe('2026-09-27');
+    expect(s.valores.fum).toBe('2026-01-01');
+    expect(s.valores.paciente).toBeUndefined();
+    expect(s.valores.fnac).toBeUndefined();
+  });
+
+  it('esCampoPacientePII: identifica solo Nombre del paciente y Fecha de nacimiento', () => {
+    expect(esCampoPacientePII({ id: 'paciente', tipo: 'texto', nombre: 'Paciente' })).toBe(true);
+    expect(esCampoPacientePII({ id: 'x1', tipo: 'texto', nombre: 'Nombre del paciente' })).toBe(true);
+    expect(esCampoPacientePII({ id: 'fnac', tipo: 'fecha', nombre: 'Fecha de nacimiento' })).toBe(true);
+    expect(esCampoPacientePII({ id: 'x2', tipo: 'fecha', nombre: 'F. Nacimiento' })).toBe(true);
+    // NO son PII a excluir:
+    expect(esCampoPacientePII({ id: 'expediente', tipo: 'texto', nombre: 'Expediente' })).toBe(false);
+    expect(esCampoPacientePII({ id: 'solicitante', tipo: 'texto', nombre: 'Médico tratante' })).toBe(false);
+    expect(esCampoPacientePII({ id: 'fechaEstudio', tipo: 'fecha', nombre: 'Fecha del estudio' })).toBe(false);
+    expect(esCampoPacientePII({ id: 'edad', tipo: 'numero', nombre: 'Edad' })).toBe(false);
   });
 });
