@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0055 · Perfil del alumno — campos editables + preferencias (§5A, pantallas
+-- 0056 · Perfil del alumno — campos editables + preferencias (§5A, pantallas
 --        /perfil y /ajustes)
 --
 -- `lxp.perfiles` ya tenía `especialidad`/`sede` (0032, "meta" del Ateneo). Aquí

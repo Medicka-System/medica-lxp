@@ -13,7 +13,7 @@ import { AJUSTES_MOCK } from '@/app/(campus)/cuenta/_components/tipos';
 /**
  * Lectura de Mi perfil y Ajustes (§ /perfil · /ajustes). TODO corre con RLS vía
  * `comoAlumno`: el alumno solo ve lo suyo. Los campos editables + preferencias
- * viven en `lxp.perfiles` (mig 0055); matrícula/programa/grupo se LEEN de CORA por
+ * viven en `lxp.perfiles` (mig 0056); matrícula/programa/grupo se LEEN de CORA por
  * funciones SECURITY DEFINER (§10, nunca se escriben). Las cifras y el dominio son
  * proyecciones calculadas por el worker (solo lectura · §6/§8).
  */
