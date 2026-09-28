@@ -107,6 +107,18 @@ export type AteneoData = {
   colegasConPosts: number;
 };
 
+/** Un aporte del alumno al Ateneo (publicación o comentario), para la lista del perfil. */
+export type ItemAporte = { id: string; clase: "publicación" | "comentario"; texto: string; cuando: string; postId: string };
+
+/** Contenido de una de las 3 listas del perfil (se carga bajo demanda al clic en la cifra). */
+export type ListaPerfilData =
+  | { tipo: "casos"; casos: CasoBitacora[] }
+  | { tipo: "colegas"; colegas: Persona[] }
+  | { tipo: "aportes"; aportes: ItemAporte[] };
+
+/** Perfil de un colega abierto desde el feed: resumen + sus casos presentados (visibles). */
+export type PerfilColegaData = { perfil: PerfilResumen & { motivo?: string }; casos: CasoBitacora[] };
+
 /* ───────────────────────────── Mock ───────────────────────────── */
 
 const P = {
