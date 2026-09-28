@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { REACCIONES } from "./tipos";
 import type { Comentario, Persona, Post, PostEncuesta, TipoReaccion } from "./tipos";
+import { EmojiReaccion } from "./EmojiReaccion";
 import { Avatar, Chip, ChipDocente, Estudio, card, focusRing, mono, softText } from "./ui";
 
 /* ───────────── selector de reacciones (hover / long-press) ───────────── */
@@ -56,7 +57,7 @@ export function SelectorReacciones({
               on ? "bg-accent" : ""
             } ${focusRing}`}
           >
-            <span aria-hidden className="text-[24px] leading-none">{r.emoji}</span>
+            <EmojiReaccion tipo={k} size={26} />
             <span className={`whitespace-nowrap text-[9.5px] font-semibold ${on ? "text-accent-foreground" : "text-muted-foreground"}`}>
               {r.etiqueta}
             </span>
@@ -92,10 +93,10 @@ export function BarraInteracciones({
               <span
                 key={k}
                 aria-hidden
-                className={`grid h-[22px] w-[22px] place-items-center rounded-full border-2 border-card text-[11px] ${i ? "-ml-1.5" : ""}`}
+                className={`grid h-[22px] w-[22px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1.5" : ""}`}
                 style={{ background: REACCIONES[k].fondo }}
               >
-                {REACCIONES[k].emoji}
+                <EmojiReaccion tipo={k} size={14} animar={false} />
               </span>
             ))}
           </span>
@@ -132,7 +133,7 @@ export function BarraInteracciones({
             mia ? "font-bold text-secondary" : `font-semibold ${softText}`
           } ${focusRing}`}
         >
-          {mia ? <span aria-hidden className="text-[15px]">{REACCIONES[mia].emoji}</span> : <ThumbsUp aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
+          {mia ? <EmojiReaccion tipo={mia} size={18} /> : <ThumbsUp aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
           {mia ? REACCIONES[mia].etiqueta : "Reaccionar"}
         </button>
         <button type="button" onClick={() => onComentar(post.id)} className={`inline-flex h-10 items-center justify-center gap-[7px] rounded-[9px] text-[13px] font-semibold ${softText} transition-colors hover:bg-muted ${focusRing}`}>
