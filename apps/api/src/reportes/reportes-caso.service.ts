@@ -342,14 +342,25 @@ export function esCampoPacientePII(c: Campo): boolean {
   return false;
 }
 
-/** Scrub de PII conocida (nombre/expediente/solicitante del paciente) en texto libre (§10). */
+/**
+ * Scrub de PII REAL del PACIENTE en texto libre (§10): SOLO el nombre y el expediente. NO el
+ * médico solicitante (no es PII del paciente) — quitarlo arrasaba texto clínico sin necesidad.
+ *
+ * Anti-sobre-redacción (BUG 1): un valor de UNA sola palabra y corto (p. ej. el nombre de
+ * prueba "Test") coincidía con texto clínico legítimo y borraba la impresión/hallazgos enteros.
+ * Solo se redacta un valor si parece un identificador real: un NOMBRE trae apellido (espacio) o
+ * un EXPEDIENTE tiene ≥6 caracteres. Los nombres/expedientes reales ("Juan Pérez López",
+ * "654321") se siguen removiendo; el texto clínico ("Test", "normal", "quiste") se conserva.
+ */
 export function scrubPII(texto: string, datosPaciente: Record<string, unknown>): string {
   let out = texto;
-  for (const clave of ['paciente', 'expediente', 'solicitante']) {
+  for (const clave of ['paciente', 'expediente']) {
     const v = datosPaciente[clave];
     if (typeof v !== 'string') continue;
     const t = v.trim();
-    if (t.length < 3) continue;
+    // Descarta tokens cortos de una sola palabra: no son identificables como PII y arrasarían
+    // texto clínico que coincida por casualidad (§10 protege la PII vía campo excluido + píxeles).
+    if (t.length < 4 || (!/\s/.test(t) && t.length < 6)) continue;
     const escapado = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(escapado, 'gi'), '[dato removido]');
   }

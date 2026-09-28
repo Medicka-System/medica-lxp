@@ -78,6 +78,16 @@ describe('puente reporte→caso · mapeo', () => {
     expect(t).toContain('[dato removido]');
   });
 
+  it('scrubPII NO sobre-redacta texto clínico que coincide con un nombre corto (BUG 1)', () => {
+    // Nombre de prueba de UNA palabra corta ("Test") = la impresión → no debe borrarla.
+    expect(scrubPII('Test', { paciente: 'Test' })).toBe('Test');
+    expect(scrubPII('Quiste simple, sin cambios.', { paciente: 'Ana' })).toBe('Quiste simple, sin cambios.');
+    // El médico solicitante NO es PII del paciente → no se redacta.
+    expect(scrubPII('Estudio normal.', { solicitante: 'Dr. Casos Uno' })).toBe('Estudio normal.');
+    // Pero un nombre real (con apellido) sí se remueve.
+    expect(scrubPII('Impresión: Ana López sana', { paciente: 'Ana López' })).toContain('[dato removido]');
+  });
+
   it('organoDe infiere del tipo de estudio', () => {
     expect(organoDe('Renal', 'x')).toBe('Riñón y vías urinarias');
     expect(organoDe('Doppler', 'x')).toBe('Vascular (Doppler)');
