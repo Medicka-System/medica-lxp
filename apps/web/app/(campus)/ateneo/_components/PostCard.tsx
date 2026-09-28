@@ -362,21 +362,24 @@ export function PostCard({
     );
 
   if (post.tipo === "media") {
-    const [a, ...resto] = post.piezas;
+    const [a, ...resto] = post.piezas ?? [];
     return (
       <article className={`${card} px-5 py-[18px]`}>
         <Cabecera post={post} chip={<Chip icono={<ImageIcon aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>{post.piezas.length} {post.piezas.length === 1 ? "pieza" : "piezas"}</Chip>} />
         <p className={`mt-3.5 text-[14px] leading-relaxed ${softText}`}>{post.texto}</p>
-        <button type="button" onClick={() => onAbrir(post.id)} className={`mt-3 grid h-[250px] w-full gap-1.5 overflow-hidden rounded-[10px] ${resto.length ? "grid-cols-[2fr_1fr] grid-rows-2" : ""} ${focusRing}`}>
-          <span className={`overflow-hidden rounded-[10px] ${resto.length ? "row-span-2" : ""}`}>
-            <Estudio ratio="auto" poster={a.src} play={a.tipo === "video"} />
-          </span>
-          {resto.slice(0, 2).map((p, i) => (
-            <span key={i} className="overflow-hidden rounded-[10px]">
-              <Estudio ratio="auto" poster={p.src} play={p.tipo === "video"} tamanoPlay={40} />
+        {/* Grilla de medios: SOLO si hay al menos una pieza (si no, el post queda como texto). */}
+        {a && (
+          <button type="button" onClick={() => onAbrir(post.id)} className={`mt-3 grid h-[250px] w-full gap-1.5 overflow-hidden rounded-[10px] ${resto.length ? "grid-cols-[2fr_1fr] grid-rows-2" : ""} ${focusRing}`}>
+            <span className={`overflow-hidden rounded-[10px] ${resto.length ? "row-span-2" : ""}`}>
+              <Estudio ratio="auto" poster={a.src} play={a.tipo === "video"} />
             </span>
-          ))}
-        </button>
+            {resto.slice(0, 2).map((p, i) => (
+              <span key={i} className="overflow-hidden rounded-[10px]">
+                <Estudio ratio="auto" poster={p.src} play={p.tipo === "video"} tamanoPlay={40} />
+              </span>
+            ))}
+          </button>
+        )}
         {interacciones}
         {preview}
       </article>
