@@ -2,6 +2,7 @@ import { getSesionAlumno } from '@/lib/session';
 import { getShellData } from '@/lib/datos';
 import { contarNoLeidas } from '@/lib/campus/notificaciones-datos';
 import { contarConsultasNoLeidas } from '@/lib/campus/consultas-chat';
+import { getLecturaPref } from '@/lib/campus/perfil-datos';
 import { CampusShell } from '@/components/campus/shell';
 import { ModoLecturaProvider } from '@/components/campus/modo-lectura';
 
@@ -15,14 +16,19 @@ export const dynamic = 'force-dynamic';
  */
 export default async function CampusLayout({ children }: { children: React.ReactNode }) {
   const alumno = await getSesionAlumno();
-  const [shell, noLeidas, consultasNoLeidas] = await Promise.all([
+  const [shell, noLeidas, consultasNoLeidas, lectura] = await Promise.all([
     getShellData(alumno.userId),
     contarNoLeidas(alumno.userId),
     contarConsultasNoLeidas(alumno.userId),
+    getLecturaPref(alumno.userId),
   ]);
 
   return (
-    <ModoLecturaProvider>
+    <ModoLecturaProvider
+      temaInicial={lectura.tema}
+      fsInicial={lectura.tamano}
+      reducirInicial={lectura.reducirAnimaciones}
+    >
       <CampusShell
         usuario={{ nombre: alumno.nombre, matricula: alumno.matricula }}
         casosPendientes={shell.casosPendientes}

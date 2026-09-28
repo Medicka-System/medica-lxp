@@ -84,7 +84,7 @@ export function ListaNotificaciones({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Link
-            href="/notificaciones/preferencias"
+            href="/ajustes#notificaciones"
             className={`inline-flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent ${focusRing}`}
           >
             <Settings aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />

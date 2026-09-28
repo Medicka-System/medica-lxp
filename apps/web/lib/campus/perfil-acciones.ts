@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
-import type { Contacto, PreferenciasGuardables } from '@/app/(campus)/cuenta/_components/tipos';
+import type { Contacto, PreferenciasPerfil } from '@/app/(campus)/cuenta/_components/tipos';
 
 /**
  * Server actions de Mi perfil y Ajustes. CRUD simple web→Supabase bajo RLS (Regla
@@ -100,16 +100,37 @@ async function solicitarVerificacionCorreo(_correo: string): Promise<void> {
   return;
 }
 
-/** Persiste las preferencias de Ajustes (sin `cuenta`, que es de auth · Sprint 11). */
-export async function guardarPreferencias(prefs: PreferenciasGuardables): Promise<ResultadoPerfil> {
+/**
+ * Persiste preferencias de Ajustes con MERGE POR DOMINIO (privacidad|lectura|idioma). Recibe un
+ * PARCHE con solo el dominio que cambió y lo aplica con `jsonb_set` (atómico por clave, sin leer
+ * el blob) para que dos pestañas editando dominios distintos NO se pisen. Notificaciones NO van
+ * aquí (viven en preferencias_notificaciones · notificaciones-acciones); `cuenta` es auth.
+ */
+const DOMINIOS_PREF = ['privacidad', 'lectura', 'idioma'] as const;
+
+export async function guardarPreferencias(parche: Partial<PreferenciasPerfil>): Promise<ResultadoPerfil> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: EN_PAUSA };
+  // Solo dominios whitelisted (la clave del path de jsonb_set nunca es entrada libre).
+  const entradas = DOMINIOS_PREF.filter((k) => parche[k] !== undefined).map(
+    (k) => [k, parche[k]] as const,
+  );
+  if (entradas.length === 0) return { ok: true };
   try {
     await comoAlumno(alumno.userId, async (sql) => {
-      await sql`
-        update lxp.perfiles
-        set preferencias = ${sql.json(prefs as Parameters<typeof sql.json>[0])}
-        where user_id = ${alumno.userId}`;
+      for (const [clave, valor] of entradas) {
+        // jsonb_set atómico sobre {clave}: no lee-modifica-escribe el blob completo → sin carrera
+        // con otro dominio guardado en paralelo. `true` = crea la clave si falta.
+        await sql`
+          update lxp.perfiles
+          set preferencias = jsonb_set(
+            coalesce(preferencias, '{}'::jsonb),
+            array[${clave}],
+            ${sql.json(valor as Parameters<typeof sql.json>[0])},
+            true
+          )
+          where user_id = ${alumno.userId}`;
+      }
     });
   } catch {
     return { ok: false, error: 'No se pudo guardar el ajuste.' };

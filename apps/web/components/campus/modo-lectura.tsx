@@ -20,6 +20,7 @@ export type TemaLectura = 'claro' | 'sepia' | 'oscuro';
 
 export const CLAVE_TEMA = 'lxp:lectura:tema';
 export const CLAVE_FS = 'lxp:lectura:fs';
+export const CLAVE_REDUCIR = 'lxp:lectura:reducir';
 export const FS_MIN = 13.5;
 export const FS_MAX = 24;
 export const FS_PASO = 1.5;
@@ -55,7 +56,19 @@ export function useModoLectura(): ModoLecturaCtx {
   return v;
 }
 
-export function ModoLecturaProvider({ children }: { children: React.ReactNode }) {
+export function ModoLecturaProvider({
+  children,
+  temaInicial,
+  fsInicial,
+  reducirInicial,
+}: {
+  children: React.ReactNode;
+  /** Preferencia de lectura del SERVIDOR (perfiles.preferencias.lectura) para cross-device:
+   *  se SIEMBRA en localStorage solo si el dispositivo aún no tiene valor local (no pisa). */
+  temaInicial?: TemaLectura;
+  fsInicial?: number;
+  reducirInicial?: boolean;
+}) {
   const [activo, setActivo] = useState(false);
   const [tema, setTemaState] = useState<TemaLectura>('claro');
   const [fs, setFsState] = useState<number>(FS_DEFECTO);
@@ -63,12 +76,33 @@ export function ModoLecturaProvider({ children }: { children: React.ReactNode })
   const [listo, setListo] = useState(false);
 
   useEffect(() => {
-    const t = localStorage.getItem(CLAVE_TEMA);
-    if (esTemaLectura(t)) setTemaState(t);
-    const f = Number(localStorage.getItem(CLAVE_FS));
-    if (Number.isFinite(f) && f >= FS_MIN && f <= FS_MAX) setFsState(f);
+    // Tema: lo local manda; si no hay, se siembra desde el servidor (cross-device).
+    const tLocal = localStorage.getItem(CLAVE_TEMA);
+    if (esTemaLectura(tLocal)) {
+      setTemaState(tLocal);
+    } else if (esTemaLectura(temaInicial ?? null)) {
+      setTemaState(temaInicial as TemaLectura);
+      localStorage.setItem(CLAVE_TEMA, temaInicial as TemaLectura);
+    }
+    // Tamaño de letra: idem.
+    const fRaw = localStorage.getItem(CLAVE_FS);
+    const fLocal = Number(fRaw);
+    if (fRaw !== null && Number.isFinite(fLocal) && fLocal >= FS_MIN && fLocal <= FS_MAX) {
+      setFsState(fLocal);
+    } else if (typeof fsInicial === 'number' && fsInicial >= FS_MIN && fsInicial <= FS_MAX) {
+      setFsState(fsInicial);
+      localStorage.setItem(CLAVE_FS, String(fsInicial));
+    }
+    // Reducir animaciones: se aplica GLOBALMENTE (atributo en <html>) desde lo local o, si falta,
+    // desde el servidor (y se siembra). Así el ajuste vale en todo el campus, no solo en /ajustes.
+    const rLocal = localStorage.getItem(CLAVE_REDUCIR);
+    const reducir = rLocal !== null ? rLocal === '1' : (reducirInicial ?? false);
+    if (rLocal === null && reducirInicial !== undefined) {
+      localStorage.setItem(CLAVE_REDUCIR, reducirInicial ? '1' : '0');
+    }
+    document.documentElement.toggleAttribute('data-reducir-animaciones', reducir);
     setListo(true);
-  }, []);
+  }, [temaInicial, fsInicial, reducirInicial]);
 
   const setTema = useCallback((t: TemaLectura) => {
     setTemaState(t);

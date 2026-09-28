@@ -21,7 +21,6 @@ import {
 import { mono, kickerMini } from '@/components/tokens';
 import type {
   AjustesData,
-  Canal,
   CuentaPref,
   IdiomaPref,
   LecturaPref,
@@ -30,7 +29,15 @@ import type {
   TemaLectura,
 } from './tipos';
 import { TAMANOS_LECTURA } from './tipos';
+import { CATEGORIAS_NOTIF, CANALES_OPTIN, type CanalOptIn, type CategoriaNotif } from './notif-taxonomia';
 import { Interruptor, Switch, Tarjeta } from './ui';
+
+/** Chip "próximamente" para controles aún sin backend (§ auditoría). */
+const CHIP_PROXIMO = (
+  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+    próximamente
+  </span>
+);
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
@@ -88,16 +95,18 @@ export function NavAjustes({
 }
 
 // ══ 4.2 · Notificaciones ════════════════════════════════════════════════════
+/** Categorías futuras (aún sin tipo en el motor · §8) — se muestran deshabilitadas. */
+const NOTIF_FUTURAS: { id: string; titulo: string; detalle: string }[] = [
+  { id: 'clase', titulo: 'Clase por empezar', detalle: 'Antes de una clase en vivo.' },
+  { id: 'ateneo', titulo: 'Actividad en el Ateneo', detalle: 'Comentarios y reacciones en sus publicaciones.' },
+];
+
 export function Notificaciones({
   data,
-  onCanal,
-  onResumen,
-  onNoMolestar,
+  onCategoria,
 }: {
   data: AjustesData;
-  onCanal: (avisoId: string, canal: Canal, v: boolean) => void;
-  onResumen: (v: boolean) => void;
-  onNoMolestar: (p: Partial<AjustesData['noMolestar']>) => void;
+  onCategoria: (categoria: CategoriaNotif, canal: CanalOptIn, v: boolean) => void;
 }) {
   return (
     <Tarjeta
@@ -122,72 +131,97 @@ export function Notificaciones({
           <span role="columnheader" className="text-center">Correo</span>
           <span role="columnheader" className="text-center">WhatsApp</span>
         </div>
-        {data.avisos.map((av, i) => (
+
+        {/* Categorías reales → motor (preferencias_notificaciones). */}
+        {CATEGORIAS_NOTIF.map((cat, i) => (
           <div
-            key={av.id}
+            key={cat.id}
             role="row"
             className={`grid grid-cols-[1fr_88px_88px_88px] items-center gap-2 px-4 py-3 ${i > 0 ? 'border-t border-border' : ''}`}
           >
             <div role="cell" className="min-w-0">
-              <p className="text-[13px] font-semibold text-foreground">{av.titulo}</p>
-              <p className="mt-0.5 text-[11.5px] text-muted-foreground">{av.detalle}</p>
+              <p className="text-[13px] font-semibold text-foreground">{cat.titulo}</p>
+              <p className="mt-0.5 text-[11.5px] text-muted-foreground">{cat.detalle}</p>
             </div>
             <span role="cell" className="text-center text-[12px] font-semibold text-muted-foreground">
               Siempre
             </span>
+            {CANALES_OPTIN.map((canal) => (
+              <span role="cell" key={canal} className="flex justify-center">
+                <Switch
+                  encendido={data.notificaciones[cat.id][canal]}
+                  onCambio={(v) => onCategoria(cat.id, canal, v)}
+                  etiqueta={`${cat.titulo} por ${canal === 'correo' ? 'correo' : 'WhatsApp'}`}
+                />
+              </span>
+            ))}
+          </div>
+        ))}
+
+        {/* Futuras (sin tipo en el motor) → deshabilitadas "próximamente". */}
+        {NOTIF_FUTURAS.map((f) => (
+          <div
+            key={f.id}
+            role="row"
+            className="grid grid-cols-[1fr_88px_88px_88px] items-center gap-2 border-t border-border px-4 py-3 opacity-60"
+          >
+            <div role="cell" className="min-w-0">
+              <p className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+                {f.titulo} {CHIP_PROXIMO}
+              </p>
+              <p className="mt-0.5 text-[11.5px] text-muted-foreground">{f.detalle}</p>
+            </div>
+            <span role="cell" className="text-center text-[12px] font-semibold text-muted-foreground">—</span>
             <span role="cell" className="flex justify-center">
-              <Switch
-                encendido={av.canales.correo}
-                onCambio={(v) => onCanal(av.id, 'correo', v)}
-                etiqueta={`${av.titulo} por correo`}
-              />
+              <Switch encendido={false} onCambio={() => {}} etiqueta={`${f.titulo} por correo`} bloqueado />
             </span>
             <span role="cell" className="flex justify-center">
-              <Switch
-                encendido={av.canales.whatsapp}
-                onCambio={(v) => onCanal(av.id, 'whatsapp', v)}
-                etiqueta={`${av.titulo} por WhatsApp`}
-              />
+              <Switch encendido={false} onCambio={() => {}} etiqueta={`${f.titulo} por WhatsApp`} bloqueado />
             </span>
           </div>
         ))}
       </div>
 
-      <div className="mt-1">
-        <Interruptor
-          titulo="Resumen semanal por correo"
-          detalle="Los lunes: su avance, lo que viene y lo más visto del Ateneo."
-          encendido={data.resumenSemanal}
-          onCambio={onResumen}
-        />
-        <div className="flex flex-wrap items-center gap-3 border-t border-border py-3.5">
-          <div className="min-w-0 flex-1">
-            <p className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-foreground">
-              No molestar de
-              <input
-                type="time"
-                value={data.noMolestar.desde}
-                onChange={(e) => onNoMolestar({ desde: e.target.value })}
-                className={`h-9 w-[88px] rounded-[8px] border border-border bg-card px-2 text-[13px] text-foreground outline-none focus:border-secondary ${mono} ${focus}`}
-              />
-              a
-              <input
-                type="time"
-                value={data.noMolestar.hasta}
-                onChange={(e) => onNoMolestar({ hasta: e.target.value })}
-                className={`h-9 w-[88px] rounded-[8px] border border-border bg-card px-2 text-[13px] text-foreground outline-none focus:border-secondary ${mono} ${focus}`}
-              />
-            </p>
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              Nada de correo ni WhatsApp en ese horario; los avisos esperan en el campus.
-            </p>
-          </div>
-          <Switch
-            encendido={data.noMolestar.activo}
-            onCambio={(v) => onNoMolestar({ activo: v })}
-            etiqueta="No molestar"
-          />
+      {/* Resumen semanal — sin productor todavía → "próximamente". */}
+      <div className="mt-1 flex items-center gap-4 py-3.5 opacity-60">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-[13.5px] font-semibold text-foreground">
+            Resumen semanal por correo {CHIP_PROXIMO}
+          </p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">
+            Los lunes: su avance, lo que viene y lo más visto del Ateneo.
+          </p>
         </div>
+        <Switch encendido={data.resumenSemanal} onCambio={() => {}} etiqueta="Resumen semanal" bloqueado />
+      </div>
+
+      {/* No molestar — sin gating de horario en el motor todavía → "próximamente". */}
+      <div className="flex flex-wrap items-center gap-3 border-t border-border py-3.5 opacity-60">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-foreground">
+            No molestar de
+            <input
+              type="time"
+              value={data.noMolestar.desde}
+              disabled
+              readOnly
+              className={`h-9 w-[88px] rounded-[8px] border border-border bg-card px-2 text-[13px] text-foreground outline-none ${mono}`}
+            />
+            a
+            <input
+              type="time"
+              value={data.noMolestar.hasta}
+              disabled
+              readOnly
+              className={`h-9 w-[88px] rounded-[8px] border border-border bg-card px-2 text-[13px] text-foreground outline-none ${mono}`}
+            />
+            {CHIP_PROXIMO}
+          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Nada de correo ni WhatsApp en ese horario; los avisos esperan en el campus.
+          </p>
+        </div>
+        <Switch encendido={data.noMolestar.activo} onCambio={() => {}} etiqueta="No molestar" bloqueado />
       </div>
     </Tarjeta>
   );
@@ -279,12 +313,16 @@ export function Lectura({ data, onCambio }: { data: LecturaPref; onCambio: (p: P
           encendido={data.reducirAnimaciones}
           onCambio={(v) => onCambio({ reducirAnimaciones: v })}
         />
-        <Interruptor
-          titulo="Subtítulos en los videos por defecto"
-          detalle="Cuando la lección los tenga."
-          encendido={data.subtitulos}
-          onCambio={(v) => onCambio({ subtitulos: v })}
-        />
+        {/* El player aún no lee un default de subtítulos → "próximamente" (no huérfano). */}
+        <div className="flex items-center gap-4 border-t border-border py-3.5 opacity-60">
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-2 text-[13.5px] font-semibold text-foreground">
+              Subtítulos en los videos por defecto {CHIP_PROXIMO}
+            </p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">Cuando la lección los tenga.</p>
+          </div>
+          <Switch encendido={data.subtitulos} onCambio={() => {}} etiqueta="Subtítulos por defecto" bloqueado />
+        </div>
       </div>
     </Tarjeta>
   );
