@@ -1175,6 +1175,16 @@ function PanelCampo({
               />
             </div>
           )}
+          {/* Ocultar título — común a TODOS los tipos con etiqueta/título propio (reusa `ocultarTitulo`,
+              la misma prop que la sección y la tabla). El PDF respeta el flag en cada tipo. */}
+          <div className="mt-3">
+            <Interruptor
+              titulo="Ocultar título"
+              detalle="no muestra la etiqueta/título de este campo en el informe"
+              on={!!c.ocultarTitulo}
+              onCambio={(v) => onCambio({ ocultarTitulo: v })}
+            />
+          </div>
         </Bloque>
       )}
 
@@ -1225,6 +1235,7 @@ function PanelSeccion({ seccion: s, onCambio }: { seccion: SeccionPlantilla; onC
         />
         <div className="mt-3">
           <Interruptor titulo="Sale en el informe" detalle="si lo apaga, la sección solo sirve para capturar" on={s.enInforme !== false} onCambio={(v) => onCambio({ enInforme: v })} />
+          <Interruptor titulo="Ocultar título" detalle="no repite el título (ej. si una tabla dentro se llama igual)" on={!!s.ocultarTitulo} onCambio={(v) => onCambio({ ocultarTitulo: v })} />
           <Interruptor titulo="Colapsada en el lienzo" detalle="solo afecta a esta vista" on={!!s.colapsada} onCambio={(v) => onCambio({ colapsada: v })} />
         </div>
       </Bloque>
