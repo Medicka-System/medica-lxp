@@ -11,7 +11,7 @@
  * (Sprint 4.7) y la validación/horas acreditadas son dominio (ver bitacora-contrato).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -38,7 +38,7 @@ import { BloquePedagogicoCampos, bloquePedagogicoVacio } from '@/components/caso
 import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
 import { cuerpoCasoInicial } from '@/lib/reportes/plantilla-caso-defecto';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
-import { lecturaEstudioDicom } from '@/lib/dicom/acciones';
+import { useThumbEstudio } from '@/components/casos/use-thumb-estudio';
 import type { ContenidoEstructuradoCaso } from '@campus/shared';
 import {
   DOMINIO_LABEL,
@@ -318,22 +318,10 @@ function SheetSubirCaso({
 
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
   const tieneEstudio = c.estudioEstado === 'anonimizado';
-  // Thumbnail = PRIMERA imagen del estudio (solo JPG/PNG, que se muestran directo; el .dcm necesita
-  // el visor Cornerstone y no se puede miniaturizar barato en la lista → cae al placeholder). Se
-  // carga perezoso por tarjeta (firma URL vía el api) solo cuando el estudio ya está anonimizado.
-  const [thumb, setThumb] = useState<string | null>(null);
-  useEffect(() => {
-    if (!tieneEstudio || c.piezas < 1) return;
-    let vivo = true;
-    void lecturaEstudioDicom(c.id, 'bitacora_casos').then((res) => {
-      if (!vivo || !res.ok) return;
-      const primera = res.datos.series[0];
-      if (primera?.tipo === 'imagen' && primera.urlLectura) setThumb(primera.urlLectura);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [c.id, tieneEstudio, c.piezas]);
+  // Thumbnail = PRIMER frame del estudio, renderizado en CLIENTE (DICOM wadouri o JPG/PNG web)
+  // con el MISMO pipeline que la consola de validación del docente (useThumbEstudio →
+  // renderMiniaturasDetalle). Solo cuando el estudio ya está anonimizado y tiene series.
+  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1);
   const etiquetaEstudio =
     c.organo ??
     (c.estudioEstado === 'procesando'
@@ -353,9 +341,9 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
       }`}
     >
       <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
-        {thumb ? (
-          // <img> directo: es una URL FIRMADA efímera de object storage (no un asset local para next/image).
-          <img src={thumb} alt="" className="h-[156px] w-full object-cover" />
+        {thumb.fase === 'listo' ? (
+          // <img> directo: el hook ya rasterizó el primer frame a un PNG (data URL) en cliente.
+          <img src={thumb.url} alt="" className="h-[156px] w-full object-cover" />
         ) : (
           <VisorDicomPlaceholder
             etiqueta={etiquetaEstudio}
