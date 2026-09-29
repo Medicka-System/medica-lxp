@@ -50,7 +50,7 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
           <ChevronLeft aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
         </Link>
 
-        <Avatar ini={e.ini} size={52} />
+        <Avatar ini={e.ini} url={e.avatarUrl} size={52} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">

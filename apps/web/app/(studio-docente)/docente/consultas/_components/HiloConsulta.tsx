@@ -101,7 +101,7 @@ export function HiloConsulta({
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_3px_rgba(17,24,39,0.06)]">
       {/* contexto de la contraparte, siempre visible */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-[18px] py-3.5">
-        <Avatar ini={contraparte.ini} size={40} />
+        <Avatar ini={contraparte.ini} size={40} url={contraparte.avatarUrl} />
         <div className="min-w-0 flex-1">
           <p className="text-[14.5px] font-bold leading-tight">{contraparte.nombre}</p>
           <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
@@ -171,7 +171,7 @@ export function HiloConsulta({
 
               {m.de === 'contraparte' ? (
                 <div className="flex max-w-[78%] shrink-0 gap-2.5">
-                  <Avatar ini={contraparte.ini} size={30} />
+                  <Avatar ini={contraparte.ini} size={30} url={contraparte.avatarUrl} />
                   <div className="min-w-0">
                     {m.texto && (
                       <p className="rounded-[14px] rounded-bl-[4px] border border-border bg-muted px-3.5 py-2.5 text-[13.5px] leading-relaxed text-[color:var(--foreground-soft)]">

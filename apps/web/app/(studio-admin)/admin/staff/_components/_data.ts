@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
+import { firmarLecturaImagenes, firmarLecturaImagen } from '@/lib/media/firmar-imagenes.server';
 import type { StaffData, MiembroStaff, RolStaff, DetalleStaff, CifraCarga, RegistroTrabajo } from './contrato';
 
 /**
@@ -50,10 +51,12 @@ function actividadDe(rol: RolStaff, validaciones7d: number, curados: number): st
 }
 
 export async function getStaff(userId: string): Promise<StaffData> {
-  return comoStaff(userId, async (sql) => {
+  // Leemos las refs de avatar DENTRO del callback (bajo RLS) y firmamos DESPUÉS
+  // (patrón getShellData): no sostener la conexión abierta durante el fetch de firma.
+  const { totales, staffRaw } = await comoStaff(userId, async (sql) => {
     const [perfiles, gruposPorDoc, colaPorDoc, valPorDoc, curadosPorCurador, respuesta] = await Promise.all([
-      sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null }[]>`
-        select user_id, nombre, email, rol::text as rol, created_at, especialidad
+      sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null; avatar_url: string | null }[]>`
+        select user_id, nombre, email, rol::text as rol, created_at, especialidad, avatar_url
         from lxp.perfiles where rol <> 'alumno' order by nombre`,
       sql<{ docente_id: string; n: number }[]>`
         select docente_id, count(*)::int as n from lxp.grupos
@@ -83,7 +86,7 @@ export async function getStaff(userId: string): Promise<StaffData> {
     const val7d = new Map(valPorDoc.map((r) => [r.id_docente, r.n]));
     const curados = new Map(curadosPorCurador.map((r) => [r.curador_id, r.n]));
 
-    const staff: MiembroStaff[] = perfiles.map((p) => {
+    const staff: (Omit<MiembroStaff, 'avatarUrl'> & { avatarRef: string | null })[] = perfiles.map((p) => {
       const g = grupos.get(p.user_id) ?? 0;
       const q = cola.get(p.user_id) ?? 0;
       const c = curados.get(p.user_id) ?? 0;
@@ -91,6 +94,7 @@ export async function getStaff(userId: string): Promise<StaffData> {
       return {
         id: p.user_id,
         ini: iniciales(p.nombre),
+        avatarRef: p.avatar_url,
         nombre: p.nombre,
         rol: p.rol,
         email: p.email,
@@ -119,9 +123,18 @@ export async function getStaff(userId: string): Promise<StaffData> {
         respuestaMedia: formatoDuracion(respuesta[0]?.seg ?? null),
         conteos,
       },
-      staff,
+      staffRaw: staff,
     };
   });
+
+  // Firma en lote de las fotos (fuera de la conexión RLS). Cae a iniciales si falla/null.
+  const urls = await firmarLecturaImagenes(staffRaw.map((s) => s.avatarRef));
+  const staff: MiembroStaff[] = staffRaw.map(({ avatarRef, ...s }) => ({
+    ...s,
+    avatarUrl: avatarRef ? urls[avatarRef] ?? null : null,
+  }));
+
+  return { totales, staff };
 }
 
 const ETIQUETA_ROL: Record<RolStaff, string> = {
@@ -132,10 +145,11 @@ const ETIQUETA_ROL: Record<RolStaff, string> = {
 };
 
 export async function getDetalleStaff(userId: string, staffId: string): Promise<DetalleStaff | null> {
-  return comoStaff(userId, async (sql) => {
+  // Leemos la ref de avatar bajo RLS y firmamos DESPUÉS (patrón getShellData).
+  const salida = await comoStaff(userId, async (sql) => {
     const p = (
-      await sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null }[]>`
-        select user_id, nombre, email, rol::text as rol, created_at, especialidad
+      await sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null; avatar_url: string | null }[]>`
+        select user_id, nombre, email, rol::text as rol, created_at, especialidad, avatar_url
         from lxp.perfiles where user_id = ${staffId} and rol <> 'alumno' limit 1`
     )[0];
     if (!p) return null;
@@ -200,6 +214,7 @@ export async function getDetalleStaff(userId: string, staffId: string): Promise<
     return {
       id: p.user_id,
       ini: iniciales(p.nombre),
+      avatarRef: p.avatar_url,
       nombre: p.nombre,
       rol: p.rol,
       email: p.email,
@@ -222,4 +237,11 @@ export async function getDetalleStaff(userId: string, staffId: string): Promise<
       ],
     };
   });
+
+  if (!salida) return null;
+
+  // Firma la foto fuera de la conexión RLS. Cae a iniciales si falla/null.
+  const { avatarRef, ...detalle } = salida;
+  const avatarUrl = await firmarLecturaImagen(avatarRef);
+  return { ...detalle, avatarUrl };
 }

@@ -259,7 +259,7 @@ export function AlumnosLista({ data }: { data: AlumnosData }) {
               }`}
             >
               <span className="flex min-w-0 flex-[1.6] items-center gap-2.5">
-                <Avatar ini={a.ini} />
+                <Avatar ini={a.ini} url={a.avatarUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-bold leading-snug">{a.nombre}</span>
                   <span className={`${mono} mt-0.5 block text-[10.5px] text-muted-foreground`}>

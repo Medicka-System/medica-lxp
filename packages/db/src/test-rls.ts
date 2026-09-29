@@ -529,6 +529,61 @@ async function main(): Promise<void> {
       ),
     );
 
+    // ── FUNDACIONES (mig 0059): perfil público + roster del propio alumno (§10) ──
+    // perfil_publico_de es SECURITY DEFINER y expone SOLO campos públicos respetando
+    // perfilVisible; cierra el bypass de RLS del Bloque 4 (privacidadDe).
+    const ppA2 = await como(sql, claimsA1, (tx) =>
+      tx<{ id: string; nombre: string | null; perfil_visible: boolean }[]>`
+        select id, nombre, perfil_visible from lxp.perfil_publico_de(array[${a2}]::uuid[])`,
+    );
+    check(
+      'a1: perfil_publico_de(a2) devuelve el perfil (nombre visible por default)',
+      ppA2.length === 1 && ppA2[0]?.nombre != null && ppA2[0]?.perfil_visible === true,
+      `filas ${ppA2.length}`,
+    );
+
+    // Respeta perfilVisible: con a2 oculto (en una tx que se revierte), la función NO expone
+    // nombre/avatar, pero SÍ devuelve el flag en false (para que el gate filtre al perfil).
+    let ocultoOk = false;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`
+          update lxp.perfiles
+          set preferencias = jsonb_set(
+            coalesce(preferencias, '{}'::jsonb), '{privacidad}',
+            coalesce(preferencias->'privacidad', '{}'::jsonb) || '{"perfilVisible": false}'::jsonb,
+            true)
+          where user_id = ${a2}`;
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify(claimsA1)}, true)`;
+        await tx.unsafe('set local role authenticated');
+        const r = await tx<{ nombre: string | null; avatar_url: string | null; perfil_visible: boolean }[]>`
+          select nombre, avatar_url, perfil_visible from lxp.perfil_publico_de(array[${a2}]::uuid[])`;
+        ocultoOk =
+          r.length === 1 &&
+          r[0]?.perfil_visible === false &&
+          r[0]?.nombre === null &&
+          r[0]?.avatar_url === null;
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) throw e;
+    }
+    check('perfil_publico_de RESPETA perfilVisible (oculta nombre/avatar, flag=false)', ocultoOk);
+
+    // roster_grupo_alumno: compañeros del grupo del PROPIO alumno (incluye al llamador),
+    // sin exponer rosters de otras cohortes.
+    const rosterA1 = await como(sql, claimsA1, (tx) =>
+      tx<{ id: string }[]>`select id from lxp.roster_grupo_alumno()`,
+    );
+    const idsRoster = new Set(rosterA1.map((r) => r.id));
+    check('a1: roster_grupo_alumno se incluye a sí mismo', idsRoster.has(a1));
+    check('a1: roster_grupo_alumno incluye a su compañero a2 (cohorte A)', idsRoster.has(a2));
+    check(
+      'a1: roster_grupo_alumno NO incluye a a5 (cohorte B)',
+      !idsRoster.has(a5),
+      `roster=${idsRoster.size}`,
+    );
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

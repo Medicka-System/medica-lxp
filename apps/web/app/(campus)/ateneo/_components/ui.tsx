@@ -21,15 +21,24 @@ export const trama = "repeating-linear-gradient(135deg, rgba(255,255,255,.07) 0 
  * El envoltorio lleva self-start + leading-none: sin eso, dentro de un flex sin align-items,
  * se estira a la altura del bloque y el sello del docente flota lejos del avatar.
  */
-export function Avatar({ p, size = 40 }: { p: Pick<Persona, "ini" | "rol">; size?: number }) {
+export function Avatar({
+  p,
+  size = 40,
+  url,
+}: {
+  p: Pick<Persona, "ini" | "rol">;
+  size?: number;
+  /** URL de imagen LISTA para `<img>` (ya firmada/pública · el call-site la firma). Sin url → iniciales. */
+  url?: string | null;
+}) {
   return (
     <span className="relative shrink-0 self-start leading-none">
       <span
         aria-hidden
         style={{ width: size, height: size, fontSize: size * 0.34 }}
-        className="grid place-items-center rounded-full bg-sidebar font-bold leading-none text-sidebar-foreground"
+        className="grid place-items-center overflow-hidden rounded-full bg-sidebar font-bold leading-none text-sidebar-foreground"
       >
-        {p.ini}
+        {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : p.ini}
       </span>
       {p.rol === "docente" && (
         <span

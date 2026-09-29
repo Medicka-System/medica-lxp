@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
 import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
@@ -721,7 +722,10 @@ export async function getEntregasVista(
   userId: string,
   sel: { grupoId?: string; actividadId?: string } = {},
 ): Promise<EntregasVista> {
-  return comoStaff(userId, async (sql) => {
+  // Refs de avatar por alumno (id → media/imagenes/*). Se llenan dentro de la tx y se
+  // firman DESPUÉS de cerrarla (patrón getShellData · lib/datos.ts).
+  const avatarRefs = new Map<string, string>();
+  const vista = await comoStaff(userId, async (sql) => {
     // 1 · Grupos del docente (para el selector).
     const gruposRows = await sql<
       { id: string; nombre: string; cora_grupo_id: string | null; programa_id: string }[]
@@ -773,7 +777,14 @@ export async function getEntregasVista(
         select supabase_auth_id, nombre
         from lxp.cora_alumnos_de_grupo(${grupoRow.cora_grupo_id})
         order by nombre`;
-      roster = rr.map((r) => ({ id: r.supabase_auth_id, nombre: r.nombre, ini: iniciales(r.nombre) }));
+      roster = rr.map((r) => ({ id: r.supabase_auth_id, nombre: r.nombre, ini: iniciales(r.nombre), avatarUrl: null }));
+      // `cora_alumnos_de_grupo` no trae avatar; se lee de `lxp.perfiles` bajo RLS de staff.
+      const ids = rr.map((r) => r.supabase_auth_id);
+      if (ids.length) {
+        const av = await sql<{ user_id: string; avatar_url: string | null }[]>`
+          select user_id, avatar_url from lxp.perfiles where user_id in ${sql(ids)}`;
+        for (const a of av) if (a.avatar_url) avatarRefs.set(a.user_id, a.avatar_url);
+      }
     }
     const delGrupo = roster.length;
 
@@ -816,20 +827,22 @@ export async function getEntregasVista(
         contenido: unknown;
         created_at: Date;
         alumno: string;
+        avatar_url: string | null;
       }[]
     >`
       select e.id, e.id_alumno, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
-             al.nombre as alumno
+             al.nombre as alumno, al.avatar_url
       from lxp.entregas e
       join lxp.perfiles al on al.user_id = e.id_alumno
       where ${filtro}
       order by
         case e.estado when 'enviada' then 0 when 'pendiente' then 1 else 2 end,
         e.created_at asc`;
+    for (const r of entRows) if (r.avatar_url) avatarRefs.set(r.id_alumno, r.avatar_url);
 
     const entregas: EntregaVista[] = entRows.map((r) => ({
       id: r.id,
-      alumno: { id: r.id_alumno, nombre: r.alumno, ini: iniciales(r.alumno) },
+      alumno: { id: r.id_alumno, nombre: r.alumno, ini: iniciales(r.alumno), avatarUrl: null },
       tipo: actividad.tipo,
       estado: estadoVistaDe(esAuto, r.estado, r.nota),
       creadoEn: r.created_at,
@@ -911,6 +924,18 @@ export async function getEntregasVista(
       auditoria,
     };
   });
+
+  // Firma los avatares FUERA de la tx y adjunta la URL por alumno (entregas + roster).
+  const urls = await firmarLecturaImagenes([...avatarRefs.values()]);
+  const urlDe = (id: string): string | null => {
+    const ref = avatarRefs.get(id);
+    return (ref && urls[ref]) || null;
+  };
+  return {
+    ...vista,
+    entregas: vista.entregas.map((e) => ({ ...e, alumno: { ...e.alumno, avatarUrl: urlDe(e.alumno.id) } })),
+    sinEntregar: vista.sinEntregar.map((a) => ({ ...a, avatarUrl: urlDe(a.id) })),
+  };
 }
 
 // ── Consultas 1:1 (docente · chat entre PERSONAS · §5B) ──────────────────────────
@@ -967,6 +992,7 @@ type FilaConsulta = {
   op_nombre: string;
   op_rol: string;
   op_esp: string | null;
+  op_avatar: string | null;
   ultimo_texto: string | null;
   ultimo_autor: string | null;
   ultimo_en: Date | null;
@@ -995,6 +1021,9 @@ function contraparteDe(r: FilaConsulta): ContraparteConsulta {
   return {
     id: r.op_id,
     ini: iniciales(r.op_nombre),
+    // La firma es async y no puede correr dentro de la tx (patrón getShellData): el caller
+    // firma `r.op_avatar` tras cerrar el `comoStaff` y parcha esta URL.
+    avatarUrl: null,
     nombre: r.op_nombre,
     tipo: esAlumno ? 'alumno' : 'staff',
     grupo,
@@ -1016,6 +1045,7 @@ function estadoDe(r: FilaConsulta, userId: string): { estado: ConsultaResumen['e
 const COLUMNAS_CONSULTA = (sql: Parameters<Parameters<typeof comoStaff>[1]>[0]) => sql`
   q.id, q.estado, q.origen_leccion_id, q.created_at as creada,
   op.user_id as op_id, op.nombre as op_nombre, op.rol::text as op_rol, op.especialidad as op_esp,
+  op.avatar_url as op_avatar,
   lm.cuerpo as ultimo_texto, lm.autor_id as ultimo_autor, lm.created_at as ultimo_en,
   (select max(cm.created_at) from lxp.consulta_mensajes cm
      where cm.consulta_id = q.id and cm.autor_id = q.id_alumno) as ultimo_contraparte_en,
@@ -1041,13 +1071,16 @@ const JOINS_CONSULTA = (sql: Parameters<Parameters<typeof comoStaff>[1]>[0]) => 
 
 /** Bandeja del docente (columna 1): consultas dirigidas a él (alumnos + staff · §5B). */
 export async function getConsultasDocente(userId: string): Promise<ConsultasDocenteData> {
-  return comoStaff(userId, async (sql) => {
+  // Refs de avatar de la contraparte (op_id → media/imagenes/*), firmadas tras la tx.
+  const avatarRefs = new Map<string, string>();
+  const data = await comoStaff(userId, async (sql) => {
     const yo = (await sql<{ nombre: string }[]>`select nombre from lxp.perfiles where user_id = ${userId}`)[0];
     const filas = await sql<FilaConsulta[]>`
       select ${COLUMNAS_CONSULTA(sql)}
       ${JOINS_CONSULTA(sql)}
       where q.contacto_id = ${userId} or q.id_docente = ${userId}
       order by coalesce(lm.created_at, q.created_at) desc`;
+    for (const r of filas) if (r.op_avatar) avatarRefs.set(r.op_id, r.op_avatar);
 
     const conversaciones: ConsultaResumen[] = filas.map((r) => {
       const { estado, esperando } = estadoDe(r, userId);
@@ -1065,6 +1098,16 @@ export async function getConsultasDocente(userId: string): Promise<ConsultasDoce
     const sinResponder = conversaciones.filter((c) => c.estado === 'sin-responder').length;
     return { docente: { nombre: yo?.nombre ?? 'Docente' }, grupos, conversaciones, sinResponder };
   });
+
+  // Firma los avatares FUERA de la tx y adjunta la URL a cada contraparte.
+  const urls = await firmarLecturaImagenes([...avatarRefs.values()]);
+  return {
+    ...data,
+    conversaciones: data.conversaciones.map((c) => {
+      const ref = avatarRefs.get(c.contraparte.id);
+      return { ...c, contraparte: { ...c.contraparte, avatarUrl: (ref && urls[ref]) || null } };
+    }),
+  };
 }
 
 /** El hilo abierto (columnas 2 y 3): mensajes + Eco derivado. `null` si no existe/visible. */
@@ -1072,7 +1115,7 @@ export async function getConsultaDocenteDetalle(
   userId: string,
   consultaId: string,
 ): Promise<ConsultaDetalleDoc | null> {
-  return comoStaff(userId, async (sql) => {
+  const res = await comoStaff(userId, async (sql) => {
     const r = (
       await sql<(FilaConsulta & { alumno_leido_en: Date | null; origen_leccion_id: string | null; origen_nombre: string | null; modulo_id: string | null })[]>`
         select ${COLUMNAS_CONSULTA(sql)}, q.alumno_leido_en, lec.nombre as origen_nombre, lec.modulo_id
@@ -1140,7 +1183,7 @@ export async function getConsultaDocenteDetalle(
       mensajes,
     });
 
-    return {
+    const detalle: ConsultaDetalleDoc = {
       id: r.id,
       contraparte,
       estado,
@@ -1151,7 +1194,14 @@ export async function getConsultaDocenteDetalle(
       mensajes,
       eco,
     };
+    return { detalle, avatarRef: r.op_avatar };
   });
+
+  if (!res) return null;
+  // Firma el avatar de la contraparte FUERA de la tx (patrón getShellData).
+  const urls = await firmarLecturaImagenes([res.avatarRef]);
+  const avatarUrl = (res.avatarRef && urls[res.avatarRef]) || null;
+  return { ...res.detalle, contraparte: { ...res.detalle.contraparte, avatarUrl } };
 }
 
 /**

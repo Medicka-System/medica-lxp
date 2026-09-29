@@ -10,6 +10,8 @@ export type RolStaff = 'super_admin' | 'admin' | 'docente' | 'disenador_instrucc
 export type MiembroStaff = {
   id: string;
   ini: string;
+  /** Foto de perfil ya firmada (lista para render) o null → cae a iniciales. */
+  avatarUrl: string | null;
   nombre: string;
   rol: RolStaff;
   email: string | null;
@@ -54,6 +56,8 @@ export type RegistroTrabajo = {
 export type DetalleStaff = {
   id: string;
   ini: string;
+  /** Foto de perfil ya firmada (lista para render) o null → cae a iniciales. */
+  avatarUrl: string | null;
   nombre: string;
   rol: RolStaff;
   email: string | null;

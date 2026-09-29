@@ -24,11 +24,14 @@ export function AvatarContacto({
   tipo,
   size = 42,
   enLinea = false,
+  url,
 }: {
   ini: string;
   tipo: TipoContacto;
   size?: number;
   enLinea?: boolean;
+  /** URL de imagen LISTA para `<img>` (ya firmada/pública · el call-site la firma). Sin url → iniciales. */
+  url?: string | null;
 }) {
   const forma =
     tipo === "staff"
@@ -43,9 +46,9 @@ export function AvatarContacto({
       <span
         aria-hidden
         style={{ width: size, height: size, fontSize: size * 0.33, borderRadius: tipo === "staff" ? size * 0.28 : undefined }}
-        className={`grid place-items-center font-bold leading-none ${forma}`}
+        className={`grid place-items-center overflow-hidden font-bold leading-none ${forma}`}
       >
-        {ini}
+        {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : ini}
       </span>
       {tipo === "docente" && (
         <span aria-hidden className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full border-2 border-card bg-primary text-[color:var(--sidebar)]">

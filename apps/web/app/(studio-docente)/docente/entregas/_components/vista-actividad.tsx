@@ -229,7 +229,7 @@ export function VistaActividad({
                   onClick={() => onAbrir(e.id)}
                   className={`flex w-full items-center gap-3.5 border-t border-border px-[18px] py-3 text-left transition-colors hover:bg-muted ${focusRing}`}
                 >
-                  <Avatar ini={e.alumno.ini} />
+                  <Avatar ini={e.alumno.ini} url={e.alumno.avatarUrl} />
                   <span className="min-w-0 flex-[1.3]">
                     <span className="block text-[13.5px] font-bold leading-snug">{e.alumno.nombre}</span>
                     <span className="mt-0.5 block text-[11.5px] text-muted-foreground">

@@ -43,6 +43,8 @@ export type GrupoSeguimientoCard = {
 export type AlumnoSeguimiento = {
   id: string;
   iniciales: string;
+  /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
+  avatarUrl: string | null;
   nombre: string;
   matricula: string | null;
   moduloEnCurso: string | null;

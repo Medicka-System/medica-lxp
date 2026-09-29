@@ -24,6 +24,7 @@ import { softText, focusRing } from '@/components/tokens';
 import { GaleriaReporte, GaleriaPlaceholder } from '@/components/reportes/galeria-reporte';
 import { firmarLecturaImagenReferencia, firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import { CATALOGO_FORMULAS, IDS_FORMULA, esIdFormula, etiquetaFormula } from '@/lib/reportes/formulas';
+import { Select } from '@/components/ui/select';
 import {
   columnasDatos,
   fueraDeRango,
@@ -77,6 +78,10 @@ const previewBox =
   'flex h-10 items-center rounded-[9px] border border-border bg-card px-3 text-[12.5px] text-muted-foreground';
 const cfgInput =
   'h-9 w-full rounded-[8px] border border-border bg-card px-2.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-secondary';
+// Botón del <Select> tokenizado al tamaño compacto del panel de config (paralelo a cfgInput);
+// `cfgSelectBase` deja el color de borde fuera para poder pintarlo (p. ej. ámbar si falta).
+const cfgSelectBase = `flex h-9 w-full items-center gap-2 rounded-[8px] border bg-card px-2.5 text-[13px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`;
+const cfgSelect = `${cfgSelectBase} border-border`;
 const rangoAmbar = 'mt-1.5 block text-[11px] font-semibold text-[color:var(--warning-foreground)]';
 
 /* ═══════════════════ piezas del editor de config (Propiedades) ═══════════════════ */
@@ -371,14 +376,16 @@ function ConfigFormula({ campo, onCambio, camposDisponibles = [] }: EditorCtx) {
   return (
     <div className="flex flex-col gap-2.5">
       <ECampo label="Fórmula (opcional)">
-        <select value={campo.formula ?? ''} onChange={(e) => elegirFormula(e.target.value)} className={cfgInput}>
-          <option value="">Sin fórmula (captura manual)</option>
-          {IDS_FORMULA.map((id) => (
-            <option key={id} value={id}>
-              {CATALOGO_FORMULAS[id].label}
-            </option>
-          ))}
-        </select>
+        <Select
+          aria-label="Fórmula"
+          className={cfgSelect}
+          value={campo.formula ?? ''}
+          onChange={(v) => elegirFormula(v)}
+          options={[
+            { value: '', label: 'Sin fórmula (captura manual)' },
+            ...IDS_FORMULA.map((id) => ({ value: id, label: CATALOGO_FORMULAS[id].label })),
+          ]}
+        />
       </ECampo>
 
       {def && (
@@ -391,23 +398,23 @@ function ConfigFormula({ campo, onCambio, camposDisponibles = [] }: EditorCtx) {
               const val = campo.entradas?.[ent.nombre] ?? '';
               const faltante = val === '';
               return (
-                <label key={ent.nombre} className="block">
+                <div key={ent.nombre} className="block">
                   <span className="block text-[11px] text-muted-foreground">
                     {ent.etiqueta} <span className="opacity-70">· {ent.tipo === 'fecha' ? 'fecha' : 'número/medida'}</span>
                   </span>
-                  <select
-                    value={val}
-                    onChange={(e) => setEntrada(ent.nombre, e.target.value)}
-                    className={`${cfgInput} mt-1 ${faltante ? 'border-[color:var(--warning-border)]' : ''}`}
-                  >
-                    <option value="">Sin asignar…</option>
-                    {opts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nombre || c.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <div className="mt-1">
+                    <Select
+                      aria-label={ent.etiqueta}
+                      className={`${cfgSelectBase} ${faltante ? 'border-[color:var(--warning-border)]' : 'border-border'}`}
+                      value={val}
+                      onChange={(v) => setEntrada(ent.nombre, v)}
+                      options={[
+                        { value: '', label: 'Sin asignar…' },
+                        ...opts.map((c) => ({ value: c.id, label: c.nombre || c.id })),
+                      ]}
+                    />
+                  </div>
+                </div>
               );
             })}
             {camposDisponibles.length === 0 && (
@@ -627,28 +634,27 @@ function OpcionControl({ campo, valor, deshabilitado, cambia }: RenderCtx) {
   const [otroActivo, setOtroActivo] = useState(valorEsOtro);
   return (
     <>
-      <select
-        disabled={deshabilitado}
-        value={otroActivo ? '__otro__' : v}
-        onChange={(e) => {
-          if (e.target.value === '__otro__') {
-            setOtroActivo(true);
-            cambia('');
-          } else {
-            setOtroActivo(false);
-            cambia(e.target.value);
-          }
-        }}
-        className={`${inputBase} mt-1.5 h-11 appearance-none`}
-      >
-        <option value="">Seleccione…</option>
-        {opts.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-        {campo.permiteOtro && <option value="__otro__">Otro…</option>}
-      </select>
+      <div className="mt-1.5">
+        <Select
+          aria-label="Opción"
+          disabled={deshabilitado}
+          value={otroActivo ? '__otro__' : v}
+          onChange={(nv) => {
+            if (nv === '__otro__') {
+              setOtroActivo(true);
+              cambia('');
+            } else {
+              setOtroActivo(false);
+              cambia(nv);
+            }
+          }}
+          options={[
+            { value: '', label: 'Seleccione…' },
+            ...opts.map((o) => ({ value: o, label: o })),
+            ...(campo.permiteOtro ? [{ value: '__otro__', label: 'Otro…' }] : []),
+          ]}
+        />
+      </div>
       {campo.permiteOtro && otroActivo && (
         <input
           type="text"
@@ -1215,10 +1221,16 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     editor: ({ campo, onCambio }) => (
       <div className="flex flex-col gap-3">
         <ECampo label="Origen">
-          <select value={campo.origen ?? 'dicom'} onChange={(e) => onCambio({ origen: e.target.value === 'referencia' ? 'referencia' : 'dicom' })} className={cfgInput}>
-            <option value="dicom">El médico sube una imagen</option>
-            <option value="referencia">Referencia fija de la plantilla</option>
-          </select>
+          <Select
+            aria-label="Origen"
+            className={cfgSelect}
+            value={campo.origen ?? 'dicom'}
+            onChange={(v) => onCambio({ origen: v === 'referencia' ? 'referencia' : 'dicom' })}
+            options={[
+              { value: 'dicom', label: 'El médico sube una imagen' },
+              { value: 'referencia', label: 'Referencia fija de la plantilla' },
+            ]}
+          />
         </ECampo>
         {campo.origen === 'referencia' && <EImagenReferencia campo={campo} onCambio={onCambio} />}
         <ECampo label="Proporción">

@@ -56,14 +56,18 @@ export async function comoStaff<T>(
 }
 
 /**
- * Flags de privacidad de un perfil (`preferencias.privacidad` · Bloque 4). Se leen con la
- * conexión OWNER (sin `set local role`, igual que `resolverAlumnoDev`), porque la RLS
- * `perfiles_select` (own-or-staff) OCULTA el perfil ajeno y estos gates deben poder
- * consultar el flag de OTRO usuario (p.ej. al abrir su perfil o solicitarlo como colega).
- * En el Sprint 11 esto será una función `SECURITY DEFINER` (como `lxp.nombre_de`); la
- * superficie no cambia. Es una lectura READ-ONLY de un único propósito (gate de privacidad),
- * NO `service_role`. Aplica los DEFAULTS (mismos que AJUSTES_MOCK) cuando el perfil aún no
- * guardó preferencias.
+ * Flags de privacidad de un perfil (`preferencias.privacidad` · Bloque 4). Se leen vía la
+ * función SECURITY DEFINER `lxp.perfil_publico_de` (mig 0059), que expone SOLO los campos
+ * públicos del perfil respetando `perfilVisible` — cierra el atajo §10 que hacía esta helper
+ * (leer `preferencias` de un perfil ajeno con la conexión OWNER, saltándose la RLS
+ * `perfiles_select` own-or-staff). El definer es el límite de seguridad: la conexión ya no
+ * ejecuta una query arbitraria sobre `lxp.perfiles`, solo llama a la función acotada.
+ *
+ * El definer devuelve `perfil_visible`/`acepta_colegas` (los ÚNICOS flags que consumen los
+ * gates del web); `casosABiblioteca`/`mostrarEnLinea` NO son campos de perfil público (el
+ * primero es consentimiento server-side en el `api`, el segundo es presencia y aún no se
+ * cablea), así que se dejan en su DEFAULT. Aplica los DEFAULTS del Bloque 4 cuando el perfil
+ * aún no guardó preferencias.
  */
 export type PrivacidadFlags = {
   perfilVisible: boolean;
@@ -83,11 +87,18 @@ export async function privacidadDeVarios(userIds: string[]): Promise<Map<string,
   const m = new Map<string, PrivacidadFlags>();
   const ids = [...new Set(userIds.filter(Boolean))];
   if (ids.length === 0) return m;
-  const sql = getSql(); // owner (sin set role) → puede leer el perfil ajeno que la RLS oculta
-  const rows = await sql<{ user_id: string; p: Partial<PrivacidadFlags> | null }[]>`
-    select user_id, preferencias->'privacidad' as p
-    from lxp.perfiles where user_id = any(${ids})`;
-  for (const r of rows) m.set(r.user_id, { ...PRIVACIDAD_DEFAULT, ...(r.p ?? {}) });
+  // Lee vía la función SECURITY DEFINER (§10): solo expone los flags públicos del perfil,
+  // ya no una query arbitraria sobre lxp.perfiles.
+  const sql = getSql();
+  const rows = await sql<{ id: string; perfil_visible: boolean; acepta_colegas: boolean }[]>`
+    select id, perfil_visible, acepta_colegas
+    from lxp.perfil_publico_de(${ids}::uuid[])`;
+  for (const r of rows)
+    m.set(r.id, {
+      ...PRIVACIDAD_DEFAULT,
+      perfilVisible: r.perfil_visible,
+      aceptarColegas: r.acepta_colegas,
+    });
   return m;
 }
 

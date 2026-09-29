@@ -17,12 +17,19 @@ const DOMINIO_LABEL: Record<string, string> = {
 };
 
 // ── Shell ────────────────────────────────────────────────────────────────────
-export async function getShellData(userId: string): Promise<{ casosPendientes: number }> {
-  return comoAlumno(userId, async (sql) => {
+export async function getShellData(
+  userId: string,
+): Promise<{ casosPendientes: number; avatarUrl: string | null }> {
+  const { casosPendientes, avatarRef } = await comoAlumno(userId, async (sql) => {
     const rows = await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where estado_validacion = 'pendiente'`;
-    return { casosPendientes: rows[0]?.n ?? 0 };
+    // Avatar del PROPIO perfil: RLS (own-or-staff) deja leerlo sin definer.
+    const perfil = await sql<{ avatar_url: string | null }[]>`
+      select avatar_url from lxp.perfiles where user_id = ${userId}`;
+    return { casosPendientes: rows[0]?.n ?? 0, avatarRef: perfil[0]?.avatar_url ?? null };
   });
+  const avatarUrl = await firmarLecturaImagen(avatarRef);
+  return { casosPendientes, avatarUrl };
 }
 
 // ── Home ─────────────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import type {
   AlumnoSeguimiento,
   ConteosAlumnos,
@@ -210,14 +211,29 @@ function senalDe(m: MetricaAlumno, dias: number | null): AlumnoSeguimiento['sena
 async function alumnosDeGrupo(
   sql: Sql,
   grupo: { programaId: string; coraGrupoId: string | null },
-): Promise<{ alumnos: AlumnoSeguimiento[]; totalLecciones: number; totalEntregables: number }> {
-  if (!grupo.coraGrupoId) return { alumnos: [], totalLecciones: 0, totalEntregables: 0 };
+): Promise<{
+  alumnos: AlumnoSeguimiento[];
+  totalLecciones: number;
+  totalEntregables: number;
+  avatarRefs: Map<string, string>;
+}> {
+  const vacio = { alumnos: [], totalLecciones: 0, totalEntregables: 0, avatarRefs: new Map<string, string>() };
+  if (!grupo.coraGrupoId) return vacio;
 
   // Roster desde CORA (solo staff obtiene filas · §10).
   const roster = await sql<{ supabase_auth_id: string; nombre: string; matricula: string | null }[]>`
     select supabase_auth_id, nombre, matricula
     from lxp.cora_alumnos_de_grupo(${grupo.coraGrupoId})`;
-  if (roster.length === 0) return { alumnos: [], totalLecciones: 0, totalEntregables: 0 };
+  if (roster.length === 0) return vacio;
+
+  // Avatares del roster: `cora_alumnos_de_grupo` no trae `avatar_url`; se lee de
+  // `lxp.perfiles` bajo la misma RLS de staff. Se firma DESPUÉS de cerrar la tx (en el
+  // detalle) para no sostener la conexión durante el fetch al `api` (patrón getShellData).
+  const rosterIds = roster.map((r) => r.supabase_auth_id);
+  const avatarRows = await sql<{ user_id: string; avatar_url: string | null }[]>`
+    select user_id, avatar_url from lxp.perfiles where user_id in ${sql(rosterIds)}`;
+  const avatarRefs = new Map<string, string>();
+  for (const a of avatarRows) if (a.avatar_url) avatarRefs.set(a.user_id, a.avatar_url);
 
   // Módulos del programa (para etiquetas y para el denominador del avance).
   const modulos = await sql<{ id: string; nombre: string; orden: number }[]>`
@@ -252,6 +268,8 @@ async function alumnosDeGrupo(
     return {
       id: r.supabase_auth_id,
       iniciales: iniciales(r.nombre),
+      // Se firma en el caller (detalle) tras cerrar la tx; en el listado no se renderiza.
+      avatarUrl: null,
       nombre: r.nombre,
       matricula: r.matricula,
       moduloEnCurso: m.moduloClave ?? primerModulo,
@@ -273,7 +291,7 @@ async function alumnosDeGrupo(
     return a.avance - b.avance;
   });
 
-  return { alumnos, totalLecciones: totales.total, totalEntregables: totales.entregables };
+  return { alumnos, totalLecciones: totales.total, totalEntregables: totales.entregables, avatarRefs };
 }
 
 /** Estado del grupo a partir de su riesgo (regla determinista, documentada). */
@@ -382,7 +400,7 @@ export async function getGrupoDetalleSeguimiento(
   userId: string,
   grupoId: string,
 ): Promise<GrupoDetalleSeguimiento | null> {
-  return comoStaff(userId, async (sql) => {
+  const res = await comoStaff(userId, async (sql) => {
     const g = (
       await sql<
         {
@@ -404,7 +422,7 @@ export async function getGrupoDetalleSeguimiento(
     )[0];
     if (!g) return null;
 
-    const { alumnos } = await alumnosDeGrupo(sql, {
+    const { alumnos, avatarRefs } = await alumnosDeGrupo(sql, {
       programaId: g.programa_id,
       coraGrupoId: g.cora_grupo_id,
     });
@@ -455,15 +473,29 @@ export async function getGrupoDetalleSeguimiento(
     };
 
     return {
-      id: g.id,
-      nombre: g.nombre,
-      programa: g.programa,
-      modalidad: g.modalidad,
-      fechaInicio: g.fecha_inicio,
-      moduloEnCurso: moduloEnCursoGrupo(alumnos),
-      resumen,
-      alumnos,
-      conteos,
+      detalle: {
+        id: g.id,
+        nombre: g.nombre,
+        programa: g.programa,
+        modalidad: g.modalidad,
+        fechaInicio: g.fecha_inicio,
+        moduloEnCurso: moduloEnCursoGrupo(alumnos),
+        resumen,
+        alumnos,
+        conteos,
+      } satisfies GrupoDetalleSeguimiento,
+      avatarRefs,
     };
   });
+
+  if (!res) return null;
+
+  // Firma los avatares FUERA de la tx (patrón getShellData · lib/datos.ts): batch-sign
+  // de las refs del roster y se adjunta la URL por alumno (null si no hay/no se firmó).
+  const urls = await firmarLecturaImagenes([...res.avatarRefs.values()]);
+  res.detalle.alumnos = res.detalle.alumnos.map((a) => {
+    const ref = res.avatarRefs.get(a.id);
+    return { ...a, avatarUrl: (ref && urls[ref]) || null };
+  });
+  return res.detalle;
 }
