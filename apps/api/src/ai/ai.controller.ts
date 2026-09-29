@@ -23,8 +23,12 @@ import {
   type TurnoChat,
 } from './eco-chat/eco-chat.service';
 
+/** Superficies soportadas por el chat de Eco (espejo de `SurfaceEco` del engine · §7A). */
+const SURFACES_ECO = ['alumno', 'grupo', 'escuela'] as const;
+type SurfaceEcoBody = (typeof SURFACES_ECO)[number];
+
 interface EcoChatBody {
-  surface?: 'alumno';
+  surface?: SurfaceEcoBody;
   entidadId?: string;
   /** Quién pregunta (staff). Hoy en el body; en Sprint 11 saldrá del JWT (como todo /ai). */
   usuarioId?: string;
@@ -74,8 +78,8 @@ export class AiController {
   @Post('eco')
   @HttpCode(200)
   eco(@Body() body: EcoChatBody): Promise<RespuestaChat> {
-    if (body?.surface !== 'alumno') {
-      throw new BadRequestException("surface debe ser 'alumno' (por ahora la única soportada)");
+    if (!body?.surface || !SURFACES_ECO.includes(body.surface)) {
+      throw new BadRequestException(`surface debe ser uno de: ${SURFACES_ECO.join(', ')}`);
     }
     if (!body?.entidadId) throw new BadRequestException('entidadId es requerido');
     if (!body?.usuarioId) throw new BadRequestException('usuarioId es requerido');

@@ -9,11 +9,11 @@
  * Gráficas reales (crecimiento, casos por mes) vía el wrapper `<Chart>` §5A (Recharts
  * tematizado, SSR-safe · §3); los medidores simples se quedan en CSS con tokens.
  */
-import { AlertTriangle, Lock, Send, Sparkles, Stethoscope, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Lock, Sparkles, Stethoscope, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, Tooltip, XAxis, YAxis } from 'recharts';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
 import { Chart, ChartTooltip, EJE } from '@/components/ui/chart';
-import { EcoMark } from '../../../_components/eco-mark';
+import { ChatEco } from '../../../_components/chat-eco';
 import type { AnaliticaData, BarraSimple } from './contrato';
 
 function RotuloCapa({ color, titulo, nota }: { color: string; titulo: string; nota: string }) {
@@ -187,56 +187,34 @@ export function Analitica({ data }: { data: AnaliticaData }) {
       {/* ══════════════ CAPA 2 · APRENDIZAJE (LRS) ══════════════ */}
       <RotuloCapa color="var(--info-foreground)" titulo="Aprendizaje" nota="la capa profunda · del LRS (xAPI)" />
 
-      {/* Eco analista (placeholder) */}
-      <section className={`${card} mt-3.5 overflow-hidden border-[color:var(--info-border)]`}>
-        <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <EcoMark size={38} invertido />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <p className="text-[15px] font-bold leading-tight">Eco, su analista</p>
-                  <span className="inline-flex h-[21px] items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2 text-[10.5px] font-bold text-muted-foreground">
-                    Placeholder · sin API
-                  </span>
-                </div>
-                <p className={`mt-1 text-[12.5px] ${softText}`}>
-                  Con su API, cruzará avance, evaluaciones, casos y consultas del LRS y responderá con análisis + acción sugerida.
-                </p>
-              </div>
-            </div>
-            <form className="mt-4 flex h-[46px] items-center gap-2.5 rounded-full border border-border bg-muted px-4 opacity-70" onSubmit={(e) => e.preventDefault()}>
-              <span className="sr-only">Preguntarle a Eco (pendiente de API)</span>
-              <input
-                type="text"
-                disabled
-                placeholder="¿Qué programa tiene peor retención y por qué?"
-                className="w-full min-w-0 cursor-not-allowed bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
-              />
-              <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--info-foreground)] text-white">
-                <Send className="h-[15px] w-[15px]" strokeWidth={1.75} />
-              </span>
-            </form>
+      {/* Eco, su analista de la escuela (§7A · conversacional, read-only) */}
+      <div className="mt-3.5 grid items-start gap-3.5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <ChatEco
+          surface="escuela"
+          entidadId="escuela"
+          subtitulo="Su analista de la escuela"
+          placeholder="Pregúntele a Eco sobre la escuela…"
+          intro="Pregúntele a Eco sobre la escuela: cruza alumnos, casos y validación, competencia I-AIM y comunidad del LRS (bajo RLS) para responder con datos reales. Eco propone; usted decide."
+          sugerencias={['¿Cómo va la escuela?', '¿En qué dominio I-AIM está más floja?', '¿Cuántos casos faltan por validar?']}
+        />
+        <section className={`${card} min-w-0 p-5`}>
+          <div className="flex items-center gap-2.5">
+            <Sparkles aria-hidden className="h-4 w-4 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
+            <p className="text-[12.5px] font-bold">El dato duro (real, del LRS):</p>
           </div>
-          <div className="min-w-0 xl:border-l xl:border-border xl:pl-5">
-            <div className="flex items-center gap-2.5">
-              <Sparkles aria-hidden className="h-4 w-4 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-              <p className="text-[12.5px] font-bold">Mientras tanto, el dato duro (real, del LRS):</p>
-            </div>
-            <ul className="mt-2.5 flex flex-col gap-1.5">
-              <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
-                Competencia I-AIM medida en <span className={`${mono} font-bold`}>{repaso.dominiosMedidos}</span> proyecciones alumno×dominio.
-              </li>
-              <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
-                {flojo ? `El dominio más flojo es ${flojo.dominio} (${flojo.valor}).` : 'Aún sin proyección de competencia suficiente.'}
-              </li>
-              <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
-                <span className={`${mono} font-bold`}>{ecoCorrecciones}</span> correcciones docente→Eco registradas (loop de mejora, §7A).
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
+          <ul className="mt-2.5 flex flex-col gap-1.5">
+            <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
+              Competencia I-AIM medida en <span className={`${mono} font-bold`}>{repaso.dominiosMedidos}</span> proyecciones alumno×dominio.
+            </li>
+            <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
+              {flojo ? `El dominio más flojo es ${flojo.dominio} (${flojo.valor}).` : 'Aún sin proyección de competencia suficiente.'}
+            </li>
+            <li className="rounded-[9px] bg-muted px-2.5 py-2 text-[11.5px] font-medium">
+              <span className={`${mono} font-bold`}>{ecoCorrecciones}</span> correcciones docente→Eco registradas (loop de mejora, §7A).
+            </li>
+          </ul>
+        </section>
+      </div>
 
       <div className="mt-3.5 grid items-start gap-3.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Tarjeta titulo="Competencia I-AIM de la escuela" extra={<span className="text-[10px] font-bold text-[color:var(--info-foreground)]">del LRS</span>}>

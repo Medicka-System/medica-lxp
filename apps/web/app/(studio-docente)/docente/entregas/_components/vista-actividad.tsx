@@ -14,7 +14,8 @@ import { Avatar } from '@/components/avatar';
 import { haceCuanto } from '@/lib/format';
 import type { EntregaVista, EstadoVistaEntrega, ActividadRef, EntregasVista } from '../../../_lib/contrato';
 import { ChipEstado, Selector } from './ui';
-import { PanelEco, ECO_LOTE_EJEMPLO } from './eco-placeholder';
+import { ECO_LOTE_EJEMPLO } from './eco-placeholder';
+import { ChatEco } from '@/app/(studio-admin)/_components/chat-eco';
 
 /**
  * Confianza de la nota sugerida por Eco — PLACEHOLDER determinista por id (Eco NO conectado
@@ -295,8 +296,19 @@ export function VistaActividad({
         </section>
       </div>
 
-      {/* Eco: riel colapsado ↔ panel (PLACEHOLDER) */}
-      <PanelEco />
+      {/* Eco conversacional sobre el grupo (§7A · read-only) */}
+      {grupo && (
+        <div className="w-[360px] shrink-0 self-start">
+          <ChatEco
+            surface="grupo"
+            entidadId={grupo.id}
+            subtitulo="Sobre este grupo"
+            placeholder="Pregúntele a Eco sobre este grupo…"
+            intro="Pregúntele a Eco sobre el grupo de esta actividad: cruza casos, entregas por revisar y competencia I-AIM (bajo RLS). Eco propone; usted decide."
+            sugerencias={['¿Cómo va el grupo?', '¿Quién está batallando?', '¿Cuánto hay por revisar?']}
+          />
+        </div>
+      )}
     </div>
   );
 }

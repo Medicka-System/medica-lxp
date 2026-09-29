@@ -31,7 +31,7 @@ import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
 import { Avatar } from '@/components/avatar';
 import type { GrupoDetalleSeguimiento } from '../_lib/contrato';
-import { PanelEco } from './panel-eco';
+import { ChatEco } from '@/app/(studio-admin)/_components/chat-eco';
 
 type FiltroAlumnos = 'atencion' | 'todos' | 'sin-actividad' | 'al-dia';
 
@@ -413,7 +413,16 @@ export function DetalleGrupo({
         </section>
       </div>
 
-      <PanelEco resumen={resumenEco} />
+      <div className="w-[352px] shrink-0 self-start">
+        <ChatEco
+          surface="grupo"
+          entidadId={grupo.id}
+          subtitulo="Sobre este grupo"
+          placeholder="Pregúntele a Eco sobre este grupo…"
+          intro={`${resumenEco} Pregúntele a Eco: cruza el roster real, casos, entregas y competencia I-AIM del grupo (bajo RLS) para responder. Eco propone; usted decide.`}
+          sugerencias={['¿Cómo va el grupo?', '¿Quién está batallando?', '¿Cuánto hay por revisar?']}
+        />
+      </div>
     </div>
   );
 }

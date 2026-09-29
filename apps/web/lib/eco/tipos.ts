@@ -4,6 +4,13 @@
  * consumen tanto la acción (`chat.server.ts`) como el cliente (`<ChatEco>`).
  */
 
+/**
+ * Superficie desde la que se abre el chat de Eco (espejo de `SurfaceEco` del `api`):
+ * `alumno` (expediente), `grupo` (seguimiento) o `escuela` (panorama global). La surface
+ * fija qué entidad viaja en `entidadId` y qué herramientas ofrece el engine.
+ */
+export type SurfaceEco = 'alumno' | 'grupo' | 'escuela';
+
 export type TurnoEco = { rol: 'usuario' | 'eco'; texto: string };
 
 export type FuenteEco = {
