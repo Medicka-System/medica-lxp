@@ -21,6 +21,7 @@ import {
   ChevronDown,
   CircleHelp,
   Globe,
+  GraduationCap,
   Image as ImageIcon,
   Italic,
   List,
@@ -34,6 +35,7 @@ import {
 } from "lucide-react";
 import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen } from "./tipos";
 import { Avatar, Chip, Estudio, Modal, focusRing, mono, softText } from "./ui";
+import { EstudioCaso } from "./EstudioCaso";
 import { firmarSubidaMediaAteneo, gifsBuscar, gifsTrending, unfurlEnlace } from "@/lib/campus/ateneo-social-acciones";
 
 // Límites de subida (Nivel 1): imagen ≤ 10 MB, video ≤ 50 MB.
@@ -103,7 +105,18 @@ export function EntradaComposer({
 /* ───────────── Modal del composer ───────────── */
 
 /** A quién se dirige la publicación: toda la comunidad o solo mis colegas. */
-export type Audiencia = "ateneo" | "colegas";
+export type Audiencia = "ateneo" | "colegas" | "grupo";
+
+/**
+ * Opciones de audiencia (alcance del post). El scope NO es solo UI: la RLS de
+ * `posts_ateneo` lo aplica (colegas → conexiones; grupo → comparte grupo CORA · mig 0061).
+ * Fuente única para el botón y el menú.
+ */
+const AUDIENCIAS = [
+  ["ateneo", Globe, "Todo el Ateneo", "Toda la comunidad lo ve"],
+  ["colegas", Users, "Mis colegas", "Solo sus conexiones"],
+  ["grupo", GraduationCap, "Mi grupo", "Solo su cohorte del diplomado"],
+] as const;
 
 // `enlace`: snapshot OG del link pegado (ortogonal al modo; null si no hay tarjeta).
 type ConAudiencia = { audiencia: Audiencia; enlace?: EnlacePreview | null };
@@ -335,22 +348,16 @@ export function ComposerModal({
                 aria-expanded={menuAud}
                 className={`inline-flex h-[26px] items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 text-[11.5px] font-semibold ${softText} ${focusRing}`}
               >
-                {audiencia === "ateneo" ? (
-                  <Globe aria-hidden className="h-3 w-3" strokeWidth={1.75} />
-                ) : (
-                  <Users aria-hidden className="h-3 w-3" strokeWidth={1.75} />
-                )}
-                {audiencia === "ateneo" ? "Todo el Ateneo" : "Mis colegas"}
+                {(() => {
+                  const AudIcono = (AUDIENCIAS.find(([id]) => id === audiencia) ?? AUDIENCIAS[0])[1];
+                  return <AudIcono aria-hidden className="h-3 w-3" strokeWidth={1.75} />;
+                })()}
+                {(AUDIENCIAS.find(([id]) => id === audiencia) ?? AUDIENCIAS[0])[2]}
                 <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
               </button>
               {menuAud && (
                 <div role="menu" className="absolute left-0 top-[30px] z-20 w-[190px] overflow-hidden rounded-[10px] border border-border bg-card shadow-[0_6px_20px_rgba(17,24,39,0.12)]">
-                  {(
-                    [
-                      ["ateneo", Globe, "Todo el Ateneo", "Toda la comunidad lo ve"],
-                      ["colegas", Users, "Mis colegas", "Solo sus conexiones"],
-                    ] as const
-                  ).map(([id, Icono, etiqueta, ayuda]) => (
+                  {AUDIENCIAS.map(([id, Icono, etiqueta, ayuda]) => (
                     <button
                       key={id}
                       type="button"
@@ -395,7 +402,7 @@ export function ComposerModal({
                 </div>
                 <div className="flex gap-3 p-3">
                   <div className="w-[150px] shrink-0 overflow-hidden rounded-lg">
-                    <Estudio ratio="16 / 10" poster={caso.poster} tamanoPlay={30} />
+                    <EstudioCaso casoId={caso.id} piezas={caso.piezas} ratio="16 / 10" tamanoPlay={30} />
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13.5px] font-bold leading-snug">{caso.titulo}</span>
@@ -427,7 +434,7 @@ export function ComposerModal({
                     } ${focusRing}`}
                   >
                     <span className="relative block overflow-hidden rounded-[7px]">
-                      <Estudio ratio="16 / 10" poster={c.poster} play={false} />
+                      <EstudioCaso casoId={c.id} piezas={c.piezas} ratio="16 / 10" play={false} />
                       {on && (
                         <span className="absolute right-1.5 top-1.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-primary text-[color:var(--sidebar)]">
                           <Check aria-hidden className="h-3 w-3" strokeWidth={3} />

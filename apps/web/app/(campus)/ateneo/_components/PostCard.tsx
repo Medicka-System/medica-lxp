@@ -31,6 +31,7 @@ import { REACCIONES } from "./tipos";
 import type { Comentario, EnlacePreview, Persona, Post, PostEncuesta, TipoReaccion } from "./tipos";
 import { EmojiReaccion } from "./EmojiReaccion";
 import { Avatar, Chip, ChipDocente, Estudio, Modal, card, focusRing, mono, softText } from "./ui";
+import { EstudioCaso } from "./EstudioCaso";
 import { editarPostAteneo, eliminarPostAteneo } from "@/lib/campus/ateneo-social-acciones";
 
 /* ───────────── selector de reacciones (hover / long-press) ───────────── */
@@ -598,8 +599,9 @@ export function PostCard({
             </div>
           ) : (
             <button type="button" onClick={() => onAbrirCaso(post.caso.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
-              <Estudio
-                poster={post.caso.poster}
+              <EstudioCaso
+                casoId={post.caso.id}
+                piezas={post.caso.piezas}
                 etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
                 badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}
               />
