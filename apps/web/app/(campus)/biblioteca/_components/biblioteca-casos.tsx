@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { BookMarked, Library, Search } from 'lucide-react';
 import { card, kicker, mono, focusRing } from '@/components/tokens';
 import { Badge } from '@/components/ui/badge';
+import { Select, type OpcionSelect } from '@/components/ui/select';
 import { VisorDicomPlaceholder } from '../../_components/visor-dicom';
 import { DOMINIO_LABEL, DOMINIOS, type DominioIaim } from '@/lib/campus/bitacora-contrato';
 import type { BibliotecaData, CasoAcervo } from '@/lib/campus/biblioteca-contrato';
@@ -22,6 +23,15 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
   const [q, setQ] = useState('');
   const [organo, setOrgano] = useState<string>(TODOS);
   const [dominio, setDominio] = useState<DominioIaim | typeof TODOS>(TODOS);
+
+  const opcionesOrgano: OpcionSelect[] = [
+    { value: TODOS, label: 'Todos los órganos' },
+    ...data.organos.map((o) => ({ value: o, label: o })),
+  ];
+  const opcionesDominio: OpcionSelect[] = [
+    { value: TODOS, label: 'Todos los dominios' },
+    ...DOMINIOS.map((d) => ({ value: d, label: DOMINIO_LABEL[d] })),
+  ];
 
   const filtrados = useMemo(() => {
     const texto = q.trim().toLowerCase();
@@ -60,28 +70,20 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
             className="w-full bg-transparent text-[14px] outline-none placeholder:text-muted-foreground"
           />
         </label>
-        <select
+        <Select
+          options={opcionesOrgano}
           value={organo}
-          onChange={(e) => setOrgano(e.target.value)}
+          onChange={(v) => setOrgano(v)}
           aria-label="Filtrar por órgano"
-          className="h-11 rounded-control border border-border bg-card px-3 text-[13.5px] font-semibold outline-none focus:border-secondary"
-        >
-          <option value={TODOS}>Todos los órganos</option>
-          {data.organos.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <select
+          className={`flex h-11 items-center gap-2 rounded-control border border-border bg-card px-3 text-[13.5px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+        />
+        <Select
+          options={opcionesDominio}
           value={dominio}
-          onChange={(e) => setDominio(e.target.value as DominioIaim | typeof TODOS)}
+          onChange={(v) => setDominio(v as DominioIaim | typeof TODOS)}
           aria-label="Filtrar por dominio I-AIM"
-          className="h-11 rounded-control border border-border bg-card px-3 text-[13.5px] font-semibold outline-none focus:border-secondary"
-        >
-          <option value={TODOS}>Todos los dominios</option>
-          {DOMINIOS.map((d) => (
-            <option key={d} value={d}>{DOMINIO_LABEL[d]}</option>
-          ))}
-        </select>
+          className={`flex h-11 items-center gap-2 rounded-control border border-border bg-card px-3 text-[13.5px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+        />
       </div>
 
       <p className="mt-3 text-[12.5px] text-muted-foreground">

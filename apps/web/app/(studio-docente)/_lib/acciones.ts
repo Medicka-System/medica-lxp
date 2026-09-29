@@ -11,14 +11,53 @@ import { DOMINIO_LABEL, type CasoValidacion, type CifrasAprobacion, type Dominio
 const HORAS_PROGRAMA = 1000;
 
 /**
- * Server actions de la consola del DOCENTE (§5B). CRUD simple `web → Supabase` bajo
- * RLS (Regla de Oro §2 — NO pasan por NestJS): cada acción corre con `comoStaff`, así
- * que las policies (`lxp.es_docente_o_mas`) son el segundo candado. Eco propone; el
- * docente decide — nada se asienta sin su confirmación (§7A). Aquí se ASIENTA su
- * decisión (validar/calificar/responder); el cálculo de dominio es aparte (PENDIENTE).
+ * Server actions de la consola del DOCENTE (§5B). El CRUD simple (calificar entrega,
+ * consultas, moderar, recursos) va `web → Supabase` bajo RLS (Regla de Oro §2 — NO pasa
+ * por NestJS): corre con `comoStaff`, así que las policies (`lxp.es_docente_o_mas`) son el
+ * segundo candado. La VALIDACIÓN de casos SÍ pasa por `apps/api` porque asentarla dispara
+ * side-effects de DOMINIO (recálculo de competencia, xAPI, promoción al banco, notificación)
+ * que solo pueden vivir ahí (§2/§7/§8). Eco propone; el docente decide — nada se asienta sin
+ * su confirmación (§7A).
  */
 
 export type ResultadoAccion = { ok: true } | { ok: false; error: string };
+
+/** Base del `api` de dominio (server-side). En docker la red interna es http://api:8000. */
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+/**
+ * Asienta la decisión clínica del docente vía la API de DOMINIO (§2):
+ * `POST /validacion/casos/:casoId/{aprobar|rechazar}`. El `api` registra validación + estado
+ * atómicamente y dispara lo que NO puede vivir en el web: recálculo de `competencia_dominios`
+ * (§8.4), statements xAPI (`validó`/`aprobó`/`falló` · §7), promoción al banco curado (§5B) y
+ * la notificación al alumno (§8.12). El docenteId viaja en el cuerpo (en Sprint 9 saldrá del JWT).
+ */
+async function decidirCasoApi(
+  casoId: string,
+  accion: 'aprobar' | 'rechazar',
+  docenteId: string,
+  feedback?: string,
+): Promise<ResultadoAccion> {
+  try {
+    const res = await fetch(`${apiBase()}/validacion/casos/${encodeURIComponent(casoId)}/${accion}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ docenteId, feedback: feedback?.trim() || undefined }),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `No se pudo ${accion === 'aprobar' ? 'aprobar' : 'rechazar'} el caso (HTTP ${res.status}).`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar la API de validación (apps/api). ¿Está levantada?' };
+  }
+}
 
 /**
  * Marca un caso como VISTO por el docente (§5B · validación reactiva): apaga el puntito verde de
@@ -42,16 +81,9 @@ export async function marcarCasoVisto(casoId: string): Promise<ResultadoAccion> 
 
 // ── Validación de casos ─────────────────────────────────────────────────────────
 /**
- * Aprueba o rechaza un caso de la bitácora. Escribe la decisión clínica en
- * `validaciones` y refleja el estado en `bitacora_casos` — ambas cosas bajo RLS
- * (`validaciones_write` / `bitacora_update` exigen `es_docente_o_mas`).
- *
- * PENDIENTE DE API (dominio · §2/§8): al APROBAR hay que encolar en BullMQ:
- *   • `calculo-competencia` → recalcula `competencia_dominios` del alumno (§8.4).
- *   • `envio-xapi` → statement `validó` al LRS (§7).
- *   • `notificaciones` → avisar al alumno (§8.12).
- * Contrato exacto (apps/api): POST /validaciones/{casoId}/aprobar → encola los tres.
- * El worker es quien toca la proyección de competencia (read-only desde web · §6).
+ * Aprueba o rechaza un caso de la bitácora VÍA la API de dominio (§2 · `decidirCasoApi`):
+ * el `api` asienta validación + estado y encola competencia/xAPI/notificación. El feedback
+ * es obligatorio al rechazar (se lo explicamos al alumno).
  */
 export async function validarCaso(input: {
   casoId: string;
@@ -63,27 +95,13 @@ export async function validarCaso(input: {
   if (input.decision === 'rechazado' && !feedback) {
     return { ok: false, error: 'Explica al alumno por qué se rechaza el caso.' };
   }
-  try {
-    await comoStaff(userId, async (sql) => {
-      // `comoStaff` YA abre la transacción (sql.begin + claims + rol para RLS); se opera
-      // directo sobre `sql` (el objeto de transacción no expone .begin). INSERT + UPDATE
-      // van en la MISMA transacción de comoStaff → atomicidad intacta.
-      await sql`
-        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-        values (
-          ${input.casoId}, ${userId},
-          ${input.decision}::lxp.decision_validacion,
-          ${feedback || null}
-        )`;
-      await sql`
-        update lxp.bitacora_casos
-        set estado_validacion = ${input.decision}::lxp.estado_validacion
-        where id = ${input.casoId}`;
-    });
-  } catch {
-    return { ok: false, error: 'No se pudo registrar la validación. Inténtalo de nuevo.' };
-  }
-  // PENDIENTE DE API: encolar calculo-competencia + xAPI `validó` + notificación (§8/§7).
+  const r = await decidirCasoApi(
+    input.casoId,
+    input.decision === 'aprobado' ? 'aprobar' : 'rechazar',
+    userId,
+    feedback,
+  );
+  if (!r.ok) return r;
   revalidatePath('/docente/validacion');
   revalidatePath('/docente');
   return { ok: true };
@@ -92,9 +110,8 @@ export async function validarCaso(input: {
 /**
  * Aprueba en LOTE los casos "listos para confirmar" de la bandeja (§7A · pie de la bandeja).
  * El docente CONFIRMA el lote tras revisar el resumen — no se asienta nada sin ese paso
- * (Eco propone, el humano firma). Cada aprobación acredita las horas del caso. La
- * clasificación "listo" es hoy un PLACEHOLDER del cliente (Eco no conectado); el docente
- * ve la lista y decide. RLS: `es_docente_o_mas` sobre `lxp.validaciones`/`bitacora_casos`.
+ * (Eco propone, el humano firma). Cada aprobación va por la API de dominio (§2) y acredita las
+ * horas + recalcula competencia. Devuelve cuántas se asentaron realmente.
  */
 export async function aprobarCasosLote(
   casoIds: string[],
@@ -102,65 +119,50 @@ export async function aprobarCasosLote(
   const { userId } = await requireDocente();
   const ids = [...new Set(casoIds)].filter(Boolean);
   if (!ids.length) return { ok: false, error: 'No hay casos listos que aprobar.' };
-  try {
-    await comoStaff(userId, async (sql) => {
-      // comoStaff ya provee la transacción; el lote corre directo sobre `sql` (una sola tx).
-      for (const casoId of ids) {
-        await sql`
-          insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-          values (${casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, null)`;
-        await sql`
-          update lxp.bitacora_casos
-          set estado_validacion = 'aprobado'::lxp.estado_validacion
-          where id = ${casoId} and estado_validacion = 'pendiente'`;
-      }
-    });
-  } catch {
+  let aprobados = 0;
+  for (const casoId of ids) {
+    const r = await decidirCasoApi(casoId, 'aprobar', userId);
+    if (r.ok) aprobados++;
+  }
+  if (aprobados === 0) {
     return { ok: false, error: 'No se pudo aprobar el lote. Inténtalo de nuevo.' };
   }
-  // PENDIENTE DE API: encolar calculo-competencia + xAPI `validó` por cada caso (§8/§7).
   revalidatePath('/docente/validacion');
   revalidatePath('/docente');
-  return { ok: true, aprobados: ids.length };
+  return { ok: true, aprobados };
 }
 
 /**
  * Aprueba UN caso y devuelve las cifras REALES para el modal de confirmación (§ spec: el
- * impacto se confirma con números, no con toast). Firma la decisión (validaciones + estado)
- * y calcula: horas que acredita este caso, total acumulado del alumno tras la firma, meta del
- * programa, dominio afectado y casos que quedan en la cola. La competencia I-AIM la recalcula
- * el worker `calculo-competencia` (§8) — aquí se comunica el dominio y que se actualiza en
- * segundo plano. Eco propone; el docente firma (§7A).
+ * impacto se confirma con números, no con toast). El asiento (validación + estado + competencia
+ * + xAPI + promoción + notificación) lo hace la API de dominio (§2 · `decidirCasoApi`); luego se
+ * LEE (RLS, solo lectura) horas que acredita este caso, total acumulado del alumno tras la firma,
+ * meta del programa, dominio afectado y casos que quedan en la cola. La competencia I-AIM se
+ * recalcula en el worker (§8) — aquí solo se comunica. Eco propone; el docente firma (§7A).
  */
 export async function aprobarCaso(input: {
   casoId: string;
   feedback: string;
 }): Promise<ResultadoAccion & { cifras?: CifrasAprobacion }> {
   const { userId } = await requireDocente();
-  const feedback = input.feedback.trim();
+  const r = await decidirCasoApi(input.casoId, 'aprobar', userId, input.feedback);
+  if (!r.ok) return r;
+  // Cifras del modal (lectura RLS, solo lectura): el caso YA quedó 'aprobado' en el api, así que
+  // el total del alumno ya lo incluye y los pendientes ya lo excluyen. Si falla la lectura, el
+  // asiento clínico igual está firme → el modal cae a su fallback (cierra sin cifras).
+  let cifras: CifrasAprobacion | undefined;
   try {
-    const cifras = await comoStaff(userId, async (sql) => {
+    cifras = await comoStaff(userId, async (sql) => {
       const [caso] = await sql<{ id_alumno: string; horas: number; dominio: DominioIaim | null }[]>`
         select id_alumno, horas_estimadas::float8 as horas, dominio_iaim as dominio
         from lxp.bitacora_casos where id = ${input.casoId} limit 1`;
       if (!caso) throw new Error('caso no encontrado');
-
-      // comoStaff ya provee la transacción; se opera directo sobre `sql` (una sola tx).
-      await sql`
-        insert into lxp.validaciones (caso_id, id_docente, decision, feedback)
-        values (${input.casoId}, ${userId}, 'aprobado'::lxp.decision_validacion, ${feedback || null})`;
-      await sql`
-        update lxp.bitacora_casos
-        set estado_validacion = 'aprobado'::lxp.estado_validacion
-        where id = ${input.casoId} and estado_validacion = 'pendiente'`;
-
       const [tot] = await sql<{ h: number }[]>`
         select coalesce(sum(horas_estimadas), 0)::float8 as h
         from lxp.bitacora_casos
         where id_alumno = ${caso.id_alumno} and estado_validacion = 'aprobado'`;
       const [rest] = await sql<{ n: number }[]>`
         select count(*)::int as n from lxp.bitacora_casos where estado_validacion = 'pendiente'`;
-
       return {
         horasAcreditadas: caso.horas,
         horasTotales: tot?.h ?? caso.horas,
@@ -169,12 +171,40 @@ export async function aprobarCaso(input: {
         casosRestantes: rest?.n ?? 0,
       } satisfies CifrasAprobacion;
     });
-    // PENDIENTE DE API (worker · §8): encolar calculo-competencia + xAPI `validó` + notificación.
-    revalidatePath('/docente/validacion');
-    revalidatePath('/docente');
-    return { ok: true, cifras };
   } catch {
-    return { ok: false, error: 'No se pudo aprobar el caso. Inténtalo de nuevo.' };
+    cifras = undefined;
+  }
+  revalidatePath('/docente/validacion');
+  revalidatePath('/docente');
+  return { ok: true, cifras };
+}
+
+/**
+ * Agrega el caso a la Biblioteca curada BAJO DEMANDA (§5B · botón "Agregar a Biblioteca"),
+ * sin re-asentar la validación. Es DOMINIO (§2): `POST /validacion/casos/:casoId/biblioteca`
+ * copia la verdad estructurada + estudio anonimizado al banco "por curar". Idempotente: si el
+ * caso ya estaba en el acervo, lo indica (`yaExistia`). El caso ya está anonimizado en ingesta
+ * (§10); la promoción es curaduría clínica del docente, sin gate de consentimiento.
+ */
+export async function agregarCasoABiblioteca(
+  casoId: string,
+): Promise<ResultadoAccion & { yaExistia?: boolean }> {
+  const { userId } = await requireDocente();
+  try {
+    const res = await fetch(`${apiBase()}/validacion/casos/${encodeURIComponent(casoId)}/biblioteca`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ docenteId: userId }),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return { ok: false, error: `No se pudo agregar el caso a la Biblioteca (HTTP ${res.status}).` };
+    }
+    const d = (await res.json()) as { casoBancoId: string; creado: boolean };
+    revalidatePath('/docente/validacion');
+    return { ok: true, yaExistia: !d.creado };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar la API de validación (apps/api). ¿Está levantada?' };
   }
 }
 

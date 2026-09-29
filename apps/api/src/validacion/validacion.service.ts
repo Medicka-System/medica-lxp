@@ -59,6 +59,25 @@ export class ValidacionService {
     return this.validar(casoId, docenteId, 'aprobado', feedback, correccionSobreEco);
   }
 
+  /**
+   * Agrega un caso de bitácora a la Biblioteca curada BAJO DEMANDA (§5B · botón "Agregar a
+   * Biblioteca" de la consola de validación), sin re-asentar la validación. Es DOMINIO (§2):
+   * copia la verdad estructurada + estudio anonimizado al banco "por curar". IDEMPOTENTE
+   * (`on conflict` sobre `origen_caso_id`). El caso ya está anonimizado en ingesta (§10); la
+   * promoción es curaduría clínica del docente, sin gate de consentimiento.
+   */
+  async agregarABiblioteca(
+    casoId: string,
+  ): Promise<{ casoId: string; casoBancoId: string; creado: boolean }> {
+    const caso = await cargarCasoValidacion(this.db.sql, casoId);
+    if (!caso) throw new NotFoundException(`Caso ${casoId} no existe.`);
+    const banco = await promoverCasoABanco(this.db.sql, casoId);
+    this.logger.log(
+      `Caso ${casoId} agregado a la Biblioteca (${banco.casoBancoId || 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
+    );
+    return { casoId, casoBancoId: banco.casoBancoId, creado: banco.creado };
+  }
+
   /** El docente rechaza el caso con feedback: registra la decisión, sin competencia. */
   rechazar(
     casoId: string,
@@ -117,15 +136,9 @@ export class ValidacionService {
       try {
         const banco = await promoverCasoABanco(this.db.sql, casoId);
         casoBancoId = banco.casoBancoId || undefined;
-        if (banco.omitido) {
-          this.logger.log(
-            `Caso ${casoId} NO promovido al banco: el alumno ${caso.id_alumno} no consintió (casosABiblioteca=false).`,
-          );
-        } else {
-          this.logger.log(
-            `Caso ${casoId} promovido al banco (${casoBancoId ?? 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
-          );
-        }
+        this.logger.log(
+          `Caso ${casoId} promovido al banco (${casoBancoId ?? 'sin id'}, ${banco.creado ? 'nuevo' : 'ya existía'}).`,
+        );
       } catch (e) {
         this.logger.error(`No se pudo promover el caso ${casoId} al banco: ${String(e)}`);
       }

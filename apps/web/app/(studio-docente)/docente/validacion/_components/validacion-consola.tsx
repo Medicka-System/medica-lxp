@@ -20,8 +20,9 @@
  * `confirmarPropuestaEco` (loop de mejora); "Descartar sugerencia" usa `descartarPropuestaEco`
  * sin asentar. El VISOR DICOM real (Cornerstone3D) se monta cuando hay estudio anonimizado.
  *
- * PLACEHOLDER (aún sin endpoint): solo el CHAT conversacional (`eco-rail`) y "Agregar a
- * Biblioteca" (curaduría). El flujo de evaluación NO tiene mocks.
+ * "Agregar a Biblioteca" (curaduría) es REAL: promueve el caso al banco "por curar" vía la API
+ * de dominio (`agregarCasoABiblioteca`). PLACEHOLDER (aún sin endpoint): solo el CHAT
+ * conversacional (`eco-rail`). El flujo de evaluación NO tiene mocks.
  *
  * Color: violeta = Eco (nunca alerta); ámbar = lo urgente (>72 h) y "requiere criterio";
  * sin rojo — pedir corrección no es una falta (§5A).
@@ -49,6 +50,7 @@ import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-est
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import { DOMINIO_LABEL, type CasoValidacion, type CifrasAprobacion, type EstudiosAlumnoData } from '../../../_lib/contrato';
 import {
+  agregarCasoABiblioteca,
   aprobarCaso,
   aprobarCasosLote,
   cargarCasoValidacion,
@@ -230,6 +232,7 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   const [ecoAbierta, setEcoAbierta] = useState(false);
   const [enviando, startTransition] = useTransition();
   const [analizando, startAnalisis] = useTransition();
+  const [aBiblioteca, startBiblioteca] = useTransition();
   // Modal de confirmación al aprobar UN caso: el impacto se confirma con cifras reales.
   const [aprobacion, setAprobacion] = useState<{ caso: CasoValidacion; cifras: CifrasAprobacion } | null>(null);
 
@@ -243,7 +246,7 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   // server re-lee `getCasosPorValidar` y la bandeja se REORDENA/MARCA sola (caso nuevo al top +
   // "sin analizar" + puntito verde) SIN que el docente refresque. No sondea en medio de una
   // mutación (no pisa una acción en curso). Suscripción limpia: cleanup del interval + listener.
-  const ocupado = enviando || aprobandoLote || analizando;
+  const ocupado = enviando || aprobandoLote || analizando || aBiblioteca;
   useEffect(() => {
     if (ocupado) return;
     const refrescar = () => {
@@ -516,11 +519,26 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
     else setCasoSel(null);
   }
 
-  /** Curaduría (PLACEHOLDER): "Agregar a Biblioteca" se cablea con la curaduría más adelante. */
-  function avisoCuraduria() {
-    setResultado({
-      ok: true,
-      texto: 'Agregar a la Biblioteca de casos se conecta con la curaduría clínica en una fase posterior.',
+  /**
+   * Curaduría (§5B · REAL): promueve el caso al banco "por curar" vía la API de dominio
+   * (`agregarCasoABiblioteca` → /validacion/casos/:id/biblioteca). Idempotente: si ya estaba
+   * en el acervo, lo avisa. El caso ya va anonimizado (§10); no pide consentimiento.
+   */
+  function agregarABiblioteca() {
+    if (!casoActivo) return;
+    const casoId = casoActivo.id;
+    startBiblioteca(async () => {
+      const r = await agregarCasoABiblioteca(casoId);
+      setResultado(
+        r.ok
+          ? {
+              ok: true,
+              texto: r.yaExistia
+                ? 'Este caso ya estaba en la Biblioteca de casos.'
+                : 'Caso agregado a la Biblioteca de casos (por curar). Cúrelo para publicarlo.',
+            }
+          : { ok: false, texto: r.error },
+      );
     });
   }
 
@@ -781,7 +799,8 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
             onSiguiente={() => irAOtroCaso(1)}
             onAprobar={aprobar}
             onRechazar={rechazar}
-            onBiblioteca={avisoCuraduria}
+            onBiblioteca={agregarABiblioteca}
+            bibliotecaBusy={aBiblioteca}
             onAnalizar={analizar}
             onDescartar={descartar}
             analizando={analizando}
@@ -1033,6 +1052,7 @@ function DetalleCaso({
   onAprobar,
   onRechazar,
   onBiblioteca,
+  bibliotecaBusy,
   onAnalizar,
   onDescartar,
   analizando,
@@ -1055,6 +1075,7 @@ function DetalleCaso({
   onAprobar: () => void;
   onRechazar: () => void;
   onBiblioteca: () => void;
+  bibliotecaBusy: boolean;
   onAnalizar: () => void;
   onDescartar: () => void;
   analizando: boolean;
@@ -1436,9 +1457,14 @@ function DetalleCaso({
             <button
               type="button"
               onClick={onBiblioteca}
-              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+              disabled={bibliotecaBusy}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50 ${focusRing}`}
             >
-              <BookCopy aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              {bibliotecaBusy ? (
+                <Clock aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />
+              ) : (
+                <BookCopy aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              )}
               Agregar a Biblioteca
             </button>
           </span>

@@ -145,6 +145,29 @@ describe('ValidacionService (flujo de validación del docente)', () => {
     );
   });
 
+  it('agregarABiblioteca: promueve el caso al banco bajo demanda (sin re-asentar validación)', async () => {
+    cargar.mockResolvedValue({ id: 'caso-3', id_alumno: 'alumno-3', estado_validacion: 'aprobado' });
+    promover.mockResolvedValue({ casoBancoId: 'banco-3', creado: true });
+    const svc = await crear();
+
+    const res = await svc.agregarABiblioteca('caso-3');
+
+    expect(promover).toHaveBeenCalledWith(db.sql, 'caso-3');
+    expect(res).toEqual({ casoId: 'caso-3', casoBancoId: 'banco-3', creado: true });
+    // No re-asienta la validación ni dispara competencia/xAPI.
+    expect(registrar).not.toHaveBeenCalled();
+    expect(competencia.recalcular).not.toHaveBeenCalled();
+    expect(xapi.encolar).not.toHaveBeenCalled();
+  });
+
+  it('agregarABiblioteca: caso inexistente → 404 sin promover', async () => {
+    cargar.mockResolvedValue(null);
+    const svc = await crear();
+
+    await expect(svc.agregarABiblioteca('no-existe')).rejects.toBeInstanceOf(NotFoundException);
+    expect(promover).not.toHaveBeenCalled();
+  });
+
   it('caso inexistente: 404 y ninguna side-effect', async () => {
     cargar.mockResolvedValue(null);
     const svc = await crear();
@@ -162,6 +185,7 @@ describe('ValidacionController', () => {
   const validacion = {
     aprobar: jest.fn().mockResolvedValue({ validacionId: 'v1', decision: 'aprobado' }),
     rechazar: jest.fn().mockResolvedValue({ validacionId: 'v2', decision: 'rechazado' }),
+    agregarABiblioteca: jest.fn().mockResolvedValue({ casoId: 'c1', casoBancoId: 'b1', creado: true }),
   };
 
   async function crear(): Promise<ValidacionController> {
@@ -185,5 +209,12 @@ describe('ValidacionController', () => {
     // El guard lanza síncronamente, antes de devolver la promesa.
     expect(() => ctrl.aprobar('caso-9', {})).toThrow(BadRequestException);
     expect(validacion.aprobar).not.toHaveBeenCalled();
+  });
+
+  it('POST biblioteca promueve el caso de la ruta y exige docenteId', async () => {
+    const ctrl = await crear();
+    await ctrl.agregarABiblioteca('caso-7', { docenteId: 'doc-1' });
+    expect(validacion.agregarABiblioteca).toHaveBeenCalledWith('caso-7');
+    expect(() => ctrl.agregarABiblioteca('caso-7', {})).toThrow(BadRequestException);
   });
 });
