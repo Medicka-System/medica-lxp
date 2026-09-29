@@ -264,19 +264,26 @@ export function ContenidoBiblioteca({
                       className={`relative grid w-full place-items-center ${focusRing}`}
                       style={{ aspectRatio: '16 / 9', background: cfg.fondoOscuro ? 'var(--sidebar)' : 'var(--muted)' }}
                     >
-                      {cfg.fondoOscuro && (
-                        <span
-                          aria-hidden
-                          className="absolute inset-0"
-                          style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)' }}
-                        />
+                      {r.thumbUrl ? (
+                        // Miniatura real (imagen): URL firmada de object storage, no asset local.
+                        <img src={r.thumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                      ) : (
+                        <>
+                          {cfg.fondoOscuro && (
+                            <span
+                              aria-hidden
+                              className="absolute inset-0"
+                              style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)' }}
+                            />
+                          )}
+                          <span
+                            aria-hidden
+                            className={`relative grid place-items-center ${cfg.fondoOscuro ? 'h-[38px] w-[38px] rounded-full bg-white/[0.16] text-white' : 'text-muted-foreground'}`}
+                          >
+                            <Icono className={cfg.fondoOscuro ? 'h-[18px] w-[18px]' : 'h-[26px] w-[26px]'} strokeWidth={1.6} />
+                          </span>
+                        </>
                       )}
-                      <span
-                        aria-hidden
-                        className={`relative grid place-items-center ${cfg.fondoOscuro ? 'h-[38px] w-[38px] rounded-full bg-white/[0.16] text-white' : 'text-muted-foreground'}`}
-                      >
-                        <Icono className={cfg.fondoOscuro ? 'h-[18px] w-[18px]' : 'h-[26px] w-[26px]'} strokeWidth={1.6} />
-                      </span>
                       {r.procesando && (
                         <span aria-hidden className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
                           <span className="block h-full bg-[color:var(--info)]" style={{ width: `${r.progreso ?? 0}%` }} />

@@ -18,6 +18,7 @@ import {
   Boxes,
   ChevronLeft,
   ChevronRight,
+  Download,
   FileText,
   Image as ImageIcon,
   Layers,
@@ -34,8 +35,12 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
-import type { RecursoDetalle, TipoRecurso } from '@/lib/studio/contenido-contrato';
+import type { PreviewRecurso, RecursoDetalle, TipoRecurso } from '@/lib/studio/contenido-contrato';
 import { eliminarRecurso } from '@/lib/studio/contenido-acciones';
+import { BloqueVideo } from '@/components/bloques/video/bloque-video';
+import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
+import type { TipoPaquete } from '@/components/bloques/contratos';
 
 const ICONO: Record<TipoRecurso, typeof Play> = {
   video: Play,
@@ -48,6 +53,20 @@ const ICONO: Record<TipoRecurso, typeof Play> = {
   imagen: ImageIcon,
 };
 
+/**
+ * Prefijo del H5P server (§7 · api) para el PLAYER de biblioteca. El player pega directo al
+ * `api` desde el navegador (CORS), por eso usa la URL PÚBLICA. Sin ella, `BloqueH5P` muestra
+ * su estado "servidor pendiente" con dignidad. Mismo patrón que la lección interactiva.
+ */
+const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
+  : null;
+
+/** SCORM/xAPI del banco al union del bloque (solo rotula; el lanzador aún es pendiente de API). */
+function tipoPaquete(tipo: 'scorm' | 'xapi'): TipoPaquete {
+  return tipo === 'xapi' ? 'xapi' : 'scorm2004';
+}
+
 export function DetalleRecurso({
   recurso,
   rutaBase = '/studio/contenido',
@@ -59,12 +78,11 @@ export function DetalleRecurso({
   /** El docente consulta; eliminar/reemplazar son del diseñador → se ocultan. */
   soloLectura?: boolean;
 }) {
-  const { id, nombre, tipo, duracion, reproduccion, metadatos, etiquetas, usos, versiones } = recurso;
+  const { id, nombre, tipo, duracion, reproduccion, metadatos, etiquetas, usos, versiones, preview } = recurso;
   const router = useRouter();
   const [dialogo, setDialogo] = useState<null | 'reemplazar' | 'eliminar'>(null);
   const Icono = ICONO[tipo];
   const programas = [...new Set(usos.map((u) => u.programa))];
-  const fondoOscuro = tipo !== 'pdf' && tipo !== 'word' && tipo !== 'ppt';
 
   return (
     <div className="mx-auto w-full max-w-[1240px] px-8 pb-10 pt-7">
@@ -100,39 +118,18 @@ export function DetalleRecurso({
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
         {/* ════════ Lo que ES ════════ */}
-        <section className={`${card} min-w-0 overflow-hidden`}>
-          <div
-            className="relative grid w-full place-items-center"
-            style={{ aspectRatio: '16 / 9', background: fondoOscuro ? 'var(--sidebar)' : 'var(--muted)' }}
-          >
-            {fondoOscuro && (
-              <span
-                aria-hidden
-                className="absolute inset-0"
-                style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)' }}
-              />
-            )}
-            <span
-              aria-hidden
-              className={`relative grid place-items-center ${fondoOscuro ? 'h-[58px] w-[58px] rounded-full bg-white/[0.18] text-white' : 'text-muted-foreground'}`}
-            >
-              <Icono className={fondoOscuro ? 'h-[26px] w-[26px]' : 'h-[34px] w-[34px]'} strokeWidth={1.4} />
-            </span>
-            {duracion && (
-              <span
-                className={`${mono} absolute bottom-3 left-3 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white`}
-                style={{ background: 'rgba(15,45,82,.82)' }}
-              >
-                {duracion}
-              </span>
-            )}
-            {reproduccion && (
-              <span className="absolute bottom-3 right-3 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-[color:var(--sidebar)]">
-                {reproduccion}
-              </span>
-            )}
-          </div>
+        <div className="flex min-w-0 flex-col gap-5">
+          {/* PREVIEW reproducible por tipo (§5B): reproductor real cuando lo hay, marco con
+              ícono cuando el artefacto no es firmable/incrustable (word/ppt/ninguno). */}
+          <VistaPreviaRecurso
+            preview={preview}
+            tipo={tipo}
+            nombre={nombre}
+            duracion={duracion}
+            reproduccion={reproduccion}
+          />
 
+          <section className={`${card} min-w-0 overflow-hidden`}>
           <div className="px-5 py-5 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-accent px-2.5 text-[11.5px] font-bold text-accent-foreground">
@@ -170,7 +167,8 @@ export function DetalleRecurso({
               ))}
             </div>
           </div>
-        </section>
+          </section>
+        </div>
 
         {/* ════════ Lo que AFECTA ════════ */}
         <aside className="flex min-w-0 flex-col gap-4">
@@ -255,10 +253,136 @@ export function DetalleRecurso({
           recursoId={id}
           usos={usos.length}
           onCerrar={() => setDialogo(null)}
-          onEliminado={() => router.push('/studio/contenido')}
+          onEliminado={() => router.push(rutaBase)}
         />
       )}
     </div>
+  );
+}
+
+/* ═══════════════════════ Preview reproducible por tipo (§5B) ═══════════════════════ */
+
+/**
+ * Monta el reproductor real del recurso según su tipo, reusando las piezas del course
+ * builder (§5C): BloqueVideo / BloqueH5P / BloquePaquete + un visor PDF simple y la imagen
+ * directa. Cuando no hay artefacto incrustable (word/ppt/ninguno) cae a un MARCO con el
+ * ícono del tipo — la misma estética del listado. La URL/servidor ya vienen firmados del
+ * reader (§2 — el binario no pasa por el web).
+ */
+function VistaPreviaRecurso({
+  preview,
+  tipo,
+  nombre,
+  duracion,
+  reproduccion,
+}: {
+  preview: PreviewRecurso;
+  tipo: TipoRecurso;
+  nombre: string;
+  duracion?: string;
+  reproduccion?: string;
+}) {
+  switch (preview.clase) {
+    case 'video':
+      return <BloqueVideo src={preview.url} titulo={nombre} modo="ver" />;
+
+    case 'h5p':
+      return <BloqueH5P modo="ver" contentId={preview.contentId} servidorBase={H5P_BASE} titulo={nombre} />;
+
+    case 'paquete':
+      // El lanzador SCORM/xAPI aún es pendiente de API → el bloque muestra su marco real y
+      // se degrada con dignidad (§2). "Cablearlo" es montar el componente correcto, no fingir.
+      return <BloquePaquete modo="ver" titulo={nombre} paquete={{ tipo: tipoPaquete(preview.tipo) }} />;
+
+    case 'imagen':
+      return (
+        <section className={`${card} min-w-0 overflow-hidden`}>
+          <div className="relative w-full bg-muted" style={{ aspectRatio: '16 / 9' }}>
+            {/* <img>: URL firmada de object storage (imagen de contenido), no asset local. */}
+            <img src={preview.url} alt={nombre} className="absolute inset-0 h-full w-full object-contain" />
+          </div>
+        </section>
+      );
+
+    case 'pdf':
+      return (
+        <section className={`${card} min-w-0 overflow-hidden`}>
+          <iframe src={preview.url} title={nombre} className="h-[520px] w-full border-0 bg-muted" />
+        </section>
+      );
+
+    case 'documento':
+      // Word/PowerPoint no se incrustan en el navegador → marco con ícono + abrir/descargar.
+      return (
+        <MarcoIcono tipo={tipo} duracion={duracion} reproduccion={reproduccion}>
+          {preview.url && (
+            <a
+              href={preview.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+            >
+              <Download aria-hidden className="h-4 w-4" strokeWidth={2} />
+              Abrir documento
+            </a>
+          )}
+        </MarcoIcono>
+      );
+
+    default:
+      return <MarcoIcono tipo={tipo} duracion={duracion} reproduccion={reproduccion} />;
+  }
+}
+
+/** Marco 16:9 con el ícono del tipo — fallback cuando el recurso no es incrustable. */
+function MarcoIcono({
+  tipo,
+  duracion,
+  reproduccion,
+  children,
+}: {
+  tipo: TipoRecurso;
+  duracion?: string;
+  reproduccion?: string;
+  children?: React.ReactNode;
+}) {
+  const Icono = ICONO[tipo];
+  const fondoOscuro = tipo !== 'pdf' && tipo !== 'word' && tipo !== 'ppt';
+  return (
+    <section className={`${card} min-w-0 overflow-hidden`}>
+      <div
+        className="relative grid w-full place-items-center"
+        style={{ aspectRatio: '16 / 9', background: fondoOscuro ? 'var(--sidebar)' : 'var(--muted)' }}
+      >
+        {fondoOscuro && (
+          <span
+            aria-hidden
+            className="absolute inset-0"
+            style={{ background: 'repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 9px)' }}
+          />
+        )}
+        <span
+          aria-hidden
+          className={`relative grid place-items-center ${fondoOscuro ? 'h-[58px] w-[58px] rounded-full bg-white/[0.18] text-white' : 'text-muted-foreground'}`}
+        >
+          <Icono className={fondoOscuro ? 'h-[26px] w-[26px]' : 'h-[34px] w-[34px]'} strokeWidth={1.4} />
+        </span>
+        {duracion && (
+          <span
+            className={`${mono} absolute bottom-3 left-3 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white`}
+            style={{ background: 'rgba(15,45,82,.82)' }}
+          >
+            {duracion}
+          </span>
+        )}
+        {reproduccion && (
+          <span className="absolute bottom-3 right-3 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-[color:var(--sidebar)]">
+            {reproduccion}
+          </span>
+        )}
+      </div>
+      {children && <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-4">{children}</div>}
+    </section>
   );
 }
 

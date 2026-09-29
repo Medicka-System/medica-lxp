@@ -20,7 +20,13 @@ export class MediaArchivosService {
 
   /** Firma la subida DIRECTA a la clave final. El navegador sube el archivo tal cual. */
   firmarSubida(ext: string): { id: string; ext: string; ref: string; urlSubida: string; urlLectura: string } {
-    const e = EXT_OK.has(ext) ? ext : 'pdf';
+    const e = (ext ?? '').toLowerCase();
+    // Extensión desconocida → se rechaza. Antes se forzaba a 'pdf', guardando el binario con
+    // la extensión equivocada y sirviéndolo roto. Mejor un 400 explícito (§2: la firma la
+    // usa el navegador tal cual, no hay reintento server-side).
+    if (!EXT_OK.has(e)) {
+      throw new BadRequestException(`Extensión no soportada: "${ext}". Permitidas: ${[...EXT_OK].join(', ')}.`);
+    }
     const id = randomUUID();
     const ref = this.storage.claveArchivo(id, e);
     // PÚBLICAS: el navegador (diseñador) sube y lee el documento directo a storage.

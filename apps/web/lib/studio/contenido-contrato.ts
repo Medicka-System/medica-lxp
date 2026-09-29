@@ -49,6 +49,8 @@ export type Recurso = {
   etiquetas: string[];
   procesando?: boolean;
   progreso?: number;
+  /** URL firmada de la miniatura (solo `imagen` por ahora); null → se usa el ícono del tipo. */
+  thumbUrl?: string | null;
 };
 
 export type UsoRecurso = {
@@ -61,6 +63,21 @@ export type UsoRecurso = {
 
 export type VersionArchivo = { id: string; etiqueta: string; nota: string; fecha: Date; actual?: boolean };
 
+/**
+ * PREVIEW reproducible del recurso en el detalle (§5B). El reader firma la URL/servidor del
+ * DOMINIO (§2 — el binario no pasa por el web) y el cliente monta el reproductor real por
+ * tipo (BloqueVideo / BloqueH5P / BloquePaquete / visor PDF / imagen). `ninguno` = sin
+ * artefacto firmable → el detalle cae al marco con ícono del tipo.
+ */
+export type PreviewRecurso =
+  | { clase: 'imagen'; url: string }
+  | { clase: 'video'; url: string }
+  | { clase: 'pdf'; url: string }
+  | { clase: 'documento'; tipo: 'word' | 'ppt'; url: string | null }
+  | { clase: 'h5p'; contentId: string }
+  | { clase: 'paquete'; tipo: 'scorm' | 'xapi' }
+  | { clase: 'ninguno' };
+
 export type RecursoDetalle = {
   id: string;
   tipo: TipoRecurso;
@@ -71,4 +88,6 @@ export type RecursoDetalle = {
   etiquetas: string[];
   usos: UsoRecurso[];
   versiones: VersionArchivo[];
+  /** Preview reproducible ya firmada por el reader (§2). */
+  preview: PreviewRecurso;
 };
