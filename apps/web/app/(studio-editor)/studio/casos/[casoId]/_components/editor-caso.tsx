@@ -38,6 +38,7 @@ import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/e
 import { DOMINIO_LABEL, type CasoEditor, type DominioIaim, type ModuloOpcionCaso } from '@/lib/studio/casos-contrato';
 import { guardarCaso, guardarContenidoEstructuradoCaso, publicarCaso } from '@/lib/studio/acciones';
 import { quitarSerieDicom } from '@/lib/dicom/acciones';
+import { Select } from '@/components/ui/select';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import { ContenidoEstructuradoCasoVista } from '@/components/casos/contenido-estructurado-caso';
 import { tieneContenidoEstructurado, type ContenidoEstructuradoCaso } from '@campus/shared';
@@ -445,22 +446,20 @@ export function EditorCaso({
                 <span className="block text-[11.5px] font-semibold">Módulo</span>
                 <span className="text-[10.5px] text-muted-foreground">lo asignas tú (no se adivina)</span>
               </span>
-              <select
+              <Select
+                aria-label="Módulo"
                 value={moduloId ?? ''}
-                onChange={(e) => setModuloId(e.target.value || null)}
-                className={`${campoBase} h-10 appearance-none`}
-              >
-                <option value="">Sin asignar</option>
-                {modulosPorPrograma.map(([programa, mods]) => (
-                  <optgroup key={programa} label={programa}>
-                    {mods.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.nombre}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                onChange={(v) => setModuloId(v || null)}
+                className={`mt-1.5 flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+                placeholder="Sin asignar"
+                options={[
+                  { value: '', label: 'Sin asignar' },
+                  ...modulosPorPrograma.flatMap(([programa, mods]) => [
+                    { value: `__grp_${programa}`, label: programa, disabled: true },
+                    ...mods.map((m) => ({ value: m.id, label: m.nombre })),
+                  ]),
+                ]}
+              />
             </label>
             <label className="mt-3 block">
               <span className="block text-[11.5px] font-semibold">Viñeta clínica</span>

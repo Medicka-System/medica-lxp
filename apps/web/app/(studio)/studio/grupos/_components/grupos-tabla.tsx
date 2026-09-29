@@ -14,7 +14,6 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ChevronDown,
   Link2,
   Lock,
   MoreHorizontal,
@@ -24,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
+import { Select } from '@/components/ui/select';
 import { fechaCorta } from '@/lib/format';
 import type { EstadoGrupo, GrupoResumen } from '@/lib/studio/datos';
 import { crearGrupo } from '@/lib/studio/acciones';
@@ -136,16 +136,13 @@ export function GruposTabla({
 
         <label className="flex h-10 items-center gap-2 rounded-[9px] border border-border bg-card px-3">
           <span className={`${kicker} tracking-[0.1em] text-muted-foreground`}>Programa</span>
-          <select
+          <Select
+            aria-label="Filtrar por programa"
             value={programa}
-            onChange={(e) => setPrograma(e.target.value)}
-            className="appearance-none bg-transparent pr-1 text-[13px] font-semibold text-foreground outline-none"
-          >
-            {nombresPrograma.map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden className="h-[15px] w-[15px] text-muted-foreground" strokeWidth={2} />
+            onChange={(v) => setPrograma(v)}
+            className="flex items-center gap-2 bg-transparent pr-1 text-[13px] font-semibold text-foreground outline-none"
+            options={nombresPrograma.map((p) => ({ value: p, label: p }))}
+          />
         </label>
 
         <div className="flex gap-1 rounded-full border border-border bg-card p-[3px]">
@@ -381,21 +378,18 @@ function DialogoNuevoGrupo({
         <div className="flex flex-col gap-3.5 px-6">
           <label className="block">
             <span className="block text-[11.5px] font-semibold">Programa base</span>
-            <span className="mt-1.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
+            <div className="mt-1.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
               <Link2 aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-              <select
-                value={programaId}
-                onChange={(e) => setProgramaId(e.target.value)}
-                className="w-full appearance-none bg-transparent text-[13.5px] font-medium text-foreground outline-none"
-              >
-                {programas.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
-            </span>
+              <div className="min-w-0 flex-1">
+                <Select
+                  aria-label="Programa base"
+                  value={programaId}
+                  onChange={(v) => setProgramaId(v)}
+                  className="flex w-full items-center gap-2 bg-transparent text-[13.5px] font-medium text-foreground outline-none"
+                  options={programas.map((p) => ({ value: p.id, label: p.nombre }))}
+                />
+              </div>
+            </div>
           </label>
 
           <label className="block">
@@ -410,17 +404,16 @@ function DialogoNuevoGrupo({
 
           <label className="block">
             <span className="block text-[11.5px] font-semibold">Modalidad</span>
-            <span className="mt-1.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
-              <select
-                value={modalidad}
-                onChange={(e) => setModalidad(e.target.value as 'sincrono' | 'asincrono')}
-                className="w-full appearance-none bg-transparent text-[13.5px] font-medium text-foreground outline-none"
-              >
-                <option value="sincrono">Síncrono · con fechas</option>
-                <option value="asincrono">Asíncrono · sin fechas</option>
-              </select>
-              <ChevronDown aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
-            </span>
+            <Select
+              aria-label="Modalidad"
+              value={modalidad}
+              onChange={(v) => setModalidad(v as 'sincrono' | 'asincrono')}
+              className={`mt-1.5 flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13.5px] font-medium text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+              options={[
+                { value: 'sincrono', label: 'Síncrono · con fechas' },
+                { value: 'asincrono', label: 'Asíncrono · sin fechas' },
+              ]}
+            />
           </label>
 
           {modalidad === 'sincrono' && (

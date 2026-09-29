@@ -7,9 +7,10 @@
  * cierra. Si es Zoom, el api crea la reunión; en ambos casos se avisará a los alumnos.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Video, X } from 'lucide-react';
 import { mono, kicker, softText, focusRing, SondaIcon } from './ui';
+import { Select } from '@/components/ui/select';
 import type { GrupoOpcion, LeccionOpcion, TipoSesion } from './tipos';
 import type { ProgramarClaseInput } from '../_lib/acciones';
 import type { ResultadoAccion } from '../../../_lib/acciones';
@@ -26,6 +27,7 @@ export type DialogoProgramarProps = {
 const DURACIONES = [45, 60, 75, 90, 120];
 const campo =
   'mt-1.5 h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[13.5px] text-foreground outline-none transition-colors focus:border-secondary';
+const campoSelect = `mt-1.5 flex h-11 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[13.5px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`;
 
 export function DialogoProgramar({
   setProgramando,
@@ -44,7 +46,6 @@ export function DialogoProgramar({
   const [enlace, setEnlace] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const primerCampo = useRef<HTMLSelectElement>(null);
 
   const lecciones = useMemo(() => leccionesPorGrupo[grupoId] ?? [], [leccionesPorGrupo, grupoId]);
 
@@ -53,7 +54,7 @@ export function DialogoProgramar({
   // Foco al primer campo al abrir; Esc cierra; devuelve el foco al cerrar (§ mock).
   useEffect(() => {
     const previo = document.activeElement as HTMLElement | null;
-    primerCampo.current?.focus();
+    document.getElementById('dp-grupo')?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setProgramando(false);
     };
@@ -156,33 +157,34 @@ export function DialogoProgramar({
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="min-w-[220px] flex-1">
               <span className="block text-[11.5px] font-semibold">Grupo</span>
-              <select
-                ref={primerCampo}
+              <Select
+                id="dp-grupo"
+                aria-label="Grupo"
                 value={grupoId}
-                onChange={(e) => {
-                  setGrupoId(e.target.value);
+                onChange={(v) => {
+                  setGrupoId(v);
                   setLeccionId('');
                 }}
-                className={campo}
-              >
-                {gruposDocente.length === 0 && <option value="">Sin grupos asignados</option>}
-                {gruposDocente.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.nombre} · {g.alumnos} alumnos
-                  </option>
-                ))}
-              </select>
+                className={campoSelect}
+                options={
+                  gruposDocente.length === 0
+                    ? [{ value: '', label: 'Sin grupos asignados' }]
+                    : gruposDocente.map((g) => ({ value: g.id, label: `${g.nombre} · ${g.alumnos} alumnos` }))
+                }
+              />
             </label>
             <label className="min-w-[220px] flex-1">
               <span className="block text-[11.5px] font-semibold">Lección ligada (opcional)</span>
-              <select value={leccionId} onChange={(e) => setLeccionId(e.target.value)} className={campo}>
-                <option value="">Sin lección ligada</option>
-                {lecciones.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+                aria-label="Lección ligada (opcional)"
+                value={leccionId}
+                onChange={(v) => setLeccionId(v)}
+                className={campoSelect}
+                options={[
+                  { value: '', label: 'Sin lección ligada' },
+                  ...lecciones.map((l) => ({ value: l.id, label: l.label })),
+                ]}
+              />
             </label>
           </div>
 
@@ -208,13 +210,13 @@ export function DialogoProgramar({
             </label>
             <label className="min-w-[110px] flex-1">
               <span className="block text-[11.5px] font-semibold">Duración</span>
-              <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className={campo}>
-                {DURACIONES.map((d) => (
-                  <option key={d} value={d}>
-                    {d} min
-                  </option>
-                ))}
-              </select>
+              <Select
+                aria-label="Duración"
+                value={String(duracion)}
+                onChange={(v) => setDuracion(Number(v))}
+                className={campoSelect}
+                options={DURACIONES.map((d) => ({ value: String(d), label: `${d} min` }))}
+              />
             </label>
           </div>
 

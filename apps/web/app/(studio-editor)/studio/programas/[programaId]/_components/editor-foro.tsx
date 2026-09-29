@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarClock, Check, MessageSquare, Plus, Radio, Save, X } from 'lucide-react';
 import { EditorRico } from '@/components/editor-rico';
+import { Select } from '@/components/ui/select';
 import { kicker, softText, focusRing, mono } from '@/lib/studio/estilos';
 import type { EditorLeccionProps } from '@/lib/studio/leccion-tipos';
 import {
@@ -165,19 +166,20 @@ export function EditorForo({ programaId, leccionId, config, correr }: EditorLecc
         titulo="Rúbrica de participación"
         descripcion="Cómo se evalúa la participación. Se toma del catálogo (no se redacta aquí); el alumno la ve antes de escribir."
       >
-        <select
+        <Select
           value={cfg.rubricaId ?? ''}
-          onChange={(e) => aplicar({ rubricaId: e.target.value || null })}
+          onChange={(v) => aplicar({ rubricaId: v || null })}
           aria-label="Rúbrica de participación del foro"
-          className={`${inputBase} w-full`}
-        >
-          <option value="">Sin rúbrica</option>
-          {(catalogo ?? []).map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.nombre} · {r.criterios.length} criterio(s){r.publicado ? '' : ' · borrador'}
-            </option>
-          ))}
-        </select>
+          className={`flex h-9 w-full items-center gap-2 rounded-[9px] border border-border bg-muted px-2.5 text-[13px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+          placeholder="Sin rúbrica"
+          options={[
+            { value: '', label: 'Sin rúbrica' },
+            ...(catalogo ?? []).map((r) => ({
+              value: r.id,
+              label: `${r.nombre} · ${r.criterios.length} criterio(s)${r.publicado ? '' : ' · borrador'}`,
+            })),
+          ]}
+        />
         {catalogo === null && <p className={`mt-2 text-[12px] ${softText}`}>Cargando catálogo…</p>}
         {catalogo !== null && catalogo.length === 0 && (
           <p className={`mt-2 text-[12px] ${softText}`}>
