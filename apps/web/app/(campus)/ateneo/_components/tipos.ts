@@ -60,6 +60,18 @@ export type CasoBitacora = {
   poster?: string;
 };
 
+/**
+ * Bloque pedagógico de un caso para el DETALLE del post (viñeta + hallazgos + diagnóstico
+ * presuntivo). Solo lo PEDAGÓGICO — nunca ficha/metadata del paciente (§10). Lo resuelve una
+ * server action bajo RLS (dueño del caso); `null` para casos ajenos → el bloque no se muestra.
+ */
+export type BloquePedagogicoCasoData = {
+  vineta: string | null;
+  hallazgos: string | null;
+  presuntivo: string | null;
+  contenidoEstructurado: import("@campus/shared").ContenidoEstructuradoCaso | null;
+};
+
 /** Snapshot OG de un enlace pegado en el composer (se congela al publicar, no se re-fetchea). */
 export type EnlacePreview = {
   url: string;

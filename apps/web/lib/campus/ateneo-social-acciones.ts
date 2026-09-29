@@ -5,9 +5,10 @@ import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
 import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { avataresDe, cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
+import { getCasoBitacora } from './bitacora-datos';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
-import type { CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
+import type { BloquePedagogicoCasoData, CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
 
 /**
  * ATENEO — server actions (§1/§2). CRUD del alumno bajo RLS (`comoAlumno`): las policies
@@ -308,6 +309,26 @@ export async function editarPostAteneo(postId: string, texto: string): Promise<R
   }
   revalidatePath('/ateneo');
   return { ok: true };
+}
+
+/**
+ * Bloque pedagógico de un caso para el DETALLE del post (viñeta + hallazgos + diagnóstico
+ * presuntivo). Reusa `getCasoBitacora` bajo RLS (`comoAlumno` · dueño): solo devuelve datos si
+ * el caso es del propio alumno — misma frontera que el visor DICOM (esMiCaso), y jamás expone
+ * la ficha/metadata del paciente (solo se leen columnas pedagógicas). Caso ajeno → `null`
+ * (el detalle omite el bloque). Sin persistencia, sin escritura.
+ */
+export async function getPedagogiaCasoAteneo(casoId: string): Promise<BloquePedagogicoCasoData | null> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return null;
+  const c = await getCasoBitacora(alumno.userId, casoId);
+  if (!c) return null;
+  return {
+    vineta: c.vineta,
+    hallazgos: c.hallazgos,
+    presuntivo: c.presuntivo,
+    contenidoEstructurado: c.contenidoEstructurado,
+  };
 }
 
 /** Conecta con un colega: solicita (ninguna→pendiente) o acepta (pendiente recibida→colegas). */

@@ -98,24 +98,33 @@ export function VisorEstudio({
   casoId,
   tabla = 'bitacora_casos',
   soloLectura = false,
+  efimero = false,
   // El visor manda: alto generoso por defecto (la herramienta de trabajo del médico).
   className = 'h-[72vh] min-h-[570px]',
 }: {
   casoId: string;
   tabla?: TablaEstudioDicom;
+  /** Sin barra de herramientas (miniatura/preview): solo se ve, no se manipula ni mide. */
   soloLectura?: boolean;
+  /**
+   * Modo DISCUSIÓN (Ateneo): toolset COMPLETO (zoom/pan/window-level/medición + cine) pero
+   * las mediciones NO se persisten en el caso — son de sesión. Ortogonal a `soloLectura`:
+   * NO oculta la barra; solo congela la persistencia (como un curado). El `limpiar()` del
+   * ciclo de anotaciones sigue corriendo (config presente) → no se filtran a otro estudio.
+   */
+  efimero?: boolean;
   className?: string;
 }) {
   const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
   const [estudio, setEstudio] = useState<EstudioDicom | null>(null);
   const [error, setError] = useState('');
 
-  // Persistencia de mediciones (FASE 2). Curado (biblioteca) o consulta (soloLectura) =
-  // CONGELADO: se ven las guardadas pero no se persisten las nuevas. Memoizado para no
-  // re-disparar la carga/restauración en cada render.
+  // Persistencia de mediciones (FASE 2). Curado (biblioteca), consulta (soloLectura) o
+  // discusión (efimero · Ateneo) = CONGELADO: se ven las guardadas pero no se persisten las
+  // nuevas. Memoizado para no re-disparar la carga/restauración en cada render.
   const configAnotaciones = useMemo<ConfigAnotaciones>(
     () => ({
-      congelado: tabla === 'casos_biblioteca' || soloLectura,
+      congelado: tabla === 'casos_biblioteca' || soloLectura || efimero,
       cargar: async () => {
         const r = await getAnotaciones(casoId, tabla);
         return r.ok
@@ -135,7 +144,7 @@ export function VisorEstudio({
         await guardarAnotaciones(casoId, tabla, items);
       },
     }),
-    [casoId, tabla, soloLectura],
+    [casoId, tabla, soloLectura, efimero],
   );
 
   useEffect(() => {

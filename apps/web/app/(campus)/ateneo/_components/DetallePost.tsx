@@ -15,6 +15,7 @@ import type { Comentario, Persona, Post, TipoReaccion } from "./tipos";
 import { PostCard } from "./PostCard";
 import { Avatar, ChipDocente, Modal, focusRing, mono } from "./ui";
 import { VisorEstudio } from "@/components/casos/visor-estudio";
+import { BloquePedagogicoCaso } from "./BloquePedagogicoCaso";
 
 function Burbuja({ c, nivel }: { c: Comentario; nivel: 0 | 1 }) {
   return (
@@ -107,8 +108,13 @@ export function DetallePost({
           onAbrirCaso={onAbrirCaso}
           visorCaso={
             post.tipo === "caso" && post.caso.id ? (
-              <VisorEstudio casoId={post.caso.id} tabla="bitacora_casos" soloLectura className="h-[52vh] min-h-[360px]" />
+              // Toolset COMPLETO (zoom/pan/window-level/medición + cine) pero EFÍMERO: las
+              // mediciones no se persisten en el caso (vista de discusión).
+              <VisorEstudio casoId={post.caso.id} tabla="bitacora_casos" efimero className="h-[52vh] min-h-[360px]" />
             ) : undefined
+          }
+          pedagogiaCaso={
+            post.tipo === "caso" && post.caso.id ? <BloquePedagogicoCaso casoId={post.caso.id} /> : undefined
           }
         />
       </div>

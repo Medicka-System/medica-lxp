@@ -484,6 +484,7 @@ export function PostCard({
   onAbrirCaso,
   onAbrirPerfil,
   visorCaso,
+  pedagogiaCaso,
 }: {
   post: Post;
   yo: Persona;
@@ -496,6 +497,8 @@ export function PostCard({
   onAbrirPerfil?: (userId: string) => void;
   /** Visor DICOM real embebido (solo en el detalle): reemplaza el placeholder. */
   visorCaso?: React.ReactNode;
+  /** Bloque pedagógico (viñeta/hallazgos/diagnóstico · solo en el detalle), debajo del visor. */
+  pedagogiaCaso?: React.ReactNode;
 }) {
   // Menú ⋯ (B4): edición/eliminación son del AUTOR; copiar/ocultar sobre el ajeno.
   const esPropio = post.autor.id === yo.id;
@@ -596,6 +599,8 @@ export function PostCard({
                 <Chip tono="teal">{post.caso.area} · {post.caso.organo}</Chip>
                 <Chip tono="teal">{post.caso.dominio}</Chip>
               </span>
+              {/* Bloque pedagógico (viñeta/hallazgos/diagnóstico) — solo lo clínico, sin ficha del paciente (§10). */}
+              {pedagogiaCaso}
             </div>
           ) : (
             <button type="button" onClick={() => onAbrirCaso(post.caso.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
