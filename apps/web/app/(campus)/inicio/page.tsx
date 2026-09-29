@@ -4,7 +4,6 @@ import {
   BarChart3,
   CalendarDays,
   ChevronRight,
-  Compass,
   Eye,
   Flame,
   Megaphone,
@@ -55,41 +54,43 @@ export default async function InicioPage() {
 
   return (
     <div className="pb-10">
-      {/* ══ 1 · HERO INTELIGENTE (contenido al ancho del campus, no full-bleed) ══ */}
-      <section aria-label="Hero" className="mx-auto w-full max-w-[1240px] px-5 pt-7 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-2xl shadow-rest" style={{ background: 'var(--sidebar)' }}>
-        <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(120% 150% at 88% 0%, rgba(26,136,128,.62) 0%, rgba(15,45,82,0) 62%)' }} />
-        <div className="relative grid items-center gap-10 px-6 py-9 sm:px-8 lg:grid-cols-[minmax(0,1fr)_440px]">
-          <div className="min-w-0">
-            <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
-              {anuncio ? <Megaphone aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} /> : <Compass aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />}
-              {anuncio ? 'Anuncio de la escuela' : 'Caso de la semana'}
-            </span>
-            <h1 className="mt-4 text-[26px] font-extrabold leading-[1.18] tracking-[-0.025em] sm:text-[31px]" style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}>
-              {anuncio?.titulo ?? casoSemana?.titulo ?? 'Bienvenido a su Campus'}
-            </h1>
-            <p className="mt-3 max-w-[58ch] text-[14.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}>
-              {anuncio?.cuerpo ?? casoSemana?.diagnostico_correcto ?? 'Sus cursos, casos y comunidad, en un solo lugar.'}
-            </p>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <Link href={anuncio ? '/ateneo' : '/biblioteca'} className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}>
-                {anuncio ? 'Ver el anuncio' : 'Ver el caso'}
-                <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
-              </Link>
-              {anuncio?.vigente_hasta && (
-                <span className={`${mono} text-[11.5px]`} style={{ color: 'var(--hero-ink-muted)' }}>
-                  vigente hasta el {fechaCorta(new Date(anuncio.vigente_hasta))}
+      {/* ══ 1 · HERO — anuncio de la escuela (se esconde si no hay anuncio vigente) ══ */}
+      {anuncio && (
+        <section aria-label="Anuncio de la escuela" className="mx-auto w-full max-w-[1240px] px-5 pt-7 sm:px-6 lg:px-8">
+          <div className="relative overflow-hidden rounded-2xl shadow-rest" style={{ background: 'var(--sidebar)' }}>
+            <div aria-hidden className="absolute inset-0" style={{ background: 'radial-gradient(120% 150% at 88% 0%, rgba(26,136,128,.62) 0%, rgba(15,45,82,0) 62%)' }} />
+            <div className="relative grid items-center gap-10 px-6 py-9 sm:px-8 lg:grid-cols-[minmax(0,1fr)_440px]">
+              <div className="min-w-0">
+                <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-2.5 text-[11.5px] font-bold text-[color:var(--sidebar)]">
+                  <Megaphone aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Anuncio de la escuela
                 </span>
-              )}
+                <h1 className="mt-4 text-[26px] font-extrabold leading-[1.18] tracking-[-0.025em] sm:text-[31px]" style={{ color: 'var(--hero-ink)', textWrap: 'pretty' }}>
+                  {anuncio.titulo}
+                </h1>
+                <p className="mt-3 line-clamp-3 max-w-[58ch] text-[14.5px] leading-relaxed" style={{ color: 'var(--hero-ink-muted)', textWrap: 'pretty' }}>
+                  {anuncio.cuerpo}
+                </p>
+                <div className="mt-5 flex flex-wrap items-center gap-3">
+                  <Link href={`/anuncio/${anuncio.id}`} className={`inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-[11px] bg-card px-5 text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-primary ${focusRing}`}>
+                    Ver el anuncio
+                    <ArrowRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+                  </Link>
+                  {anuncio.vigente_hasta && (
+                    <span className={`${mono} text-[11.5px]`} style={{ color: 'var(--hero-ink-muted)' }}>
+                      vigente hasta el {fechaCorta(new Date(anuncio.vigente_hasta))}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative hidden aspect-[16/10] w-full place-items-center overflow-hidden rounded-2xl border border-white/20 lg:grid" style={{ background: '#0a2140' }}>
+                <LoopFrame etiqueta={casoSemana?.organo ?? 'ultrasonido'} duracion="cine-loop" tamano={62} />
+              </div>
             </div>
           </div>
-
-          <div className="relative hidden aspect-[16/10] w-full place-items-center overflow-hidden rounded-2xl border border-white/20 lg:grid" style={{ background: '#0a2140' }}>
-            <LoopFrame etiqueta={casoSemana?.organo ?? 'ultrasonido'} duracion="cine-loop" tamano={62} />
-          </div>
-        </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* saludo */}
       <div className="mx-auto w-full max-w-[1240px] px-5 pt-7 sm:px-6 lg:px-8">
