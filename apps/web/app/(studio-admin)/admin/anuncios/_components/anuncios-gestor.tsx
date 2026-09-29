@@ -10,7 +10,6 @@ import { useActionState, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
-  ChevronDown,
   Lock,
   Mail,
   MessageCircle,
@@ -23,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/components/tokens';
+import { Select } from '@/components/ui/select';
 import { crearAnuncio, type EstadoForm } from './_actions';
 import {
   ALCANCE_POR_ROL,
@@ -152,28 +152,21 @@ export function AnunciosGestor({ data }: { data: AnunciosData }) {
           />
         </label>
 
-        {/* filtro por alcance (client-side sobre el dato real) */}
-        <div className="relative">
-          <label className="sr-only" htmlFor="filtro-alcance">Filtrar por alcance</label>
-          <select
-            id="filtro-alcance"
-            value={alcanceFiltro}
-            onChange={(e) => setAlcanceFiltro(e.target.value as AlcanceFiltro)}
-            className={`h-10 cursor-pointer appearance-none rounded-[10px] border bg-card pl-3.5 pr-9 text-[12.5px] font-semibold transition-colors ${focusRing} ${
-              alcanceFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
-            }`}
-          >
-            <option value="todos">Cualquier alcance</option>
-            <option value="comunidad">{ETIQUETA_ALCANCE.comunidad}</option>
-            <option value="alumnos">{ETIQUETA_ALCANCE.alumnos}</option>
-            <option value="staff">{ETIQUETA_ALCANCE.staff}</option>
-          </select>
-          <ChevronDown
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            strokeWidth={2}
-          />
-        </div>
+        {/* filtro por alcance (client-side sobre el dato real) — Select tokenizado (§5A) */}
+        <Select
+          aria-label="Filtrar por alcance"
+          value={alcanceFiltro}
+          onChange={(v) => setAlcanceFiltro(v as AlcanceFiltro)}
+          options={[
+            { value: 'todos', label: 'Cualquier alcance' },
+            { value: 'comunidad', label: ETIQUETA_ALCANCE.comunidad },
+            { value: 'alumnos', label: ETIQUETA_ALCANCE.alumnos },
+            { value: 'staff', label: ETIQUETA_ALCANCE.staff },
+          ]}
+          className={`flex h-10 w-[200px] items-center gap-2 rounded-[10px] border bg-card px-3.5 text-[12.5px] font-semibold transition-colors ${focusRing} ${
+            alcanceFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
+          }`}
+        />
       </div>
 
       {/* lista */}

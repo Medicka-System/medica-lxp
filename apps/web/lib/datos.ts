@@ -37,8 +37,8 @@ export type HomeData = Awaited<ReturnType<typeof getHomeData>>;
 
 export async function getHomeData(userId: string) {
   return comoAlumno(userId, async (sql) => {
-    const anuncios = await sql<{ titulo: string; cuerpo: string; vigente_hasta: Date | null }[]>`
-      select titulo, cuerpo, vigente_hasta from lxp.anuncios
+    const anuncios = await sql<{ id: string; titulo: string; cuerpo: string; vigente_hasta: Date | null }[]>`
+      select id, titulo, cuerpo, vigente_hasta from lxp.anuncios
       where vigente_hasta is null or vigente_hasta > now()
       order by vigente_desde desc limit 1`;
 
@@ -174,6 +174,36 @@ export async function getHomeData(userId: string) {
         autor: l.autor ?? 'Docente',
       })),
     };
+  });
+}
+
+// ── Anuncio (detalle · /anuncio/[id]) ────────────────────────────────────────
+export type AnuncioDetalle = Awaited<ReturnType<typeof getAnuncio>>;
+
+/**
+ * Un anuncio por id, con su cuerpo completo. Corre bajo RLS (`comoAlumno`): la
+ * policy `anuncios_select` deja leer a cualquier autenticado (§6). El nombre del
+ * autor se resuelve por la función SECURITY DEFINER `lxp.nombre_de` (§ perfil público).
+ */
+export async function getAnuncio(userId: string, id: string) {
+  return comoAlumno(userId, async (sql) => {
+    const rows = await sql<
+      {
+        id: string;
+        titulo: string;
+        cuerpo: string;
+        vigente_desde: Date;
+        vigente_hasta: Date | null;
+        created_at: Date;
+        autor: string | null;
+      }[]
+    >`
+      select a.id, a.titulo, a.cuerpo, a.vigente_desde, a.vigente_hasta, a.created_at,
+             lxp.nombre_de(a.autor_id) as autor
+      from lxp.anuncios a
+      where a.id = ${id}
+      limit 1`;
+    return rows[0] ?? null;
   });
 }
 
