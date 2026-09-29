@@ -119,8 +119,9 @@ function sanearEnlace(e: EnlacePreview | null | undefined): EnlacePreview | null
 export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
-  // Audiencia → visibilidad del post: toda la comunidad ('inscritos') o solo mis colegas.
-  const vis = b.audiencia === 'colegas' ? 'colegas' : 'inscritos';
+  // Audiencia → visibilidad del post: toda la comunidad ('inscritos'), solo mis colegas
+  // ('colegas') o solo mi cohorte ('grupo'). El scope lo aplica la RLS de posts_ateneo (mig 0061).
+  const vis = b.audiencia === 'colegas' ? 'colegas' : b.audiencia === 'grupo' ? 'grupo' : 'inscritos';
   // Snapshot de enlace (OG) — se congela con el post; NO se re-fetchea en lectura.
   const enlace = sanearEnlace(b.enlace);
   try {

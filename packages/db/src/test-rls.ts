@@ -387,6 +387,53 @@ async function main(): Promise<void> {
       ),
     );
 
+    // ── ATENEO · visibilidad por audiencia "Mi grupo" (mig 0061) ──────────
+    // Un post con visibilidad='grupo' solo lo ven quienes COMPARTAN grupo CORA con el autor
+    // (lxp.ateneo_mi_grupo_roster). a1 y a2 = cohorte A; a5 = cohorte B. Datos comprometidos
+    // (posts + comentario) con UUID fijo, autoría a2; al final se limpian. También se guarda
+    // regresión sobre 'inscritos' (la reestructura del gate no debe cerrar el caso abierto).
+    const POST_GRUPO = '22222222-0000-0000-0000-000000000901';
+    const POST_INSCRITOS = '22222222-0000-0000-0000-000000000102';
+    const COM_GRUPO = '33333333-0000-0000-0000-0000000000c1';
+    await sql`delete from lxp.posts_ateneo where id in (${POST_GRUPO}::uuid, ${POST_INSCRITOS}::uuid)`;
+    await sql`
+      insert into lxp.posts_ateneo (id, autor_id, tipo, titulo, cuerpo, estado, visibilidad)
+      values
+        (${POST_GRUPO}::uuid, ${a2}, 'texto', 'Post de mi grupo (rollback)', 'solo cohorte', 'aprobado', 'grupo'),
+        (${POST_INSCRITOS}::uuid, ${a2}, 'texto', 'Post abierto (rollback)', 'toda la comunidad', 'aprobado', 'inscritos')`;
+    await sql`
+      insert into lxp.comentarios_ateneo (id, post_id, autor_id, cuerpo)
+      values (${COM_GRUPO}::uuid, ${POST_GRUPO}::uuid, ${a2}, 'comentario en post de grupo')`;
+
+    const a1VeGrupo = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.posts_ateneo where id = ${POST_GRUPO}::uuid`,
+    );
+    check('a1 (comparte grupo con a2) SÍ ve el post visibilidad=grupo', num(a1VeGrupo) === 1, `vio ${num(a1VeGrupo)}`);
+
+    const a5VeGrupo = await como(sql, claimsA5, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.posts_ateneo where id = ${POST_GRUPO}::uuid`,
+    );
+    check('a5 (otra cohorte) NO ve el post visibilidad=grupo', num(a5VeGrupo) === 0, `vio ${num(a5VeGrupo)}`);
+
+    const a5VeInscritos = await como(sql, claimsA5, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.posts_ateneo where id = ${POST_INSCRITOS}::uuid`,
+    );
+    check('a5 SÍ ve un post visibilidad=inscritos (regresión gate abierto)', num(a5VeInscritos) === 1, `vio ${num(a5VeInscritos)}`);
+
+    // Comentarios heredan el scope del post (comentarios_ateneo_select · 0033): si no ves el
+    // post, no ves sus comentarios.
+    const a1VeComGrupo = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.comentarios_ateneo where id = ${COM_GRUPO}::uuid`,
+    );
+    check('a1 SÍ ve el comentario del post de grupo (hereda scope)', num(a1VeComGrupo) === 1, `vio ${num(a1VeComGrupo)}`);
+
+    const a5VeComGrupo = await como(sql, claimsA5, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.comentarios_ateneo where id = ${COM_GRUPO}::uuid`,
+    );
+    check('a5 NO ve el comentario del post de grupo (hereda scope)', num(a5VeComGrupo) === 0, `vio ${num(a5VeComGrupo)}`);
+
+    await sql`delete from lxp.posts_ateneo where id in (${POST_GRUPO}::uuid, ${POST_INSCRITOS}::uuid)`;
+
     // ── Read-receipts per-mensaje (mig 0051): marca leído los RECIBIDOS, nunca los propios ──
     // Se elige una consulta DETERMINISTA del seed por su clave estable (id_alumno + asunto),
     // NO por orden: la de a1 con el docente ('Dónde medir la cortical'), que el seed llena con
