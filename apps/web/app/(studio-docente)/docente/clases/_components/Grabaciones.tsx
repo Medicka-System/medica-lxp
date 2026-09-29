@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { BookCopy, Check, Play, Users, X } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing, rayas, ChipTipo } from './ui';
+import { Select } from '@/components/ui/select';
 import type { Grabacion, LeccionOpcion } from './tipos';
 
 export type GrabacionesProps = {
@@ -146,19 +147,17 @@ export function Grabaciones({
                     {/* Selector inline de lección (aparece al pulsar "Ligarla") */}
                     {ligando === g.id && !g.ligada && (
                       <div className="mt-2.5 flex items-center gap-1.5">
-                        <select
+                        <Select
                           value={leccionSel}
-                          onChange={(e) => setLeccionSel(e.target.value)}
+                          onChange={(v) => setLeccionSel(v)}
                           aria-label="Lección a la que ligar la grabación"
-                          className={`h-9 min-w-0 flex-1 rounded-[9px] border border-border bg-card px-2.5 text-[12px] text-foreground ${focusRing}`}
-                        >
-                          <option value="">Elige una lección…</option>
-                          {lecciones.map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.label}
-                            </option>
-                          ))}
-                        </select>
+                          className={`flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] border border-border bg-card px-2.5 text-[12px] text-foreground transition-colors hover:border-secondary ${focusRing}`}
+                          placeholder="Elige una lección…"
+                          options={[
+                            { value: '', label: 'Elige una lección…' },
+                            ...lecciones.map((l) => ({ value: l.id, label: l.label })),
+                          ]}
+                        />
                         <button
                           type="button"
                           onClick={() => confirmarLigar(g)}

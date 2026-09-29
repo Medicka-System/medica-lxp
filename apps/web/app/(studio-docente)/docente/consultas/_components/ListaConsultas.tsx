@@ -7,8 +7,9 @@
  * + fondo cálido); lo respondido con palomita teal; lo cerrado, apagado.
  */
 
-import { Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
+import { Check, Lock, Plus, Search } from 'lucide-react';
 import { mono, softText, focusRing, Avatar } from './ui';
+import { Select } from '@/components/ui/select';
 import type { ConsultaResumen } from '../../../_lib/contrato';
 
 const kicker = 'text-[10.5px] font-semibold uppercase tracking-[0.14em]';
@@ -96,27 +97,21 @@ export function ListaConsultas({
             </button>
           ))}
           {grupos.length > 0 && (
-            <label
-              className={`relative inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border bg-card px-2.5 text-[11.5px] font-semibold ${softText} ${
-                grupoFiltro ? 'border-secondary text-secondary' : 'border-border'
-              } focus-within:ring-2 focus-within:ring-secondary focus-within:ring-offset-2 focus-within:ring-offset-card`}
-            >
-              <span className="sr-only">Filtrar por grupo</span>
-              {grupoFiltro ? grupoFiltro.split(' · ')[0] : 'Grupo'}
-              <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
-              <select
+            <div className="shrink-0">
+              <Select
+                aria-label="Filtrar por grupo"
                 value={grupoFiltro ?? ''}
-                onChange={(e) => setGrupoFiltro(e.target.value || null)}
-                className="absolute inset-0 cursor-pointer opacity-0"
-              >
-                <option value="">Todos los grupos</option>
-                {grupos.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={(v) => setGrupoFiltro(v || null)}
+                className={`inline-flex h-8 w-auto items-center gap-1.5 whitespace-nowrap rounded-lg border bg-card px-2.5 text-[11.5px] font-semibold ${softText} ${
+                  grupoFiltro ? 'border-secondary text-secondary' : 'border-border'
+                } ${focusRing}`}
+                placeholder="Grupo"
+                options={[
+                  { value: '', label: 'Todos los grupos' },
+                  ...grupos.map((g) => ({ value: g, label: g })),
+                ]}
+              />
+            </div>
           )}
         </div>
       </div>

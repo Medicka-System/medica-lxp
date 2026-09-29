@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { AlertTriangle, ChevronDown, Download, Lock, Search, Sparkles } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
+import { Select } from '@/components/ui/select';
 import type { AlumnoFila, AlumnosData, EstadoAlumno } from './contrato';
 
 type EstadoFiltro = 'todos' | EstadoAlumno;
@@ -187,27 +188,21 @@ export function AlumnosLista({ data }: { data: AlumnosData }) {
         ))}
 
         {/* Estado: filtro real (client-side sobre el dato del campus). */}
-        <div className="relative">
-          <label className="sr-only" htmlFor="filtro-estado">Filtrar por estado</label>
-          <select
-            id="filtro-estado"
-            value={estadoFiltro}
-            onChange={(e) => setEstadoFiltro(e.target.value as EstadoFiltro)}
-            className={`h-10 cursor-pointer appearance-none rounded-[10px] border bg-card pl-3.5 pr-9 text-[12.5px] font-semibold transition-colors ${focusRing} ${
-              estadoFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
-            }`}
-          >
-            <option value="todos">Estado: todos</option>
-            <option value="corriente">Al corriente</option>
-            <option value="riesgo">En riesgo</option>
-            <option value="suspendido">Suspendido</option>
-          </select>
-          <ChevronDown
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            strokeWidth={2}
-          />
-        </div>
+        <Select
+          id="filtro-estado"
+          aria-label="Filtrar por estado"
+          value={estadoFiltro}
+          onChange={(v) => setEstadoFiltro(v as EstadoFiltro)}
+          className={`flex h-10 w-auto cursor-pointer items-center gap-2 rounded-[10px] border bg-card px-3.5 text-[12.5px] font-semibold outline-none transition-colors ${focusRing} ${
+            estadoFiltro === 'todos' ? `border-border ${softText}` : 'border-secondary text-foreground'
+          }`}
+          options={[
+            { value: 'todos', label: 'Estado: todos' },
+            { value: 'corriente', label: 'Al corriente' },
+            { value: 'riesgo', label: 'En riesgo' },
+            { value: 'suspendido', label: 'Suspendido' },
+          ]}
+        />
 
         <button
           type="button"

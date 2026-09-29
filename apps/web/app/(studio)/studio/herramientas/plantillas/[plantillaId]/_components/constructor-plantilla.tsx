@@ -49,6 +49,7 @@ import {
   Type,
 } from 'lucide-react';
 import { mono, kicker, focusRing } from '@/lib/studio/estilos';
+import { Select } from '@/components/ui/select';
 import { REGISTRO_UI, type CampoRef } from '@/components/reportes/registro-ui-campos';
 import {
   campoNuevo,
@@ -134,6 +135,7 @@ const ATAJOS: TipoCampo[] = ['texto', 'medida', 'fecha', 'tabla', 'sino', 'guia'
 
 const cfgInput =
   'h-10 w-full rounded-[10px] border border-border bg-card px-3 text-[12.5px] text-foreground outline-none transition-colors focus:border-secondary placeholder:text-muted-foreground';
+const cfgSelect = `flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[12.5px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`;
 
 /* ═══════════════════════════ raíz ═══════════════════════════ */
 export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstructor }) {
@@ -646,17 +648,18 @@ function BarraContexto({
         <label className="text-[11.5px] font-semibold text-muted-foreground" htmlFor="estudio">
           Estudio
         </label>
-        <select
+        <Select
           id="estudio"
+          aria-label="Estudio"
           value={tipoEstudio}
-          onChange={(e) => onEstudio(e.target.value)}
-          className={`h-[38px] rounded-[10px] border border-border bg-card px-3 text-[12.5px] font-semibold ${focusRing}`}
-        >
-          <option value="">Sin tipo</option>
-          {TIPOS_ESTUDIO.map((e) => (
-            <option key={e}>{e}</option>
-          ))}
-        </select>
+          onChange={(v) => onEstudio(v)}
+          className={`flex h-[38px] w-auto items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+          placeholder="Sin tipo"
+          options={[
+            { value: '', label: 'Sin tipo' },
+            ...TIPOS_ESTUDIO.map((e) => ({ value: e, label: e })),
+          ]}
+        />
         <span
           className={`inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-bold ${
             publicado ? 'bg-accent text-accent-foreground' : 'border border-border bg-muted text-muted-foreground'
@@ -1109,13 +1112,13 @@ function PanelCampo({
           </span>
         </div>
         <Campo2 label="Tipo de campo" mt={14}>
-          <select value={c.tipo} onChange={(e) => onTipo(e.target.value as TipoCampo)} className={cfgInput}>
-            {TIPOS_CAMPO.map((t) => (
-              <option key={t} value={t}>
-                {ETIQUETA_TIPO[t]}
-              </option>
-            ))}
-          </select>
+          <Select
+            aria-label="Tipo de campo"
+            value={c.tipo}
+            onChange={(v) => onTipo(v as TipoCampo)}
+            className={cfgSelect}
+            options={TIPOS_CAMPO.map((t) => ({ value: t, label: ETIQUETA_TIPO[t] }))}
+          />
         </Campo2>
         <Campo2 label={c.tipo === 'guia' ? 'Texto de la guía' : c.tipo === 'titulo' ? 'Título' : 'Etiqueta'}>
           {c.tipo === 'guia' ? (

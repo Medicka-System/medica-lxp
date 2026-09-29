@@ -52,6 +52,7 @@ import type {
   NodoModuloGrupo,
 } from '@/lib/studio/datos';
 import type { TipoOverride } from '@/lib/studio/herencia-contrato';
+import { Select } from '@/components/ui/select';
 import { actualizarGrupo } from '@/lib/studio/acciones';
 import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import { aplicarOverride, revertirOverride, type EntidadOverrideUI } from '@/lib/studio/herencia-acciones';
@@ -289,17 +290,16 @@ export function GestionGrupo({
             </label>
             <label className="block">
               <span className="block text-[11.5px] font-semibold">Modalidad</span>
-              <span className="mt-1.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
-                <select
-                  value={modalidad}
-                  onChange={(e) => setModalidad(e.target.value as 'sincrono' | 'asincrono')}
-                  className="w-full appearance-none bg-transparent text-[13.5px] font-medium text-foreground outline-none"
-                >
-                  <option value="sincrono">Síncrono · con fechas</option>
-                  <option value="asincrono">Asíncrono · sin fechas</option>
-                </select>
-                <ChevronDown aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
-              </span>
+              <Select
+                aria-label="Modalidad"
+                value={modalidad}
+                onChange={(v) => setModalidad(v as 'sincrono' | 'asincrono')}
+                className={`mt-1.5 flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13.5px] font-medium text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+                options={[
+                  { value: 'sincrono', label: 'Síncrono · con fechas' },
+                  { value: 'asincrono', label: 'Asíncrono · sin fechas' },
+                ]}
+              />
             </label>
             {modalidad === 'sincrono' &&
               (
@@ -324,27 +324,27 @@ export function GestionGrupo({
           </div>
 
           <p className={`${kicker} mt-6 text-muted-foreground`}>Docente asignado</p>
-          <span className="mt-2.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
+          <div className="mt-2.5 flex h-10 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
             <span
               aria-hidden
               className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-sidebar text-[9px] font-bold text-sidebar-foreground"
             >
               {docenteNombre ? docenteNombre.replace(/^(Dr\.|Dra\.)\s*/, '').slice(0, 2).toUpperCase() : '—'}
             </span>
-            <select
-              value={docenteId}
-              onChange={(e) => setDocenteId(e.target.value)}
-              className="w-full appearance-none bg-transparent text-[13.5px] font-medium text-foreground outline-none"
-            >
-              <option value="">Sin asignar</option>
-              {docentes.map((d) => (
-                <option key={d.userId} value={d.userId}>
-                  {d.nombre}
-                </option>
-              ))}
-            </select>
-            <ChevronDown aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
-          </span>
+            <div className="min-w-0 flex-1">
+              <Select
+                aria-label="Docente asignado"
+                value={docenteId}
+                onChange={(v) => setDocenteId(v)}
+                className="flex w-full items-center gap-2 bg-transparent text-[13.5px] font-medium text-foreground outline-none"
+                placeholder="Sin asignar"
+                options={[
+                  { value: '', label: 'Sin asignar' },
+                  ...docentes.map((d) => ({ value: d.userId, label: d.nombre })),
+                ]}
+              />
+            </div>
+          </div>
 
           <p className={`${kicker} mt-6 text-muted-foreground`}>Portada del grupo</p>
           {errorPortada && (

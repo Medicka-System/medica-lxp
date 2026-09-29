@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { kicker, softText, focusRing } from '@/lib/studio/estilos';
+import { Select } from '@/components/ui/select';
 import type { EditorLeccionProps } from '@/lib/studio/leccion-tipos';
 import {
   CLAVES_OPCION,
@@ -446,18 +447,13 @@ function TarjetaReactivo({
         >
           {indice + 1}
         </span>
-        <select
+        <Select
           value={r.tipo}
-          onChange={(e) => cambiarTipo(e.target.value as ReactivoTipo)}
+          onChange={(v) => cambiarTipo(v as ReactivoTipo)}
           aria-label={`Tipo del reactivo ${indice + 1}`}
-          className={`h-8 rounded-[8px] border border-border bg-muted px-2 text-[12px] font-semibold text-foreground outline-none focus:border-secondary ${focusRing}`}
-        >
-          {REACTIVO_TIPOS.map((t) => (
-            <option key={t} value={t}>
-              {ROTULO_REACTIVO[t]}
-            </option>
-          ))}
-        </select>
+          className={`flex h-8 w-auto items-center gap-2 rounded-[8px] border border-border bg-muted px-2 text-[12px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+          options={REACTIVO_TIPOS.map((t) => ({ value: t, label: ROTULO_REACTIVO[t] }))}
+        />
         {r.origen && r.origen !== 'manual' && (
           <span className="inline-flex h-6 items-center rounded-full bg-muted px-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
             {r.origen === 'eco' ? 'Eco' : 'Import'}
@@ -686,19 +682,13 @@ function TarjetaReactivo({
           </label>
           <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             Dominio
-            <select
+            <Select
+              aria-label="Dominio del reactivo"
               value={r.dominio ?? ''}
-              onChange={(e) =>
-                onCambiar((prev) => ({ ...prev, dominio: e.target.value || undefined }))
-              }
-              className={`h-8 rounded-[8px] border border-border bg-muted px-2 text-[12px] text-foreground outline-none focus:border-secondary ${focusRing}`}
-            >
-              {DOMINIOS.map((d) => (
-                <option key={d.valor} value={d.valor}>
-                  {d.rotulo}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => onCambiar((prev) => ({ ...prev, dominio: v || undefined }))}
+              className={`flex h-8 w-auto items-center gap-2 rounded-[8px] border border-border bg-muted px-2 text-[12px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+              options={DOMINIOS.map((d) => ({ value: d.valor, label: d.rotulo }))}
+            />
           </label>
         </div>
         <input
@@ -871,17 +861,13 @@ function ModalEco({
           </label>
           <label className="flex flex-col gap-1.5">
             <span className={`text-[12px] font-semibold ${softText}`}>Dominio I-AIM</span>
-            <select
+            <Select
+              aria-label="Dominio I-AIM"
               value={dominio}
-              onChange={(e) => setDominio(e.target.value)}
-              className={`h-10 rounded-[9px] border border-border bg-muted px-3 text-[13.5px] text-foreground outline-none focus:border-secondary ${focusRing}`}
-            >
-              {DOMINIOS.map((d) => (
-                <option key={d.valor} value={d.valor}>
-                  {d.rotulo}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setDominio(v)}
+              className={`flex h-10 w-full items-center gap-2 rounded-[9px] border border-border bg-muted px-3 text-[13.5px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+              options={DOMINIOS.map((d) => ({ value: d.valor, label: d.rotulo }))}
+            />
           </label>
         </div>
 

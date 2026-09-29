@@ -17,6 +17,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { AudioLines, ChevronLeft, Clock, Save } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
+import { Select } from '@/components/ui/select';
 import {
   TTS_DEFECTO,
   VOCES_POR_PROVEEDOR,
@@ -27,6 +28,7 @@ import {
 
 const claseInput =
   'w-full rounded-[9px] border border-border bg-card px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-secondary';
+const claseSelect = `flex w-full items-center gap-2 rounded-[9px] border border-border bg-card px-3 py-2 text-[13px] text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`;
 const claseLabel = 'text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground';
 
 const PROVEEDORES: { id: TtsProveedor; etiqueta: string }[] = [
@@ -99,18 +101,14 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
             <label htmlFor="tts-prov" className={claseLabel}>
               Proveedor
             </label>
-            <select
+            <Select
               id="tts-prov"
+              aria-label="Proveedor"
               value={proveedor}
-              onChange={(e) => cambiarProveedor(e.target.value as TtsProveedor)}
-              className={claseInput}
-            >
-              {PROVEEDORES.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.etiqueta}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => cambiarProveedor(v as TtsProveedor)}
+              className={claseSelect}
+              options={PROVEEDORES.map((p) => ({ value: p.id, label: p.etiqueta }))}
+            />
             <p className={`text-[11px] ${softText}`}>OpenAI para arrancar; ElevenLabs como upgrade.</p>
           </div>
 
@@ -118,18 +116,14 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
             <label htmlFor="tts-voz" className={claseLabel}>
               Voz
             </label>
-            <select
+            <Select
               id="tts-voz"
+              aria-label="Voz"
               value={voz}
-              onChange={(e) => setVoz(e.target.value)}
-              className={claseInput}
-            >
-              {voces.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.etiqueta}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setVoz(v)}
+              className={claseSelect}
+              options={voces.map((v) => ({ value: v.id, label: v.etiqueta }))}
+            />
             <p className={`text-[11px] ${softText}`}>El catálogo real lo expondrá cb-api por proveedor.</p>
           </div>
 
@@ -151,18 +145,14 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
             <label htmlFor="tts-formato" className={claseLabel}>
               Formato de audio
             </label>
-            <select
+            <Select
               id="tts-formato"
+              aria-label="Formato de audio"
               value={formato}
-              onChange={(e) => setFormato(e.target.value as TtsFormato)}
-              className={claseInput}
-            >
-              {FORMATOS.map((f) => (
-                <option key={f} value={f}>
-                  {f.toUpperCase()}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setFormato(v as TtsFormato)}
+              className={claseSelect}
+              options={FORMATOS.map((f) => ({ value: f, label: f.toUpperCase() }))}
+            />
           </div>
 
           <div className="space-y-1.5 sm:col-span-2">
