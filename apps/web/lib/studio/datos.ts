@@ -1,7 +1,10 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { firmarLecturaImagenes, firmarLecturaImagen } from '@/lib/media/firmar-imagenes.server';
+import { firmarLecturaArchivo } from '@/lib/media/firmar-archivos.server';
+import { firmarReproduccionVideo } from '@/lib/media/firmar-video.server';
 import type {
+  PreviewRecurso,
   Recurso,
   RecursoDetalle,
   TipoRecurso,
@@ -749,12 +752,13 @@ export async function getRecursos(userId: string): Promise<BibliotecaContenido> 
           procesando: boolean;
           progreso: number | null;
           created_at: Date;
+          storage_key: string | null;
           usos: number;
           programas: number;
         }[]
       >`
         select r.id, r.tipo::text as tipo, r.nombre, r.meta, r.reproduccion, r.etiquetas,
-               r.procesando, r.progreso, r.created_at,
+               r.procesando, r.progreso, r.created_at, r.storage_key,
                coalesce((
                  select count(distinct b.leccion_id)
                  from lxp.bloques b
@@ -769,6 +773,13 @@ export async function getRecursos(userId: string): Promise<BibliotecaContenido> 
                ), 0)::int as programas
         from lxp.recursos r
         order by usos desc, r.created_at desc`;
+
+      // Miniatura real solo para IMÁGENES: se firma la lectura de sus claves en un lote
+      // (el resto de tipos no tiene un frame barato de servir → cae al ícono del tipo).
+      const urlsImg = await firmarLecturaImagenes(
+        rows.filter((r) => r.tipo === 'imagen').map((r) => r.storage_key),
+      );
+
       return rows.map(
         (r): Recurso => ({
           id: r.id,
@@ -783,6 +794,7 @@ export async function getRecursos(userId: string): Promise<BibliotecaContenido> 
           etiquetas: r.etiquetas ?? [],
           procesando: r.procesando,
           progreso: r.progreso ?? undefined,
+          thumbUrl: r.tipo === 'imagen' && r.storage_key ? (urlsImg[r.storage_key] ?? null) : null,
         }),
       );
     });
@@ -794,6 +806,49 @@ export async function getRecursos(userId: string): Promise<BibliotecaContenido> 
 }
 
 export type DetalleContenido = { pendienteDb: boolean; recurso: RecursoDetalle | null };
+
+/**
+ * Firma la PREVIEW reproducible del recurso según su tipo (§2 — la firma la hace el `api`,
+ * el binario no pasa por el web). Falla suave a `ninguno` cuando no hay artefacto firmable
+ * o el servicio no responde → el detalle cae al marco con ícono del tipo.
+ *
+ *  · imagen        → URL firmada de `media/imagenes/*`      (<img>)
+ *  · pdf/word/ppt  → URL firmada de `media/archivos/*`      (visor PDF · descarga docx/pptx)
+ *  · video         → URL de reproducción firmada por videotecaId (BloqueVideo)
+ *  · h5p           → contentId (== storage_key); el cliente arma el servidor base
+ *  · scorm/xapi    → sin lanzador propio aún → BloquePaquete se degrada con dignidad
+ */
+async function construirPreview(
+  tipo: TipoRecurso,
+  storageKey: string | null,
+): Promise<PreviewRecurso> {
+  switch (tipo) {
+    case 'imagen': {
+      const url = await firmarLecturaImagen(storageKey);
+      return url ? { clase: 'imagen', url } : { clase: 'ninguno' };
+    }
+    case 'pdf': {
+      const url = await firmarLecturaArchivo(storageKey);
+      return url ? { clase: 'pdf', url } : { clase: 'ninguno' };
+    }
+    case 'word':
+    case 'ppt': {
+      const url = await firmarLecturaArchivo(storageKey);
+      return { clase: 'documento', tipo, url };
+    }
+    case 'video': {
+      const url = await firmarReproduccionVideo(storageKey);
+      return url ? { clase: 'video', url } : { clase: 'ninguno' };
+    }
+    case 'h5p':
+      return storageKey ? { clase: 'h5p', contentId: storageKey } : { clase: 'ninguno' };
+    case 'scorm':
+    case 'xapi':
+      return { clase: 'paquete', tipo };
+    default:
+      return { clase: 'ninguno' };
+  }
+}
 
 export async function getRecursoDetalle(userId: string, recursoId: string): Promise<DetalleContenido> {
   try {
@@ -808,11 +863,12 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
             reproduccion: string | null;
             etiquetas: string[];
             version: number;
+            storage_key: string | null;
             created_at: Date;
             updated_at: Date;
           }[]
         >`
-          select id, tipo::text as tipo, nombre, meta, reproduccion, etiquetas, version, created_at, updated_at
+          select id, tipo::text as tipo, nombre, meta, reproduccion, etiquetas, version, storage_key, created_at, updated_at
           from lxp.recursos where id = ${recursoId} limit 1`
       )[0];
       if (!r) return null;
@@ -849,6 +905,8 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
         { etiqueta: 'Última versión', valor: `v${r.version}` },
       ];
 
+      const preview = await construirPreview(r.tipo, r.storage_key);
+
       return {
         id: r.id,
         tipo: r.tipo,
@@ -856,6 +914,7 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
         reproduccion: r.reproduccion ?? undefined,
         duracion: typeof m.duracion === 'string' ? m.duracion : undefined,
         metadatos,
+        preview,
         etiquetas: r.etiquetas ?? [],
         usos: usos.map(
           (u): UsoRecurso => ({

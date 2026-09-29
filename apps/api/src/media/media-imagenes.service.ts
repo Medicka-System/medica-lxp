@@ -26,7 +26,13 @@ export class MediaImagenesService {
 
   /** Firma la subida DIRECTA a la clave final. El navegador sube el archivo tal cual. */
   firmarSubida(ext: string): { id: string; ext: string; ref: string; urlSubida: string; urlLectura: string } {
-    const e = EXT_OK.has(ext) ? ext : 'jpg';
+    const e = (ext ?? '').toLowerCase();
+    // Extensión desconocida → se rechaza. Antes se forzaba a 'jpg', lo que guardaba el
+    // binario con la clave/extensión equivocada y lo servía roto (§2: la firma la usa el
+    // navegador tal cual). Mejor un 400 explícito que un recurso silenciosamente corrupto.
+    if (!EXT_OK.has(e)) {
+      throw new BadRequestException(`Extensión no soportada: "${ext}". Permitidas: ${[...EXT_OK].join(', ')}.`);
+    }
     const id = randomUUID();
     const ref = this.storage.claveImagenContenido(id, e);
     // PÚBLICAS: el navegador (diseñador) sube y lee la imagen directo a storage.
