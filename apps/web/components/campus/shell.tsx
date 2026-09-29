@@ -7,7 +7,7 @@
  * campus-lxp-mocks/alumno/shell-menus.
  */
 
-import { useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -31,6 +31,19 @@ const focusLight =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
 
 export type ShellUsuario = { nombre: string; matricula: string; avatarUrl?: string | null };
+
+/**
+ * Contexto para que una ruta hija (el interior del curso · app/(campus)/curso/[id])
+ * cambie ESTE shell sin anidar otro: registra el contenido central del header
+ * (MenuCurso, EN LUGAR del buscador) y pide colapsar el lateral. Lo consume
+ * `CursoShell` (app/(campus)/_shell/CursoShell). Fuera del curso, el buscador queda
+ * intacto (headerCentro = null).
+ */
+export type CursoShellApi = {
+  setHeaderCentro: (n: ReactNode) => void;
+  setColapsadoCurso: (v: boolean) => void;
+};
+export const CursoShellContext = createContext<CursoShellApi | null>(null);
 
 function esActivo(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
@@ -121,7 +134,12 @@ export function CampusShell({
   // (transition-[width]), respetando prefers-reduced-motion.
   const modoLectura = useContext(ModoLecturaContext);
   const [colapsadoManual, setColapsadoManual] = useState(false);
-  const colapsado = (modoLectura?.activo ?? false) || colapsadoManual;
+  // Registro del interior del curso: MenuCurso en el header + lateral colapsado.
+  const [headerCentro, setHeaderCentro] = useState<ReactNode>(null);
+  const [colapsadoCurso, setColapsadoCurso] = useState(false);
+  const cursoApi = useMemo<CursoShellApi>(() => ({ setHeaderCentro, setColapsadoCurso }), []);
+  const enCurso = headerCentro != null;
+  const colapsado = colapsadoCurso || (modoLectura?.activo ?? false) || colapsadoManual;
   const [cuentaAbierta, setCuentaAbierta] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
   const cuentaRef = useRef<HTMLDivElement>(null);
@@ -162,6 +180,7 @@ export function CampusShell({
   };
 
   return (
+    <CursoShellContext.Provider value={cursoApi}>
     <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors duration-[750ms] motion-reduce:transition-none">
       <div className="flex pt-[68px]">
         {/* ══ LATERAL ══ */}
@@ -181,7 +200,7 @@ export function CampusShell({
                     <ItemLateral
                       key={item.id}
                       item={item}
-                      activo={esActivo(pathname, item.href)}
+                      activo={esActivo(pathname, item.href) || (enCurso && item.id === 'cursos')}
                       colapsado={colapsado}
                       badge={badgeDe(item, casosPendientes, consultasNoLeidas)}
                     />
@@ -229,14 +248,20 @@ export function CampusShell({
               </span>
             </Link>
 
-            <form role="search" onSubmit={(e) => e.preventDefault()} className="mx-auto min-w-0 flex-1 lg:max-w-[440px]">
-              <label className="flex h-11 items-center gap-2.5 rounded-full border border-border bg-muted px-4 transition-colors focus-within:border-secondary focus-within:bg-card">
-                <Search aria-hidden className="h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                <span className="sr-only">Búsqueda global</span>
-                <input type="search" placeholder="Buscar cursos, casos o temas…" className="w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground" />
-                <kbd className={`${mono} hidden h-6 shrink-0 items-center rounded-[6px] border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground sm:inline-flex`}>⌘K</kbd>
-              </label>
-            </form>
+            {/* Dentro del curso, el MenuCurso ocupa el hueco del buscador (mismo slot,
+                centrado); fuera, el buscador global queda intacto. */}
+            {headerCentro ? (
+              <div className="mx-auto flex min-w-0 flex-1 items-stretch justify-center">{headerCentro}</div>
+            ) : (
+              <form role="search" onSubmit={(e) => e.preventDefault()} className="mx-auto min-w-0 flex-1 lg:max-w-[440px]">
+                <label className="flex h-11 items-center gap-2.5 rounded-full border border-border bg-muted px-4 transition-colors focus-within:border-secondary focus-within:bg-card">
+                  <Search aria-hidden className="h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="sr-only">Búsqueda global</span>
+                  <input type="search" placeholder="Buscar cursos, casos o temas…" className="w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground" />
+                  <kbd className={`${mono} hidden h-6 shrink-0 items-center rounded-[6px] border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground sm:inline-flex`}>⌘K</kbd>
+                </label>
+              </form>
+            )}
 
             <div className="flex items-center gap-1.5">
               <Link
@@ -344,5 +369,6 @@ export function CampusShell({
         </div>
       )}
     </div>
+    </CursoShellContext.Provider>
   );
 }
