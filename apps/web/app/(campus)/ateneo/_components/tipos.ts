@@ -14,6 +14,11 @@ export type Persona = {
   rol: Rol;
   /** especialidad · sede */
   meta: string;
+  /**
+   * Foto de perfil LISTA para `<img>` (URL ya firmada; el data layer resuelve el `avatar_url`
+   * cross-user vía `perfil_publico_de` · §10 y la firma). `null`/`undefined` → iniciales.
+   */
+  avatarUrl?: string | null;
 };
 
 /** Reacciones clínicas, no el repertorio de Facebook. */
@@ -114,6 +119,8 @@ export type PerfilResumen = Persona & {
   estadoConexion?: "ninguna" | "pendiente" | "colegas";
   /** Privacidad (Bloque 4): si el colega acepta solicitudes. undefined = sí (compat). */
   aceptaColegas?: boolean;
+  /** Portada (pleca) LISTA para `<img>` — URL ya firmada (`perfil_publico_de.portada_url`). null → degradado navy. */
+  portadaUrl?: string | null;
 };
 
 export type AteneoData = {

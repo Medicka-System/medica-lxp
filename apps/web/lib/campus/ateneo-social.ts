@@ -83,17 +83,39 @@ type FilaPost = {
   mi_reaccion: string | null;
 };
 
-function persona(f: {
-  autor_id: string;
-  autor: string | null;
-  autor_rol: string | null;
-  autor_esp: string | null;
-  autor_sede: string | null;
-}): Persona {
+function persona(
+  f: {
+    autor_id: string;
+    autor: string | null;
+    autor_rol: string | null;
+    autor_esp: string | null;
+    autor_sede: string | null;
+  },
+  avatarUrl: string | null = null,
+): Persona {
   const nombre = f.autor ?? 'Colega';
   const rol = f.autor_rol && STAFF_ROLES.has(f.autor_rol) ? 'docente' : 'alumno';
   const meta = [f.autor_esp, f.autor_sede].filter(Boolean).join(' · ') || 'Campus Médica';
-  return { id: f.autor_id, ini: ini(nombre), nombre, rol, meta };
+  return { id: f.autor_id, ini: ini(nombre), nombre, rol, meta, avatarUrl };
+}
+
+/**
+ * Fotos de perfil (avatarUrl FIRMADO) por user_id, cross-user y RESPETANDO privacidad: se
+ * resuelven con `lxp.perfil_publico_de` (SECURITY DEFINER · §10) — un alumno no puede leer el
+ * `avatar_url` ajeno bajo la RLS own-or-staff de `lxp.perfiles`. El `avatar_url` es NULL para
+ * perfiles ocultos (perfilVisible=false) → cae a iniciales. Las refs `media/imagenes/*` se
+ * firman a URL de lectura (patrón del feed). Devuelve `id → url|null`.
+ */
+export async function avataresDe(sql: Sql, ids: string[]): Promise<Map<string, string | null>> {
+  const m = new Map<string, string | null>();
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if (uniq.length === 0) return m;
+  const filas = await sql<{ id: string; avatar_url: string | null }[]>`
+    select id, avatar_url from lxp.perfil_publico_de(${uniq}::uuid[])`;
+  const refs = filas.map((f) => f.avatar_url).filter((r): r is string => !!r);
+  const urls = refs.length ? await firmarLecturaImagenes(refs) : {};
+  for (const f of filas) m.set(f.id, f.avatar_url ? urls[f.avatar_url] ?? null : null);
+  return m;
 }
 
 function aCasoVacio(titulo: string): CasoBitacora {
@@ -148,13 +170,23 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
     from lxp.comentarios_ateneo c
     where c.post_id = any(${ids}) and c.parent_id is null
     order by c.created_at desc`;
+
+  // Fotos cross-user (autores de post + de los comentarios en preview) · perfil_publico_de (§10).
+  const avatarPorId = await avataresDe(sql, [
+    ...filas.map((f) => f.autor_id),
+    ...coms.map((c) => c.autor_id),
+  ]);
+
   const previewPorPost = new Map<string, Comentario[]>();
   for (const c of coms) {
     const arr = previewPorPost.get(c.post_id) ?? [];
     if (arr.length < 2) {
       arr.push({
         id: c.id,
-        autor: persona({ autor_id: c.autor_id, autor: c.autor, autor_rol: c.autor_rol, autor_esp: null, autor_sede: null }),
+        autor: persona(
+          { autor_id: c.autor_id, autor: c.autor, autor_rol: c.autor_rol, autor_esp: null, autor_sede: null },
+          avatarPorId.get(c.autor_id) ?? null,
+        ),
         texto: c.cuerpo,
         cuando: haceCuanto(c.created_at),
       });
@@ -208,7 +240,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
   return filas.map((f) => {
     const base = {
       id: f.id,
-      autor: persona(f),
+      autor: persona(f, avatarPorId.get(f.autor_id) ?? null),
       cuando: haceCuanto(f.created_at),
       reacciones: {
         top: topPorPost.get(f.id) ?? [],
@@ -319,13 +351,14 @@ export async function getAteneoSocial(
     // Primer lote del feed GLOBAL (los siguientes y el cambio de feed → cargarFeedAteneo).
     const { posts, siguienteCursor } = await cargarLote(sql, userId, 'global', null, LOTE_FEED);
 
-    // ── Yo (perfil resumen) ──
+    // ── Yo (perfil resumen) ── foto/portada del PROPIO perfil (RLS own-row → lectura directa).
     const yoFila = (
-      await sql<{ nombre: string | null; rol: string | null; esp: string | null; sede: string | null }[]>`
-        select nombre, rol::text as rol, especialidad as esp, sede
+      await sql<{ nombre: string | null; rol: string | null; esp: string | null; sede: string | null; avatar_url: string | null; portada_url: string | null }[]>`
+        select nombre, rol::text as rol, especialidad as esp, sede, avatar_url, portada_url
         from lxp.perfiles where user_id = ${userId}`
     )[0];
     const yoNombre = yoFila?.nombre ?? 'Usted';
+    const yoMedia = await firmarLecturaImagenes([yoFila?.avatar_url, yoFila?.portada_url]);
     const colegaIds = await colegasDe(sql, userId);
     const casosMios = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where id_alumno = ${userId}`)[0]?.n ?? 0;
@@ -341,6 +374,8 @@ export async function getAteneoSocial(
       colegas: colegaIds.length,
       casos: casosMios,
       aportes: aportesMios,
+      avatarUrl: (yoFila?.avatar_url && yoMedia[yoFila.avatar_url]) || null,
+      portadaUrl: (yoFila?.portada_url && yoMedia[yoFila.portada_url]) || null,
     };
 
     // ── Mis casos (para presentar en el composer): anonimizados/validados primero ──
@@ -387,6 +422,7 @@ export async function getAteneoSocial(
     // Gate de privacidad (Bloque 4): excluye a quien ocultó su perfil (perfilVisible=false) y
     // marca aceptaColegas (la UI oculta "Conectar" si es false).
     const privSug = await privacidadDeVarios(sugFilas.map((s) => s.user_id));
+    const sugAvatares = await avataresDe(sql, sugFilas.map((s) => s.user_id));
     const sugerencias = sugFilas
       .filter((s) => privSug.get(s.user_id)?.perfilVisible !== false)
       .map((s) => {
@@ -405,6 +441,7 @@ export async function getAteneoSocial(
           estadoConexion,
           enComun: s.comunes > 0 ? { total: s.comunes, inis: [] } : undefined,
           aceptaColegas: privSug.get(s.user_id)?.aceptarColegas ?? true,
+          avatarUrl: sugAvatares.get(s.user_id) ?? null,
         };
       });
 
