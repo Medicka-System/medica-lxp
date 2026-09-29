@@ -10,26 +10,35 @@ content-type (imagen web vs DICOM P10); en ambos se detecta y tapa SOLO la caja 
   Tesseract (OCR) → detecta TODO el texto y su bounding box
   spaCy es_core_news_lg (NER, vía Presidio) → identifica cuál es PERSON (nombre)
   → se ennegrece SOLO la caja de las palabras del nombre, en TODOS los frames (el banner
-    es estático en un cine). Lossless: no recomprime (transfer syntax sin comprimir).
+    es estático en un cine).
+
+DICOM COMPRIMIDO (§10 · el formato REAL de los ecógrafos — JPEG baseline/lossless, JPEG
+2000, JPEG-LS, RLE): se DECODIFICA con el stack completo de handlers (gdcm + pylibjpeg),
+se tapa el nombre, y se **NORMALIZA a SIN COMPRIMIR** (`decompress()` → TransferSyntax =
+ExplicitVRLittleEndian, sin encapsulación/undefined-length) ANTES de guardar. Sin esta
+normalización, `save_as` lanzaba y el servicio devolvía el original SIN redactar (leak §10).
+
+VERIFICACIÓN POST-REDACCIÓN (§10): tras guardar, se RE-LEE la salida y se RE-CORRE el OCR+NER
+sobre los píxeles resultantes. Si sobrevive un nombre → se trata como FALLO (no como éxito).
+
+FAIL-CLOSED ABSOLUTO (§10): cualquier excepción, archivo no decodificable, nombre dudoso
+(NER sin confianza) o verificación fallida → respuesta de FALLO (`X-Revision-Manual: 1`,
+`X-Redaccion-Fallida: 1`) con CUERPO VACÍO — NUNCA se devuelve el original sin redactar como
+válido. El worker pone el estudio en CUARENTENA (`revision_manual`), no lo publica.
 
 Config: SOLO entity PERSON. NO toca fechas, parámetros, escalas ni anotaciones clínicas.
 NUNCA sale a la nube (modelo y OCR locales).
 
-FALLBACK (§10 · cuarentena, no leak): si el servicio falla, o el OCR ve texto pero NER no
-reconoce un nombre con confianza, se marca `revision_manual` (X-Revision-Manual: 1) para
-que un humano lo revise — nunca se deja pasar un posible nombre sin redactar.
-
-FUERA DE ALCANCE (pendiente): entity PatientID (por decisión del proyecto se redacta solo
-el nombre; el ID en TAGS ya se elimina).
-
 Endpoints:
   GET  /health              → estado + si el motor cargó
-  POST /redact  (body = .dcm binario) → .dcm redactado (application/dicom) + headers:
-        X-Redacciones, X-Revision-Manual, X-Ocr-Texto, X-Entidad
+  POST /redact  (body = .dcm o imagen) → binario redactado (2xx) + headers:
+        X-Redacciones, X-Revision-Manual, X-Redaccion-Fallida, X-Ocr-Texto, X-Entidad,
+        X-Transfer-Syntax-In, X-Error
 """
 from __future__ import annotations
 
 import io
+import logging
 import os
 from threading import Lock
 from typing import List, Tuple
@@ -40,9 +49,13 @@ import pytesseract
 from pytesseract import Output
 from fastapi import FastAPI, Request, Response
 from PIL import Image
+from pydicom.uid import ExplicitVRLittleEndian
 
 from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+logging.basicConfig(level=logging.INFO, format="[redactor] %(levelname)s %(message)s")
+log = logging.getLogger("redactor")
 
 LANG = "es"
 SPACY_MODEL = os.environ.get("REDACTOR_SPACY_MODEL", "es_core_news_lg")
@@ -57,7 +70,7 @@ PAD = int(os.environ.get("REDACTOR_PAD", "6"))
 # SOLO el nombre del paciente. (PatientID excluido por decisión del proyecto.)
 ENTITIES = ["PERSON"]
 
-app = FastAPI(title="Campus LXP · Redactor DICOM (Presidio)", version="1.0.0")
+app = FastAPI(title="Campus LXP · Redactor DICOM (Presidio)", version="2.0.0")
 
 _analyzer: AnalyzerEngine | None = None
 _lock = Lock()
@@ -190,54 +203,162 @@ def _pil_rgb(frame: np.ndarray, samples: int) -> Image.Image:
     return Image.fromarray(f8, "L").convert("RGB")
 
 
+def _verificar_limpia(img: Image.Image) -> Tuple[bool, int]:
+    """VERIFICACIÓN §10: re-corre OCR+NER sobre la imagen YA redactada. Limpia si NO queda
+    ninguna caja de nombre (`redactar`) NI línea dudosa (`revisar`). Devuelve (limpia?, n_restantes)."""
+    cajas, revisar, _ = _cajas_y_revision(img)
+    restantes = len(cajas) + (1 if revisar else 0)
+    return restantes == 0, restantes
+
+
+# ── Cabeceras de respuesta ──────────────────────────────────────────────────
+def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "") -> Response:
+    """Éxito verificado: se devuelve el binario REDACTADO (sin PII quemada)."""
+    return Response(
+        content=body,
+        media_type=media,
+        headers={
+            "X-Redacciones": str(redacciones),
+            "X-Revision-Manual": "0",
+            "X-Redaccion-Fallida": "0",
+            "X-Entidad": "PERSON",
+            "X-Transfer-Syntax-In": ts_in,
+        },
+    )
+
+
+def _fallo(motivo: str, ts_in: str = "") -> Response:
+    """FALLO fail-closed (§10): CUERPO VACÍO + banderas de cuarentena. NUNCA se devuelve el
+    original sin redactar. El worker pone el estudio en `revision_manual` (no lo publica)."""
+    log.warning("redact FALLO ts_in=%s motivo=%s", ts_in or "?", motivo[:160])
+    return Response(
+        content=b"",
+        status_code=200,
+        media_type="application/octet-stream",
+        headers={
+            "X-Redacciones": "0",
+            "X-Revision-Manual": "1",
+            "X-Redaccion-Fallida": "1",
+            "X-Transfer-Syntax-In": ts_in,
+            "X-Error": motivo[:160],
+        },
+    )
+
+
 def _redact_imagen(data: bytes, content_type: str) -> Response:
     """Redacta la PII quemada de una IMAGEN web (JPG/PNG) — screenshot del equipo (§3/§10).
-
-    La imagen no tiene tags que limpiar, pero SÍ puede traer el nombre del paciente quemado.
-    Se corre el MISMO OCR+NER que en DICOM (Presidio sobre píxeles), se ennegrece la caja del
-    nombre y se re-codifica en el MISMO formato (sin recomprimir agresivo). FALLBACK: si algo
-    falla, cuarentena (X-Revision-Manual: 1) — nunca se devuelve la imagen sin garantizar §10."""
+    Decodifica → tapa el nombre → re-codifica → VERIFICA. Fail-closed."""
     try:
         img = Image.open(io.BytesIO(data)).convert("RGB")
         formato = (img.format or ("PNG" if "png" in content_type else "JPEG")).upper()
     except Exception as e:  # noqa: BLE001
-        return Response(
-            content=data,
-            media_type=content_type or "application/octet-stream",
-            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"open:{e}"[:120]},
-        )
+        return _fallo(f"open:{e}", content_type)
     try:
         cajas, revisar, _ = _cajas_y_revision(img)
+        if revisar:
+            return _fallo("nombre dudoso (NER sin confianza) → cuarentena", content_type)
         arr = np.asarray(img).copy()  # (H,W,3)
         rows, cols = arr.shape[0], arr.shape[1]
-        # `_tapar_cajas` espera (F,H,W,3): se añade eje de frame único.
-        arr4 = arr[np.newaxis, ...]
+        arr4 = arr[np.newaxis, ...]  # `_tapar_cajas` espera (F,H,W,3)
         _tapar_cajas(arr4, cajas, rows, cols)
         salida = Image.fromarray(arr4[0], "RGB")
 
         out = io.BytesIO()
-        # Conserva el formato de entrada; PNG sin pérdida, JPEG con calidad alta.
         if formato == "PNG":
             salida.save(out, format="PNG")
             media = "image/png"
         else:
             salida.save(out, format="JPEG", quality=92, subsampling=0)
             media = "image/jpeg"
-        return Response(
-            content=out.getvalue(),
-            media_type=media,
-            headers={
-                "X-Redacciones": str(len(cajas)),
-                "X-Revision-Manual": "1" if revisar else "0",
-                "X-Entidad": "PERSON",
-            },
-        )
+        cuerpo = out.getvalue()
+
+        # VERIFICACIÓN §10: re-abrir la salida y re-OCR. Si sobrevive un nombre → FALLO.
+        limpia, restantes = _verificar_limpia(Image.open(io.BytesIO(cuerpo)).convert("RGB"))
+        if not limpia:
+            return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", content_type)
+        log.info("redact IMG ok content_type=%s redacciones=%d", content_type, len(cajas))
+        return _ok(cuerpo, media, len(cajas), content_type)
     except Exception as e:  # noqa: BLE001
-        return Response(
-            content=data,
-            media_type=content_type or "application/octet-stream",
-            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"img:{e}"[:120]},
+        return _fallo(f"img:{e}", content_type)
+
+
+def _redact_dicom(data: bytes) -> Response:
+    """Redacta la PII quemada de un `.dcm` (cualquier TransferSyntax). Decodifica (gdcm/pylibjpeg)
+    → tapa el nombre en TODOS los frames → NORMALIZA a SIN COMPRIMIR → guarda → VERIFICA."""
+    # 1) Leer (estricto; fallback force para tolerar P10 no-canónicos de dcmjs).
+    ts_in = ""
+    try:
+        ds = pydicom.dcmread(io.BytesIO(data))
+    except Exception:  # noqa: BLE001
+        try:
+            ds = pydicom.dcmread(io.BytesIO(data), force=True)
+        except Exception as e:  # noqa: BLE001
+            return _fallo(f"read:{e}")
+    try:
+        ts_in = str(getattr(ds.file_meta, "TransferSyntaxUID", "") or "")
+        if not ts_in:
+            # Sin TransferSyntax no se puede saber cómo están codificados los píxeles.
+            return _fallo("sin TransferSyntaxUID (no se puede decodificar el pixel-data)")
+
+        # 2) NORMALIZAR: si viene comprimido (JPEG/JPEG2000/JPEG-LS/RLE), decodificar a crudo.
+        #    Esto reescribe PixelData sin encapsular y fija TS = ExplicitVRLittleEndian.
+        if ds.file_meta.TransferSyntaxUID.is_compressed:
+            ds.decompress()  # requiere gdcm/pylibjpeg; si falla → except → fail-closed
+
+        rows, cols = int(ds.Rows), int(ds.Columns)
+        samples = int(getattr(ds, "SamplesPerPixel", 1))
+        frames = int(getattr(ds, "NumberOfFrames", 1) or 1)
+        arr = ds.pixel_array.reshape(
+            (frames, rows, cols, 3) if samples == 3 else (frames, rows, cols)
+        ).copy()
+
+        # 3) Detectar el nombre en el frame 0 (el banner es estático en el cine).
+        cajas, revisar, ocr_texto = _cajas_y_revision(_pil_rgb(arr[0], samples))
+        if revisar:
+            return _fallo("nombre dudoso (NER sin confianza) → cuarentena", ts_in)
+
+        # 4) Tapar en TODOS los frames (mono (F,H,W) o RGB (F,H,W,3)).
+        _tapar_cajas(arr, cajas, rows, cols)
+
+        # 5) Reescribir SIN COMPRIMIR: pixel-data crudo + TS explícito little-endian, y limpiar
+        #    la longitud indefinida (encapsulación) que dejaba el formato comprimido.
+        ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+        ds.is_little_endian = True
+        ds.is_implicit_VR = False
+        if samples == 3:
+            # `pixel_array` entrega el frame LISTO para mostrar, intercalado (R,G,B). Tras
+            # decodificar un JPEG YBR el dato ya viene full-size RGB, pero la etiqueta podía
+            # seguir en YBR_FULL_422 (subsampled) → los visores lo malinterpretarían. Se alinea.
+            ds.PhotometricInterpretation = "RGB"
+            ds.PlanarConfiguration = 0
+        ds.PixelData = np.ascontiguousarray(arr).tobytes()
+        ds["PixelData"].is_undefined_length = False
+
+        out = io.BytesIO()
+        ds.save_as(out, write_like_original=False)  # P10 canónico (preámbulo + DICM)
+        cuerpo = out.getvalue()
+
+        # 6) VERIFICACIÓN §10: re-leer la SALIDA, re-OCR sobre el frame 0. Si sobrevive un
+        #    nombre (o la salida no es legible) → FALLO.
+        try:
+            rr = pydicom.dcmread(io.BytesIO(cuerpo))
+            rframes = int(getattr(rr, "NumberOfFrames", 1) or 1)
+            rarr = rr.pixel_array.reshape(
+                (rframes, rows, cols, 3) if samples == 3 else (rframes, rows, cols)
+            )
+            limpia, restantes = _verificar_limpia(_pil_rgb(rarr[0], samples))
+        except Exception as e:  # noqa: BLE001
+            return _fallo(f"verificacion-relectura:{e}", ts_in)
+        if not limpia:
+            return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", ts_in)
+
+        log.info(
+            "redact DICOM ok ts_in=%s redacciones=%d frames=%d ocr=%d",
+            ts_in, len(cajas), frames, len(ocr_texto),
         )
+        return _ok(cuerpo, "application/dicom", len(cajas), ts_in)
+    except Exception as e:  # noqa: BLE001
+        return _fallo(f"redact:{e}", ts_in)
 
 
 @app.post("/redact")
@@ -248,57 +369,4 @@ async def redact(req: Request) -> Response:
     content_type = (req.headers.get("content-type") or "").lower()
     if content_type.startswith("image/"):
         return _redact_imagen(data, content_type)
-    try:
-        ds = pydicom.dcmread(io.BytesIO(data))
-    except Exception as e:  # noqa: BLE001
-        # No se pudo leer → cuarentena (no se puede garantizar la redacción).
-        return Response(
-            content=data,
-            media_type="application/dicom",
-            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"read:{e}"[:120]},
-        )
-
-    try:
-        arr = ds.pixel_array
-        rows, cols = int(ds.Rows), int(ds.Columns)
-        samples = int(getattr(ds, "SamplesPerPixel", 1))
-        frames = int(getattr(ds, "NumberOfFrames", 1) or 1)
-        # Normaliza a (F, rows, cols[, 3]).
-        arr = arr.reshape((frames, rows, cols, 3) if samples == 3 else (frames, rows, cols))
-
-        img0 = _pil_rgb(arr[0], samples)
-
-        # OCR+NER por LÍNEA sobre el frame 0 (el banner es estático en el cine). Núcleo
-        # compartido con el redactor de imagen — misma detección de nombre sobre píxeles.
-        cajas, revisar, ocr_texto = _cajas_y_revision(img0)
-
-        # Ennegrece la caja del nombre (con margen PAD) en TODOS los frames (banner estático).
-        _tapar_cajas(arr, cajas, rows, cols)  # cubre mono (F,H,W) y RGB (F,H,W,3)
-
-        # Reescribe el pixel-data (mismo layout; los frames se concatenan).
-        ds.PixelData = np.ascontiguousarray(arr).tobytes()
-        if samples == 3 and "PlanarConfiguration" in ds:
-            ds.PlanarConfiguration = 0  # `pixel_array` entrega intercalado
-
-        out = io.BytesIO()
-        ds.save_as(out, write_like_original=True)
-
-        # Cuarentena (§10): un nombre dudoso sin redactar → revisión humana.
-        revision = 1 if revisar else 0
-        return Response(
-            content=out.getvalue(),
-            media_type="application/dicom",
-            headers={
-                "X-Redacciones": str(len(cajas)),
-                "X-Revision-Manual": str(revision),
-                "X-Ocr-Texto": str(len(ocr_texto)),
-                "X-Entidad": "PERSON",
-            },
-        )
-    except Exception as e:  # noqa: BLE001
-        # Cualquier fallo del redactor → cuarentena (nunca se sube sin garantizar §10).
-        return Response(
-            content=data,
-            media_type="application/dicom",
-            headers={"X-Redacciones": "0", "X-Revision-Manual": "1", "X-Error": f"redact:{e}"[:120]},
-        )
+    return _redact_dicom(data)

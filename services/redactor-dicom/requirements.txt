@@ -10,3 +10,14 @@ pytesseract==0.3.13
 pydicom==2.4.4
 Pillow==10.4.0
 numpy==1.26.4
+# Decodificadores de pixel-data DICOM (§10 · los ecógrafos exportan COMPRIMIDO). Cubren
+# todo el espectro estándar: sin comprimir, JPEG baseline/extended/lossless, JPEG-LS,
+# JPEG 2000 y RLE. Sin ellos, `decompress()`/`pixel_array` fallan y el estudio se
+# va a cuarentena (fail-closed) en vez de publicarse sin redactar.
+# OJO: fijadas a versiones compatibles con numpy 1.26.4 (el stack de presidio/pydicom no
+# admite numpy 2.x). pylibjpeg-openjpeg 2.4.0 exige numpy>=2.0 → NO usar; 2.3.0 va con 1.24+.
+python-gdcm==3.0.24.1
+pylibjpeg==2.0.1
+pylibjpeg-libjpeg==2.1.0
+pylibjpeg-openjpeg==2.3.0
+pylibjpeg-rle==2.0.0

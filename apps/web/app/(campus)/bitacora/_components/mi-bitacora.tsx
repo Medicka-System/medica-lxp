@@ -366,16 +366,18 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
     alto: 576,
   });
   const etiquetaEstudio =
-    c.organo ??
-    (c.estudioEstado === 'procesando'
-      ? 'anonimizando estudio…'
-      : c.estudioEstado === 'error'
-        ? 'error al procesar el estudio'
-        : c.estudioEstado === 'recibido' || c.estudioEstado === 'pendiente'
-          ? 'estudio DICOM en cola'
-          : c.estudioEstado
-            ? 'estudio DICOM'
-            : 'sin estudio');
+    c.estudioEstado === 'revision_manual'
+      ? 'no se pudo anonimizar · en revisión'
+      : (c.organo ??
+        (c.estudioEstado === 'procesando'
+          ? 'anonimizando estudio…'
+          : c.estudioEstado === 'error'
+            ? 'error al procesar el estudio'
+            : c.estudioEstado === 'recibido' || c.estudioEstado === 'pendiente'
+              ? 'estudio DICOM en cola'
+              : c.estudioEstado
+                ? 'estudio DICOM'
+                : 'sin estudio'));
 
   return (
     <li
