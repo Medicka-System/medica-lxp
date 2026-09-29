@@ -12,7 +12,9 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Tesseract OCR + datos de idioma (spa/eng), curl para el healthcheck, y libGL/glib
-# que exige el opencv que arrastra presidio-image-redactor.
+# que exige el opencv que arrastra presidio-image-redactor. Esas mismas libs (libgl1/
+# libglib2.0-0) cubren los wheels manylinux de python-gdcm/pylibjpeg (decodificadores de
+# pixel-data DICOM comprimido · §10) — no requieren system-deps adicionales.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \

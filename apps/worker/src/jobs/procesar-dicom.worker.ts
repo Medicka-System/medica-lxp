@@ -153,6 +153,26 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         );
       }
 
+      // 2.5) CUARENTENA BLOQUEANTE (§10 · fail-CLOSED): si el redactor NO pudo garantizar la
+      //      redacción de una serie (excepción, formato no decodificable, nombre dudoso o la
+      //      verificación post-redacción falló) devuelve cuerpo VACÍO + X-Revision-Manual=1;
+      //      aquí NUNCA se sube ni se marca 'anonimizado'. Se descartan los crudos (PII fuera del
+      //      storage) y el estudio queda 'revision_manual' → el caso NO expone el estudio.
+      if (procesadas.some((p) => p.revisionManual)) {
+        for (const fuente of fuentes) {
+          await this.borrarCrudo(fuente.urlBorradoCrudo);
+        }
+        // Al REEMPLAZAR: el estudio entero queda en cuarentena. Al ANEXAR: se descartan solo las
+        // series nuevas y NO se toca el estudio anonimizado ya visible (no se degrada lo válido).
+        if (!anexar) await this.marcarEstado(tabla, casoId, 'revision_manual');
+        this.logger.warn(
+          `Caso ${casoId} (${tabla}) EN CUARENTENA (§10): el redactor no garantizó la redacción ` +
+            `de PII quemada en ${procesadas.filter((p) => p.revisionManual).length}/${procesadas.length} ` +
+            `serie(s). No se publicó el estudio; crudos descartados.`,
+        );
+        return { casoId, series: anexar ? existentes.length : 0 };
+      }
+
       // 3) Pedir al `api` las URLs firmadas de escritura (una por serie), con la extensión
       //    de cada una (dcm/jpg/png). El `api` es el único firmante (§3).
       const destinos = await this.firmarAnonimizados(
@@ -379,7 +399,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
   private async marcarEstado(
     tabla: TablaEstudioDicom,
     casoId: string,
-    estado: 'procesando' | 'error',
+    estado: 'procesando' | 'error' | 'revision_manual',
   ): Promise<void> {
     const sql = this.db.sql;
     if (tabla === 'casos_biblioteca') {

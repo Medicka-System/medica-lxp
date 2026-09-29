@@ -36,6 +36,9 @@ export type EstudioEstadoPipeline =
   | 'recibido'
   | 'procesando'
   | 'anonimizado'
+  // Cuarentena §10: el redactor no pudo garantizar la redacción de PII quemada → el estudio
+  // NO se publica y espera revisión humana (el visor no lo expone).
+  | 'revision_manual'
   | 'error'
   | null;
 

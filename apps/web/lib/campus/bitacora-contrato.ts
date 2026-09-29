@@ -54,12 +54,15 @@ export const DOMINIOS: DominioIaim[] = [
 
 export type EstadoCaso = 'pendiente' | 'aprobado' | 'rechazado';
 
-/** Estado del estudio en el pipeline DICOM (0014). null en casos sin binario. */
+/** Estado del estudio en el pipeline DICOM (0014 + 0062). null en casos sin binario. */
 export type EstudioEstado =
   | 'pendiente'
   | 'recibido'
   | 'procesando'
   | 'anonimizado'
+  // Cuarentena §10: el redactor no pudo garantizar la redacción de PII quemada → no se
+  // publica el estudio (el visor no lo expone), espera revisión humana.
+  | 'revision_manual'
   | 'error'
   | null;
 

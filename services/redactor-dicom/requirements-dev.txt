@@ -1,0 +1,4 @@
+# Dependencias SOLO para la suite de regresión del redactor (§10 · test_redact.py).
+# No van en la imagen de producción. CI: pip install -r requirements.txt -r requirements-dev.txt && pytest
+-r requirements.txt
+pytest==8.3.4

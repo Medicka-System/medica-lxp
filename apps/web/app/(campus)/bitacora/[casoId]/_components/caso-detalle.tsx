@@ -153,14 +153,16 @@ export function CasoDetalleBitacoraCliente({
   };
 
   const etiquetaVisor =
-    caso.organo ??
-    (caso.estudioEstado === 'procesando'
-      ? 'anonimizando el estudio…'
-      : caso.estudioEstado === 'error'
-        ? 'error al procesar el estudio'
-        : caso.estudioEstado
-          ? 'estudio DICOM en cola'
-          : 'sin estudio');
+    caso.estudioEstado === 'revision_manual'
+      ? 'no se pudo anonimizar · en revisión'
+      : (caso.organo ??
+        (caso.estudioEstado === 'procesando'
+          ? 'anonimizando el estudio…'
+          : caso.estudioEstado === 'error'
+            ? 'error al procesar el estudio'
+            : caso.estudioEstado
+              ? 'estudio DICOM en cola'
+              : 'sin estudio'));
 
   /* ── Gestor de series (agregar/quitar) — solo editable ── */
   const gestorSeries = editable ? (
@@ -466,11 +468,13 @@ function PanelLectura({
             </span>
             {listo
               ? `Estudio anonimizado · ${caso.series} ${caso.series === 1 ? 'serie' : 'series'}.`
-              : caso.estudioEstado === 'error'
-                ? 'El estudio no se pudo anonimizar.'
-                : caso.estudioEstado
-                  ? 'Estudio en anonimización…'
-                  : 'Sin estudio adjunto.'}
+              : caso.estudioEstado === 'revision_manual'
+                ? 'No se pudo anonimizar la PII de la imagen · en revisión. Vuelve a subir el estudio.'
+                : caso.estudioEstado === 'error'
+                  ? 'El estudio no se pudo anonimizar.'
+                  : caso.estudioEstado
+                    ? 'Estudio en anonimización…'
+                    : 'Sin estudio adjunto.'}
           </li>
           <li className={`flex items-start gap-2.5 ${caso.estado === 'aprobado' ? '' : 'text-muted-foreground'}`}>
             <span
