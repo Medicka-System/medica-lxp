@@ -64,7 +64,7 @@ export function ListaPerfilModal({
             <ul className="flex flex-col gap-1">
               {data!.colegas.map((p) => (
                 <li key={p.id} className="flex items-center gap-2.5 rounded-[11px] px-2 py-2">
-                  <Avatar p={p} size={36} />
+                  <Avatar p={p} url={p.avatarUrl} size={36} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] font-bold">{p.nombre}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">{p.meta}</span>
@@ -159,11 +159,19 @@ export function RailSocial({
   return (
     <aside className="flex min-w-0 flex-col gap-[18px]">
       <section className={`${card} overflow-hidden`}>
-        <div className="px-4 pb-3.5 pt-4">
-          <span aria-hidden className="grid h-[54px] w-[54px] place-items-center rounded-full bg-sidebar text-[17px] font-bold text-sidebar-foreground">
-            {yo.ini}
-          </span>
-          <p className="mt-2.5 text-[15px] font-bold">{yo.nombre}</p>
+        {/* Pleca de portada (§5A): foto del alumno o degradado navy de reposo, con el avatar encimado */}
+        <div className="relative h-[64px]" style={{ background: "var(--sidebar)" }}>
+          {yo.portadaUrl ? (
+            <img src={yo.portadaUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
+          )}
+        </div>
+        <div className="px-4 pb-3.5">
+          <div className="-mt-[30px] inline-flex rounded-full border-4 border-card bg-card">
+            <Avatar p={yo} url={yo.avatarUrl} size={54} />
+          </div>
+          <p className="mt-2 text-[15px] font-bold">{yo.nombre}</p>
           <p className="mt-0.5 text-[12px] text-muted-foreground">{yo.meta}</p>
           <div className="mt-3 flex gap-1 border-t border-border pt-2.5">
             <Cifra n={yo.colegas} etiqueta="colegas" onClick={() => onVerLista("colegas")} />
@@ -199,7 +207,7 @@ export function RailSocial({
           {sugerencias.map((s) => (
             <li key={s.id} className="mt-3 flex items-center gap-2.5">
               <button type="button" onClick={() => onAbrirPerfil(s.id)} className={`flex min-w-0 flex-1 items-center gap-2.5 text-left ${focusRing}`}>
-                <Avatar p={s} size={36} />
+                <Avatar p={s} url={s.avatarUrl} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-bold">{s.nombre}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">{s.meta}</span>
@@ -248,13 +256,17 @@ export function PerfilColega({
   const obtenidas = (insignias ?? []).filter((i) => i.obtenida);
   return (
     <Modal titulo={esPropio ? "Así se ve tu perfil público" : `Perfil de ${perfil.nombre}`} onCerrar={onCerrar} ancho={560}>
-      <div className="relative h-[86px]" style={{ background: "var(--sidebar)" }}>
-        <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
+      <div className="relative h-[92px]" style={{ background: "var(--sidebar)" }}>
+        {perfil.portadaUrl ? (
+          <img src={perfil.portadaUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
+        )}
       </div>
-      <div className="-mt-[34px] px-[22px] pb-5">
-        <span aria-hidden className="grid h-[70px] w-[70px] place-items-center rounded-full border-4 border-card bg-sidebar text-[22px] font-bold text-sidebar-foreground">
-          {perfil.ini}
-        </span>
+      <div className="px-[22px] pb-5">
+        <div className="-mt-[36px] inline-flex rounded-full border-4 border-card bg-card">
+          <Avatar p={perfil} url={perfil.avatarUrl} size={70} />
+        </div>
         <div className="mt-2.5 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[19px] font-extrabold">{perfil.nombre}</p>

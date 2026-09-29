@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
 import { comoAlumno, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
-import { cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { avataresDe, cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
 import type { CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
@@ -261,6 +262,53 @@ export async function compartirAteneo(postId: string): Promise<ResultadoAccion> 
   return { ok: true };
 }
 
+/**
+ * Elimina un post PROPIO (menú ⋯ del autor). RLS `posts_ateneo_delete` = solo el autor (o
+ * docente+): un no-autor no borra filas (no-op silencioso). Cascada borra comentarios/reacciones.
+ */
+export async function eliminarPostAteneo(postId: string): Promise<ResultadoAccion> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  try {
+    await comoAlumno(alumno.userId, async (sql) => {
+      await sql`delete from lxp.posts_ateneo where id = ${postId} and autor_id = ${alumno.userId}`;
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo eliminar la publicación.' };
+  }
+  revalidatePath('/ateneo');
+  return { ok: true };
+}
+
+/**
+ * Edita el TEXTO principal de un post PROPIO (menú ⋯ → Editar). El tipo decide la columna:
+ * pregunta/encuesta editan el enunciado (`titulo`); el resto edita el cuerpo/caption (`cuerpo`).
+ * La media/encuesta/caso embebidos NO se tocan aquí (solo el texto). RLS `posts_ateneo_update`
+ * = solo el autor (o docente+). No re-fetchea enlaces (el snapshot OG queda igual).
+ */
+export async function editarPostAteneo(postId: string, texto: string): Promise<ResultadoAccion> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  const t = texto.trim();
+  if (!t) return { ok: false, error: 'El texto no puede quedar vacío.' };
+  try {
+    await comoAlumno(alumno.userId, async (sql) => {
+      const fila = (await sql<{ tipo: string }[]>`
+        select tipo::text as tipo from lxp.posts_ateneo where id = ${postId} and autor_id = ${alumno.userId}`)[0];
+      if (!fila) throw new Error('no-autor');
+      if (fila.tipo === 'pregunta' || fila.tipo === 'encuesta') {
+        await sql`update lxp.posts_ateneo set titulo = ${t.slice(0, 280)} where id = ${postId} and autor_id = ${alumno.userId}`;
+      } else {
+        await sql`update lxp.posts_ateneo set cuerpo = ${t} where id = ${postId} and autor_id = ${alumno.userId}`;
+      }
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo guardar el cambio.' };
+  }
+  revalidatePath('/ateneo');
+  return { ok: true };
+}
+
 /** Conecta con un colega: solicita (ninguna→pendiente) o acepta (pendiente recibida→colegas). */
 export async function conectarColega(otroId: string): Promise<ResultadoAccion & { estado?: 'pendiente' | 'colegas' }> {
   const alumno = await getSesionAlumno();
@@ -317,6 +365,7 @@ export async function buscarColegas(q: string): Promise<(PerfilResumen & { motiv
       order by pf.nombre limit 12`;
     // Gate de privacidad (Bloque 4): quien tenga perfilVisible=false NO aparece en la búsqueda.
     const priv = await privacidadDeVarios(filas.map((f) => f.user_id));
+    const avatares = await avataresDe(sql, filas.map((f) => f.user_id));
     return filas
       .filter((s) => priv.get(s.user_id)?.perfilVisible !== false)
       .map((s) => ({
@@ -331,6 +380,7 @@ export async function buscarColegas(q: string): Promise<(PerfilResumen & { motiv
         motivo: s.rol === 'docente' ? 'docente del campus' : 'del diplomado',
         estadoConexion: (s.estado === 'colegas' ? 'colegas' : s.estado === 'pendiente' ? 'pendiente' : 'ninguna') as PerfilResumen['estadoConexion'],
         aceptaColegas: priv.get(s.user_id)?.aceptarColegas ?? true,
+        avatarUrl: avatares.get(s.user_id) ?? null,
       }));
   });
 }
@@ -400,9 +450,10 @@ export async function getListaPerfil(tipo: 'casos' | 'colegas' | 'aportes'): Pro
           where estado = 'colegas' and (solicitante_id = ${uid} or receptor_id = ${uid})
         ) cn
         order by nombre`;
+      const avatares = await avataresDe(sql, filas.map((f) => f.id));
       const colegas: Persona[] = filas.map((f) => {
         const n = f.nombre ?? 'Colega';
-        return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo' };
+        return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo', avatarUrl: avatares.get(f.id) ?? null };
       });
       return { tipo, colegas };
     }
@@ -448,6 +499,10 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
     // (sus posts siguen en el feed, pero su perfil devuelve null → el modal no abre).
     const priv = await privacidadDe(userId);
     if (!priv.perfilVisible) return null;
+    // Foto + portada del colega (cross-user) vía perfil_publico_de (§10) → URLs firmadas.
+    const media = (await sql<{ avatar_url: string | null; portada_url: string | null }[]>`
+      select avatar_url, portada_url from lxp.perfil_publico_de(${[userId]}::uuid[])`)[0];
+    const mediaUrls = await firmarLecturaImagenes([media?.avatar_url, media?.portada_url]);
     // Casos PRESENTADOS visibles: sus posts tipo caso (la RLS de posts aplica la visibilidad).
     const postsCaso = await sql<{ id: string; titulo: string; cuerpo: string | null; caso_origen_id: string | null; created_at: Date }[]>`
       select id, titulo, cuerpo, caso_origen_id, created_at
@@ -465,6 +520,8 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
         meta: 'Colega del Ateneo', colegas: base.colegas, casos: base.casos, aportes: base.aportes,
         estadoConexion, motivo: '',
         aceptaColegas: priv.aceptarColegas, // Bloque 4: la UI oculta "Conectar" si es false
+        avatarUrl: (media?.avatar_url && mediaUrls[media.avatar_url]) || null,
+        portadaUrl: (media?.portada_url && mediaUrls[media.portada_url]) || null,
       },
       casos,
     };

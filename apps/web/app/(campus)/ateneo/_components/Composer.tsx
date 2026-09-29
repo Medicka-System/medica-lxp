@@ -72,7 +72,7 @@ export function EntradaComposer({
   return (
     <section className="rounded-[14px] border border-border bg-card px-[18px] py-4 shadow-[0_1px_3px_rgba(17,24,39,0.06)]">
       <div className="flex items-center gap-3">
-        <Avatar p={yo} size={42} />
+        <Avatar p={yo} url={yo.avatarUrl} size={42} />
         <button
           type="button"
           onClick={() => onAbrir("texto")}
@@ -81,7 +81,7 @@ export function EntradaComposer({
           ¿Qué quiere compartir, {yo.nombre.split(" ").slice(0, 2).join(" ")}?
         </button>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3 sm:grid-cols-5">
         {ACCIONES.map(({ modo, etiqueta, Icono, color, fondo }) => (
           <button
             key={modo}
@@ -323,7 +323,7 @@ export function ComposerModal({
       <div className="px-5 pt-4">
         {/* autor + audiencia */}
         <div className="flex items-center gap-3">
-          <Avatar p={yo} size={42} />
+          <Avatar p={yo} url={yo.avatarUrl} size={42} />
           <div>
             <p className="text-[14px] font-bold">{yo.nombre}</p>
             {/* Audiencia: a toda la comunidad o solo a mis colegas */}
