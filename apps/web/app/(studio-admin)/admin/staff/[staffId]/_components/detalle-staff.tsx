@@ -39,7 +39,7 @@ export function DetalleStaffVista({ d }: { d: DetalleStaff }) {
           <ChevronLeft aria-hidden className="h-[17px] w-[17px]" strokeWidth={2} />
         </Link>
 
-        <Avatar ini={d.ini} size={52} />
+        <Avatar ini={d.ini} url={d.avatarUrl} size={52} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">

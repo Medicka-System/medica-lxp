@@ -14,6 +14,7 @@ export type AlumnoFila = {
   id: string;
   ini: string;
   nombre: string;
+  avatarUrl: string | null;
   competencia: number | null;
   casosAprobados: number;
   casosTotal: number;
@@ -49,6 +50,7 @@ export type Expediente = {
   ini: string;
   nombre: string;
   email: string | null;
+  avatarUrl: string | null;
   estado: EstadoAlumno;
   senal?: string;
   desde: string;

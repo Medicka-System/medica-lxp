@@ -74,7 +74,7 @@ export function DetalleEntrega({
           <ArrowLeft aria-hidden className="h-[15px] w-[15px]" strokeWidth={2} />
           Volver a las entregas
         </button>
-        <Avatar ini={entrega.alumno.ini} size={40} />
+        <Avatar ini={entrega.alumno.ini} size={40} url={entrega.alumno.avatarUrl} />
         <div className="min-w-0">
           <p className="text-[15px] font-bold leading-tight">{entrega.alumno.nombre}</p>
           <p className="mt-0.5 text-[12px] text-muted-foreground">

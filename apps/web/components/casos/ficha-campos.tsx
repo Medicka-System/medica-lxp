@@ -11,8 +11,9 @@
  */
 
 import { useState, type KeyboardEvent } from 'react';
-import { ChevronDown, Tag, X } from 'lucide-react';
+import { Tag, X } from 'lucide-react';
 import { focusRing } from '@/components/tokens';
+import { Select } from '@/components/ui/select';
 import {
   DOMINIOS,
   DOMINIO_LABEL,
@@ -128,44 +129,36 @@ export function FichaCasoCampos({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
+        <div className="block">
           <span className={etiquetaCampo}>Dominio I-AIM</span>
-          <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
-            <select
+          <div className="mt-[7px]">
+            <Select
+              aria-label="Dominio I-AIM"
+              disabled={disabled}
               value={value.dominio ?? ''}
-              onChange={(e) => set('dominio', (e.target.value || null) as DominioIaim | null)}
-              disabled={disabled}
-              className="w-full appearance-none bg-transparent text-[14px] font-medium text-foreground outline-none disabled:opacity-60"
-            >
-              <option value="">Sin especificar</option>
-              {DOMINIOS.map((d) => (
-                <option key={d} value={d}>
-                  {DOMINIO_LABEL[d]}
-                </option>
-              ))}
-            </select>
-            <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-          </span>
-        </label>
-        <label className="block">
+              onChange={(v) => set('dominio', (v || null) as DominioIaim | null)}
+              options={[
+                { value: '', label: 'Sin especificar' },
+                ...DOMINIOS.map((d) => ({ value: d, label: DOMINIO_LABEL[d] })),
+              ]}
+            />
+          </div>
+        </div>
+        <div className="block">
           <span className={etiquetaCampo}>Docente a validar</span>
-          <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
-            <select
-              value={value.docenteId ?? ''}
-              onChange={(e) => set('docenteId', e.target.value || null)}
+          <div className="mt-[7px]">
+            <Select
+              aria-label="Docente a validar"
               disabled={disabled}
-              className="w-full appearance-none bg-transparent text-[14px] font-medium text-foreground outline-none disabled:opacity-60"
-            >
-              <option value="">Cualquiera de mis docentes</option>
-              {docentes.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nombre}
-                </option>
-              ))}
-            </select>
-            <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-          </span>
-        </label>
+              value={value.docenteId ?? ''}
+              onChange={(v) => set('docenteId', v || null)}
+              options={[
+                { value: '', label: 'Cualquiera de mis docentes' },
+                ...docentes.map((d) => ({ value: d.id, label: d.nombre })),
+              ]}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

@@ -292,7 +292,7 @@ export function DetalleGrupo({
                   aria-label={`Seleccionar a ${a.nombre}`}
                   className="h-4 w-4 shrink-0 accent-[color:var(--secondary)]"
                 />
-                <Avatar ini={a.iniciales} />
+                <Avatar ini={a.iniciales} url={a.avatarUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-bold leading-snug">{a.nombre}</span>
                   <span className="mt-0.5 flex items-center gap-1.5">

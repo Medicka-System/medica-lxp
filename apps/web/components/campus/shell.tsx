@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kickerMini } from '@/components/tokens';
-import { iniciales } from '@/components/avatar';
+import { Avatar, iniciales } from '@/components/avatar';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components/campus/nav-config';
 import { ModoLecturaContext } from '@/components/campus/modo-lectura';
@@ -30,7 +30,7 @@ const focusDark =
 const focusLight =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
 
-export type ShellUsuario = { nombre: string; matricula: string };
+export type ShellUsuario = { nombre: string; matricula: string; avatarUrl?: string | null };
 
 function esActivo(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
@@ -264,9 +264,7 @@ export function CampusShell({
                   aria-expanded={cuentaAbierta}
                   className={`flex h-11 items-center gap-2.5 rounded-full pl-1 pr-1 transition-colors hover:bg-accent sm:pr-3 ${focusLight}`}
                 >
-                  <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sidebar text-[12.5px] font-bold text-sidebar-foreground">
-                    {ini}
-                  </span>
+                  <Avatar ini={ini} url={usuario.avatarUrl} size={36} />
                   <span className="hidden min-w-0 text-left leading-tight sm:block">
                     <span className="block truncate text-[13px] font-bold">{usuario.nombre}</span>
                     <span className={`block truncate text-[10.5px] text-muted-foreground ${mono}`}>{usuario.matricula}</span>
@@ -275,7 +273,7 @@ export function CampusShell({
 
                 {cuentaAbierta && (
                   <MenuCuenta
-                    usuario={{ nombre: usuario.nombre, matricula: usuario.matricula }}
+                    usuario={{ nombre: usuario.nombre, matricula: usuario.matricula, avatarUrl: usuario.avatarUrl }}
                     onCerrar={() => cerrarCuenta(false)}
                     onCerrarSesion={onCerrarSesion}
                   />
@@ -310,7 +308,7 @@ export function CampusShell({
             );
           })}
           <button type="button" onClick={() => setMasAbierto(true)} aria-expanded={masAbierto} className="flex h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-[10px]">
-            <span aria-hidden className="grid h-[21px] w-[21px] place-items-center rounded-full bg-sidebar text-[9px] font-bold text-sidebar-foreground">{ini}</span>
+            <Avatar ini={ini} url={usuario.avatarUrl} size={21} />
             <span className="text-[10.5px] font-medium leading-none text-muted-foreground">Perfil</span>
           </button>
         </div>
@@ -321,7 +319,7 @@ export function CampusShell({
           <button type="button" aria-label="Cerrar" onClick={() => setMasAbierto(false)} className="absolute inset-0 bg-[color:var(--sidebar)]/55" />
           <div className="absolute inset-x-0 bottom-0 rounded-t-[18px] border-t border-border bg-card p-5 pb-[calc(20px+env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-3">
-              <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-sidebar text-[13px] font-bold text-sidebar-foreground">{ini}</span>
+              <Avatar ini={ini} url={usuario.avatarUrl} size={44} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14.5px] font-bold">{usuario.nombre}</p>
                 <p className={`truncate text-[11px] text-muted-foreground ${mono}`}>{usuario.matricula}</p>

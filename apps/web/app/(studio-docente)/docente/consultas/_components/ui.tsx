@@ -34,15 +34,24 @@ export function EcoMark({ size = 32, invertido = false }: { size?: number; inver
   );
 }
 
-/** Avatar de iniciales sobre navy (§5A). */
-export function Avatar({ ini, size = 38 }: { ini: string; size?: number }) {
+/** Avatar de iniciales sobre navy (§5A) · o foto cuando llega `url` (ya firmada por el call-site). */
+export function Avatar({
+  ini,
+  size = 38,
+  url,
+}: {
+  ini: string;
+  size?: number;
+  /** URL de imagen LISTA para `<img>` (ya firmada/pública). Sin url → iniciales. */
+  url?: string | null;
+}) {
   return (
     <span
       aria-hidden
       style={{ width: size, height: size, fontSize: size * 0.34 }}
-      className="grid shrink-0 place-items-center rounded-full bg-sidebar font-bold text-sidebar-foreground"
+      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-sidebar font-bold text-sidebar-foreground"
     >
-      {ini}
+      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : ini}
     </span>
   );
 }

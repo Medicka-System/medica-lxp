@@ -282,7 +282,13 @@ export type EstadoVistaEntrega =
 export type TipoVistaEntrega = 'abierta' | 'autoevaluacion';
 
 /** Alumno mínimo para avatar + nombre (roster o autor de la entrega). */
-export type AlumnoRef = { id: string; ini: string; nombre: string };
+export type AlumnoRef = {
+  id: string;
+  ini: string;
+  nombre: string;
+  /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
+  avatarUrl: string | null;
+};
 
 /** Referencia a la actividad (lección `tarea`/`autoevaluacion`) del selector. */
 export type ActividadRef = {
@@ -388,6 +394,8 @@ export type TipoContraparte = 'alumno' | 'staff';
 export type ContraparteConsulta = {
   id: string;
   ini: string;
+  /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
+  avatarUrl: string | null;
   nombre: string;
   tipo: TipoContraparte;
   /** Contexto académico (solo alumno); `null` para staff. */

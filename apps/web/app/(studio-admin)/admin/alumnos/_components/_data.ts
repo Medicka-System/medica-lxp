@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
+import { firmarLecturaImagen, firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { haceCuanto } from '@/lib/format';
 import type { AlumnosData, AlumnoFila, EstadoAlumno, Expediente } from './contrato';
 
@@ -27,11 +28,15 @@ function estadoDe(
 }
 
 export async function getAlumnos(userId: string): Promise<AlumnosData> {
-  return comoStaff(userId, async (sql) => {
+  // Leemos bajo RLS (staff), recogiendo las refs de avatar; firmamos DESPUÉS del
+  // callback (patrón getShellData en lib/datos.ts) para no sostener la tx durante el
+  // fetch de red que hace firmarLecturaImagenes.
+  const { data, refs } = await comoStaff(userId, async (sql) => {
     const rows = await sql<
       {
         user_id: string;
         nombre: string;
+        avatar_url: string | null;
         acceso_activo: boolean;
         competencia: number | null;
         casos_total: number;
@@ -41,7 +46,7 @@ export async function getAlumnos(userId: string): Promise<AlumnosData> {
       }[]
     >`
       select
-        p.user_id, p.nombre, p.acceso_activo,
+        p.user_id, p.nombre, p.avatar_url, p.acceso_activo,
         cc.nivel_medio as competencia,
         coalesce(cb.total, 0)::int as casos_total,
         coalesce(cb.aprobados, 0)::int as casos_aprobados,
@@ -64,12 +69,14 @@ export async function getAlumnos(userId: string): Promise<AlumnosData> {
       order by p.nombre`;
 
     const hoy = new Date();
-    const alumnos: AlumnoFila[] = rows.map((r) => {
+    const alumnos: (AlumnoFila & { avatarRef: string | null })[] = rows.map((r) => {
       const { estado, senal } = estadoDe(r.acceso_activo, r.casos_14d);
       return {
         id: r.user_id,
         ini: iniciales(r.nombre),
         nombre: r.nombre,
+        avatarUrl: null,
+        avatarRef: r.avatar_url,
         competencia: r.competencia === null ? null : Math.round(r.competencia),
         casosAprobados: r.casos_aprobados,
         casosTotal: r.casos_total,
@@ -86,24 +93,43 @@ export async function getAlumnos(userId: string): Promise<AlumnosData> {
       : null;
 
     return {
-      totales: {
-        activos: alumnos.filter((a) => a.estado !== 'suspendido').length,
-        enRiesgo: alumnos.filter((a) => a.estado === 'riesgo').length,
-        suspendidos: alumnos.filter((a) => a.estado === 'suspendido').length,
-        competenciaMedia,
+      data: {
+        totales: {
+          activos: alumnos.filter((a) => a.estado !== 'suspendido').length,
+          enRiesgo: alumnos.filter((a) => a.estado === 'riesgo').length,
+          suspendidos: alumnos.filter((a) => a.estado === 'suspendido').length,
+          competenciaMedia,
+        },
+        alumnos,
       },
-      alumnos,
+      refs: alumnos.map((a) => a.avatarRef),
     };
   });
+
+  // Firma en LOTE (una sola llamada) tras cerrar la tx.
+  const urls = await firmarLecturaImagenes(refs);
+  const alumnos: AlumnoFila[] = data.alumnos.map(({ avatarRef, ...a }) => ({
+    ...a,
+    avatarUrl: (avatarRef && urls[avatarRef]) || null,
+  }));
+
+  return { totales: data.totales, alumnos };
 }
 
 export async function getExpediente(userId: string, alumnoId: string): Promise<Expediente | null> {
-  return comoStaff(userId, async (sql) => {
+  const res = await comoStaff(userId, async (sql) => {
     const perfil = (
       await sql<
-        { user_id: string; nombre: string; email: string | null; acceso_activo: boolean; created_at: Date }[]
+        {
+          user_id: string;
+          nombre: string;
+          email: string | null;
+          avatar_url: string | null;
+          acceso_activo: boolean;
+          created_at: Date;
+        }[]
       >`
-        select user_id, nombre, email, acceso_activo, created_at
+        select user_id, nombre, email, avatar_url, acceso_activo, created_at
         from lxp.perfiles where user_id = ${alumnoId} and rol = 'alumno' limit 1`
     )[0];
     if (!perfil) return null;
@@ -146,11 +172,12 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
     const { estado, senal } = estadoDe(perfil.acceso_activo, c.recientes);
     const hoy = new Date();
 
-    return {
+    const expediente: Expediente = {
       id: perfil.user_id,
       ini: iniciales(perfil.nombre),
       nombre: perfil.nombre,
       email: perfil.email,
+      avatarUrl: null,
       estado,
       senal,
       desde: perfil.created_at.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' }),
@@ -171,7 +198,13 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
       })),
       consultasAbiertas: consultas[0]?.n ?? 0,
     };
+    return { expediente, avatarRef: perfil.avatar_url };
   });
+
+  if (!res) return null;
+  // Firma tras cerrar la tx (patrón getShellData en lib/datos.ts).
+  const avatarUrl = await firmarLecturaImagen(res.avatarRef);
+  return { ...res.expediente, avatarUrl };
 }
 
 type ActividadEstado = 'pendiente' | 'aprobado' | 'rechazado';
