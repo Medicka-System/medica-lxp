@@ -16,6 +16,7 @@ import {
   feviTeichholz,
   volumenVesical,
 } from '@/lib/campus/calculadoras-formulas';
+import { resolverCalculo } from '@/lib/campus/calculadoras-motor';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 function fechaLarga(d: Date): string {
@@ -240,6 +241,52 @@ function EdadGestacional() {
   );
 }
 
+/* ───────────── Calculadora del CATÁLOGO (definición ejecutada por el motor) ───────────── */
+
+function CalculadoraGenerica({ calc }: { calc: CalculadoraCatalogo }) {
+  const [valores, setValores] = useState<Record<string, string>>({});
+  const def = calc.definicion;
+
+  // Definición inválida / no compilable: se lista pero no se ejecuta (fallback honesto).
+  if (!def) {
+    return (
+      <div className={`${card} p-4`}>
+        <p className="text-[14px] font-bold">{calc.nombre}</p>
+        {calc.descripcion && <p className="mt-1 text-[12.5px] text-muted-foreground">{calc.descripcion}</p>}
+        <p className="mt-3 text-[11.5px] font-semibold text-muted-foreground">
+          Configurada por la escuela — disponible próximamente
+        </p>
+      </div>
+    );
+  }
+
+  const res = resolverCalculo(def, valores);
+  const cols = def.entradas.length % 3 === 0 ? 'grid-cols-3' : 'grid-cols-2';
+
+  return (
+    <TarjetaCalc titulo={calc.nombre} descripcion={calc.descripcion ?? ''} icono={Calculator}>
+      <div className={`grid gap-2 ${cols}`}>
+        {def.entradas.map((e) => (
+          <Campo
+            key={e.nombre}
+            etiqueta={e.etiqueta}
+            unidad={e.unidad}
+            valor={valores[e.nombre] ?? ''}
+            onChange={(v) => setValores((s) => ({ ...s, [e.nombre]: v }))}
+            min={e.min ?? 0}
+            step={e.paso != null ? String(e.paso) : '0.1'}
+          />
+        ))}
+      </div>
+      {res ? (
+        <Resultado valor={res.valor} unidad={res.unidad} nota={res.nota} tono={res.tono} />
+      ) : (
+        <p className="mt-4 text-[12.5px] text-muted-foreground">Ingresa los valores para calcular.</p>
+      )}
+    </TarjetaCalc>
+  );
+}
+
 /* ─────────────────────────── Pantalla ─────────────────────────── */
 
 export function Calculadoras({ catalogo }: { catalogo: CalculadoraCatalogo[] }) {
@@ -273,13 +320,7 @@ export function Calculadoras({ catalogo }: { catalogo: CalculadoraCatalogo[] }) 
         ) : (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {catalogo.map((c) => (
-              <div key={c.clave} className={`${card} p-4`}>
-                <p className="text-[14px] font-bold">{c.nombre}</p>
-                {c.descripcion && <p className="mt-1 text-[12.5px] text-muted-foreground">{c.descripcion}</p>}
-                <p className="mt-3 text-[11.5px] font-semibold text-muted-foreground">
-                  Configurada por la escuela — disponible próximamente
-                </p>
-              </div>
+              <CalculadoraGenerica key={c.clave} calc={c} />
             ))}
           </div>
         )}

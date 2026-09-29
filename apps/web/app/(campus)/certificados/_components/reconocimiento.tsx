@@ -137,8 +137,10 @@ export function Reconocimiento({ data }: { data: ReconocimientoData }) {
                   <p className={`${mono} mt-3 rounded-[8px] bg-muted px-2.5 py-1.5 text-[11px] font-semibold text-foreground-soft`}>
                     Folio: {c.folio}
                   </p>
-                  {/* PENDIENTE DE API: servir el PDF (pdf_ref) con URL firmada del `api`
-                      (object storage · §3). El worker emision-certificado lo genera (§8). */}
+                  {/* PDF gated en `tienePdf` (pdf_ref no nulo). HOY el worker
+                      emision-certificado NO genera el PDF (nunca escribe pdf_ref) → siempre
+                      "PDF en preparación". Falta generarlo en el worker (pdf-lib · §3) y
+                      servirlo con URL firmada del `api`. Ver certificados-contrato. */}
                   <span
                     title={c.tienePdf ? 'La descarga se habilita con la firma del portal (pendiente)' : undefined}
                     className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-control border border-border bg-muted text-[13px] font-semibold text-muted-foreground"
@@ -275,7 +277,7 @@ function VerificarFolio() {
           <div>
             <p className="text-[13px] font-bold text-[color:var(--warning-foreground)]">Folio no encontrado</p>
             <p className="mt-0.5 text-[12px] text-[color:var(--warning-foreground)]">
-              No corresponde a un certificado tuyo. La verificación pública de folios ajenos se hará desde el portal.
+              Ese folio no corresponde a ningún certificado emitido. Revisa que esté escrito tal cual aparece en el documento.
             </p>
           </div>
         </div>

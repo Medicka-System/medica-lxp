@@ -211,7 +211,13 @@ export async function getDominioData(userId: string) {
         nivel,
         decaimiento,
         estado,
-        // Serie de 2 puntos: nivel bruto (antes del olvido) → nivel actual.
+        // Sparkline DERIVADA, no histórico real. `competencia_dominios` guarda solo la
+        // proyección VIGENTE por alumno×dominio (el worker `calculo-competencia` hace
+        // upsert/overwrite, no snapshots); no existe tabla de serie temporal. Así que la
+        // tendencia se reconstruye con 2 puntos deterministas: nivel bruto (antes del
+        // olvido = nivel+decaimiento) → nivel actual. Para una serie histórica real habría
+        // que agregar `lxp.competencia_dominios_historial` (fila por recálculo/fecha) y que
+        // el worker inserte snapshots; hoy NO existe ese dato, por eso es sintética.
         serie: [nivel + decaimiento, nivel],
         proximoRepaso: r.proximo_repaso,
       };

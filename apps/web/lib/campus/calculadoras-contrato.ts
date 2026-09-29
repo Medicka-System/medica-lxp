@@ -9,16 +9,22 @@
  *     LCC · Robinson-Fleming). No requieren backend.
  *   • Catálogo: lxp.calculadoras PUBLICADAS (policy calculadoras_select · 0010) — se
  *     leen con RLS (comoAlumno) para listar las que la escuela configure.
+ *   • Motor genérico: la `definicion` (inputs/fórmula/salida) del catálogo se EJECUTA
+ *     en el cliente con un runner seguro (sin `eval`) — ver `calculadoras-motor.ts`.
+ *     Si la definición es inválida o no compila, la calculadora se muestra pero no corre.
  *
  * PENDIENTE:
- *   • Motor genérico que ejecute la `definicion` (inputs/fórmula/salida) de una
- *     calculadora configurada en BD: hoy el catálogo solo se lista; ejecutar una
- *     definición arbitraria es trabajo del diseñador (Studio) + un runner seguro.
+ *   • Constructor de calculadoras en el Studio del diseñador (autoría de la `definicion`):
+ *     hoy las del catálogo se siembran/insertan en BD; el motor de ejecución ya está listo.
  */
+
+import type { DefinicionCalculadora } from './calculadoras-motor';
 
 /** Entrada de catálogo (calculadora configurada por la escuela en BD). */
 export type CalculadoraCatalogo = {
   clave: string;
   nombre: string;
   descripcion: string | null;
+  /** Definición ejecutable ya validada; `null` si el jsonb es inválido/no compila. */
+  definicion: DefinicionCalculadora | null;
 };

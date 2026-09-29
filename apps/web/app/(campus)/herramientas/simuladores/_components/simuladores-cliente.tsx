@@ -1,8 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronDown, Clock, Eye, FileText, Play } from 'lucide-react';
+import { Clock, Eye, FileText, Play } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
+import { Select } from '@/components/ui/select';
 import {
   labelDominio,
   type CasoPresentacion,
@@ -297,21 +298,16 @@ export function SimuladoresCliente({ data }: { data: SimuladoresData }) {
           ))}
         </div>
 
-        <label className="ml-auto flex h-12 items-center gap-2 rounded-full border border-border bg-card px-5">
+        <div className="ml-auto flex items-center gap-2">
           <span className="text-[12.5px] text-muted-foreground">Dificultad</span>
-          <select
+          <Select
+            aria-label="Dificultad"
             value={dificultad}
-            onChange={(e) => setDificultad(e.target.value)}
-            className="appearance-none bg-transparent text-[13.5px] font-semibold text-foreground outline-none"
-          >
-            {['Todas', 'Básico', 'Intermedio', 'Avanzado'].map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-        </label>
+            onChange={setDificultad}
+            options={['Todas', 'Básico', 'Intermedio', 'Avanzado'].map((d) => ({ value: d, label: d }))}
+            className={`flex h-12 items-center gap-2 rounded-full border border-border bg-card px-5 text-[13.5px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+          />
+        </div>
       </div>
 
       {sinCasos ? (
