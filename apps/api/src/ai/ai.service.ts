@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import {
   QUEUE_ECO_EVALUACION,
   QUEUE_INDEXAR_RAG,
@@ -37,7 +37,7 @@ export interface ResumenBandeja {
  * `CorreccionesService`.
  */
 @Injectable()
-export class AiService {
+export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
@@ -49,6 +49,36 @@ export class AiService {
     private readonly config: EcoConfigService,
     private readonly proveedores: ProveedorFactory,
   ) {}
+
+  /**
+   * Self-check de arranque (§7A · "enchufar el modelo real = cambiar env, no código").
+   * Al bootear, resuelve qué proveedor usará realmente el paso de JUICIO (Sonnet) con
+   * la config activa + el factory, y lo registra. Así, si Eco quedó en MOCK por env
+   * stale o key ausente, se ve en el log del arranque —en vez de descubrirlo cuando una
+   * propuesta sale marcada "(mock)". No llama a ningún LLM; solo inspecciona la elección.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const cfg = await this.config.activa();
+      const juez = this.proveedores.obtener(cfg.modelos.juicio.proveedor);
+      const linea =
+        `Eco arranca · juicio=${juez.nombre} ` +
+        `(config pide ${cfg.modelos.juicio.proveedor}/${cfg.modelos.juicio.modelo}) · ` +
+        `ECO_PROVIDER=${process.env.ECO_PROVIDER ?? '(vacío→mock)'} · ` +
+        `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ? 'presente' : 'AUSENTE'}`;
+      if (juez.nombre === 'mock') {
+        this.logger.warn(
+          `${linea} — Eco correrá en MOCK. Para Claude real: ECO_PROVIDER=anthropic + ANTHROPIC_API_KEY en el .env.`,
+        );
+      } else {
+        this.logger.log(`${linea} — Eco conectado a modelo real.`);
+      }
+    } catch (e) {
+      // No tumbar el arranque del api por esto: si no hay config activa, el pipeline
+      // ya falla claro al evaluar (ServiceUnavailable). Aquí solo avisamos.
+      this.logger.warn(`Self-check de Eco no pudo resolver el proveedor: ${(e as Error).message}`);
+    }
+  }
 
   // ── Encolado de jobs de fondo (los consume el worker · §8) ────────────────
 
