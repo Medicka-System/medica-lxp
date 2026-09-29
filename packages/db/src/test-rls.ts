@@ -584,6 +584,29 @@ async function main(): Promise<void> {
       `roster=${idsRoster.size}`,
     );
 
+    // ── Verificación PÚBLICA de folio (mig 0060) ──────────────────────────
+    // Un tercero SIN sesión (anon) confirma un folio vía la función SECURITY DEFINER,
+    // pero NO puede leer lxp.certificados directo (la función es el único camino público).
+    check(
+      'anon NO puede SELECT lxp.certificados directo',
+      await fueRechazada(() =>
+        como(sql, claimsAnon, (tx) => tx`select 1 from lxp.certificados`),
+      ),
+    );
+    const folioAnon = await como(sql, claimsAnon, (tx) =>
+      tx<{ folio: string; titulo: string }[]>`
+        select folio, titulo from lxp.verificar_folio_publico('CERT-A1-100H')`,
+    );
+    check(
+      'anon verifica folio válido vía definer (título sin PII)',
+      folioAnon.length === 1 && folioAnon[0]?.folio === 'CERT-A1-100H' && !!folioAnon[0]?.titulo,
+      `filas ${folioAnon.length}`,
+    );
+    const folioInexistente = await como(sql, claimsAnon, (tx) =>
+      tx<{ folio: string }[]>`select folio from lxp.verificar_folio_publico('NO-EXISTE-000')`,
+    );
+    check('anon: folio inexistente devuelve 0 filas', folioInexistente.length === 0);
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

@@ -49,6 +49,12 @@ export function Anillo({ pct, size = 200, grosor = 14 }: { pct: number; size?: n
   );
 }
 
+/**
+ * Línea de tendencia. NOTA: hoy `serie` es DERIVADA (2 puntos: nivel bruto → nivel
+ * actual), no un histórico real — no hay tabla de serie temporal de competencia. Ver
+ * `getDominioData` en `lib/datos.ts`. Este componente ya soporta N puntos, así que el
+ * día que exista `competencia_dominios_historial` basta con pasarle la serie real.
+ */
 export function Tendencia({ serie, sube }: { serie: number[]; sube: boolean }) {
   const w = 110, h = 44;
   const min = Math.min(...serie) - 4;

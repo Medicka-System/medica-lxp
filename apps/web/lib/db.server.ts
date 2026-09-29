@@ -56,6 +56,20 @@ export async function comoStaff<T>(
 }
 
 /**
+ * Ejecuta como el rol PÚBLICO `anon` (sin sesión). Para lecturas públicas de terceros
+ * vía funciones SECURITY DEFINER granted a `anon` (p. ej. `verificar_folio_publico` ·
+ * mig 0060). Fija `set local role anon` para ser fiel a producción: la función es el
+ * límite de seguridad, no la sesión. NO usa `service_role`.
+ */
+export async function comoAnon<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
+  const sql = getSql();
+  return sql.begin(async (tx) => {
+    await tx.unsafe('set local role anon');
+    return fn(tx as unknown as Sql);
+  }) as Promise<T>;
+}
+
+/**
  * Flags de privacidad de un perfil (`preferencias.privacidad` · Bloque 4). Se leen vía la
  * función SECURITY DEFINER `lxp.perfil_publico_de` (mig 0059), que expone SOLO los campos
  * públicos del perfil respetando `perfilVisible` — cierra el atajo §10 que hacía esta helper

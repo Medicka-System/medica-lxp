@@ -7,9 +7,20 @@ import type { ProgramaCatalogo } from '@/lib/campus/cursos-contrato';
 /**
  * Ficha de programa en el catálogo (Explorar). Muestra el desglose de módulos como
  * unidades acreditables (upsell modular). Componente de servidor: la inscripción/
- * checkout es del portal de CORA (§1) — el CTA hace deep-link a Pagos (PENDIENTE).
+ * checkout es del portal de CORA (§1).
+ *
+ * CTA "Inscribirme" → deep-link REAL al checkout de CORA, PARAMETRIZADO por
+ * `NEXT_PUBLIC_CORA_URL` (mismo env que el resto del puente CORA↔LXP). Convención de
+ * ruta: `<CORA_URL>/checkout?programa=<id>`. Si el env no está definido (dev/local o
+ * hasta cerrar la ruta real en el Sprint 11), cae al placeholder interno `/pagos` que
+ * explica dónde se paga — nunca a un enlace roto. Aquí no se cobra ni se inscribe.
  */
 export function FichaCatalogo({ programa }: { programa: ProgramaCatalogo }) {
+  const coraBase = (process.env.NEXT_PUBLIC_CORA_URL ?? '').replace(/\/+$/, '');
+  const inscribirHref = coraBase
+    ? `${coraBase}/checkout?programa=${encodeURIComponent(programa.programaId)}`
+    : '/pagos';
+
   return (
     <article className={`${card} flex flex-col overflow-hidden`}>
       {/* Encabezado */}
@@ -77,6 +88,16 @@ export function FichaCatalogo({ programa }: { programa: ProgramaCatalogo }) {
           >
             Ir a mis cursos
           </Link>
+        ) : coraBase ? (
+          <a
+            href={inscribirHref}
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-control bg-primary text-[13.5px] font-semibold text-primary-foreground transition-colors hover:bg-secondary"
+          >
+            Inscribirme
+            <ArrowUpRight className="h-[17px] w-[17px]" strokeWidth={1.75} />
+          </a>
         ) : (
           <Link
             href="/pagos"

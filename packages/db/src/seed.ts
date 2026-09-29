@@ -1069,6 +1069,43 @@ async function seed(sql: Sql): Promise<void> {
     values ('primer_caso', 'Primer caso', 'Subió su primer caso a la bitácora',
       ${sql.json({ tipo: 'casos', umbral: 1 })})`;
 
+  // ── Calculadoras del catálogo (§6) — 2 ejemplos que EJECUTA el motor genérico
+  //    (definicion = entradas/fórmula/salida; sin código, sin eval · calculadoras-motor.ts).
+  await sql`
+    insert into lxp.calculadoras (clave, nombre, descripcion, definicion, publicado)
+    values
+      ('volumen_prostatico', 'Volumen prostático (elipsoide)',
+       'V = 0.52 × largo × ancho × alto (medidas en cm → mL).',
+       ${sql.json({
+         entradas: [
+           { nombre: 'largo', etiqueta: 'Largo', unidad: 'cm', min: 0, paso: 0.1 },
+           { nombre: 'ancho', etiqueta: 'Ancho', unidad: 'cm', min: 0, paso: 0.1 },
+           { nombre: 'alto', etiqueta: 'Alto', unidad: 'cm', min: 0, paso: 0.1 },
+         ],
+         formula: '0.52 * largo * ancho * alto',
+         salida: {
+           unidad: 'mL',
+           decimales: 1,
+           bandas: [
+             { max: 25, texto: 'Tamaño normal (<25 mL).', tono: 'primary' },
+             { min: 25, max: 40, texto: 'Crecimiento leve (25–40 mL).', tono: 'info' },
+             { min: 40, texto: 'Próstata aumentada (>40 mL).', tono: 'warning' },
+           ],
+         },
+       })},
+       true),
+      ('superficie_corporal', 'Superficie corporal (Mosteller)',
+       'BSA = √(peso × talla / 3600). Peso en kg, talla en cm → m².',
+       ${sql.json({
+         entradas: [
+           { nombre: 'peso', etiqueta: 'Peso', unidad: 'kg', min: 0, paso: 0.1 },
+           { nombre: 'talla', etiqueta: 'Talla', unidad: 'cm', min: 0, paso: 1 },
+         ],
+         formula: 'sqrt(peso * talla / 3600)',
+         salida: { unidad: 'm²', decimales: 2 },
+       })},
+       true)`;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PANORAMA DEL ADMIN (Inicio · centro de control) — datos REALISTAS que el SQL lee.
   // Puebla las métricas de DOMINIO del dashboard (tendencia 6m/12m, avance, riesgo,
