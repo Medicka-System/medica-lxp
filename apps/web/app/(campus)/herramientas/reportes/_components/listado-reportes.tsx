@@ -19,10 +19,11 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
-import { crearReporte, datosReportePdf, enviarReporte } from '../_acciones';
+import { crearReporte, datosReportePdf, eliminarReporte, enviarReporte } from '../_acciones';
 import { construirPdfReporte, descargarPdfBlob } from '../_pdf-cliente';
 import { ETIQUETA_ESTADO, TAMANOS_PAGINA, type EstadoReporte, type ReporteListItem, type ReportesData } from '../_contrato';
 import { Selector } from './selector';
@@ -53,6 +54,9 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
   const [mailTo, setMailTo] = useState('');
   const [mailAsunto, setMailAsunto] = useState('');
   const [mailBusy, setMailBusy] = useState(false);
+  // Borrar borrador: confirmación previa (destructivo · §5A sin rojo fuera de dinero vencido).
+  const [borrarItem, setBorrarItem] = useState<ReporteListItem | null>(null);
+  const [borrando, setBorrando] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   // Búsqueda local (se vuelca a la URL con debounce → el server re-consulta).
   const [busqueda, setBusqueda] = useState(filtro.q);
@@ -184,6 +188,33 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
         }
       } finally {
         setMailBusy(false);
+      }
+    })();
+  }
+
+  function abrirBorrar(item: ReporteListItem) {
+    setMenu(null);
+    setAviso(null);
+    setBorrarItem(item);
+  }
+
+  // Elimina el BORRADOR tras confirmar. Solo borradores (el server action lo vuelve a exigir).
+  function confirmarBorrar() {
+    const item = borrarItem;
+    if (!item) return;
+    setBorrando(true);
+    void (async () => {
+      try {
+        const res = await eliminarReporte(item.id);
+        setBorrarItem(null);
+        if (res.ok) {
+          setAviso({ tipo: 'ok', texto: `Borrador ${item.folio} eliminado.` });
+          router.refresh();
+        } else {
+          setAviso({ tipo: 'error', texto: res.error });
+        }
+      } finally {
+        setBorrando(false);
       }
     })();
   }
@@ -505,6 +536,18 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
                 Enviar por mail
               </button>
             )}
+            {/* Eliminar: SOLO borradores (los finalizados/enviados son registro clínico). */}
+            {menuItem.estado === 'borrador' && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => abrirBorrar(menuItem)}
+                className={`mt-0.5 flex w-full items-center gap-2.5 border-t border-border px-3 py-2.5 pt-3 text-left text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted ${focusRing}`}
+              >
+                <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                Eliminar borrador
+              </button>
+            )}
           </div>
         </>
       )}
@@ -570,6 +613,55 @@ export function ListadoReportes({ data }: { data: ReportesData }) {
               >
                 <Mail aria-hidden className="h-4 w-4" strokeWidth={1.9} />
                 {mailBusy ? 'Generando y enviando…' : 'Generar y enviar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* diálogo: eliminar borrador (destructivo · confirmación previa) */}
+      {borrarItem && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,45,82,0.32)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Eliminar borrador"
+          onClick={() => !borrando && setBorrarItem(null)}
+        >
+          <div className={`${card} w-full max-w-[440px] p-6`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted text-[color:var(--foreground-soft)]">
+                <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.01em]">Eliminar borrador</h2>
+                <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+                  Se eliminará el borrador <strong>{borrarItem.folio}</strong> de {borrarItem.paciente}. Esta
+                  acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setBorrarItem(null)}
+                disabled={borrando}
+                className={`inline-flex h-11 items-center rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60 ${focusRing}`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarBorrar}
+                disabled={borrando}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-sidebar px-4 text-[13.5px] font-bold text-sidebar-foreground transition-opacity hover:opacity-90 disabled:opacity-60 ${focusRing}`}
+              >
+                {borrando ? (
+                  <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.9} />
+                )}
+                {borrando ? 'Eliminando…' : 'Eliminar borrador'}
               </button>
             </div>
           </div>

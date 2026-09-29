@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import type { EstudioAlumno, FiltroEstudios, OrdenEstudios } from "./tipos";
 
 const mono = "font-mono tabular-nums";
@@ -58,19 +58,15 @@ export function FiltrosEstudios({
         })}
       </div>
 
-      <label className="relative ml-auto">
-        <span className="sr-only">Ordenar estudios</span>
-        <select
+      <div className="ml-auto">
+        <Select
+          options={ORDENES.map((o) => ({ value: o.id, label: o.etiqueta }))}
           value={orden}
-          onChange={(e) => onOrden(e.target.value as OrdenEstudios)}
-          className={`h-9 appearance-none rounded-[9px] border border-border bg-card pl-3 pr-8 text-[12px] font-semibold text-foreground ${focus}`}
-        >
-          {ORDENES.map((o) => (
-            <option key={o.id} value={o.id}>{o.etiqueta}</option>
-          ))}
-        </select>
-        <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
-      </label>
+          onChange={(v) => onOrden(v as OrdenEstudios)}
+          aria-label="Ordenar estudios"
+          className={`flex h-9 items-center gap-2 rounded-[9px] border border-border bg-card px-3 text-[12px] font-semibold text-foreground outline-none transition-colors hover:border-secondary ${focus}`}
+        />
+      </div>
     </div>
   );
 }

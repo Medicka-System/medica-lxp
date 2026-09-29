@@ -164,6 +164,32 @@ export async function enviarReporte(id: string): Promise<ResultadoAccion> {
   return cambiarEstado(id, 'enviado');
 }
 
+/**
+ * Elimina un reporte en BORRADOR (CRUD simple bajo RLS · id_medico = auth.uid()). SOLO
+ * borradores: los finalizados/enviados quedan como registro clínico y no se borran desde el
+ * listado (el `and estado = 'borrador'` es el candado real; el menú ya oculta la opción). Si no
+ * borró nada, el reporte no era del médico o ya no era borrador.
+ */
+export async function eliminarReporte(id: string): Promise<ResultadoAccion> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  try {
+    const borradas = await comoAlumno(alumno.userId, (sql) =>
+      sql<{ id: string }[]>`
+        delete from lxp.reportes
+        where id = ${id} and id_medico = ${alumno.userId} and estado = 'borrador'
+        returning id`,
+    );
+    if (borradas.length === 0) {
+      return { ok: false, error: 'Solo puedes eliminar reportes en borrador.' };
+    }
+  } catch {
+    return { ok: false, error: 'No se pudo eliminar el reporte.' };
+  }
+  revalidatePath(REVALIDAR);
+  return { ok: true };
+}
+
 export type ImagenDicomReporte = { campoId: string; pngBase64: string };
 /** Imagen `.dcm` de una GALERÍA, rasterizada en el cliente (PNG) e indexada por su `ref`. */
 export type ImagenGaleriaDicomReporte = { ref: string; pngBase64: string };

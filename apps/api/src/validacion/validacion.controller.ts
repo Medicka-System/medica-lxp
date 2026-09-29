@@ -43,6 +43,17 @@ export class ValidacionController {
     );
   }
 
+  /** El docente AGREGA el caso a la Biblioteca curada bajo demanda (curaduría · §5B). */
+  @Post('biblioteca')
+  @HttpCode(200)
+  agregarABiblioteca(
+    @Param('casoId') casoId: string,
+    @Body() body: DecisionBody,
+  ): Promise<{ casoId: string; casoBancoId: string; creado: boolean }> {
+    if (!body?.docenteId) throw new BadRequestException('docenteId es requerido');
+    return this.validacion.agregarABiblioteca(casoId);
+  }
+
   /** El docente RECHAZA el caso (feedback recomendado) → sin competencia. */
   @Post('rechazar')
   @HttpCode(200)

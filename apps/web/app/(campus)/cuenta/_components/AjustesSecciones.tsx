@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { mono, kickerMini } from '@/components/tokens';
+import { Select, type OpcionSelect } from '@/components/ui/select';
 import type {
   AjustesData,
   CuentaPref,
@@ -363,12 +364,6 @@ export function Privacidad({
         encendido={data.mostrarEnLinea}
         onCambio={(v) => onCambio({ mostrarEnLinea: v })}
       />
-      <Interruptor
-        titulo="Mis casos pueden ir a la Biblioteca"
-        detalle="Si su docente los aprueba, anonimizados, nunca con datos del paciente."
-        encendido={data.casosABiblioteca}
-        onCambio={(v) => onCambio({ casosABiblioteca: v })}
-      />
     </Tarjeta>
   );
 }
@@ -484,14 +479,16 @@ export function CuentaAcceso({
 }
 
 // ══ 4.6 · Idioma y región ═══════════════════════════════════════════════════
-const ZONAS: { valor: string; etiqueta: string }[] = [
-  { valor: 'America/Mexico_City', etiqueta: 'Ciudad de México (GMT-6)' },
-  { valor: 'America/Tijuana', etiqueta: 'Tijuana (GMT-8)' },
-  { valor: 'America/Cancun', etiqueta: 'Cancún (GMT-5)' },
+const ZONAS: OpcionSelect[] = [
+  { value: 'America/Mexico_City', label: 'Ciudad de México (GMT-6)' },
+  { value: 'America/Tijuana', label: 'Tijuana (GMT-8)' },
+  { value: 'America/Cancun', label: 'Cancún (GMT-5)' },
 ];
 
-const selectBase =
-  'h-11 w-full rounded-[10px] border border-border bg-card px-3.5 text-[13.5px] text-foreground outline-none transition-colors focus:border-secondary';
+const IDIOMAS: OpcionSelect[] = [
+  { value: 'es-MX', label: 'Español (México)' },
+  { value: 'en', label: 'English' },
+];
 
 export function IdiomaRegion({ data, onCambio }: { data: IdiomaPref; onCambio: (p: Partial<IdiomaPref>) => void }) {
   return (
@@ -499,28 +496,25 @@ export function IdiomaRegion({ data, onCambio }: { data: IdiomaPref; onCambio: (
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-[12px] font-semibold text-foreground-soft">Idioma</span>
-          <select
-            value={data.idioma}
-            onChange={(e) => onCambio({ idioma: e.target.value as IdiomaPref['idioma'] })}
-            className={`mt-1.5 ${selectBase} ${focus}`}
-          >
-            <option value="es-MX">Español (México)</option>
-            <option value="en">English</option>
-          </select>
+          <div className="mt-1.5">
+            <Select
+              options={IDIOMAS}
+              value={data.idioma}
+              onChange={(v) => onCambio({ idioma: v as IdiomaPref['idioma'] })}
+              aria-label="Idioma"
+            />
+          </div>
         </label>
         <label className="block">
           <span className="text-[12px] font-semibold text-foreground-soft">Zona horaria</span>
-          <select
-            value={data.zona}
-            onChange={(e) => onCambio({ zona: e.target.value })}
-            className={`mt-1.5 ${selectBase} ${focus}`}
-          >
-            {ZONAS.map((z) => (
-              <option key={z.valor} value={z.valor}>
-                {z.etiqueta}
-              </option>
-            ))}
-          </select>
+          <div className="mt-1.5">
+            <Select
+              options={ZONAS}
+              value={data.zona}
+              onChange={(v) => onCambio({ zona: v })}
+              aria-label="Zona horaria"
+            />
+          </div>
         </label>
       </div>
       <p className="mt-3 text-[12px] text-muted-foreground">Las horas de clases y entregas se muestran en su zona.</p>

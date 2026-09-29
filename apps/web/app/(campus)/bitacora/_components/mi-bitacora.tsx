@@ -16,7 +16,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Check,
-  ChevronDown,
   Eye,
   Loader2,
   NotebookText,
@@ -25,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
+import { Select } from '@/components/ui/select';
 import { fechaCorta } from '@/lib/format';
 import { VisorDicomPlaceholder } from '../../_components/visor-dicom';
 import {
@@ -173,20 +173,14 @@ function SheetSubirCaso({
           ) : (
             <label className="block">
               <span className="block text-[11.5px] font-semibold">Módulo del caso</span>
-              <span className="mt-[7px] flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 focus-within:border-secondary">
-                <select
+              <div className="mt-[7px]">
+                <Select
+                  options={modulos.map((m) => ({ value: m.id, label: `${m.nombre} · ${m.programa}` }))}
                   value={moduloId}
-                  onChange={(e) => setModuloId(e.target.value)}
-                  className="w-full appearance-none bg-transparent text-[14px] font-medium text-foreground outline-none"
-                >
-                  {modulos.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.nombre} · {m.programa}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-              </span>
+                  onChange={setModuloId}
+                  aria-label="Módulo del caso"
+                />
+              </div>
             </label>
           )}
 
@@ -662,22 +656,19 @@ export function MiBitacora({ data }: { data: BitacoraData }) {
         </div>
 
         {nombresModulo.length > 0 && (
-          <label className="flex h-12 items-center gap-2 rounded-full border border-border bg-card px-5">
-            <span className="text-[12.5px] text-muted-foreground">Módulo</span>
-            <select
+          <div className="flex h-12 items-center gap-2 rounded-full border border-border bg-card px-5">
+            <span className="shrink-0 text-[12.5px] text-muted-foreground">Módulo</span>
+            <Select
+              options={[
+                { value: 'Todos', label: 'Todos' },
+                ...nombresModulo.map((m) => ({ value: m, label: m })),
+              ]}
               value={modulo}
-              onChange={(e) => setModulo(e.target.value)}
-              className="appearance-none bg-transparent text-[13.5px] font-semibold text-foreground outline-none"
-            >
-              <option value="Todos">Todos</option>
-              {nombresModulo.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-          </label>
+              onChange={setModulo}
+              aria-label="Módulo"
+              className={`flex items-center gap-2 bg-transparent text-[13.5px] font-semibold text-foreground outline-none ${focusRing}`}
+            />
+          </div>
         )}
 
         <label className="ml-auto flex h-12 min-w-[260px] items-center gap-2.5 rounded-full border border-border bg-card px-5 transition-colors focus-within:border-secondary">
