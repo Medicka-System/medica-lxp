@@ -96,6 +96,27 @@
   --tap-cta: 48px;
 
   --content-max: 1240px;
+
+  /* ── Movimiento (§5A · moción con propósito, sobria) ──
+     Fundación del sistema de motion: duraciones y curvas centralizadas para que
+     las olas siguientes no vuelvan a hardcodear ms/beziers. Curvas sin overshoot
+     ni rebote (tono clínico). Todo movimiento debe poder silenciarse: ver el
+     recorte global [data-reducir-animaciones] / prefers-reduced-motion más abajo.
+
+     Duraciones:
+       --dur-rapida  micro-feedback inmediato (hover, focus, color/estado in-place, tap)
+       --dur-base    transición estándar de UI (overlays, aparición de menús/sheets, reveals)
+       --dur-lenta   cambios de superficie amplios (teñido del modo lectura, colapso del lateral)
+     Curvas (ease):
+       --ease-estandar  cambios de estado in-place (color/opacidad): simétrica, discreta
+       --ease-entrada   elemento que APARECE: desacelera al asentarse (decelerate)
+       --ease-salida    elemento que DESAPARECE: acelera al retirarse (accelerate) */
+  --dur-rapida: 150ms;
+  --dur-base: 220ms;
+  --dur-lenta: 750ms;
+  --ease-estandar: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-entrada: cubic-bezier(0, 0, 0.2, 1);
+  --ease-salida: cubic-bezier(0.4, 0, 1, 1);
 }
 
 body {
@@ -145,15 +166,43 @@ a:hover {
   transition: background-color 750ms ease, border-color 750ms ease, color 750ms ease;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RECORTE DE MOVIMIENTO — única fuente de verdad (§5A · accesibilidad)
+   Dos disparadores, un solo recorte (no se contradicen):
+     1. @media (prefers-reduced-motion: reduce) — preferencia del SO.
+     2. [data-reducir-animaciones] en <html> — toggle "Reducir animaciones" de
+        Ajustes (lo escribe modo-lectura.tsx / ajustes-cliente.tsx). Antes no lo
+        leía ningún CSS: el switch no hacía nada. Aquí queda cableado.
+   Anula transiciones y animaciones CSS (incl. el teñido del modo lectura de arriba,
+   el colapso del lateral, spinners/pulses de skeletons) y desactiva el scroll suave.
+   NOTA: las animaciones Lottie (reacciones del Ateneo) son JS/SVG y NO las corta el
+   CSS — silenciarlas es trabajo de una ola posterior en EmojiReaccion.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Estándar de convención para las olas siguientes (NO reescribir los 127 archivos):
+   en TSX usar SIEMPRE `motion-reduce:*` (p. ej. `motion-reduce:transition-none`,
+   `motion-reduce:animate-none`) para el opt-out por elemento. NO usar `motion-safe:*`
+   (invierte el criterio y obliga a recordar la negación). Este bloque global es la
+   red de seguridad; el `motion-reduce:*` explícito es la intención documentada en
+   cada componente que anime. Ambos apuntan al mismo recorte. */
 @media (prefers-reduced-motion: reduce) {
-  [data-tema-lectura],
-  [data-tema-lectura] main,
-  [data-tema-lectura] header,
-  [data-tema-lectura] aside,
-  [data-tema-lectura] section,
-  [data-tema-lectura] article {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+[data-reducir-animaciones] *,
+[data-reducir-animaciones] *::before,
+[data-reducir-animaciones] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 [data-tema-lectura='claro'] {
