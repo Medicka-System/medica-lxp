@@ -1,0 +1,35 @@
+/* Wrapper de entrada para listas (§5A) — cada ítem aparece con fade + translate
+   corto, escalonado (stagger sutil). Para feeds y grids. CSS-nativo (keyframes);
+   el retraso por ítem lo inyecta el componente como `animation-delay` inline.
+   Consume los tokens OFICIALES de globals.css (--dur-base, --ease-entrada); cero
+   duraciones/curvas hardcodeadas.
+
+   Reduced-motion: la red global recorta transition/animation-DURATION, pero NO el
+   animation-DELAY. Con `both`, un ítem quedaría oculto (estado `from`) durante su
+   delay. Por eso aquí apagamos la animación por completo en AMBOS disparadores de
+   motion reducido: el ítem se pinta de una vez en su estado final. */
+
+.item {
+  animation: aparecer var(--dur-base) var(--ease-entrada) both;
+}
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item {
+    animation: none;
+  }
+}
+
+:global([data-reducir-animaciones]) .item {
+  animation: none;
+}

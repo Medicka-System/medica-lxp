@@ -17,6 +17,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { focusRing } from '@/components/tokens';
+import { capaOverlay } from '@/components/ui/overlay';
 
 export type OpcionSelect = { value: string; label: string; disabled?: boolean };
 
@@ -135,7 +136,7 @@ export function Select({
 
   const estiloBoton =
     className ??
-    `flex h-11 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors hover:border-secondary disabled:opacity-60 ${
+    `flex h-11 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-[14px] text-foreground outline-none transition-colors [transition-duration:var(--dur-rapida)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none hover:border-secondary disabled:opacity-60 ${
       abierto ? 'border-secondary' : ''
     } ${focusRing}`;
 
@@ -155,18 +156,27 @@ export function Select({
         <span className={`min-w-0 flex-1 truncate text-left ${sel ? '' : 'text-muted-foreground'}`}>
           {sel ? sel.label : placeholder}
         </span>
-        <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} />
+        <ChevronDown
+          aria-hidden
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform [transition-duration:var(--dur-rapida)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none ${
+            abierto ? 'rotate-180' : ''
+          }`}
+          strokeWidth={2}
+        />
       </button>
 
-      {abierto && (
-        <ul
-          ref={listaRef}
-          role="listbox"
-          tabIndex={-1}
-          aria-activedescendant={activo >= 0 ? `${baseId}-opt-${activo}` : undefined}
-          onKeyDown={teclaLista}
-          className={`absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] w-full min-w-[200px] overflow-y-auto rounded-[12px] border border-border bg-card p-1.5 shadow-[0_8px_28px_rgba(17,24,39,0.14)] outline-none`}
-        >
+      {/* Listbox SIEMPRE montado (data-open lo muestra/oculta) para que la SALIDA
+          anime vía el primitivo de overlay. Cerrado = display:none → fuera del foco
+          y del árbol de accesibilidad. */}
+      <ul
+        ref={listaRef}
+        role="listbox"
+        tabIndex={-1}
+        data-open={abierto}
+        aria-activedescendant={abierto && activo >= 0 ? `${baseId}-opt-${activo}` : undefined}
+        onKeyDown={teclaLista}
+        className={`${capaOverlay} absolute left-0 top-[calc(100%+6px)] z-30 max-h-[320px] w-full min-w-[200px] overflow-y-auto rounded-[12px] border border-border bg-card p-1.5 shadow-[0_8px_28px_rgba(17,24,39,0.14)] outline-none`}
+      >
           {options.map((o, i) => {
             const on = o.value === value;
             const resaltada = i === activo;
@@ -178,7 +188,7 @@ export function Select({
                   disabled={o.disabled}
                   onClick={() => elegir(o)}
                   onMouseEnter={() => !o.disabled && setActivo(i)}
-                  className={`flex w-full items-center gap-2 rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors disabled:opacity-50 ${
+                  className={`flex w-full items-center gap-2 rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors [transition-duration:var(--dur-rapida)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none disabled:opacity-50 ${
                     on
                       ? 'bg-accent font-bold text-accent-foreground'
                       : resaltada
@@ -192,8 +202,7 @@ export function Select({
               </li>
             );
           })}
-        </ul>
-      )}
+      </ul>
     </div>
   );
 }

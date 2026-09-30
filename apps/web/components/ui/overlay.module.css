@@ -1,0 +1,37 @@
+/* Primitivo de overlay (§5A) — aparición/desaparición CSS-nativa, sin JS de
+   animación. Fade + scale sutil (0.96 → 1):
+     · ENTRADA la dispara @starting-style (estado del primer frame al mostrarse).
+     · SALIDA la sostiene `transition-behavior: allow-discrete`: el elemento sigue
+       en el DOM mientras `display` pasa a none, así la transición de salida alcanza
+       a correr (ese es el punto — no lo desmontes tú si quieres animar la salida).
+   Consume los tokens OFICIALES de globals.css (--dur-base, --ease-entrada/salida);
+   cero duraciones/curvas hardcodeadas aquí.
+   Reduced-motion: lo recorta la red global de globals.css (transition-duration ~0),
+   así que con motion reducido el overlay simplemente aparece/desaparece al instante. */
+
+.capa {
+  opacity: 0;
+  transform: scale(0.96);
+  display: none;
+  transition:
+    opacity var(--dur-base) var(--ease-salida),
+    transform var(--dur-base) var(--ease-salida),
+    display var(--dur-base) allow-discrete;
+}
+
+.capa[data-open='true'] {
+  opacity: 1;
+  transform: scale(1);
+  display: revert;
+  transition:
+    opacity var(--dur-base) var(--ease-entrada),
+    transform var(--dur-base) var(--ease-entrada),
+    display var(--dur-base) allow-discrete;
+}
+
+@starting-style {
+  .capa[data-open='true'] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
