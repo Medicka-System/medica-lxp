@@ -15,7 +15,6 @@ import {
   Bell,
   ChevronsLeft,
   ChevronsRight,
-  Search,
   X,
 } from 'lucide-react';
 import { mono, kickerMini } from '@/components/tokens';
@@ -248,19 +247,14 @@ export function CampusShell({
               </span>
             </Link>
 
-            {/* Dentro del curso, el MenuCurso ocupa el hueco del buscador (mismo slot,
-                centrado); fuera, el buscador global queda intacto. */}
+            {/* El buscador GLOBAL del header se retiró para el alumno: cada sección conserva
+                su propia búsqueda local (casos, bitácora, videoteca…). Dentro del curso el
+                MenuCurso ocupa el centro; fuera, un espaciador mantiene las utilidades a la
+                derecha. */}
             {headerCentro ? (
               <div className="mx-auto flex min-w-0 flex-1 items-stretch justify-center">{headerCentro}</div>
             ) : (
-              <form role="search" onSubmit={(e) => e.preventDefault()} className="mx-auto min-w-0 flex-1 lg:max-w-[440px]">
-                <label className="flex h-11 items-center gap-2.5 rounded-full border border-border bg-muted px-4 transition-colors focus-within:border-secondary focus-within:bg-card">
-                  <Search aria-hidden className="h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                  <span className="sr-only">Búsqueda global</span>
-                  <input type="search" placeholder="Buscar cursos, casos o temas…" className="w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground" />
-                  <kbd className={`${mono} hidden h-6 shrink-0 items-center rounded-[6px] border border-border bg-card px-1.5 text-[10.5px] text-muted-foreground sm:inline-flex`}>⌘K</kbd>
-                </label>
-              </form>
+              <div className="flex-1" aria-hidden />
             )}
 
             <div className="flex items-center gap-1.5">
