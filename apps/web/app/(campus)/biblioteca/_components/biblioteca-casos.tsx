@@ -7,11 +7,13 @@
  * reales por RLS (solo casos publicados).
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { BookMarked, Library, Search } from 'lucide-react';
 import { card, kicker, mono, focusRing } from '@/components/tokens';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import { Select, type OpcionSelect } from '@/components/ui/select';
 import { VisorDicomPlaceholder } from '../../_components/visor-dicom';
 import { DOMINIO_LABEL, DOMINIOS, type DominioIaim } from '@/lib/campus/bitacora-contrato';
@@ -99,9 +101,12 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
         </div>
       ) : (
         <div className="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          {filtrados.map((c) => (
-            <TarjetaCaso key={c.id} caso={c} />
-          ))}
+          {/* Entrada escalonada de las tarjetas (§5A · EntradaLista). */}
+          <EntradaLista>
+            {filtrados.map((c) => (
+              <TarjetaCaso key={c.id} caso={c} />
+            ))}
+          </EntradaLista>
         </div>
       )}
     </div>
@@ -110,11 +115,12 @@ export function BibliotecaCasos({ data }: { data: BibliotecaData }) {
 
 /* ─────────────────────────── Tarjeta ─────────────────────────── */
 
-function TarjetaCaso({ caso }: { caso: CasoAcervo }) {
+function TarjetaCaso({ caso, className, style }: { caso: CasoAcervo; className?: string; style?: CSSProperties }) {
   return (
     <Link
       href={`/biblioteca/${caso.id}`}
-      className={`${card} group flex flex-col overflow-hidden text-left transition-shadow hover:shadow-[0_8px_24px_rgba(17,24,39,0.10)] ${focusRing}`}
+      style={style}
+      className={cn(card, 'group flex flex-col overflow-hidden text-left transition-shadow hover:shadow-[0_8px_24px_rgba(17,24,39,0.10)]', focusRing, className)}
     >
       <VisorDicomPlaceholder etiqueta={caso.organo ?? caso.titulo} alto={148} loop={caso.tieneDicom} />
       <div className="flex min-h-0 flex-1 flex-col p-4">

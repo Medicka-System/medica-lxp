@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { Radio, Search, Clock, CalendarDays, Users } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { LoopFrame } from '@/components/campus/loop-frame';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import type { VideoInstruccional, ProgramaFiltro, GrabacionClase } from '../_lib/datos';
 import { VideotecaGaleria } from './videoteca-galeria';
 import { Reproductor, type ContenidoReproducible } from './reproductor';
@@ -138,6 +139,8 @@ function GaleriaGrabaciones({ grabaciones }: { grabaciones: GrabacionClase[] }) 
         </div>
       ) : (
         <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Entrada escalonada de las grabaciones (§5A · EntradaLista). */}
+          <EntradaLista>
           {filtradas.map((g) => (
             <li key={g.id}>
               <button
@@ -189,6 +192,7 @@ function GaleriaGrabaciones({ grabaciones }: { grabaciones: GrabacionClase[] }) 
               </button>
             </li>
           ))}
+          </EntradaLista>
         </ul>
       )}
 

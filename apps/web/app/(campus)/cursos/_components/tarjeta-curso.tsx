@@ -1,17 +1,20 @@
+import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { BookOpen, Clock, Layers, Play, Users } from 'lucide-react';
 import { card, mono } from '@/components/tokens';
+import { cn } from '@/lib/utils';
 import type { CursoResumen } from '@/lib/campus/cursos-contrato';
 
-/** Tarjeta de curso en Mis cursos: avance, meta y "Continuar". Componente de servidor. */
-export function TarjetaCurso({ curso }: { curso: CursoResumen }) {
+/** Tarjeta de curso en Mis cursos: avance, meta y "Continuar". Componente de servidor.
+ *  Reenvía `className`/`style` a la raíz para que EntradaLista pueda escalonar su entrada. */
+export function TarjetaCurso({ curso, className, style }: { curso: CursoResumen; className?: string; style?: CSSProperties }) {
   const iniciado = curso.completados > 0;
   // Entra al interior del curso (identidad = programaId): el MenuCurso y sus secciones.
   // Se mantiene el gate por `continuar` (hay lecciones publicadas) para el estado vacío.
   const destino = curso.continuar ? `/curso/${curso.programaId}/contenido` : null;
 
   return (
-    <article className={`${card} flex flex-col overflow-hidden`}>
+    <article className={cn(card, 'flex flex-col overflow-hidden', className)} style={style}>
       {curso.portadaUrl ? (
         // Portada propia de la cohorte (grupo) del alumno. <img>: URL firmada de storage.
         <img src={curso.portadaUrl} alt="" className="aspect-[16/9] w-full object-cover" />
