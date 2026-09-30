@@ -33,6 +33,8 @@ export type CursoCtx = {
   programa: string;
   grupoId: string | null;
   grupoNombre: string | null;
+  /** Modalidad de la cohorte (lxp.grupos.modalidad): 'sincrono' | 'asincrono' | null. */
+  modalidad: string | null;
   contexto: string;
 };
 
@@ -50,6 +52,7 @@ export async function getCursoCtx(userId: string, programaId: string): Promise<C
       programa: pr.nombre,
       grupoId: grupo?.id ?? null,
       grupoNombre: grupo?.nombre ?? null,
+      modalidad: grupo?.modalidad ?? null,
       contexto,
     };
   });
@@ -64,12 +67,13 @@ export type ContenidoCurso = { avancePct: number; completos: number; modulos: Mo
 export async function getContenido(userId: string, programaId: string): Promise<ContenidoCurso> {
   return comoAlumno(userId, async (sql) => {
     const mods = await sql<
-      { id: string; nombre: string; orden: number; horas: number; lecciones: number; contenidos: number }[]
+      { id: string; nombre: string; orden: number; horas: number; lecciones: number; contenidos: number; leccion_id: string | null }[]
     >`
       select m.id, m.nombre, m.orden, m.horas::float8 as horas,
         (select count(*) from lxp.lecciones l where l.modulo_id = m.id)::int as lecciones,
         (select count(*) from lxp.contenidos co
-           join lxp.lecciones l on l.id = co.leccion_id where l.modulo_id = m.id)::int as contenidos
+           join lxp.lecciones l on l.id = co.leccion_id where l.modulo_id = m.id)::int as contenidos,
+        (select l.id from lxp.lecciones l where l.modulo_id = m.id order by l.orden, l.id limit 1) as leccion_id
       from lxp.modulos m
       join lxp.programas pr on pr.id = m.programa_id
       where m.programa_id = ${programaId} and pr.publicado
@@ -109,6 +113,7 @@ export async function getContenido(userId: string, programaId: string): Promise<
         total,
         estado,
         luz: LUCES[i % LUCES.length]!,
+        leccionId: m.leccion_id,
       } satisfies Modulo;
     });
     // El primer módulo no completado es "el actual" (borde teal + Continuar).

@@ -51,6 +51,7 @@ export function VistaTarea({ data, puedeEntregar }: { data: TareaData; puedeEntr
       programa={contexto.programa}
       modulo={contexto.modulo}
       titulo={data.titulo}
+      salirHref={`/curso/${contexto.programaId}/contenido`}
       anterior={data.anterior ? { href: `/leccion/${data.anterior.id}` } : null}
       siguiente={data.siguiente ? { href: `/leccion/${data.siguiente.id}` } : null}
     >

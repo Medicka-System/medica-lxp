@@ -6,7 +6,9 @@ import type { CursoResumen } from '@/lib/campus/cursos-contrato';
 /** Tarjeta de curso en Mis cursos: avance, meta y "Continuar". Componente de servidor. */
 export function TarjetaCurso({ curso }: { curso: CursoResumen }) {
   const iniciado = curso.completados > 0;
-  const destino = curso.continuar ? `/leccion/${curso.continuar.leccionId}` : null;
+  // Entra al interior del curso (identidad = programaId): el MenuCurso y sus secciones.
+  // Se mantiene el gate por `continuar` (hay lecciones publicadas) para el estado vacío.
+  const destino = curso.continuar ? `/curso/${curso.programaId}/contenido` : null;
 
   return (
     <article className={`${card} flex flex-col overflow-hidden`}>

@@ -13,6 +13,13 @@ export default async function ContenidoPage({ params }: { params: Promise<{ id: 
   const { avancePct, completos, modulos } = await getContenido(alumno.userId, id);
 
   return (
-    <ContenidoVista cursoId={id} contexto={ctx.contexto} avancePct={avancePct} completos={completos} modulos={modulos} />
+    <ContenidoVista
+      programa={ctx.programa}
+      grupo={ctx.grupoNombre}
+      modalidad={ctx.modalidad}
+      avancePct={avancePct}
+      completos={completos}
+      modulos={modulos}
+    />
   );
 }

@@ -28,9 +28,9 @@ export async function grupoDelAlumnoEnPrograma(
   sql: Sql,
   userId: string,
   programaId: string,
-): Promise<{ id: string; nombre: string } | null> {
-  const filas = await sql<{ id: string; nombre: string }[]>`
-    select g.id, g.nombre
+): Promise<{ id: string; nombre: string; modalidad: string | null } | null> {
+  const filas = await sql<{ id: string; nombre: string; modalidad: string | null }[]>`
+    select g.id, g.nombre, g.modalidad::text as modalidad
     from lxp.grupos g
     join lxp.cora_grupos_de(${userId}) cg on cg.grupo_id = g.cora_grupo_id
     where g.programa_id = ${programaId}

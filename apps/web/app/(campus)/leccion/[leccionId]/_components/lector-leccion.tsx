@@ -259,7 +259,7 @@ export function LectorLeccion({
       <div className="sticky top-[68px] z-20 border-b border-border bg-card transition-colors duration-[750ms] motion-reduce:transition-none">
         <div className="mx-auto flex h-[52px] w-full max-w-[1240px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Link
-            href={preview ? `/studio/programas/${leccion.contexto.programaId}` : `/cursos`}
+            href={preview ? `/studio/programas/${leccion.contexto.programaId}` : `/curso/${leccion.contexto.programaId}/contenido`}
             aria-label={preview ? 'Salir de la vista previa' : 'Salir de la lección'}
             className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[12.5px] font-semibold text-foreground-soft transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
           >

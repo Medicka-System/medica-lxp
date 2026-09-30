@@ -14,16 +14,17 @@ import { CabeceraPagina, Chip, card, focusRing, mono } from '../_components/curs
 
 const ICONO = { bombilla: Lightbulb, entrada: LogIn, birrete: GraduationCap } as const;
 
-function TarjetaModulo({ m, onAbrir }: { m: Modulo; onAbrir: (id: string) => void }) {
+function TarjetaModulo({ m, onAbrir }: { m: Modulo; onAbrir: (leccionId: string) => void }) {
   const actual = m.estado === 'actual';
   const pct = m.total ? Math.round((m.hechos / m.total) * 100) : 0;
   const Icono = m.icono ? ICONO[m.icono] : null;
-  const bloqueado = m.estado === 'bloqueado';
+  // Bloqueado o sin lecciones publicadas → el card no navega (no hay lector que abrir).
+  const bloqueado = m.estado === 'bloqueado' || !m.leccionId;
 
   return (
     <button
       type="button"
-      onClick={() => !bloqueado && onAbrir(m.id)}
+      onClick={() => !bloqueado && m.leccionId && onAbrir(m.leccionId)}
       aria-disabled={bloqueado}
       className={`flex w-full flex-col overflow-hidden rounded-xl border bg-card text-left transition-colors hover:border-primary ${focusRing} ${
         actual ? 'border-primary shadow-[0_0_0_3px_rgba(83,195,190,0.18)]' : 'border-border shadow-[0_1px_3px_rgba(17,24,39,0.06)]'
@@ -94,26 +95,37 @@ function TarjetaModulo({ m, onAbrir }: { m: Modulo; onAbrir: (id: string) => voi
 }
 
 export function ContenidoVista({
-  cursoId,
-  contexto,
+  programa,
+  grupo,
+  modalidad,
   avancePct,
   completos,
   modulos,
 }: {
-  cursoId: string;
-  contexto: string;
+  programa: string;
+  grupo: string | null;
+  modalidad: string | null;
   avancePct: number;
   completos: number;
   modulos: Modulo[];
 }) {
   const router = useRouter();
-  const onAbrir = (id: string) => router.push(`/curso/${cursoId}/modulo/${id}`);
+  // Abrir un módulo = entrar a su primera lección en el lector /leccion/[id] (con su
+  // modo lectura). No hay página intermedia de módulo; el lector es el destino real.
+  const onAbrir = (leccionId: string) => router.push(`/leccion/${leccionId}`);
+  // Modalidad de la cohorte → etiqueta legible (síncrono destaca en info · §5A).
+  const modalidadLabel = modalidad === 'sincrono' ? 'Síncrono' : modalidad === 'asincrono' ? 'Asíncrono' : null;
 
   return (
     <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-[18px] px-8 pb-10 pt-7">
+      {/* Cabecera del curso: fila de chips (programa · grupo · modalidad · §5A, tokens). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip tono="navy">{programa}</Chip>
+        {grupo && <Chip tono="ok">{grupo}</Chip>}
+        {modalidadLabel && <Chip tono={modalidad === 'sincrono' ? 'info' : 'neutro'}>{modalidadLabel}</Chip>}
+      </div>
       <CabeceraPagina
         titulo="Contenido"
-        contexto={contexto}
         sub={
           modulos.length
             ? `${completos} de ${modulos.length} módulos completados · ${avancePct}% del programa.`
