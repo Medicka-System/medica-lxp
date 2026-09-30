@@ -1,13 +1,19 @@
-/* Wrapper de entrada para listas (§5A) — cada ítem aparece con fade + translate
-   corto, escalonado (stagger sutil). Para feeds y grids. CSS-nativo (keyframes);
-   el retraso por ítem lo inyecta el componente como `animation-delay` inline.
-   Consume los tokens OFICIALES de globals.css (--dur-base, --ease-entrada); cero
-   duraciones/curvas hardcodeadas.
+/* Wrapper de entrada para listas (§5A) — cada ítem SE ASIENTA en su sitio con un
+   translate corto, escalonado (stagger sutil). Para feeds y grids. CSS-nativo
+   (keyframes); el retraso por ítem lo inyecta el componente como `animation-delay`
+   inline. Consume los tokens OFICIALES de globals.css (--dur-base, --ease-entrada);
+   cero duraciones/curvas hardcodeadas.
+
+   COMPLEMENTARIO con el crossfade de ruta (template.tsx · §Ola3): ese template ya
+   funde (opacity) TODO el contenido de la página al navegar. Si la lista también
+   fundiera cada ítem, sería un DOBLE fade sobre el mismo contenido. Por eso aquí el
+   stagger es SOLO posicional (translateY, sin opacity): el template aporta el fundido
+   de página; la lista, el asentamiento escalonado. No se pisan; el ítem nunca queda
+   invisible durante su delay (opacity siempre 1).
 
    Reduced-motion: la red global recorta transition/animation-DURATION, pero NO el
-   animation-DELAY. Con `both`, un ítem quedaría oculto (estado `from`) durante su
-   delay. Por eso aquí apagamos la animación por completo en AMBOS disparadores de
-   motion reducido: el ítem se pinta de una vez en su estado final. */
+   animation-DELAY. Por eso aquí apagamos la animación por completo en AMBOS
+   disparadores de motion reducido: el ítem se pinta de una vez en su sitio final. */
 
 .item {
   animation: aparecer var(--dur-base) var(--ease-entrada) both;
@@ -15,11 +21,9 @@
 
 @keyframes aparecer {
   from {
-    opacity: 0;
     transform: translateY(6px);
   }
   to {
-    opacity: 1;
     transform: translateY(0);
   }
 }

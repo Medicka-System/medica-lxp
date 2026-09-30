@@ -18,6 +18,7 @@ import { useEffect, useState, type ComponentType } from 'react';
 import type { LottieProps } from 'lottie-react';
 import { REACCIONES, type TipoReaccion } from './tipos';
 import { LOTTIE_REACCION } from './reacciones-lottie';
+import { useMovimientoReducido } from './use-movimiento-reducido';
 
 // Lazy: lottie-web NO entra al bundle inicial ni al SSR. Export nombrado `Lottie` (lottie-react
 // v3); se castea al tipo de props del player (next/dynamic no lo infiere del named export).
@@ -39,10 +40,16 @@ export function EmojiReaccion({
   const emoji = REACCIONES[tipo].emoji;
   const [montado, setMontado] = useState(false);
   useEffect(() => setMontado(true), []);
+  // Deuda saldada (§5A): Lottie corre en JS (lottie-web), así que la red CSS de
+  // reduced-motion NO lo detiene. Con movimiento reducido —por el SO o por el toggle
+  // "Reducir animaciones"— NO montamos el player: caemos al glifo estático (mismo
+  // fallback de siempre), sin bucle ni autoplay.
+  const reducido = useMovimientoReducido();
 
-  // Glifo estático: SSR, primer render y modo no-animado (evita mismatch de hidratación y
-  // mantiene el emoji SIEMPRE visible aunque el chunk de Lottie aún no cargue).
-  if (!animar || !montado) {
+  // Glifo estático: SSR, primer render, modo no-animado o movimiento reducido (evita
+  // mismatch de hidratación y mantiene el emoji SIEMPRE visible aunque el chunk de
+  // Lottie aún no cargue).
+  if (!animar || !montado || reducido) {
     return (
       <span
         aria-hidden

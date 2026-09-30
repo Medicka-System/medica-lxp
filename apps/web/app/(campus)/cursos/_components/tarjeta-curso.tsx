@@ -65,7 +65,7 @@ export function TarjetaCurso({ curso, className, style }: { curso: CursoResumen;
             <span className={`${mono} text-foreground`}>{curso.avancePct}%</span>
           </div>
           <div className="mt-1.5 h-2 w-full overflow-hidden rounded-pill bg-[color:var(--track)]" role="progressbar" aria-valuenow={curso.avancePct} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-full rounded-pill bg-primary transition-[width] duration-300" style={{ width: `${curso.avancePct}%` }} />
+            <div className="h-full rounded-pill bg-primary transition-[width] [transition-duration:var(--dur-base)]" style={{ width: `${curso.avancePct}%` }} />
           </div>
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">
             {curso.completados} de {curso.contenidos} contenidos completados

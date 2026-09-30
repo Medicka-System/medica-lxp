@@ -205,6 +205,25 @@ a:hover {
   scroll-behavior: auto !important;
 }
 
+/* EXCEPCIÓN — spinners (§5A · decisión única y documentada):
+   `animate-spin` (Loader2) es FEEDBACK DE PROGRESO, no adorno; comunica "sigo
+   trabajando". Por eso sigue girando incluso con movimiento reducido — la red de
+   arriba lo congelaría (duration 0.01ms + iteration-count 1). Restauramos su giro.
+   Convención uniforme: a un spinner NUNCA se le pone `motion-reduce:animate-none`;
+   esta regla es el único lugar donde se decide su comportamiento. `.animate-spin`
+   (0,1,0) gana en especificidad al `*` (0,0,0) de la red, aun con !important.
+   NO cubre `animate-pulse` (skeletons): esos SÍ se recortan (adorno, no progreso). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+[data-reducir-animaciones] .animate-spin {
+  animation-duration: 1s !important;
+  animation-iteration-count: infinite !important;
+}
+
 [data-tema-lectura='claro'] {
   --background: #f8f9fa;
   --card: #ffffff;

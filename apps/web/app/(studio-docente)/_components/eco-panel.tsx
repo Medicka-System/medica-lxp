@@ -48,6 +48,9 @@ export function EcoPanel({
     setAbierto(true);
   }
 
+  // La conversación se despliega inline (acordeón); ver el wrapper grid más abajo.
+  const mostrarConv = abierto && mensajes.length > 0;
+
   return (
     <section
       aria-label="Eco"
@@ -92,29 +95,44 @@ export function EcoPanel({
           )}
         </div>
 
-        {abierto && mensajes.length > 0 && (
-          <div className="mt-4 flex max-h-[320px] flex-col gap-3 overflow-y-auto">
-            {mensajes.map((m) =>
-              m.de === 'docente' ? (
-                <div key={m.id} className="flex justify-end">
-                  <p className="max-w-[84%] rounded-[14px] rounded-br-[4px] bg-sidebar px-3.5 py-2.5 text-[13px] font-medium leading-relaxed text-sidebar-foreground">
-                    {m.texto}
-                  </p>
-                </div>
-              ) : (
-                <div key={m.id} className="flex gap-2.5">
-                  <span
-                    aria-hidden
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
-                  >
-                    <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                  </span>
-                  <p className={`min-w-0 flex-1 text-[13px] leading-relaxed ${softText}`}>{m.texto}</p>
-                </div>
-              ),
-            )}
+        {/* Despliegue inline (acordeón) de la conversación. Técnica: grid-template-rows
+            0fr↔1fr — la EXCEPCIÓN aceptable a "solo transform/opacity" (§Ola3) por ser
+            contenido de ALTO VARIABLE (chat que crece). Montado SIEMPRE (los mensajes
+            persisten en estado) para animar en AMBOS sentidos; el hijo recorta con
+            overflow-hidden mientras colapsa. Un fade sobrio acompaña el alto. La red
+            global de reduced-motion + `motion-reduce:transition-none` lo dejan instantáneo. */}
+        <div
+          className="grid transition-[grid-template-rows] [transition-duration:var(--dur-base)] [transition-timing-function:var(--ease-entrada)] motion-reduce:transition-none"
+          style={{ gridTemplateRows: mostrarConv ? '1fr' : '0fr' }}
+          aria-hidden={!mostrarConv}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div
+              className="mt-4 flex max-h-[320px] flex-col gap-3 overflow-y-auto transition-opacity [transition-duration:var(--dur-base)] [transition-timing-function:var(--ease-entrada)] motion-reduce:transition-none"
+              style={{ opacity: mostrarConv ? 1 : 0 }}
+            >
+              {mensajes.map((m) =>
+                m.de === 'docente' ? (
+                  <div key={m.id} className="flex justify-end">
+                    <p className="max-w-[84%] rounded-[14px] rounded-br-[4px] bg-sidebar px-3.5 py-2.5 text-[13px] font-medium leading-relaxed text-sidebar-foreground">
+                      {m.texto}
+                    </p>
+                  </div>
+                ) : (
+                  <div key={m.id} className="flex gap-2.5">
+                    <span
+                      aria-hidden
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
+                    >
+                      <Sparkles className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                    </span>
+                    <p className={`min-w-0 flex-1 text-[13px] leading-relaxed ${softText}`}>{m.texto}</p>
+                  </div>
+                ),
+              )}
+            </div>
           </div>
-        )}
+        </div>
 
         <form
           className="relative mt-3.5"

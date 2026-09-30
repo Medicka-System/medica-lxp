@@ -193,7 +193,7 @@ export function CampusShell({
       <div className="flex pt-[68px]">
         {/* ══ LATERAL ══ */}
         <aside
-          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] ease-out motion-reduce:transition-none lg:flex ${
+          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none lg:flex ${
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
