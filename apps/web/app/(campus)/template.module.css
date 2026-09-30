@@ -1,0 +1,34 @@
+/* Transición de ruta del Campus (§5A) — crossfade sobrio del contenido de página.
+   El template.tsx REMONTA en cada navegación, así que el contenido nuevo entra con
+   un fade + ascenso mínimo (opacity/transform, jamás layout). El shell (header,
+   lateral, bottom-nav) vive en el layout: NO se remonta, queda estable.
+
+   Decisión (§3): NO se usan las View Transitions experimentales de Next 16 — activar
+   ese flag arriesga el build webpack de producción (codecs WASM de Cornerstone). Este
+   crossfade CSS-nativo es el fallback estable acordado. Consume los tokens oficiales
+   (--dur-base, --ease-entrada); cero duraciones/curvas hardcodeadas.
+
+   Reduced-motion: lo recorta la red global de globals.css ([data-reducir-animaciones]
+   / prefers-reduced-motion) + el @media de abajo; con movimiento reducido el contenido
+   aparece al instante, sin fade. */
+
+.entrada {
+  animation: entradaRuta var(--dur-base) var(--ease-entrada) both;
+}
+
+@keyframes entradaRuta {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entrada {
+    animation: none;
+  }
+}

@@ -5,33 +5,43 @@
  * monta (el shell) controla apertura, cierre por Esc/clic-fuera y el retorno de
  * foco al avatar. Aquí: lleva el foco al primer ítem al abrir y ofrece Mi perfil /
  * Ajustes / Cerrar sesión.
+ *
+ * Movimiento (§5A): adopta el primitivo Overlay (`capaOverlay` + `data-open`) — queda
+ * MONTADO siempre y anima ENTRADA y SALIDA (fade + scale sutil) según `open`, en vez
+ * del "pop" del render condicional. Con `open === false` el primitivo lo deja en
+ * `display:none` (fuera del árbol de accesibilidad y del foco).
  */
 
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { LogOut, Settings, User } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { mono } from '@/components/tokens';
 import { iniciales } from '@/components/avatar';
+import { capaOverlay } from '@/components/ui/overlay';
 import { AvatarPerfil } from './ui';
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
 
 export function MenuCuenta({
+  open,
   usuario,
   onCerrar,
   onCerrarSesion,
 }: {
+  open: boolean;
   usuario: { nombre: string; matricula: string; avatarUrl?: string | null };
   onCerrar: () => void;
   onCerrarSesion: () => void;
 }) {
   const primeroRef = useRef<HTMLAnchorElement>(null);
 
-  // Al abrir, el foco entra al primer ítem (§5).
+  // Al abrir, el foco entra al primer ítem (§5). Depende de `open` porque ahora el
+  // menú vive montado: el foco solo debe entrar cuando realmente se abre.
   useEffect(() => {
-    primeroRef.current?.focus();
-  }, []);
+    if (open) primeroRef.current?.focus();
+  }, [open]);
 
   const itemBase = `flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[14px] font-medium transition-colors hover:bg-accent hover:text-secondary ${focus}`;
 
@@ -39,7 +49,11 @@ export function MenuCuenta({
     <div
       role="menu"
       aria-label="Menú de cuenta"
-      className="absolute right-0 top-[calc(100%+8px)] w-[264px] overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-[0_12px_32px_rgba(17,24,39,0.16)]"
+      data-open={open}
+      className={cn(
+        capaOverlay,
+        'absolute right-0 top-[calc(100%+8px)] w-[264px] origin-top-right overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-[0_12px_32px_rgba(17,24,39,0.16)]',
+      )}
     >
       <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
         <AvatarPerfil ini={iniciales(usuario.nombre)} url={usuario.avatarUrl} size={40} />
