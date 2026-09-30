@@ -22,6 +22,7 @@ import { Avatar, iniciales } from '@/components/avatar';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components/campus/nav-config';
 import { ModoLecturaContext } from '@/components/campus/modo-lectura';
+import { Overlay } from '@/components/ui/overlay';
 import { MenuCuenta } from '@/app/(campus)/cuenta/_components/MenuCuenta';
 
 const focusDark =
@@ -138,6 +139,14 @@ export function CampusShell({
   const [colapsadoCurso, setColapsadoCurso] = useState(false);
   const cursoApi = useMemo<CursoShellApi>(() => ({ setHeaderCentro, setColapsadoCurso }), []);
   const enCurso = headerCentro != null;
+  // El swap buscador↔MenuCurso ya no es instantáneo: cruza con el primitivo Overlay.
+  // Para que la SALIDA (dejar el curso) anime, el MenuCurso debe seguir montado
+  // mientras se desvanece; al salir, `headerCentro` se vuelve null, así que retenemos
+  // el último nodo para que el Overlay tenga qué desvanecer.
+  const [centroRetenido, setCentroRetenido] = useState<ReactNode>(null);
+  useEffect(() => {
+    if (headerCentro != null) setCentroRetenido(headerCentro);
+  }, [headerCentro]);
   const colapsado = colapsadoCurso || (modoLectura?.activo ?? false) || colapsadoManual;
   const [cuentaAbierta, setCuentaAbierta] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
@@ -180,11 +189,11 @@ export function CampusShell({
 
   return (
     <CursoShellContext.Provider value={cursoApi}>
-    <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors duration-[750ms] motion-reduce:transition-none">
+    <div className="min-h-dvh bg-background font-sans text-foreground antialiased transition-colors [transition-duration:var(--dur-lenta)] motion-reduce:transition-none">
       <div className="flex pt-[68px]">
         {/* ══ LATERAL ══ */}
         <aside
-          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] duration-[750ms] ease-out motion-reduce:transition-none lg:flex ${
+          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] ease-out motion-reduce:transition-none lg:flex ${
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
@@ -236,7 +245,7 @@ export function CampusShell({
 
         {/* ══ COLUMNA PRINCIPAL ══ */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="fixed inset-x-0 top-0 z-30 flex h-[68px] items-center gap-3 border-b border-border bg-card px-4 sm:px-6 transition-colors duration-[750ms] motion-reduce:transition-none">
+          <header className="fixed inset-x-0 top-0 z-30 flex h-[68px] items-center gap-3 border-b border-border bg-card px-4 sm:px-6 transition-colors [transition-duration:var(--dur-lenta)] motion-reduce:transition-none">
             <Link href="/inicio" className="flex shrink-0 items-center gap-3 lg:w-[240px]">
               <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-sidebar text-sidebar-foreground">
                 <LogoSimbolo className="h-[70%] w-[70%]" />
@@ -249,13 +258,17 @@ export function CampusShell({
 
             {/* El buscador GLOBAL del header se retiró para el alumno: cada sección conserva
                 su propia búsqueda local (casos, bitácora, videoteca…). Dentro del curso el
-                MenuCurso ocupa el centro; fuera, un espaciador mantiene las utilidades a la
-                derecha. */}
-            {headerCentro ? (
-              <div className="mx-auto flex min-w-0 flex-1 items-stretch justify-center">{headerCentro}</div>
-            ) : (
-              <div className="flex-1" aria-hidden />
-            )}
+                MenuCurso ocupa el centro; fuera, este contenedor queda como espaciador que
+                empuja las utilidades a la derecha. El MenuCurso cruza (fade) al entrar/salir
+                del curso vía el primitivo Overlay — mostramos `headerCentro` en vivo y caemos
+                a `centroRetenido` durante la salida para que el fade tenga qué desvanecer. */}
+            <div className="relative flex min-w-0 flex-1 items-stretch justify-center">
+              <Overlay open={enCurso} className="min-w-0">
+                <div className="flex h-full min-w-0 items-stretch justify-center">
+                  {headerCentro ?? centroRetenido}
+                </div>
+              </Overlay>
+            </div>
 
             <div className="flex items-center gap-1.5">
               <Link
@@ -290,13 +303,13 @@ export function CampusShell({
                   </span>
                 </button>
 
-                {cuentaAbierta && (
-                  <MenuCuenta
-                    usuario={{ nombre: usuario.nombre, matricula: usuario.matricula, avatarUrl: usuario.avatarUrl }}
-                    onCerrar={() => cerrarCuenta(false)}
-                    onCerrarSesion={onCerrarSesion}
-                  />
-                )}
+                {/* Montado siempre: el Overlay interno anima entrada Y salida según `open`. */}
+                <MenuCuenta
+                  open={cuentaAbierta}
+                  usuario={{ nombre: usuario.nombre, matricula: usuario.matricula, avatarUrl: usuario.avatarUrl }}
+                  onCerrar={() => cerrarCuenta(false)}
+                  onCerrarSesion={onCerrarSesion}
+                />
               </div>
             </div>
           </header>
@@ -333,10 +346,23 @@ export function CampusShell({
         </div>
       </nav>
 
-      {masAbierto && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button type="button" aria-label="Cerrar" onClick={() => setMasAbierto(false)} className="absolute inset-0 bg-[color:var(--sidebar)]/55" />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-[18px] border-t border-border bg-card p-5 pb-[calc(20px+env(safe-area-inset-bottom))]">
+      {/* Hoja "Más" (móvil): montada siempre. El backdrop cruza por opacidad (tokens) y
+          el panel adopta el primitivo Overlay (origen abajo) — entrada Y salida animadas,
+          sin el "pop" del render condicional. Cerrada: pointer-events-none + inerte para
+          lectores/foco. */}
+      <div className={`fixed inset-0 z-40 lg:hidden ${masAbierto ? '' : 'pointer-events-none'}`} aria-hidden={!masAbierto}>
+        <button
+          type="button"
+          aria-label="Cerrar"
+          tabIndex={masAbierto ? 0 : -1}
+          onClick={() => setMasAbierto(false)}
+          className="absolute inset-0 bg-[color:var(--sidebar)]/55 transition-opacity [transition-duration:var(--dur-base)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none"
+          style={{ opacity: masAbierto ? 1 : 0 }}
+        />
+        <Overlay
+          open={masAbierto}
+          className="absolute inset-x-0 bottom-0 origin-bottom rounded-t-[18px] border-t border-border bg-card p-5 pb-[calc(20px+env(safe-area-inset-bottom))]"
+        >
             <div className="flex items-center gap-3">
               <Avatar ini={ini} url={usuario.avatarUrl} size={44} />
               <div className="min-w-0 flex-1">
@@ -359,9 +385,8 @@ export function CampusShell({
                 );
               })}
             </div>
-          </div>
-        </div>
-      )}
+        </Overlay>
+      </div>
     </div>
     </CursoShellContext.Provider>
   );
