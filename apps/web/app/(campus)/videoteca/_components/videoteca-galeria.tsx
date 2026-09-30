@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Search, Eye } from 'lucide-react';
 import { mono, kickerWide as kicker, softText, card, focusRing } from '@/components/tokens';
 import { LoopFrame } from '@/components/campus/loop-frame';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import type { VideoInstruccional, ProgramaFiltro } from '../_lib/datos';
 import { Reproductor, type ContenidoReproducible } from './reproductor';
 
@@ -76,6 +77,8 @@ export function VideotecaGaleria({
         </div>
       ) : (
         <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Entrada escalonada de los videos (§5A · EntradaLista). */}
+          <EntradaLista>
           {filtrados.map((v) => (
             <li key={v.id}>
               <button
@@ -107,6 +110,7 @@ export function VideotecaGaleria({
               </button>
             </li>
           ))}
+          </EntradaLista>
         </ul>
       )}
 

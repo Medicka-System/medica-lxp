@@ -3,6 +3,7 @@ import { Compass } from 'lucide-react';
 import { getSesionAlumno } from '@/lib/session';
 import { getMisCursos } from '@/lib/campus/cursos-datos';
 import { kicker } from '@/components/tokens';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import { TarjetaCurso } from './_components/tarjeta-curso';
 
 export const dynamic = 'force-dynamic';
@@ -51,9 +52,12 @@ export default async function CursosPage() {
         </div>
       ) : (
         <div className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          {cursos.map((c) => (
-            <TarjetaCurso key={c.programaId} curso={c} />
-          ))}
+          {/* Entrada escalonada de las tarjetas (§5A · EntradaLista). */}
+          <EntradaLista>
+            {cursos.map((c) => (
+              <TarjetaCurso key={c.programaId} curso={c} />
+            ))}
+          </EntradaLista>
         </div>
       )}
     </div>

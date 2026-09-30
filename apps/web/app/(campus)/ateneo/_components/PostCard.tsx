@@ -32,6 +32,7 @@ import type { Comentario, EnlacePreview, Persona, Post, PostEncuesta, TipoReacci
 import { EmojiReaccion } from "./EmojiReaccion";
 import { Avatar, Chip, ChipDocente, Estudio, Modal, card, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
+import { capaOverlay } from "@/components/ui/overlay";
 import { editarPostAteneo, eliminarPostAteneo } from "@/lib/campus/ateneo-social-acciones";
 
 /* ───────────── selector de reacciones (hover / long-press) ───────────── */
@@ -165,17 +166,18 @@ export function BarraInteracciones({
       </div>
 
       <div className="relative mt-2.5 grid grid-cols-3 gap-1 border-t border-border pt-1.5">
-        {abierto && (
-          <div ref={popRef} className="absolute bottom-12 left-0 z-10">
-            <SelectorReacciones
-              actual={mia}
-              onElegir={(r) => {
-                onReaccionar(post.id, r === mia ? null : r);
-                setAbierto(false);
-              }}
-            />
-          </div>
-        )}
+        {/* Overlay del picker: montado siempre y conmutado por `data-open` para animar
+            entrada Y salida (§5A · primitivo Overlay). `display:none` al cerrar lo saca
+            del foco y del árbol de accesibilidad. */}
+        <div ref={popRef} data-open={abierto} className={`${capaOverlay} absolute bottom-12 left-0 z-10`}>
+          <SelectorReacciones
+            actual={mia}
+            onElegir={(r) => {
+              onReaccionar(post.id, r === mia ? null : r);
+              setAbierto(false);
+            }}
+          />
+        </div>
         <button
           ref={botonRef}
           type="button"
@@ -318,24 +320,24 @@ function MenuPost({
       >
         <MoreHorizontal aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
-      {abierto && (
-        <div
-          role="menu"
-          className="absolute right-0 top-[calc(100%+4px)] z-20 w-[188px] rounded-[11px] border border-border bg-card p-1.5 shadow-[0_10px_26px_rgba(17,24,39,0.16)]"
-        >
-          {esPropio ? (
-            <>
-              {item(Pencil, "Editar", onEditar)}
-              {item(Trash2, "Eliminar", onEliminar, true)}
-            </>
-          ) : (
-            <>
-              {item(Copy, "Copiar enlace", onCopiar)}
-              {item(EyeOff, "Ocultar", onOcultar)}
-            </>
-          )}
-        </div>
-      )}
+      {/* Menú montado siempre; `data-open` anima su aparición/desaparición (primitivo Overlay). */}
+      <div
+        role="menu"
+        data-open={abierto}
+        className={`${capaOverlay} absolute right-0 top-[calc(100%+4px)] z-20 w-[188px] rounded-[11px] border border-border bg-card p-1.5 shadow-[0_10px_26px_rgba(17,24,39,0.16)]`}
+      >
+        {esPropio ? (
+          <>
+            {item(Pencil, "Editar", onEditar)}
+            {item(Trash2, "Eliminar", onEliminar, true)}
+          </>
+        ) : (
+          <>
+            {item(Copy, "Copiar enlace", onCopiar)}
+            {item(EyeOff, "Ocultar", onOcultar)}
+          </>
+        )}
+      </div>
     </div>
   );
 }

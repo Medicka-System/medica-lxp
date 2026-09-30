@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { TipoNotificacion } from '@campus/shared';
 import { card, kicker, focusRing } from '@/components/tokens';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import { haceCuanto } from '@/lib/format';
 import type { NotificacionItem } from '@/lib/campus/notificaciones-datos';
 import {
@@ -112,6 +113,8 @@ export function ListaNotificaciones({
         </div>
       ) : (
         <ul className="mt-6 flex flex-col gap-2">
+          {/* Entrada escalonada del historial (§5A · EntradaLista). */}
+          <EntradaLista>
           {notificaciones.map((n) => {
             const meta = META[n.tipo];
             const Icono = meta.icono;
@@ -176,6 +179,7 @@ export function ListaNotificaciones({
               </li>
             );
           })}
+          </EntradaLista>
         </ul>
       )}
     </div>

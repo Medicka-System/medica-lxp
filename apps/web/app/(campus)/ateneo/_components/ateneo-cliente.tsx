@@ -15,6 +15,7 @@ import { PostCard } from './PostCard';
 import { PerfilColega, RailSocial, ListaPerfilModal, type ListaPerfil } from './Social';
 import type { AteneoData, Comentario, ListaPerfilData, ModoComposer, PerfilColegaData, Post, TipoReaccion } from './tipos';
 import type { CursorFeed, FeedAteneo } from '@/lib/campus/ateneo-social';
+import { EntradaLista } from '@/components/ui/entrada-lista';
 import { FeedSkeleton, PostCardSkeleton, focusRing, mono } from './ui';
 import {
   publicarPostAteneo,
@@ -282,20 +283,24 @@ export function AteneoCliente({
           ) : (
             <>
               <ul className="mt-4 flex flex-col gap-4">
-                {visibles.map((p) => (
-                  <li key={p.id}>
-                    <PostCard
-                      post={p}
-                      yo={yo}
-                      onAbrir={abrirDetalle}
-                      onReaccionar={onReaccionar}
-                      onCompartir={onCompartir}
-                      onVotar={onVotar}
-                      onAbrirCaso={onAbrirCaso}
-                      onAbrirPerfil={abrirPerfil}
-                    />
-                  </li>
-                ))}
+                {/* Entrada escalonada (§5A): continuidad skeleton→feed, sin re-animar al paginar
+                    (los <li> ya montados conservan su key). */}
+                <EntradaLista>
+                  {visibles.map((p) => (
+                    <li key={p.id}>
+                      <PostCard
+                        post={p}
+                        yo={yo}
+                        onAbrir={abrirDetalle}
+                        onReaccionar={onReaccionar}
+                        onCompartir={onCompartir}
+                        onVotar={onVotar}
+                        onAbrirCaso={onAbrirCaso}
+                        onAbrirPerfil={abrirPerfil}
+                      />
+                    </li>
+                  ))}
+                </EntradaLista>
               </ul>
 
               {cargandoMas && (

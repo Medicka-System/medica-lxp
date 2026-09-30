@@ -36,6 +36,7 @@ import {
 import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen } from "./tipos";
 import { Avatar, Chip, Estudio, Modal, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
+import { capaOverlay } from "@/components/ui/overlay";
 import { firmarSubidaMediaAteneo, gifsBuscar, gifsTrending, unfurlEnlace } from "@/lib/campus/ateneo-social-acciones";
 
 // Límites de subida (Nivel 1): imagen ≤ 10 MB, video ≤ 50 MB.
@@ -355,8 +356,8 @@ export function ComposerModal({
                 {(AUDIENCIAS.find(([id]) => id === audiencia) ?? AUDIENCIAS[0])[2]}
                 <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
               </button>
-              {menuAud && (
-                <div role="menu" className="absolute left-0 top-[30px] z-20 w-[190px] overflow-hidden rounded-[10px] border border-border bg-card shadow-[0_6px_20px_rgba(17,24,39,0.12)]">
+              {/* Menú de audiencia montado siempre; `data-open` anima entrada/salida (primitivo Overlay). */}
+              <div role="menu" data-open={menuAud} className={`${capaOverlay} absolute left-0 top-[30px] z-20 w-[190px] overflow-hidden rounded-[10px] border border-border bg-card shadow-[0_6px_20px_rgba(17,24,39,0.12)]`}>
                   {AUDIENCIAS.map(([id, Icono, etiqueta, ayuda]) => (
                     <button
                       key={id}
@@ -377,7 +378,6 @@ export function ComposerModal({
                     </button>
                   ))}
                 </div>
-              )}
             </div>
           </div>
         </div>
