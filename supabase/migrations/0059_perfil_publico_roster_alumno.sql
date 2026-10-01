@@ -55,11 +55,15 @@ $$;
 create or replace function lxp.roster_grupo_alumno()
 returns table (id uuid, nombre text, avatar_url text)
 language sql stable security definer set search_path = lxp, public as $$
+  -- Esquema real: inscripción = public.grupo_alumnos (enlace por estudiante_id →
+  -- estudiantes.id). Se recorre estudiantes en ambos extremos para llegar al auth id.
   select distinct p.user_id as id, p.nombre, p.avatar_url
-  from public.inscripciones i1
-  join public.inscripciones i2 on i2.grupo_id = i1.grupo_id
-  join lxp.perfiles p on p.user_id = i2.supabase_auth_id
-  where i1.supabase_auth_id = auth.uid();
+  from public.estudiantes e1
+  join public.grupo_alumnos ga1 on ga1.estudiante_id = e1.id
+  join public.grupo_alumnos ga2 on ga2.grupo_id = ga1.grupo_id
+  join public.estudiantes e2 on e2.id = ga2.estudiante_id
+  join lxp.perfiles p on p.user_id = e2.supabase_auth_id
+  where e1.supabase_auth_id = auth.uid();
 $$;
 
 grant execute on function lxp.perfil_publico_de(uuid[]), lxp.roster_grupo_alumno()

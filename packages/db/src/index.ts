@@ -10,5 +10,12 @@
 export const DB_SCHEMA_OWNER = 'lxp' as const;
 
 export { createSql, createDb, schema, type Sql } from './client';
-export { getDatabaseUrl, ROOT_DIR, MIGRATIONS_DIR } from './env';
+export {
+  getDatabaseUrl,
+  getDirectUrl,
+  getMigrationTarget,
+  type MigrationTarget,
+  ROOT_DIR,
+  MIGRATIONS_DIR,
+} from './env';
 export * from './schema/index';

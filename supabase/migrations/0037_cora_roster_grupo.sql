@@ -18,16 +18,18 @@
 
 -- Alumnos inscritos a un grupo de CORA (por su id, = lxp.grupos.cora_grupo_id).
 -- Devuelve filas SOLO si el llamador es staff (es_staff evalúa auth.uid() del caller).
+-- Esquema real: la inscripción es `public.grupo_alumnos` (enlaza por estudiante_id →
+-- estudiantes.id); NO existe `public.inscripciones`.
 create or replace function lxp.cora_alumnos_de_grupo(p_cora_grupo_id uuid)
 returns table (supabase_auth_id uuid, nombre text, matricula text)
 language sql stable security definer set search_path = lxp, public as $$
-  select i.supabase_auth_id,
+  select e.supabase_auth_id,
          coalesce(e.nombre, u.nombre, u.email) as nombre,
          e.matricula
-  from public.inscripciones i
-  left join public.estudiantes e on e.supabase_auth_id = i.supabase_auth_id
-  left join public.usuarios    u on u.supabase_auth_id = i.supabase_auth_id
-  where i.grupo_id = p_cora_grupo_id
+  from public.grupo_alumnos ga
+  join public.estudiantes e on e.id = ga.estudiante_id
+  left join public.usuarios u on u.supabase_auth_id = e.supabase_auth_id
+  where ga.grupo_id = p_cora_grupo_id
     and lxp.es_staff();
 $$;
 
@@ -36,10 +38,10 @@ $$;
 create or replace function lxp.cora_conteo_alumnos()
 returns table (cora_grupo_id uuid, alumnos int)
 language sql stable security definer set search_path = lxp, public as $$
-  select i.grupo_id, count(*)::int
-  from public.inscripciones i
+  select ga.grupo_id, count(*)::int
+  from public.grupo_alumnos ga
   where lxp.es_staff()
-  group by i.grupo_id;
+  group by ga.grupo_id;
 $$;
 
 grant execute on function lxp.cora_alumnos_de_grupo(uuid), lxp.cora_conteo_alumnos()

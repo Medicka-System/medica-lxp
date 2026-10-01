@@ -32,10 +32,15 @@ $$;
 create or replace function lxp.ateneo_mi_grupo_roster()
 returns setof uuid
 language sql stable security definer set search_path = lxp, public as $$
-  select distinct i2.supabase_auth_id
-  from public.inscripciones i1
-  join public.inscripciones i2 on i2.grupo_id = i1.grupo_id
-  where i1.supabase_auth_id = auth.uid();
+  -- Esquema real: inscripción = public.grupo_alumnos (enlace por estudiante_id →
+  -- estudiantes.id). Se recorre estudiantes en ambos extremos para llegar al auth id.
+  select distinct e2.supabase_auth_id
+  from public.estudiantes e1
+  join public.grupo_alumnos ga1 on ga1.estudiante_id = e1.id
+  join public.grupo_alumnos ga2 on ga2.grupo_id = ga1.grupo_id
+  join public.estudiantes e2 on e2.id = ga2.estudiante_id
+  where e1.supabase_auth_id = auth.uid()
+    and e2.supabase_auth_id is not null;
 $$;
 
 grant execute on function lxp.ateneo_perfil_stats(uuid), lxp.ateneo_mi_grupo_roster()

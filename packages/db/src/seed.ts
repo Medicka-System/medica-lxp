@@ -45,7 +45,7 @@ async function clean(sql: Sql): Promise<void> {
       lxp.recursos_docente, lxp.anuncios, lxp.consultas, lxp.consulta_mensajes,
       lxp.documentos_rag, lxp.eco_correcciones,
       public.usuarios, public.estudiantes, public.grupos,
-      public.inscripciones, public.pagos
+      public.grupo_alumnos, public.pagos
     cascade;
   `);
   // Borra solo la identidad sembrada (CORA real jamás se toca · §10).
@@ -143,34 +143,38 @@ async function seed(sql: Sql): Promise<void> {
   }
 
   // ── Datos CORA (public.*) que el LXP LEE ───────────────────────────────
-  // DOS grupos CORA: la inscripción alumno↔grupo vive aquí (el seed SIMULA a CORA · §10;
-  // en producción el LXP nunca escribe en public). El vínculo a lxp.grupos se hace más
-  // abajo con `cora_grupo_id` (mig 0036).
+  // DOS grupos CORA: la inscripción alumno↔grupo vive en `public.grupo_alumnos` (la tabla
+  // REAL de CORA; enlaza por estudiante_id → estudiantes.id). El seed SIMULA a CORA (§10;
+  // en producción el LXP nunca escribe en public). Vínculo a lxp.grupos abajo (mig 0036).
+  // `grupos` real NO tiene `ciclo`.
   const gCoraA = first(
     await sql<{ id: string }[]>`
-      insert into public.grupos (nombre, ciclo) values ('Generación 2026-A', '2026') returning id`,
+      insert into public.grupos (nombre) values ('Generación 2026-A') returning id`,
   );
   const gCoraB = first(
     await sql<{ id: string }[]>`
-      insert into public.grupos (nombre, ciclo) values ('Generación 2026-B', '2026') returning id`,
+      insert into public.grupos (nombre) values ('Generación 2026-B') returning id`,
   );
   const coraGrupoId = { A: gCoraA.id, B: gCoraB.id } as const;
   for (const a of alumnosSpec) {
     const authId = alumnos[a.key];
+    // `a.vencido` ahora modela "sin inscripción activa": el alumno suspendido queda con
+    // grupo_alumnos.estatus='suspendido' → cora_acceso_activo lo ve sin acceso.
+    const est = first(
+      await sql<{ id: string }[]>`
+        insert into public.estudiantes (supabase_auth_id, matricula, nombre)
+        values (${authId}, ${'MAT-' + a.key.toUpperCase()}, ${a.nombre})
+        returning id`,
+    );
     await sql`
-      insert into public.estudiantes (supabase_auth_id, matricula, nombre)
-      values (${authId}, ${'MAT-' + a.key.toUpperCase()}, ${a.nombre})`;
-    await sql`
-      insert into public.inscripciones (supabase_auth_id, grupo_id)
-      values (${authId}, ${coraGrupoId[a.coraGrupo]})`;
-    await sql`
-      insert into public.pagos (supabase_auth_id, estado, vence_el)
-      values (${authId}, ${a.vencido ? 'vencido' : 'al_corriente'}, ${
-        a.vencido ? '2026-08-01' : '2026-12-31'
+      insert into public.grupo_alumnos (grupo_id, estudiante_id, estatus)
+      values (${coraGrupoId[a.coraGrupo]}, ${est.id}, ${
+        a.vencido ? 'suspendido' : 'activo'
       })`;
   }
 
-  // Sincroniza acceso_activo desde CORA vía la función puente (regla 4 · §10).
+  // Sincroniza acceso_activo desde CORA vía la función puente (regla 4 · §10):
+  // acceso = tiene inscripción ACTIVA en grupo_alumnos.
   await sql`
     update lxp.perfiles p
     set acceso_activo = lxp.cora_acceso_activo(p.user_id)
@@ -1346,7 +1350,7 @@ async function seedPlantillasReporte(sql: Sql): Promise<void> {
 
 async function main(): Promise<void> {
   const soloLimpiar = process.argv.includes('--clean');
-  const sql = createSql({ max: 1 });
+  const sql = createSql({ max: 1, direct: true });
   try {
     if (soloLimpiar) {
       await clean(sql);

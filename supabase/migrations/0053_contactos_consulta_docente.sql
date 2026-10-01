@@ -16,10 +16,12 @@ returns table (user_id uuid, nombre text, rol text, especialidad text, sede text
 language sql stable security definer set search_path = lxp, public as $$
   with permitido as (select (p_docente = auth.uid() and lxp.es_docente_o_mas()) as ok)
   -- Alumnos inscritos en los grupos donde el docente es titular (roster CORA).
+  -- Esquema real: public.grupo_alumnos → estudiantes (enlace por estudiante_id).
   select distinct pf.user_id, pf.nombre, pf.rol::text, pf.especialidad, pf.sede, 'alumno'::text as tipo
   from lxp.grupos g
-  join public.inscripciones i on i.grupo_id = g.cora_grupo_id
-  join lxp.perfiles pf on pf.user_id = i.supabase_auth_id
+  join public.grupo_alumnos ga on ga.grupo_id = g.cora_grupo_id
+  join public.estudiantes e on e.id = ga.estudiante_id
+  join lxp.perfiles pf on pf.user_id = e.supabase_auth_id
   where g.docente_id = p_docente and (select ok from permitido)
   union
   -- Staff del campus.

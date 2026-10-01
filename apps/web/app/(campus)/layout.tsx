@@ -5,6 +5,7 @@ import { contarConsultasNoLeidas } from '@/lib/campus/consultas-chat';
 import { getLecturaPref } from '@/lib/campus/perfil-datos';
 import { CampusShell } from '@/components/campus/shell';
 import { ModoLecturaProvider } from '@/components/campus/modo-lectura';
+import { SinAcceso } from '@/components/campus/sin-acceso';
 
 /** Datos por usuario (RLS) → render dinámico, no estático. */
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,10 @@ export const dynamic = 'force-dynamic';
  */
 export default async function CampusLayout({ children }: { children: React.ReactNode }) {
   const alumno = await getSesionAlumno();
+  // Gating de acceso (§1/§10): sin inscripción/pago vigente en CORA → pantalla amable,
+  // no una app rota. RLS ya bloquea los datos; esto es la UX del bloqueo.
+  if (!alumno.accesoActivo) return <SinAcceso nombre={alumno.nombre} />;
+
   const [shell, noLeidas, consultasNoLeidas, lectura] = await Promise.all([
     getShellData(alumno.userId),
     contarNoLeidas(alumno.userId),

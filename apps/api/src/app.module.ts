@@ -26,9 +26,11 @@ import { AutoevaluacionModule } from './autoevaluacion/autoevaluacion.module';
 import { EntregasModule } from './entregas/entregas.module';
 import { ReportesModule } from './reportes/reportes.module';
 import { EnlacesModule } from './enlaces/enlaces.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     HealthModule,
     XapiModule,
     ColasModule,

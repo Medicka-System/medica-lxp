@@ -65,7 +65,7 @@ const num = (rows: readonly { n: string | number }[]): number => {
 const TIPOS = ['teoria', 'video', 'autoevaluacion', 'tarea', 'foro', 'h5p', 'xapi'];
 
 async function main(): Promise<void> {
-  const sql = createSql({ max: 4 });
+  const sql = createSql({ max: 4, direct: true });
   try {
     // ── Ids del seed ───────────────────────────────────────────────────
     const perfiles = await sql<{ user_id: string; email: string; rol: string }[]>`

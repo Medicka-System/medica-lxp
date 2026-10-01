@@ -23,7 +23,13 @@ function getSql(): Sql {
   if (!globalThis.__lxpSql) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error('DATABASE_URL no definido para web.');
-    globalThis.__lxpSql = postgres(url, { max: 5, onnotice: () => {} });
+    // En producción DATABASE_URL es el pooler de transacción de Supabase (:6543),
+    // que NO admite prepared statements → prepare:false. En local (:5432) es inocuo.
+    globalThis.__lxpSql = postgres(url, {
+      max: 5,
+      prepare: false,
+      onnotice: () => {},
+    });
   }
   return globalThis.__lxpSql;
 }
@@ -151,19 +157,38 @@ export async function resolverStaffDev(email: string): Promise<{
   return { userId: row.user_id, nombre: row.nombre, email: row.email, rol: row.rol };
 }
 
-/**
- * Bootstrap de sesión de DEV (hasta el auth real del Sprint 11): resuelve el alumno
- * por email con una consulta directa (sin rol), simulando lo que en producción
- * vendría del JWT. Devuelve la identidad + datos de CORA (matrícula/programa).
- */
-export async function resolverAlumnoDev(email: string): Promise<{
+export type AlumnoResuelto = {
   userId: string;
   nombre: string;
   email: string;
   matricula: string;
   programa: string;
   accesoActivo: boolean;
-} | null> {
+};
+
+function mapearAlumno(row: {
+  user_id: string;
+  nombre: string;
+  email: string;
+  matricula: string | null;
+  acceso_activo: boolean;
+}): AlumnoResuelto {
+  return {
+    userId: row.user_id,
+    nombre: row.nombre,
+    email: row.email,
+    matricula: row.matricula ?? 'MC-—',
+    programa: 'Ultrasonografía Médica · 1000 h',
+    accesoActivo: row.acceso_activo,
+  };
+}
+
+/**
+ * Bootstrap de sesión de DEV (flag `AUTH_MODE` distinto de `supabase`): resuelve el
+ * alumno por email con una consulta directa (sin rol), simulando lo que en producción
+ * vendría del JWT. Devuelve la identidad + datos de CORA (matrícula/programa).
+ */
+export async function resolverAlumnoDev(email: string): Promise<AlumnoResuelto | null> {
   const sql = getSql();
   const rows = await sql<
     {
@@ -182,13 +207,45 @@ export async function resolverAlumnoDev(email: string): Promise<{
     where u.email = ${email} and p.rol = 'alumno'
     limit 1`;
   const row = rows[0];
-  if (!row) return null;
-  return {
-    userId: row.user_id,
-    nombre: row.nombre,
-    email: row.email,
-    matricula: row.matricula ?? 'MC-—',
-    programa: 'Ultrasonografía Médica · 1000 h',
-    accesoActivo: row.acceso_activo,
-  };
+  return row ? mapearAlumno(row) : null;
+}
+
+/**
+ * Resuelve el alumno por su `user_id` (sub del JWT de Supabase, camino de PROD).
+ * Mismo shape que `resolverAlumnoDev` para no tocar `comoAlumno` ni los consumidores.
+ * Lectura de bootstrap de sesión (conexión owner): el camino de datos sigue bajo RLS.
+ */
+export async function resolverAlumnoPorId(userId: string): Promise<AlumnoResuelto | null> {
+  const sql = getSql();
+  const rows = await sql<
+    {
+      user_id: string;
+      nombre: string;
+      email: string;
+      matricula: string | null;
+      acceso_activo: boolean;
+    }[]
+  >`
+    select p.user_id, p.nombre, coalesce(p.email, u.email) as email,
+           e.matricula, p.acceso_activo
+    from lxp.perfiles p
+    join auth.users u on u.id = p.user_id
+    left join public.estudiantes e on e.supabase_auth_id = p.user_id
+    where p.user_id = ${userId} and p.rol = 'alumno'
+    limit 1`;
+  const row = rows[0];
+  return row ? mapearAlumno(row) : null;
+}
+
+/**
+ * Auto-provisión de `lxp.perfiles` en el primer login (§1/§10): llama a la función
+ * SECURITY DEFINER `lxp.provisionar_perfil()` (mig 0063), que lee CORA (`cora_usuario`)
+ * y hace upsert del perfil del usuario actual. El LXP escribe SOLO su schema. Idempotente.
+ * Se ejecuta impersonando al usuario (claims sub) para que `auth.uid()` resuelva dentro
+ * de la función — mismo mecanismo que `comoAlumno` (no se toca public/auth).
+ */
+export async function provisionarPerfil(userId: string): Promise<void> {
+  await comoAlumno(userId, async (sql) => {
+    await sql`select lxp.provisionar_perfil()`;
+  });
 }

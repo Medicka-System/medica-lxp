@@ -1,13 +1,20 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 0001 · Esquema lxp, identidad compartida y roles
--- Campus Virtual LXP · Médica Capacitación — Sprint 1 (LOCAL)
+-- Campus Virtual LXP · Médica Capacitación — Sprint 1
 --
--- Crea: extensiones, esquema `lxp`, la CAPA DE COMPATIBILIDAD auth LOCAL
--- (en Supabase real ya existe `auth`; aquí, sobre Postgres desnudo, la emulamos),
--- el enum de roles del LXP, `lxp.perfiles` y los helpers de RLS.
+-- Crea SOLO lo del LXP: extensiones, esquema `lxp`, el enum de roles del LXP,
+-- `lxp.perfiles` (extiende auth.users) y los helpers de RLS. En Supabase el
+-- esquema `auth` y sus funciones/roles los PROVEE la plataforma; ya no se tocan
+-- aquí (§10). Este archivo corre en AMBOS destinos (local y Supabase).
+--
+-- ⚠️ Dependencias que deben existir ANTES (las garantiza la plataforma en Supabase,
+--    y el shim SOLO_LOCAL `0000_local_auth_cora_shim.sql` en local):
+--      • esquema `auth` + tabla `auth.users` (FK de lxp.perfiles),
+--      • funciones auth.uid()/auth.jwt()/auth.role() (usadas por las policies),
+--      • roles de plataforma anon/authenticated/service_role (destino de los GRANT).
 --
 -- ⚠️ CORA (§10): este archivo NO toca el esquema `public` de CORA. La convivencia
--- (tablas mock `public.*` + trigger simulado + funciones de lectura) va en 0009.
+-- (tablas mock `public.*` local + puentes de lectura `lxp.cora_*`) va en 0009*.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ── Extensiones ──
@@ -16,69 +23,6 @@ create extension if not exists pgcrypto;    -- gen_random_uuid()
 
 -- ── Esquema propio del LXP ──
 create schema if not exists lxp;
-
--- ═══════════════════════════════════════════════════════════════════════════
--- CAPA DE COMPATIBILIDAD auth — SOLO LOCAL
--- En Supabase real, el esquema `auth`, la tabla `auth.users` y las funciones
--- auth.uid()/auth.role()/auth.jwt() YA EXISTEN (las provee Supabase) y este
--- bloque se saltaría por los guardas `if not exists` / `or replace`. Aquí, sobre
--- Postgres desnudo del docker-compose, las emulamos para que las MISMAS policies
--- RLS funcionen igual en local y en producción (§10, regla 1: el LXP solo lee/
--- autentica contra `auth.users`, nunca lo crea desde la app).
--- ═══════════════════════════════════════════════════════════════════════════
-create schema if not exists auth;
-
--- Roles de plataforma de Supabase (anon / authenticated / service_role).
-do $$
-begin
-  if not exists (select 1 from pg_roles where rolname = 'anon') then
-    create role anon nologin noinherit;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
-    create role authenticated nologin noinherit;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    -- service_role omite RLS (lo usa api/worker con service_role key · §2/§5).
-    create role service_role nologin noinherit bypassrls;
-  end if;
-end
-$$;
-
--- Tabla de identidad compartida (mínimo espejo de Supabase auth.users).
-create table if not exists auth.users (
-  id                   uuid primary key default gen_random_uuid(),
-  email                text unique,
-  raw_user_meta_data   jsonb not null default '{}'::jsonb,
-  created_at           timestamptz not null default now()
-);
-
--- Helpers de sesión, idénticos en firma a los de Supabase: leen los claims del
--- JWT desde la GUC `request.jwt.claims` (lo que Supabase inyecta por request).
-create or replace function auth.jwt()
-returns jsonb language sql stable as $$
-  select coalesce(
-    nullif(current_setting('request.jwt.claims', true), ''),
-    '{}'
-  )::jsonb;
-$$;
-
-create or replace function auth.uid()
-returns uuid language sql stable as $$
-  select nullif(auth.jwt() ->> 'sub', '')::uuid;
-$$;
-
-create or replace function auth.role()
-returns text language sql stable as $$
-  select coalesce(auth.jwt() ->> 'role', current_setting('role', true));
-$$;
-
--- Grants que Supabase da por DEFAULT sobre el esquema auth (aquí, local, hay que
--- otorgarlos a mano): sin ellos, `authenticated`/`anon` no pueden resolver
--- auth.uid()/auth.jwt()/auth.role() al evaluar las policies → "permission denied
--- for schema auth" (42501). Solo setup del entorno auth local; no toca lxp/public.
-grant usage on schema auth to anon, authenticated, service_role;
-grant execute on function auth.uid(), auth.jwt(), auth.role()
-  to anon, authenticated, service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Utilidad común: touch de updated_at

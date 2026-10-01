@@ -1,63 +1,99 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0009 · CORA MOCK (esquema `public`) — SOLO LOCAL (§10 / SPRINTS §1)
+-- 0009 · [SOLO_LOCAL] CORA MOCK (esquema `public`) — §10 / SPRINTS §1
 --
--- Replica la ESTRUCTURA REAL de CORA en `public.*` con los MISMOS nombres que
--- producción (usuarios/estudiantes/grupos/pagos), para que el código del LXP use
--- idénticas queries en local y en el Sprint 11 (integración real) — sin reescribir.
+-- Espeja el ESQUEMA REAL de CORA (verificado por introspección read-only el
+-- 2026-09-30) en `public.*`, con los MISMOS nombres de tabla/columna que producción,
+-- para que las queries del LXP corran idénticas en local y contra la CORA real — sin
+-- reescribir. Ajustado al contrato real (ANTES el mock asumía tablas/columnas que NO
+-- existen en CORA):
+--   • La inscripción alumno↔grupo es **public.grupo_alumnos** (grupo_id, estudiante_id),
+--     NO `public.inscripciones` (que no existe). Enlaza por **estudiante_id → estudiantes.id**.
+--   • `public.grupos` NO tiene `ciclo`.
+--   • `public.pagos` es un LEDGER por `lead_id` (tipo/monto/status), sin `supabase_auth_id`
+--     ni `estado`. El LXP ya NO deriva acceso de aquí (ver 0009_cora_puente_lxp).
+--   • `estudiantes.estatus` y `grupo_alumnos.estatus` tienen CHECK con los mismos 7 valores
+--     reales ('activo', 'baja_temporal', 'baja_definitiva', 'suspendido',
+--     'pendiente_practica', 'no_aprobo', 'concluyo'); default 'activo'.
 --
--- Reproduce fielmente los HALLAZGOS de la auditoría (§10):
---   • trigger `on_auth_user_created` → `sync_auth_user_to_usuarios()` que INSERTA
---     en public.usuarios; si el metadata no trae `rol`, DEFAULT 'control_escolar'.
+-- Hallazgos de auditoría (§10) conservados:
+--   • trigger `on_auth_user_created` → `sync_auth_user_to_usuarios()` que INSERTA en
+--     public.usuarios; si el metadata no trae `rol`, DEFAULT 'control_escolar'.
 --   • CHECK cerrado en public.usuarios.rol (6 valores; rechaza roles del LXP).
 --   • RLS habilitada en TODAS las tablas de public.
 --
--- ⚠️ En PRODUCCIÓN este archivo NO se ejecuta: `public` ya existe y es de CORA.
---    El LXP jamás crea/altera `public` (§10, reglas 1-3). Este mock existe solo
---    para PROBAR la convivencia en local.
+-- ⚠️ En PRODUCCIÓN este archivo NO se ejecuta: el runner lo OMITE cuando
+--    MIGRATION_TARGET != local (SOLO_LOCAL en packages/db/src/migrate.ts). `public`
+--    ya existe y es de CORA; el LXP jamás crea/altera `public` (§10, reglas 1-3).
+--
+-- ⚠️ Los PUENTES de lectura CORA→LXP (`lxp.cora_*`) viven en `0009_cora_puente_lxp.sql`
+--    (esquema `lxp`), que SÍ corre en ambos destinos. Se separaron porque 0036/0052
+--    invocan `cora_grupos_de` en sus cuerpos (check_function_bodies).
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- ── public.usuarios — idéntico al de CORA (CHECK + DEFAULT verificados) ──
+-- ── public.usuarios — staff/identidad de CORA (CHECK + DEFAULT verificados) ──
 create table if not exists public.usuarios (
   id                uuid primary key default gen_random_uuid(),
   supabase_auth_id  uuid unique references auth.users(id) on delete cascade,
-  email             text,
-  nombre            text,
+  nombre            text not null,
+  apellidos         text,
+  email             text not null,
   rol               text not null default 'control_escolar'
                       check (rol in ('super_admin','admin','control_escolar',
                                      'docente','alumno','asesor')),
-  created_at        timestamptz not null default now()
+  activo            boolean default true,
+  creado_en         timestamptz not null default now()
 );
 
+-- ── public.estudiantes — alumno de CORA. `supabase_auth_id` es NULLABLE (un alumno
+--    del CRM puede no tener aún cuenta auth → sin vínculo = sin acceso al LXP). ──
 create table if not exists public.estudiantes (
   id                uuid primary key default gen_random_uuid(),
-  supabase_auth_id  uuid references auth.users(id) on delete cascade,
+  supabase_auth_id  uuid references auth.users(id) on delete set null,
+  nombre            text not null,
   matricula         text unique,
-  nombre            text,
-  created_at        timestamptz not null default now()
+  estatus           text not null default 'activo'
+                      check (estatus in ('activo','baja_temporal','baja_definitiva',
+                                         'suspendido','pendiente_practica','no_aprobo',
+                                         'concluyo')),
+  creado_en         timestamptz not null default now()
 );
 
+-- ── public.grupos — instancia de programa en CORA. SIN columna `ciclo`. ──
 create table if not exists public.grupos (
   id                uuid primary key default gen_random_uuid(),
   nombre            text not null,
-  ciclo             text,
-  created_at        timestamptz not null default now()
+  estatus           text,
+  creado_en         timestamptz not null default now()
 );
 
--- Inscripción alumno↔grupo (vive en CORA, el LXP la LEE · §6).
-create table if not exists public.inscripciones (
-  id                uuid primary key default gen_random_uuid(),
-  supabase_auth_id  uuid references auth.users(id) on delete cascade,
-  grupo_id          uuid references public.grupos(id) on delete cascade,
-  created_at        timestamptz not null default now(),
-  unique (supabase_auth_id, grupo_id)
+-- ── public.grupo_alumnos — INSCRIPCIÓN alumno↔grupo (la tabla real; NO `inscripciones`).
+--    Enlaza `estudiante_id → estudiantes.id` (NO por supabase_auth_id). El LXP la LEE
+--    vía funciones puente (§6/§10). ──
+create table if not exists public.grupo_alumnos (
+  id                 uuid primary key default gen_random_uuid(),
+  grupo_id           uuid not null references public.grupos(id) on delete cascade,
+  estudiante_id      uuid not null references public.estudiantes(id) on delete cascade,
+  fecha_inscripcion  date,
+  estatus            text default 'activo'
+                       check (estatus in ('activo','baja_temporal','baja_definitiva',
+                                          'suspendido','pendiente_practica','no_aprobo',
+                                          'concluyo')),
+  notas              text,
+  creado_en          timestamptz not null default now(),
+  unique (grupo_id, estudiante_id)
 );
 
+-- ── public.pagos — LEDGER de pagos por `lead_id` (shape real). El LXP NO lo lee: el
+--    acceso se deriva de `grupo_alumnos.estatus` (ver 0009_cora_puente_lxp). Se define
+--    solo por fidelidad del mock. ──
 create table if not exists public.pagos (
   id                uuid primary key default gen_random_uuid(),
-  supabase_auth_id  uuid references auth.users(id) on delete cascade,
-  estado            text not null default 'al_corriente',  -- al_corriente | vencido
-  vence_el          date,
-  created_at        timestamptz not null default now()
+  lead_id           uuid,
+  tipo              text,
+  monto             numeric,
+  metodo            text,
+  status            text,
+  creado_en         timestamptz not null default now()
 );
 
 -- ── Trigger simulado de CORA (§10, hallazgo verificado) ──
@@ -86,61 +122,30 @@ create trigger on_auth_user_created
 
 -- ── RLS en TODAS las tablas de public (como en CORA real · hallazgo) ──
 -- El LXP NO recibe grants sobre public.* → no puede leer/escribir directo. Solo
--- accede vía las funciones puente de abajo (regla 4). Estas policies representan
--- las de CORA y deben quedar INTACTAS tras las migraciones del LXP (DoD).
+-- accede vía las funciones puente (regla 4). Estas policies representan las de CORA
+-- y deben quedar INTACTAS tras las migraciones del LXP (DoD · test:rls cuenta >= 5).
 alter table public.usuarios      enable row level security;
 alter table public.estudiantes   enable row level security;
 alter table public.grupos        enable row level security;
-alter table public.inscripciones enable row level security;
+alter table public.grupo_alumnos enable row level security;
 alter table public.pagos         enable row level security;
 
--- Policy representativa de CORA: cada usuario ve su propia fila (self).
+-- Policies representativas de CORA (cada usuario ve lo suyo).
 create policy usuarios_self on public.usuarios
   for select using (supabase_auth_id = auth.uid());
 create policy estudiantes_self on public.estudiantes
   for select using (supabase_auth_id = auth.uid());
-create policy inscripciones_self on public.inscripciones
-  for select using (supabase_auth_id = auth.uid());
-create policy pagos_self on public.pagos
-  for select using (supabase_auth_id = auth.uid());
+-- grupo_alumnos: el alumno ve sus inscripciones (vía su estudiante).
+create policy grupo_alumnos_self on public.grupo_alumnos
+  for select using (
+    estudiante_id in (select e.id from public.estudiantes e
+                      where e.supabase_auth_id = auth.uid())
+  );
+-- pagos: ledger interno de CORA (representativo; no se expone al alumno).
+create policy pagos_interno on public.pagos
+  for select using (false);
 -- grupos: legible por usuarios autenticados de CORA (representativo).
 create policy grupos_read on public.grupos
   for select using (auth.uid() is not null);
 
--- ═══════════════════════════════════════════════════════════════════════════
--- Puente de LECTURA CORA→LXP (regla 4): funciones SECURITY DEFINER, SOLO lectura,
--- en el esquema `lxp`. Nunca se acoplan tablas de `public` en policies del LXP.
--- En producción estas funciones las poseería un rol con SELECT de solo-lectura
--- sobre las tablas concretas de CORA; en local corren como el owner de la migración.
--- ═══════════════════════════════════════════════════════════════════════════
-create or replace function lxp.cora_usuario(p_auth_id uuid)
-returns table (supabase_auth_id uuid, email text, nombre text, rol text)
-language sql stable security definer set search_path = lxp, public as $$
-  select u.supabase_auth_id, u.email, u.nombre, u.rol
-  from public.usuarios u
-  where u.supabase_auth_id = p_auth_id;
-$$;
-
--- ¿El alumno tiene acceso según pagos de CORA? (sin pago vencido).
-create or replace function lxp.cora_acceso_activo(p_auth_id uuid)
-returns boolean
-language sql stable security definer set search_path = lxp, public as $$
-  select not exists (
-    select 1 from public.pagos p
-    where p.supabase_auth_id = p_auth_id and p.estado = 'vencido'
-  );
-$$;
-
--- Grupos de CORA en los que está inscrito el alumno.
-create or replace function lxp.cora_grupos_de(p_auth_id uuid)
-returns table (grupo_id uuid, nombre text, ciclo text)
-language sql stable security definer set search_path = lxp, public as $$
-  select g.id, g.nombre, g.ciclo
-  from public.inscripciones i
-  join public.grupos g on g.id = i.grupo_id
-  where i.supabase_auth_id = p_auth_id;
-$$;
-
-grant execute on function
-  lxp.cora_usuario(uuid), lxp.cora_acceso_activo(uuid), lxp.cora_grupos_de(uuid)
-to anon, authenticated, service_role;
+-- Los PUENTES de lectura CORA→LXP (`lxp.cora_*`) viven en `0009_cora_puente_lxp.sql`.

@@ -10,15 +10,26 @@
  */
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { getDatabaseUrl } from './env';
+import { getDatabaseUrl, getDirectUrl } from './env';
 import * as schema from './schema/index';
 
 export type Sql = ReturnType<typeof postgres>;
 
-/** Crea una conexión postgres.js cruda (para migraciones/seed/tests). */
-export function createSql(opts?: { max?: number }): Sql {
-  return postgres(getDatabaseUrl(), {
+/**
+ * Crea una conexión postgres.js cruda.
+ *
+ * - `direct: true`  → migraciones/seed/tests. Usa la conexión DIRECTA de sesión
+ *   (`DIRECT_URL`, :5432) y PREPARA statements (más rápido; el DDL necesita sesión).
+ * - `direct: false` (default) → runtime (api/worker). Usa `DATABASE_URL`, que en
+ *   producción es el POOLER de transacción de Supabase (:6543) → `prepare:false`
+ *   (el pooler en modo transacción no admite prepared statements). En local :5432
+ *   es inofensivo.
+ */
+export function createSql(opts?: { max?: number; direct?: boolean }): Sql {
+  const direct = opts?.direct ?? false;
+  return postgres(direct ? getDirectUrl() : getDatabaseUrl(), {
     max: opts?.max ?? 10,
+    prepare: direct, // pooler (runtime) = false; sesión directa (DDL) = true
     onnotice: () => {}, // silencia los NOTICE de CREATE ... IF NOT EXISTS
   });
 }
