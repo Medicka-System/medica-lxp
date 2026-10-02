@@ -77,6 +77,13 @@ async function main(): Promise<void> {
     const claimsA4: Claims = { sub: a4, role: 'authenticated' };
     const claimsA5: Claims = { sub: a5, role: 'authenticated' };
     const claimsAnon: Claims = { sub: null, role: 'anon' };
+    // Un miembro del staff (es_staff) para las pruebas de "staff ve todo" (Ola C).
+    const staffId = (
+      await sql<{ id: string }[]>`select user_id as id from lxp.perfiles
+        where rol in ('super_admin','admin','docente','disenador_instruccional') limit 1`
+    )[0]?.id;
+    if (!staffId) throw new Error('No se encontró un perfil de staff. ¿Corriste el seed?');
+    const claimsStaff: Claims = { sub: staffId, role: 'authenticated' };
 
     // ── 1) Aislamiento de bitácora ─────────────────────────────────────
     const a1Ve = await como(sql, claimsA1, (tx) =>
@@ -506,7 +513,7 @@ async function main(): Promise<void> {
     // caso de biblioteca. Se prueban visibilidad y escritura; al final se limpian.
     const casoA1 = await sql<{ id: string }[]>`
       select id from lxp.bitacora_casos where id_alumno = ${a1} limit 1`;
-    const casoBib = await sql<{ id: string }[]>`select id from lxp.casos_biblioteca limit 1`;
+    const casoBib = await sql<{ id: string }[]>`select id from lxp.casos_biblioteca where publicado limit 1`;
     if (casoA1[0] && casoBib[0]) {
       const cA1 = casoA1[0].id;
       const cBib = casoBib[0].id;
@@ -548,6 +555,25 @@ async function main(): Promise<void> {
         tx<{ id: string }[]>`update lxp.anotaciones_dicom set valor = 'HACK' where id = ${ANOT_A1}::uuid returning id`,
       );
       check('a2 NO puede editar la medición de a1', a2EditaDeA1.length === 0);
+
+      // L-1 (mig 0070): si el caso de biblioteca NO está publicado, el alumno NO ve su
+      // anotación (rama casos_biblioteca gateada por publicado). Se baja publicado en una
+      // tx que se revierte (no altera el seed).
+      let a1NoVeDraftBib = false;
+      try {
+        await sql.begin(async (tx) => {
+          await tx`update lxp.casos_biblioteca set publicado = false where id = ${cBib}`;
+          await tx`select set_config('request.jwt.claims', ${JSON.stringify(claimsA1)}, true)`;
+          await tx.unsafe('set local role authenticated');
+          const r = await tx<{ n: string }[]>`
+            select count(*)::int as n from lxp.anotaciones_dicom where id = ${ANOT_BIB}::uuid`;
+          a1NoVeDraftBib = num(r) === 0;
+          throw ROLLBACK;
+        });
+      } catch (e) {
+        if (e !== ROLLBACK) throw e;
+      }
+      check('a1 NO ve anotación de un caso de biblioteca NO publicado (L-1)', a1NoVeDraftBib);
 
       await sql`delete from lxp.anotaciones_dicom where id in (${ANOT_A1}::uuid, ${ANOT_BIB}::uuid)`;
     }
@@ -653,6 +679,155 @@ async function main(): Promise<void> {
       tx<{ folio: string }[]>`select folio from lxp.verificar_folio_publico('NO-EXISTE-000')`,
     );
     check('anon: folio inexistente devuelve 0 filas', folioInexistente.length === 0);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Ola C · CONTENIDO/ESTRUCTURA por inscripción (mig 0068)
+    // Staff ve todo; el alumno ve solo contenido de un programa PUBLICADO en el que está
+    // inscrito. Fixtures transitorios (UUID fijos) para los negativos; se limpian al final.
+    // ══════════════════════════════════════════════════════════════════════
+    const demoProg = (
+      await sql<{ id: string }[]>`select id from lxp.programas where nombre = 'Ultrasonografía Básica — Demo' limit 1`
+    )[0]!.id;
+    const coraA = (
+      await sql<{ c: string }[]>`select cora_grupo_id as c from lxp.grupos where nombre = 'Demo 2026-A (síncrono)' limit 1`
+    )[0]!.c;
+    const P2 = '0e000000-0000-0000-0000-0000000000a1'; // publicado, SIN inscripción de a1
+    const M2 = '0e000000-0000-0000-0000-0000000000b1';
+    const P3 = '0e000000-0000-0000-0000-0000000000a2'; // borrador, CON inscripción de a1 (G3→coraA)
+    const G3 = '0e000000-0000-0000-0000-0000000000c2';
+    const M3 = '0e000000-0000-0000-0000-0000000000b2';
+    const RUBD = '0e000000-0000-0000-0000-0000000000d1'; // rúbrica NO publicada
+    const limpiarContenido = async () => {
+      await sql`delete from lxp.modulos  where id in (${M2}::uuid, ${M3}::uuid)`;
+      await sql`delete from lxp.grupos   where id = ${G3}::uuid`;
+      await sql`delete from lxp.rubricas where id = ${RUBD}::uuid`;
+      await sql`delete from lxp.programas where id in (${P2}::uuid, ${P3}::uuid)`;
+    };
+    await limpiarContenido();
+    await sql`
+      insert into lxp.programas (id, nombre, descripcion, publicado, estado, version) values
+        (${P2}::uuid, 'QA P2 (publicado, no inscrito)', 'qa', true,  'publicado'::lxp.estado_publicacion, 1),
+        (${P3}::uuid, 'QA P3 (borrador, inscrito)',     'qa', false, 'borrador'::lxp.estado_publicacion, 1)`;
+    await sql`
+      insert into lxp.modulos (id, programa_id, nombre, orden) values
+        (${M2}::uuid, ${P2}::uuid, 'QA M2', 1),
+        (${M3}::uuid, ${P3}::uuid, 'QA M3', 1)`;
+    await sql`
+      insert into lxp.grupos (id, programa_id, nombre, modalidad, fecha_inicio, docente_id, cora_grupo_id)
+      values (${G3}::uuid, ${P3}::uuid, 'QA G3', ${'sincrono'}::lxp.modalidad, '2026-01-01', ${staffId}, ${coraA}::uuid)`;
+    await sql`
+      insert into lxp.rubricas (id, nombre, tipo, descripcion, publicado, creado_por, criterios)
+      values (${RUBD}::uuid, 'QA rúbrica borrador', ${'tareas'}::lxp.rubrica_tipo, 'qa', false, ${staffId}, '[]'::jsonb)`;
+
+    const a1VeDemo = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.modulos where programa_id = ${demoProg}::uuid`);
+    check('a1 (inscrito) SÍ ve módulos de su programa publicado', num(a1VeDemo) > 0, `vio ${num(a1VeDemo)}`);
+
+    const a1VeP2 = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.modulos where id = ${M2}::uuid`);
+    check('a1 NO ve módulos de un programa donde NO está inscrito (publicado)', num(a1VeP2) === 0, `vio ${num(a1VeP2)}`);
+
+    const a1VeP3 = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.modulos where id = ${M3}::uuid`);
+    check('a1 NO ve módulos de un programa en BORRADOR (aunque inscrito)', num(a1VeP3) === 0, `vio ${num(a1VeP3)}`);
+
+    const staffVeMods = await como(sql, claimsStaff, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.modulos where id in (${M2}::uuid, ${M3}::uuid)`);
+    check('staff SÍ ve módulos (borrador + no inscrito)', num(staffVeMods) === 2, `vio ${num(staffVeMods)}`);
+
+    const a1RubPub = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.rubricas where publicado`);
+    check('a1 SÍ ve rúbricas publicadas (catálogo)', num(a1RubPub) > 0, `vio ${num(a1RubPub)}`);
+    const a1RubDraft = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.rubricas where id = ${RUBD}::uuid`);
+    check('a1 NO ve una rúbrica NO publicada', num(a1RubDraft) === 0, `vio ${num(a1RubDraft)}`);
+    const staffRubDraft = await como(sql, claimsStaff, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.rubricas where id = ${RUBD}::uuid`);
+    check('staff SÍ ve una rúbrica NO publicada', num(staffRubDraft) === 1, `vio ${num(staffRubDraft)}`);
+
+    // recursos: biblioteca → a1 ve el referenciado por un bloque visible, NO el "sin usar".
+    const recVid = (await sql<{ id: string }[]>`select id from lxp.recursos where nombre = 'Barrido FAST — demostración' limit 1`)[0]?.id ?? null;
+    const recImg = (await sql<{ id: string }[]>`select id from lxp.recursos where nombre = 'Esquema de planos abdominales' limit 1`)[0]?.id ?? null;
+    if (recVid && recImg) {
+      const a1VeRecRef = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.recursos where id = ${recVid}::uuid`);
+      check('a1 SÍ ve un recurso embebido en un bloque visible', num(a1VeRecRef) === 1, `vio ${num(a1VeRecRef)}`);
+      const a1VeRecSin = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.recursos where id = ${recImg}::uuid`);
+      check('a1 NO ve un recurso de la biblioteca NO referenciado', num(a1VeRecSin) === 0, `vio ${num(a1VeRecSin)}`);
+      const staffVeRecSin = await como(sql, claimsStaff, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.recursos where id = ${recImg}::uuid`);
+      check('staff SÍ ve un recurso de la biblioteca (sin usar)', num(staffVeRecSin) === 1, `vio ${num(staffVeRecSin)}`);
+    }
+    await limpiarContenido();
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Ola C · CLASES y VIDEOTECA por grupo (mig 0069)
+    // ══════════════════════════════════════════════════════════════════════
+    const gSync = (await sql<{ id: string }[]>`select id from lxp.grupos where nombre = 'Demo 2026-A (síncrono)' limit 1`)[0]?.id ?? null;
+    const gAsync = (await sql<{ id: string }[]>`select id from lxp.grupos where nombre = 'Demo 2026-B (asíncrono)' limit 1`)[0]?.id ?? null;
+    if (gSync && gAsync) {
+      const vSync = (await sql<{ id: string }[]>`select id from lxp.videoteca where grupo_id = ${gSync}::uuid limit 1`)[0]?.id ?? null;
+      const vAsync = (await sql<{ id: string }[]>`select id from lxp.videoteca where grupo_id = ${gAsync}::uuid limit 1`)[0]?.id ?? null;
+      if (vSync && vAsync) {
+        const a1VeVSync = await como(sql, claimsA1, (tx) => tx<{ n: string }[]>`select count(*)::int as n from lxp.videoteca where id = ${vSync}::uuid`);
+        check('a1 (grupo A) SÍ ve una grabación de SU grupo', num(a1VeVSync) === 1, `vio ${num(a1VeVSync)}`);
+        const a1VeVAsync = await como(sql, claimsA1, (tx) => tx<{ n: string }[]>`select count(*)::int as n from lxp.videoteca where id = ${vAsync}::uuid`);
+        check('a1 NO ve una grabación de otro grupo (B)', num(a1VeVAsync) === 0, `vio ${num(a1VeVAsync)}`);
+        const a5VeVAsync = await como(sql, claimsA5, (tx) => tx<{ n: string }[]>`select count(*)::int as n from lxp.videoteca where id = ${vAsync}::uuid`);
+        check('a5 (grupo B) SÍ ve una grabación de SU grupo', num(a5VeVAsync) === 1, `vio ${num(a5VeVAsync)}`);
+      }
+      const cSync = (await sql<{ id: string }[]>`select id from lxp.clases where grupo_id = ${gSync}::uuid limit 1`)[0]?.id ?? null;
+      if (cSync) {
+        const a1VeCSync = await como(sql, claimsA1, (tx) => tx<{ n: string }[]>`select count(*)::int as n from lxp.clases where id = ${cSync}::uuid`);
+        check('a1 (grupo A) SÍ ve una clase de SU grupo', num(a1VeCSync) === 1, `vio ${num(a1VeCSync)}`);
+        const a5VeCSync = await como(sql, claimsA5, (tx) => tx<{ n: string }[]>`select count(*)::int as n from lxp.clases where id = ${cSync}::uuid`);
+        check('a5 (grupo B) NO ve una clase del grupo A', num(a5VeCSync) === 0, `vio ${num(a5VeCSync)}`);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Ola B · PRESENTAR-CASO al Ateneo (mig 0066/0067)
+    // El caso presentado se VE para la audiencia del post (proyección caso_presentado),
+    // pero bitacora_casos sigue PRIVADA (owner/staff). Fixtures transitorios → se limpian.
+    // ══════════════════════════════════════════════════════════════════════
+    // Casos AJENOS a a1 y aún NO presentados (hay UNIQUE en caso_origen_id → 1 post por caso).
+    const casosLibres = await sql<{ id: string; owner: string }[]>`
+      select b.id, b.id_alumno as owner
+      from lxp.bitacora_casos b
+      where b.id_alumno <> ${a1}
+        and not exists (select 1 from lxp.posts_ateneo p where p.caso_origen_id = b.id)
+      limit 2`;
+    const POST_CASO = '22222222-0000-0000-0000-0000000000e1';         // aprobado + inscritos → visible
+    const POST_CASO_OCULTO = '22222222-0000-0000-0000-0000000000e2';  // pendiente → NO visible
+    await sql`delete from lxp.posts_ateneo where id in (${POST_CASO}::uuid, ${POST_CASO_OCULTO}::uuid)`;
+    if (casosLibres[0]) {
+      const c0 = casosLibres[0];
+      await sql`
+        insert into lxp.posts_ateneo (id, autor_id, tipo, titulo, cuerpo, estado, visibilidad, caso_origen_id)
+        values (${POST_CASO}::uuid, ${c0.owner}, 'caso', 'Caso presentado (rollback)', '',
+                ${'aprobado'}::lxp.estado_validacion, 'inscritos', ${c0.id}::uuid)`;
+
+      const a1VeCasoPres = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.caso_presentado(${POST_CASO}::uuid) where organo is not null`);
+      check('a1 (no dueño) SÍ ve el caso presentado de un post visible', num(a1VeCasoPres) === 1, `vio ${num(a1VeCasoPres)}`);
+
+      const a1VeBitacoraAjena = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.bitacora_casos where id = ${c0.id}::uuid`);
+      check('a1 NO puede leer la fila bitacora_casos del caso ajeno (tabla privada)', num(a1VeBitacoraAjena) === 0, `vio ${num(a1VeBitacoraAjena)}`);
+    }
+    if (casosLibres[1]) {
+      const c1 = casosLibres[1];
+      await sql`
+        insert into lxp.posts_ateneo (id, autor_id, tipo, titulo, cuerpo, estado, visibilidad, caso_origen_id)
+        values (${POST_CASO_OCULTO}::uuid, ${c1.owner}, 'caso', 'Caso en revisión (rollback)', '',
+                ${'pendiente'}::lxp.estado_validacion, 'inscritos', ${c1.id}::uuid)`;
+
+      const a1VeOculto = await como(sql, claimsA1, (tx) =>
+        tx<{ n: string }[]>`select count(*)::int as n from lxp.caso_presentado(${POST_CASO_OCULTO}::uuid)`);
+      check('a1 NO ve el caso de un post NO visible (pendiente)', num(a1VeOculto) === 0, `vio ${num(a1VeOculto)}`);
+    }
+    await sql`delete from lxp.posts_ateneo where id in (${POST_CASO}::uuid, ${POST_CASO_OCULTO}::uuid)`;
 
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;

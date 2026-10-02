@@ -139,7 +139,7 @@ async function colegasDe(sql: Sql, userId: string): Promise<string[]> {
 async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Promise<Post[]> {
   const ids = filas.map((f) => f.id);
   if (ids.length === 0) return [];
-  const idsCaso = filas.map((f) => f.caso_origen_id).filter((x): x is string => !!x);
+  const idsPostCaso = filas.filter((f) => f.tipo === 'caso' && !!f.caso_origen_id).map((f) => f.id);
 
   // Media (imagen/video): las refs `media/imagenes/*` guardadas se firman a URLs de lectura
   // (públicas, vida corta) para el grid de PostCard. Los GIF (hotlink Giphy) se EXCLUYEN: son
@@ -194,21 +194,28 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
     previewPorPost.set(c.post_id, arr);
   }
 
-  const casos = idsCaso.length
-    ? await sql<{ id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; created_at: Date }[]>`
-        select id, organo, dominio_iaim, hallazgos,
-               estado_validacion::text as estado, estudio_series, created_at
-        from lxp.bitacora_casos where id = any(${idsCaso})`
+  // Caso presentado al Ateneo: el contenido PEDAGÓGICO se sirve por la proyección
+  // SECURITY DEFINER `lxp.caso_presentado(post_id)` (mig 0067), gateada por la VISIBILIDAD
+  // del post (no por la propiedad del caso). Así la AUDIENCIA del post ve el caso aunque
+  // `bitacora_casos` siga privada (owner/staff) — sin exponer la fila completa ni PII (§10).
+  // Antes se leía `bitacora_casos` directo bajo RLS owner-only → el caso llegaba vacío.
+  const casos = idsPostCaso.length
+    ? await sql<{ post_id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; created_at: Date }[]>`
+        select p.id as post_id, cp.organo, cp.dominio_iaim, cp.hallazgos,
+               cp.estado_validacion as estado, cp.estudio_series, cp.created_at
+        from lxp.posts_ateneo p
+        cross join lateral lxp.caso_presentado(p.id) cp
+        where p.id = any(${idsPostCaso})`
     : [];
-  const casoPorId = new Map<string, (typeof casos)[number]>();
-  for (const c of casos) casoPorId.set(c.id, c);
-  const aCaso = (id: string, tituloPost: string): CasoBitacora | null => {
-    const c = casoPorId.get(id);
+  const casoPorPost = new Map<string, (typeof casos)[number]>();
+  for (const c of casos) casoPorPost.set(c.post_id, c);
+  const aCaso = (postId: string, tituloPost: string): CasoBitacora | null => {
+    const c = casoPorPost.get(postId);
     if (!c) return null;
     const series = Array.isArray(c.estudio_series) ? (c.estudio_series as { frames?: unknown[] }[]) : [];
     const loops = series.filter((s) => Array.isArray(s.frames) && s.frames.length > 1).length;
     return {
-      id: c.id,
+      id: '', // el id de bitácora NO se expone a la audiencia (caso presentado · §10)
       titulo: c.hallazgos?.slice(0, 80) || tituloPost || 'Estudio de la bitácora',
       area: c.organo ?? 'Ultrasonido',
       organo: c.organo ?? '—',
@@ -254,7 +261,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       enlace: f.enlace && typeof f.enlace === 'object' ? (f.enlace as EnlacePreview) : null,
     };
     if (f.tipo === 'caso') {
-      const caso = f.caso_origen_id ? aCaso(f.caso_origen_id, f.titulo) : null;
+      const caso = f.caso_origen_id ? aCaso(f.id, f.titulo) : null;
       return { ...base, tipo: 'caso', titulo: f.titulo, texto: f.cuerpo ?? '', caso: caso ?? aCasoVacio(f.titulo) };
     }
     if (f.tipo === 'pregunta') {
