@@ -166,21 +166,38 @@ export type AlumnoResuelto = {
   accesoActivo: boolean;
 };
 
-function mapearAlumno(row: {
-  user_id: string;
-  nombre: string;
-  email: string;
-  matricula: string | null;
-  acceso_activo: boolean;
-}): AlumnoResuelto {
+function mapearAlumno(
+  row: {
+    user_id: string;
+    nombre: string;
+    email: string;
+    matricula: string | null;
+  },
+  accesoActivo: boolean,
+): AlumnoResuelto {
   return {
     userId: row.user_id,
     nombre: row.nombre,
     email: row.email,
     matricula: row.matricula ?? 'MC-—',
     programa: 'Ultrasonografía Médica · 1000 h',
-    accesoActivo: row.acceso_activo,
+    accesoActivo,
   };
+}
+
+/**
+ * Acceso del alumno EN VIVO desde CORA (§1/§10) — fuente única de los campos derivados
+ * de CORA. El `lxp.perfiles.acceso_activo` persistido quedó obsoleto como fuente de
+ * verdad: se sembró en la auto-provisión (mig 0063) y NO se refresca cuando CORA cambia
+ * la inscripción. El gate ((campus)/layout.tsx) debe reflejar el estado real, así que
+ * se lee del puente `lxp.cora_acceso_activo` vía `comoAlumno` (rol authenticated + claims
+ * → fiel a producción). La columna persistida puede quedar, pero ya NO se lee para el gate.
+ */
+async function accesoActivoEnVivo(userId: string): Promise<boolean> {
+  const rows = await comoAlumno(userId, (sql) =>
+    sql<{ acceso: boolean }[]>`select lxp.cora_acceso_activo(${userId}) as acceso`,
+  );
+  return rows[0]?.acceso ?? false;
 }
 
 /**
@@ -196,18 +213,18 @@ export async function resolverAlumnoDev(email: string): Promise<AlumnoResuelto |
       nombre: string;
       email: string;
       matricula: string | null;
-      acceso_activo: boolean;
     }[]
   >`
     select p.user_id, p.nombre, coalesce(p.email, u.email) as email,
-           e.matricula, p.acceso_activo
+           e.matricula
     from lxp.perfiles p
     join auth.users u on u.id = p.user_id
     left join public.estudiantes e on e.supabase_auth_id = p.user_id
     where u.email = ${email} and p.rol = 'alumno'
     limit 1`;
   const row = rows[0];
-  return row ? mapearAlumno(row) : null;
+  // accesoActivo EN VIVO desde CORA (no el persistido, que queda stale) — ver nota arriba.
+  return row ? mapearAlumno(row, await accesoActivoEnVivo(row.user_id)) : null;
 }
 
 /**
@@ -223,18 +240,18 @@ export async function resolverAlumnoPorId(userId: string): Promise<AlumnoResuelt
       nombre: string;
       email: string;
       matricula: string | null;
-      acceso_activo: boolean;
     }[]
   >`
     select p.user_id, p.nombre, coalesce(p.email, u.email) as email,
-           e.matricula, p.acceso_activo
+           e.matricula
     from lxp.perfiles p
     join auth.users u on u.id = p.user_id
     left join public.estudiantes e on e.supabase_auth_id = p.user_id
     where p.user_id = ${userId} and p.rol = 'alumno'
     limit 1`;
   const row = rows[0];
-  return row ? mapearAlumno(row) : null;
+  // accesoActivo EN VIVO desde CORA (no el persistido, que queda stale) — ver nota arriba.
+  return row ? mapearAlumno(row, await accesoActivoEnVivo(userId)) : null;
 }
 
 /**
