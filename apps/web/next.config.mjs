@@ -37,6 +37,51 @@ function cargarEnvRaiz() {
 }
 cargarEnvRaiz();
 
+// ── Cabeceras de seguridad (§10/§11) ────────────────────────────────────────
+// ENFORCE (seguras, no rompen render/build): HSTS, X-Frame-Options, X-Content-Type-
+// Options, Referrer-Policy, Permissions-Policy. CSP va en **Report-Only** a propósito:
+// así NO puede romper el build webpack, ni los codecs WASM de Cornerstone3D, ni el
+// Realtime de Supabase — solo REPORTA violaciones en consola para afinar antes de enforce.
+//
+// X-Frame-Options = SAMEORIGIN (no DENY): los players H5P/SCORM y el visor PDF se montan
+// en iframes del MISMO origen; DENY los rompería.
+//
+// connect-src incluye el origen de Supabase (REST/Auth https) y su Realtime (wss://),
+// derivados de NEXT_PUBLIC_SUPABASE_URL. ⚠️ PLACEHOLDER para el integrador (Agente A): si
+// Realtime usa otro host/sufijo, ajústalo aquí. Sin la env (local) cae a un marcador claro.
+const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supaWss = supaUrl ? supaUrl.replace(/^https?:/i, 'wss:') : 'wss://<SUPABASE_PROJECT_REF>.supabase.co';
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+const cspReportOnly = [
+  "default-src 'self'",
+  // 'wasm-unsafe-eval' → instanciación WASM de los codecs DICOM (Cornerstone3D). Next
+  // (App Router) inyecta scripts de arranque inline → 'unsafe-inline' (en ENFORCE se migra
+  // a nonces). NO se incluye 'unsafe-eval'.
+  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
+  "worker-src 'self' blob:", // Web Workers de Cornerstone (decodificación de imagen)
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:", // PNG rasterizado del reporte (blob/data) + URLs firmadas (https)
+  "font-src 'self' data:",
+  "media-src 'self' blob: https:", // video / cine-loop
+  "frame-src 'self' blob:", // iframes H5P/SCORM/PDF (mismo origen) + blob
+  // Supabase REST/Auth + Realtime (wss) + API de dominio. `https:` es amplio para ENFORCE
+  // (se acotaría a Supabase + API + object-storage/R2); en Report-Only es seguro.
+  `connect-src 'self' ${supaUrl} ${supaWss} ${apiUrl} https:`.replace(/\s+/g, ' ').trim(),
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+].join('; ');
+
+const securityHeaders = [
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()' },
+  { key: 'Content-Security-Policy-Report-Only', value: cspReportOnly },
+];
+
 /**
  * PWA con Serwist en "configurator mode" (§3) — compatible con Next 16 + Turbopack.
  * El service worker NO se inyecta aquí (eso usaba webpack y rompe con Turbopack):
@@ -47,6 +92,9 @@ cargarEnvRaiz();
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@campus/shared'],
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders }];
+  },
   // El generador de PDF manda al server action las imágenes DICOM rasterizadas (PNG) del
   // reporte; con ~18 imágenes el payload supera el límite POR DEFECTO de 1 MB de los Server
   // Actions → "Body exceeded 1 MB limit" y el PDF nunca se pide. Subimos el tope (§6.5).
