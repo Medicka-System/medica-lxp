@@ -1,7 +1,9 @@
 import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { resolverStaffDev } from '@/lib/db.server';
+import { resolverStaffDev, resolverStaffPorId } from '@/lib/db.server';
+import { authEsDev } from '@/lib/auth/config';
+import { getUsuarioSupabase } from '@/lib/supabase/server';
 
 /**
  * Sesión de staff del Studio (§5B). Aún sin auth real (Sprint 11): se toma de
@@ -22,13 +24,23 @@ const ROLES_AUTORIA = ['disenador_instruccional', 'admin', 'super_admin'] as con
 const ROLES_CURADURIA = [...ROLES_AUTORIA, 'docente'] as const;
 
 export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
-  const email = process.env.DEV_STAFF_EMAIL ?? 'disenador@seed.local';
-  const staff = await resolverStaffDev(email);
-  if (!staff) {
-    throw new Error(
-      `No se encontró el staff de dev (${email}). ¿Corriste el seed? (pnpm --filter db seed)`,
-    );
+  if (authEsDev()) {
+    const email = process.env.DEV_STAFF_EMAIL ?? 'disenador@seed.local';
+    const staff = await resolverStaffDev(email);
+    if (!staff) {
+      throw new Error(
+        `No se encontró el staff de dev (${email}). ¿Corriste el seed? (pnpm --filter db seed)`,
+      );
+    }
+    return staff;
   }
+  // PROD: identidad REAL desde el sub del JWT de Supabase; el rol LXP sale de
+  // lxp.perfiles.rol (mismo patrón que getSesionAlumno · §10). Sin perfil de staff
+  // (p. ej. un alumno) → a su Campus; el rol concreto lo decide cada guard.
+  const userId = await getUsuarioSupabase();
+  if (!userId) redirect('/login');
+  const staff = await resolverStaffPorId(userId);
+  if (!staff) redirect('/inicio');
   return staff;
 });
 

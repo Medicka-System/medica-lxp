@@ -157,6 +157,37 @@ export async function resolverStaffDev(email: string): Promise<{
   return { userId: row.user_id, nombre: row.nombre, email: row.email, rol: row.rol };
 }
 
+/**
+ * Resuelve al staff por su `user_id` (el `sub` del JWT real · camino de PROD), con el
+ * rol desde `lxp.perfiles.rol`. Mismo shape que `resolverStaffDev` para no tocar guards
+ * ni consumidores; solo cambia DE DÓNDE sale la identidad (JWT en vez de env). Filtra
+ * `rol <> 'alumno'`: un alumno NO es staff (devuelve null → el guard lo manda a su lugar).
+ */
+export async function resolverStaffPorId(userId: string): Promise<{
+  userId: string;
+  nombre: string;
+  email: string;
+  rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+} | null> {
+  const sql = getSql();
+  const rows = await sql<
+    {
+      user_id: string;
+      nombre: string;
+      email: string;
+      rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+    }[]
+  >`
+    select p.user_id, p.nombre, coalesce(p.email, u.email) as email, p.rol::text as rol
+    from lxp.perfiles p
+    join auth.users u on u.id = p.user_id
+    where p.user_id = ${userId} and p.rol <> 'alumno'
+    limit 1`;
+  const row = rows[0];
+  if (!row) return null;
+  return { userId: row.user_id, nombre: row.nombre, email: row.email, rol: row.rol };
+}
+
 export type AlumnoResuelto = {
   userId: string;
   nombre: string;
