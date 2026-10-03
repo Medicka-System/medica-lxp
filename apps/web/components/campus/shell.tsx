@@ -9,7 +9,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCanalRealtime } from '@/lib/realtime/use-canal';
 import {
   ArrowUpRight,
   Bell,
@@ -49,10 +50,15 @@ function esActivo(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
 }
 
-function badgeDe(item: ItemNav, casosPendientes: number, consultasNoLeidas: number): string | undefined {
+function badgeDe(
+  item: ItemNav,
+  casosPendientes: number,
+  consultasNoLeidas: number,
+  nuevosAteneo: number,
+): string | undefined {
   if (item.id === 'bitacora' && casosPendientes > 0) return String(casosPendientes);
   if (item.id === 'consultas' && consultasNoLeidas > 0) return String(consultasNoLeidas);
-  if (item.id === 'ateneo') return 'En vivo';
+  if (item.id === 'ateneo') return nuevosAteneo > 0 ? String(nuevosAteneo) : 'En vivo';
   return undefined;
 }
 
@@ -117,18 +123,21 @@ function ItemLateral({
 
 export function CampusShell({
   usuario,
+  userId,
   casosPendientes,
   noLeidas = 0,
   consultasNoLeidas = 0,
   children,
 }: {
   usuario: ShellUsuario;
+  userId?: string;
   casosPendientes: number;
   noLeidas?: number;
   consultasNoLeidas?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   // El modo lectura (teoría/autoeval · §5A) CONTRAE el lateral para dar aire a la
   // lectura; fuera de él, manda el toggle manual del usuario. El ancho anima solo
   // (transition-[width]), respetando prefers-reduced-motion.
@@ -150,6 +159,16 @@ export function CampusShell({
   const colapsado = colapsadoCurso || (modoLectura?.activo ?? false) || colapsadoManual;
   const [cuentaAbierta, setCuentaAbierta] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
+  // Contador EN VIVO de novedades del Ateneo (señal de comunidad, sin tabla de lectura):
+  // sube con cada post/comentario nuevo y se reinicia al entrar al Ateneo.
+  const [nuevosAteneo, setNuevosAteneo] = useState(0);
+
+  // Realtime (§7): badges del sidebar. Todo NO-OP en dev local sin Supabase.
+  //  • usuario:<uid> → algo personal cambió (notificación, caso validado, consulta) →
+  //    refresca el layout force-dynamic (recomputa casos/consultas/no-leídas bajo RLS).
+  //  • ateneo:feed   → novedad de comunidad → incrementa el badge del Ateneo.
+  useCanalRealtime(userId ? `usuario:${userId}` : null, () => router.refresh());
+  useCanalRealtime('ateneo:feed', () => setNuevosAteneo((n) => n + 1));
   const cuentaRef = useRef<HTMLDivElement>(null);
   const avatarBtnRef = useRef<HTMLButtonElement>(null);
   const ini = iniciales(usuario.nombre);
@@ -182,6 +201,11 @@ export function CampusShell({
     setCuentaAbierta(false);
   }, [pathname]);
 
+  // Al entrar al Ateneo, el badge "en vivo" vuelve a cero (ya se están viendo).
+  useEffect(() => {
+    if (pathname.startsWith('/ateneo')) setNuevosAteneo(0);
+  }, [pathname]);
+
   // STUB de cierre de sesión (Supabase auth.signOut · Sprint 11).
   const onCerrarSesion = () => {
     // supabase.auth.signOut() → redirigir al login
@@ -210,7 +234,7 @@ export function CampusShell({
                       item={item}
                       activo={esActivo(pathname, item.href) || (enCurso && item.id === 'cursos')}
                       colapsado={colapsado}
-                      badge={badgeDe(item, casosPendientes, consultasNoLeidas)}
+                      badge={badgeDe(item, casosPendientes, consultasNoLeidas, nuevosAteneo)}
                     />
                   ))}
                 </div>
@@ -326,7 +350,7 @@ export function CampusShell({
             if (!item) return null;
             const Icono = item.icono;
             const on = esActivo(pathname, item.href);
-            const badge = badgeDe(item, casosPendientes, consultasNoLeidas);
+            const badge = badgeDe(item, casosPendientes, consultasNoLeidas, nuevosAteneo);
             return (
               <Link key={id} href={item.href} aria-current={on ? 'page' : undefined} className={`flex h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-[10px] transition-colors ${on ? 'bg-accent' : ''}`}>
                 <span className="relative">

@@ -12,6 +12,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { useCanalRealtime } from '@/lib/realtime/use-canal';
 import { Hilo } from './Hilo';
 import { ListaConversaciones } from './ListaConversaciones';
 import { NuevaConversacion } from './NuevaConversacion';
@@ -34,6 +35,17 @@ export function ConsultasCliente({ data }: { data: ConsultasData }) {
   const [, iniciar] = useTransition();
 
   const activa = conversaciones.find((c) => c.id === activaId);
+
+  // Realtime (§7): mensaje nuevo en el hilo ACTIVO → re-consulta el hilo bajo RLS
+  // (no confía en el payload) y refresca la bandeja. No-op en dev local sin Supabase.
+  useCanalRealtime(
+    activaId && !activaId.startsWith('nueva-') ? `consulta:${activaId}` : null,
+    () => {
+      if (!activaId) return;
+      cargar(activaId, true);
+      router.refresh();
+    },
+  );
 
   // Carga el hilo (y marca leído) si no está en caché. Los nuevos llegan por refetch.
   const cargar = (id: string, forzar = false) => {

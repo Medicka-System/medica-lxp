@@ -829,6 +829,59 @@ async function main(): Promise<void> {
     }
     await sql`delete from lxp.posts_ateneo where id in (${POST_CASO}::uuid, ${POST_CASO_OCULTO}::uuid)`;
 
+    // ── Autorización de canales Realtime (Broadcast privado · mig 0072) ──
+    // `lxp.rt_puede_escuchar(topic)` es el gate que, en Supabase, aplica la RLS de
+    // `realtime.messages` (mig 0073 SOLO_SUPABASE). Lo probamos aquí con el MISMO
+    // mecanismo de JWT que usa Realtime: un suscriptor jamás escucha un topic que su
+    // JWT no autoriza. Positivo + negativo por las 4 superficies. `anon` ni siquiera
+    // puede EJECUTAR el gate (no se le otorgó EXECUTE · mig 0072/L-2): el canal privado
+    // es solo del rol `authenticated` — anon queda excluido antes de evaluar nada.
+    const puede = (c: Claims, topic: string): Promise<boolean> =>
+      como(sql, c, (tx) =>
+        tx<{ ok: boolean }[]>`select lxp.rt_puede_escuchar(${topic}) as ok`,
+      ).then((r) => r[0]?.ok === true);
+
+    const docenteId = (
+      await sql<{ id: string }[]>`select user_id as id from lxp.perfiles where rol = 'docente' limit 1`
+    )[0]?.id;
+    const claimsDocente: Claims = { sub: docenteId ?? staffId, role: 'authenticated' };
+    const consultaA1 = (
+      await sql<{ id: string }[]>`select id from lxp.consultas where id_alumno = ${a1} limit 1`
+    )[0];
+    const cId = consultaA1?.id ?? '00000000-0000-0000-0000-000000000000';
+    const uuidCero = '00000000-0000-0000-0000-000000000000';
+
+    // Superficie 1 · Chat de consultas (topic `consulta:<id>`)
+    check('rt-consulta: a1 (parte) SÍ escucha su consulta', !!consultaA1 && (await puede(claimsA1, `consulta:${cId}`)));
+    check('rt-consulta: docente SÍ escucha la consulta (es_docente_o_mas)', await puede(claimsDocente, `consulta:${cId}`));
+    check('rt-consulta: a2 (ajeno) NO escucha la consulta de a1', !!consultaA1 && !(await puede(claimsA2, `consulta:${cId}`)));
+    check('rt-consulta: a5 (otra cohorte) NO escucha la consulta de a1', !!consultaA1 && !(await puede(claimsA5, `consulta:${cId}`)));
+    check('rt-consulta: id mal formado → deny', !(await puede(claimsA1, 'consulta:no-es-uuid')));
+
+    // Superficie 2+4 · Ateneo (badge + feed, topic `ateneo:feed`)
+    check('rt-ateneo: a1 (acceso activo) SÍ escucha ateneo:feed', await puede(claimsA1, 'ateneo:feed'));
+    check('rt-ateneo: a2 (otro alumno activo) SÍ escucha ateneo:feed', await puede(claimsA2, 'ateneo:feed'));
+    check('rt-ateneo: staff SÍ escucha ateneo:feed', await puede(claimsStaff, 'ateneo:feed'));
+    check('rt-ateneo: a4 (suspendido) NO escucha ateneo:feed', !(await puede(claimsA4, 'ateneo:feed')));
+
+    // Superficie 3 · Notificaciones / badges personales (topic `usuario:<uid>`)
+    check('rt-usuario: a1 SÍ escucha su topic personal', await puede(claimsA1, `usuario:${a1}`));
+    check('rt-usuario: a1 NO escucha el topic personal de a2', !(await puede(claimsA1, `usuario:${a2}`)));
+    check('rt-usuario: a2 NO escucha el topic personal de a1', !(await puede(claimsA2, `usuario:${a1}`)));
+    check('rt-usuario: a5 NO escucha el topic personal de a1', !(await puede(claimsA5, `usuario:${a1}`)));
+    check('rt-usuario: prefijo "usuario:" sin uid → deny', !(await puede(claimsA1, 'usuario:')));
+
+    // Default-deny transversal + exclusión de `anon` a nivel de privilegio (L-2)
+    check('rt-deny: topic desconocido → deny (a1)', !(await puede(claimsA1, 'random:x')));
+    check('rt-deny: topic vacío → deny (a1)', !(await puede(claimsA1, '')));
+    check('rt-deny: staff NO escucha un topic desconocido (default-deny)', !(await puede(claimsStaff, `otro:${uuidCero}`)));
+    check(
+      'rt-deny: anon NO puede ni EJECUTAR el gate (sin EXECUTE · mig 0072/L-2)',
+      await fueRechazada(() =>
+        como(sql, claimsAnon, (tx) => tx`select lxp.rt_puede_escuchar('ateneo:feed')`),
+      ),
+    );
+
     // ── Reporte ────────────────────────────────────────────────────────
     let fallos = 0;
     console.log('\n  Suite de RLS — Sprint 1\n  ' + '─'.repeat(52));

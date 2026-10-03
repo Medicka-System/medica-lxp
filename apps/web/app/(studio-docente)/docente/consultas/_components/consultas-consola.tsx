@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { useCanalRealtime } from '@/lib/realtime/use-canal';
 import { cambiarEstadoConsulta, iniciarConsultaDocente, responderConsulta } from '../../../_lib/acciones';
 import type { ConsultaDetalleDoc, ConsultasDocenteData, RecursoEnlazable } from '../../../_lib/contrato';
 import { NuevaConversacion, type GrupoContacto } from '@/app/(campus)/consultas/_components/NuevaConversacion';
@@ -52,6 +53,11 @@ export function ConsultasConsola({
   const [enviando, startTransition] = useTransition();
 
   const activaId = activa?.id ?? null;
+
+  // Realtime (§7): el alumno (u otra parte) escribe en el hilo ABIERTO → refresca el
+  // server component (re-consulta bajo RLS `es_docente_o_mas`). No-op sin Supabase.
+  useCanalRealtime(activaId ? `consulta:${activaId}` : null, () => router.refresh());
+
   // Al cambiar de hilo (nav), limpia el borrador de Eco y el composer.
   useEffect(() => {
     setVerBorrador(false);

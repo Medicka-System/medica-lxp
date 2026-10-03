@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCanalRealtime } from '@/lib/realtime/use-canal';
 import { ComposerModal, EntradaComposer, type BorradorPost } from './Composer';
 import { DetallePost } from './DetallePost';
 import { PostCard } from './PostCard';
@@ -85,6 +86,10 @@ export function AteneoCliente({
       })
       .catch(() => {});
   }, [feed]);
+
+  // Realtime (§7): post/comentario nuevo en la comunidad → re-consulta el primer lote
+  // (la visibilidad por post la re-aplica la RLS de posts_ateneo). No-op sin Supabase.
+  useCanalRealtime('ateneo:feed', () => recargarFeed());
 
   const cargarMas = useCallback(() => {
     if (cargandoMas || cursor === null) return;

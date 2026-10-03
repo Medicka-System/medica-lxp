@@ -66,6 +66,17 @@ const SOLO_LOCAL = new Set([
   '0009_cora_mock.sql',
 ]);
 
+/**
+ * Migraciones SOLO-SUPABASE: usan el esquema `realtime` (lo provee la plataforma
+ * Supabase; NO existe en el Postgres local). Se OMITEN cuando el destino es `local`.
+ *   • 0073_realtime_canales.sql — RLS de `realtime.messages` (gate de canal) + triggers
+ *     que emiten por `realtime.send`. La LÓGICA de autorización (lxp.rt_puede_escuchar,
+ *     mig 0072) sí corre en ambos destinos y se prueba en test:rls.
+ */
+const SOLO_SUPABASE = new Set([
+  '0073_realtime_canales.sql',
+]);
+
 async function listMigrations(): Promise<string[]> {
   const files = await readdir(MIGRATIONS_DIR);
   return files.filter((f) => f.endsWith('.sql')).sort();
@@ -102,6 +113,10 @@ async function up(): Promise<void> {
       .filter((f) => {
         if (target !== 'local' && SOLO_LOCAL.has(f)) {
           console.log(`↷ omitida (SOLO_LOCAL · target=${target}): ${f}`);
+          return false;
+        }
+        if (target === 'local' && SOLO_SUPABASE.has(f)) {
+          console.log(`↷ omitida (SOLO_SUPABASE · target=${target}): ${f}`);
           return false;
         }
         return true;
