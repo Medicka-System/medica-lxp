@@ -10,9 +10,18 @@ FROM base AS build
 # NEXT_PUBLIC_* se inlinea en build; apunta al host del navegador, no a la red docker.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Supabase (§10): el cliente @supabase/ssr (login, middleware, realtime) y el CSP de
+# next.config.mjs se resuelven en el navegador → deben quedar INLINEADOS en el build.
+ARG NEXT_PUBLIC_SUPABASE_URL=
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_TELEMETRY_DISABLED=1
+# Tope de heap de Node para el build de Next (webpack + Cornerstone): evita OOM en
+# hosts con RAM acotada / build con --memory. Cabe en un contenedor de 6 GB.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @campus/shared build

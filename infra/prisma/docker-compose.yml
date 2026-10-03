@@ -1,0 +1,191 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Campus Virtual LXP — Stack de PRODUCCIÓN (humo privado) · /var/www/prisma
+#
+# Stack TOTALMENTE SEPARADO del CRM (§1/§11). Trae su propio Redis y su propio
+# MinIO, su propia red y sus propios volúmenes. NO reusa ningún servicio del CRM.
+# Lo ÚNICO compartido es el Traefik del CRM como puerta del host (único proceso con
+# el :443): la `web` se une a la red externa `crm_web` solo para que Traefik la
+# enrute por labels. `api` y `worker` NO se exponen (sin labels, sin puertos).
+#
+# Base de datos = Supabase CLOUD (compartida con CORA · §1/§10). Aquí NO hay Postgres.
+#
+# Imágenes construidas FUERA del VPS (sin swap) y cargadas con `docker load`.
+# Variables/secretos → ./.env (NO versionado). Ver .env.example.
+#
+# Fase PRIVADA: Traefik protege la `web` con basic-auth. NO quitar hasta fase 5b.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: prisma
+
+services:
+  web:
+    image: campus-lxp-web:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: supabase
+      # Auth de sesión (@supabase/ssr) — ANON key (el límite es el JWT + RLS, §10).
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      # Lectura de dominio con RLS (postgres.js / comoAlumno) contra Supabase cloud.
+      DATABASE_URL: ${DATABASE_URL}
+      # Server actions de la web llaman al `api` por la red interna (no por el browser).
+      API_URL: http://api:8000
+      NEXT_PUBLIC_APP_URL: https://prisma.medicacapacitacion.com
+      NEXT_PUBLIC_API_URL: https://prisma.medicacapacitacion.com
+      # §10: service_role JAMÁS en la web. No se define aquí a propósito.
+    networks:
+      - crm_web          # solo para que el Traefik del CRM la enrute
+      - prisma_web       # egress (Supabase cloud) + hablar con api
+      - prisma_internal  # alcanzar redis/minio sin exponerlos
+    mem_limit: 1024m
+    cpus: 1.5
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=crm_web
+      - traefik.http.routers.prisma.rule=Host(`prisma.medicacapacitacion.com`)
+      - traefik.http.routers.prisma.entrypoints=websecure
+      - traefik.http.routers.prisma.tls.certresolver=le
+      - traefik.http.services.prisma.loadbalancer.server.port=3000
+      # ── Fase privada: basic-auth (§ humo privado). users en ./.env (no versionado). ──
+      - traefik.http.routers.prisma.middlewares=prisma-auth
+      - traefik.http.middlewares.prisma-auth.basicauth.users=${PRISMA_BASICAUTH}
+
+  api:
+    image: campus-lxp-api:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: '8000'
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # Supabase cloud (§10): guard verifica firma del JWT contra el JWKS; worker/api
+      # usan service_role server-side (nunca en web).
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_JWT_JWKS_URL: ${SUPABASE_JWT_JWKS_URL}
+      AUTH_MODE: supabase
+      CORS_ALLOWED_ORIGINS: https://prisma.medicacapacitacion.com
+      NEXT_PUBLIC_APP_URL: https://prisma.medicacapacitacion.com
+      # Object storage propio (MinIO del LXP). Interno a la red del stack.
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ENDPOINT_PUBLICO: http://minio:9000
+      STORAGE_REGION: auto
+      STORAGE_BUCKET: ${STORAGE_BUCKET}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+      # Eco (§7A): proveedor por env. Sin key → MOCK (no tumba el arranque).
+      ECO_PROVIDER: ${ECO_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+    networks:
+      - prisma_web       # egress (Supabase cloud / Anthropic / JWKS)
+      - prisma_internal  # redis/minio
+    mem_limit: 768m
+    cpus: 1.0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    image: campus-lxp-worker:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      API_URL: http://api:8000
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: auto
+      STORAGE_BUCKET: ${STORAGE_BUCKET}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+    networks:
+      - prisma_web       # egress (Supabase cloud) para jobs que escriben competencia
+      - prisma_internal  # redis/minio
+    mem_limit: 512m
+    cpus: 1.0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    # Redis PROPIO del LXP (§3), separado del de CORA/CRM. Nunca expuesto (red interna).
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}', '--appendonly', 'yes']
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    networks:
+      - prisma_internal
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    # Object storage PROPIO del LXP (§3/§9). Interno: sin puertos, sin label Traefik.
+    # (La ruta pública del media/visor DICOM es fase 5b — aquí no se expone.)
+    # Tag pineado = el mismo que YA corre el CRM (cacheado en el VPS, sin pull;
+    # quay.io/:latest da 401). Imagen propia del LXP de todos modos (volumen aparte).
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_ACCESS_KEY}
+    volumes:
+      - minio-data:/data
+    networks:
+      - prisma_internal
+    mem_limit: 512m
+    cpus: 1.0
+
+  # NOTA (fase privada): el init `createbuckets` (minio/mc) se omite aquí — el pull
+  # anónimo de minio/mc está bloqueado en el VPS y el bucket NO hace falta para el
+  # humo (login + cursos van web→Supabase, no tocan object storage). Se crea en la
+  # fase 5b, junto con la ruta pública del media/visor DICOM. MinIO corre igual.
+
+networks:
+  crm_web:
+    external: true   # red del stack CRM (donde vive Traefik). NO la crea este stack.
+  prisma_web:
+    driver: bridge
+  prisma_internal:
+    driver: bridge
+    internal: true   # sin salida a internet ni al host
+
+volumes:
+  redis-data:
+  minio-data:
