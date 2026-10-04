@@ -25,6 +25,7 @@ import { GRUPOS, GRUPO_PIE, ESENCIALES, TODOS, type ItemNav } from '@/components
 import { ModoLecturaContext } from '@/components/campus/modo-lectura';
 import { Overlay } from '@/components/ui/overlay';
 import { MenuCuenta } from '@/app/(campus)/cuenta/_components/MenuCuenta';
+import { cerrarSesion } from '@/app/login/acciones';
 
 const focusDark =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--sidebar)]';
@@ -206,9 +207,10 @@ export function CampusShell({
     if (pathname.startsWith('/ateneo')) setNuevosAteneo(0);
   }, [pathname]);
 
-  // STUB de cierre de sesión (Supabase auth.signOut · Sprint 11).
+  // Cierre de sesión del alumno: server action `cerrarSesion` → signOut (limpia
+  // cookies, sin sesión fantasma) → redirige al login del Campus (/login).
   const onCerrarSesion = () => {
-    // supabase.auth.signOut() → redirigir al login
+    void cerrarSesion();
   };
 
   return (

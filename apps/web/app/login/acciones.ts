@@ -1,6 +1,7 @@
 'use server';
 import { redirect } from 'next/navigation';
 import { createClienteSupabaseServidor } from '@/lib/supabase/server';
+import { authEsDev } from '@/lib/auth/config';
 
 export type EstadoLogin = { error: string | null };
 
@@ -27,9 +28,28 @@ export async function iniciarSesion(
   redirect('/inicio');
 }
 
-/** Cierra la sesión (limpia cookies) y vuelve al login. */
+/**
+ * Cierra la sesión del ALUMNO: `signOut` limpia las cookies de Supabase (sin sesión
+ * fantasma; el guard redirige al login) y vuelve al login del Campus. En dev (perfil
+ * sin Supabase) no hay cookies que limpiar: solo redirige.
+ */
 export async function cerrarSesion(): Promise<void> {
-  const supabase = await createClienteSupabaseServidor();
-  await supabase.auth.signOut();
+  if (!authEsDev()) {
+    const supabase = await createClienteSupabaseServidor();
+    await supabase.auth.signOut();
+  }
   redirect('/login');
+}
+
+/**
+ * Cierra la sesión del STAFF: igual que `cerrarSesion`, pero vuelve al login del
+ * Studio (`/admin`). Limpia las cookies (sin sesión fantasma) y deja que el guard
+ * del área de staff exija el login de nuevo.
+ */
+export async function cerrarSesionStaff(): Promise<void> {
+  if (!authEsDev()) {
+    const supabase = await createClienteSupabaseServidor();
+    await supabase.auth.signOut();
+  }
+  redirect('/admin');
 }

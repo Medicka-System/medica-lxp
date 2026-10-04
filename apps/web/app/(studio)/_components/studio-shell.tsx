@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, ChevronDown, LayoutTemplate } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
+import { MenuCuentaStaff } from '@/components/studio/menu-cuenta-staff';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { SECCIONES, HERRAMIENTAS } from './nav-config';
 
@@ -176,24 +177,9 @@ export function StudioShell({
             )}
           </button>
 
-          <button
-            type="button"
-            className={`flex h-[38px] items-center gap-2 rounded-full bg-white/[0.08] py-[3px] pl-[3px] pr-2.5 text-white/60 transition-colors hover:bg-white/[0.14] ${focusRingDark}`}
-          >
-            <span
-              aria-hidden
-              className="grid h-8 w-8 place-items-center rounded-full bg-primary text-[11.5px] font-bold text-[color:var(--sidebar)]"
-            >
-              {usuario.iniciales}
-            </span>
-            <span className="hidden text-left sm:block">
-              <span className="block text-[12px] font-bold leading-tight text-sidebar-foreground">
-                {usuario.nombre}
-              </span>
-              <span className="block text-[10px] text-white/55">{usuario.rol}</span>
-            </span>
-            <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-          </button>
+          <MenuCuentaStaff
+            usuario={{ nombre: usuario.nombre, iniciales: usuario.iniciales, rol: usuario.rol }}
+          />
         </div>
       </header>
 

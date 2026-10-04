@@ -16,8 +16,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, ChevronDown, Search } from 'lucide-react';
+import { Bell, Search } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
+import { MenuCuentaStaff } from '@/components/studio/menu-cuenta-staff';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { SECCIONES } from './nav-config';
 
@@ -125,24 +126,9 @@ export function ShellDocente({
             )}
           </button>
 
-          <button
-            type="button"
-            className={`flex h-[38px] shrink-0 items-center gap-2 rounded-full bg-white/[0.08] py-[3px] pl-[3px] pr-2.5 transition-colors hover:bg-white/[0.16] ${focusRingDark}`}
-          >
-            <span
-              aria-hidden
-              className="grid h-8 w-8 place-items-center rounded-full bg-primary text-[11.5px] font-bold text-[color:var(--sidebar)]"
-            >
-              {usuario.iniciales}
-            </span>
-            <span className="hidden flex-col text-left leading-[1.15] sm:flex">
-              <span className="whitespace-nowrap text-[12px] font-semibold text-sidebar-foreground">
-                {usuario.nombre}
-              </span>
-              <span className="whitespace-nowrap text-[9.5px] text-white/55">Docente</span>
-            </span>
-            <ChevronDown aria-hidden className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
-          </button>
+          <MenuCuentaStaff
+            usuario={{ nombre: usuario.nombre, iniciales: usuario.iniciales, rol: 'Docente' }}
+          />
         </div>
       </header>
 
