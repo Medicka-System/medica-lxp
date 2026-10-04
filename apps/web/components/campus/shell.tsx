@@ -104,7 +104,7 @@ function ItemLateral({
       {colapsado && badge && <span aria-hidden className="absolute right-3 top-3 h-2 w-2 rounded-full bg-primary" />}
     </>
   );
-  const clases = `group relative flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-left transition-colors ${focusDark} ${
+  const clases = `group relative flex h-9 w-full items-center gap-3 rounded-[10px] px-3 text-left transition-colors ${focusDark} ${
     activo ? 'bg-white/12' : 'hover:bg-white/8'
   } ${colapsado ? 'justify-center px-0' : ''}`;
 
@@ -226,12 +226,12 @@ export function CampusShell({
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
-          <nav aria-label="Secciones del campus" className="min-h-0 flex-1 overflow-y-auto scroll-sutil px-3 py-4">
+          <nav aria-label="Secciones del campus" className="min-h-0 flex-1 overflow-y-auto scroll-sutil px-3 py-3">
             {GRUPOS.map((g, i) => (
-              <div key={g.titulo} className={i > 0 ? 'mt-6' : ''}>
+              <div key={g.titulo} className={i > 0 ? 'mt-4' : ''}>
                 {colapsado
                   ? i > 0 && <div aria-hidden className="mx-auto mb-3 h-px w-8 bg-white/12" />
-                  : <p className={`${kickerMini} mb-2 px-3 text-[color:var(--hero-ink-muted)]`}>{g.titulo}</p>}
+                  : <p className={`${kickerMini} mb-1 px-3 text-[color:var(--hero-ink-muted)]`}>{g.titulo}</p>}
                 <div className="flex flex-col gap-1">
                   {g.items.map((item) => (
                     <ItemLateral
@@ -258,7 +258,7 @@ export function CampusShell({
               onClick={() => setColapsadoManual((v) => !v)}
               aria-label={colapsado ? 'Expandir el menú' : 'Colapsar el menú'}
               aria-pressed={colapsado}
-              className={`mt-3 flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[13px] font-semibold text-white/60 transition-colors hover:bg-white/8 hover:text-white ${focusDark} ${
+              className={`mt-2 flex h-9 w-full items-center gap-3 rounded-[10px] px-3 text-[13px] font-semibold text-white/60 transition-colors hover:bg-white/8 hover:text-white ${focusDark} ${
                 colapsado ? 'justify-center px-0' : ''
               }`}
             >
