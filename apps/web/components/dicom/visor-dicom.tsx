@@ -136,9 +136,7 @@ export function VisorDicom({
     <div
       ref={contenedorExtRef}
       className={cn(
-        // `contra-zoom-visor` (§globals.css): anula el zoom 0.8 global para que el
-        // lienzo Cornerstone quede a escala natural y el mapeo clic→canvas no se corra.
-        'contra-zoom-visor flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-rest',
+        'flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-rest',
         pantallaCompleta && 'h-screen w-screen rounded-none',
         className,
       )}
