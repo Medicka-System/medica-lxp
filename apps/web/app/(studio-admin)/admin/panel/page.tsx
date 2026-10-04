@@ -1,6 +1,6 @@
 import { getSesionStaff } from '@/lib/studio/session';
-import { getCentroControl } from './_components/_data';
-import { CentroControl } from './_components/centro-control';
+import { getCentroControl } from '../_components/_data';
+import { CentroControl } from '../_components/centro-control';
 
 export const dynamic = 'force-dynamic';
 

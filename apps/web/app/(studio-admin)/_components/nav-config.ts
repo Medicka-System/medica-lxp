@@ -18,7 +18,7 @@ export type SeccionAdmin = {
 };
 
 export const SECCIONES: SeccionAdmin[] = [
-  { id: 'inicio', etiqueta: 'Inicio', href: '/admin' },
+  { id: 'inicio', etiqueta: 'Inicio', href: '/admin/panel' },
   { id: 'alumnos', etiqueta: 'Alumnos', href: '/admin/alumnos' },
   { id: 'staff', etiqueta: 'Staff', href: '/admin/staff' },
   { id: 'grupos', etiqueta: 'Grupos', href: '/admin/grupos' },

@@ -28,7 +28,7 @@ export type AdminShellUsuario = {
 };
 
 function activaEn(pathname: string, href: string): boolean {
-  if (href === '/admin') return pathname === '/admin';
+  if (href === '/admin/panel') return pathname === '/admin/panel';
   return pathname === href || pathname.startsWith(href + '/');
 }
 
@@ -51,7 +51,7 @@ export function AdminShell({
       <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-2 bg-sidebar px-5">
         {/* marca + rótulo de rol */}
         <Link
-          href="/admin"
+          href="/admin/panel"
           className={`mr-1 flex shrink-0 items-center gap-2.5 border-r border-white/[0.14] pr-3.5 ${focusRingDark} rounded-[9px]`}
         >
           <span

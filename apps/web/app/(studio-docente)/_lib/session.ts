@@ -22,7 +22,7 @@ async function resolverStaffActual(): Promise<Awaited<ReturnType<typeof resolver
     return staff;
   }
   const userId = await getUsuarioSupabase();
-  if (!userId) redirect('/login');
+  if (!userId) redirect('/admin'); // sin sesión → login del Studio (no el del alumno)
   return resolverStaffPorId(userId);
 }
 

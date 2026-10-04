@@ -14,7 +14,7 @@ import { getSesionStaff, type SesionStaff } from '@/lib/studio/session';
 export async function requireSuperAdmin(): Promise<SesionStaff> {
   const staff = await getSesionStaff();
   if (staff.rol !== 'super_admin') {
-    redirect('/admin');
+    redirect('/admin/panel');
   }
   return staff;
 }

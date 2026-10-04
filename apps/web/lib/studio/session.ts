@@ -38,7 +38,7 @@ export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
   // lxp.perfiles.rol (mismo patrón que getSesionAlumno · §10). Sin perfil de staff
   // (p. ej. un alumno) → a su Campus; el rol concreto lo decide cada guard.
   const userId = await getUsuarioSupabase();
-  if (!userId) redirect('/login');
+  if (!userId) redirect('/admin'); // sin sesión → login del Studio (no el del alumno)
   const staff = await resolverStaffPorId(userId);
   if (!staff) redirect('/inicio');
   return staff;
