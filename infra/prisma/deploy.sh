@@ -67,13 +67,20 @@ log "RAM disponible: ${MEM_AVAIL} MiB"; free -h | awk 'NR<=2'
 [ "$MEM_AVAIL" -ge 1500 ] || die "RAM disponible (${MEM_AVAIL} MiB) demasiado baja para construir sin arriesgar al CRM"
 
 # ── 1) Código: git fetch + reset --hard (sin node_modules, exacto a HEAD) ──
-log "Trayendo código (rama $BRANCH)…"
-if [ -d "$REPO/.git" ]; then
-  git -C "$REPO" fetch --depth 1 origin "$BRANCH"
-  git -C "$REPO" reset --hard "origin/$BRANCH"
-  git -C "$REPO" clean -fd
+# SKIP_FETCH=1 → despliega el checkout ACTUAL de $REPO sin tocar git (útil cuando el
+# origin no es alcanzable/empujable todavía, p. ej. un commit traído por bundle).
+if [ "${SKIP_FETCH:-0}" = "1" ]; then
+  [ -d "$REPO/.git" ] || die "SKIP_FETCH=1 pero $REPO no es un repo git"
+  log "SKIP_FETCH=1 → usando el checkout actual de $REPO (sin git fetch)"
 else
-  git clone --depth 1 --branch "$BRANCH" "$GIT_URL" "$REPO"
+  log "Trayendo código (rama $BRANCH)…"
+  if [ -d "$REPO/.git" ]; then
+    git -C "$REPO" fetch --depth 1 origin "$BRANCH"
+    git -C "$REPO" reset --hard "origin/$BRANCH"
+    git -C "$REPO" clean -fd
+  else
+    git clone --depth 1 --branch "$BRANCH" "$GIT_URL" "$REPO"
+  fi
 fi
 SHA=$(git -C "$REPO" rev-parse --short HEAD)
 log "Código en $SHA"
@@ -120,7 +127,8 @@ docker image prune -f >/dev/null 2>&1 || true
 
 # Mantener /var/www/prisma/deploy.sh sincronizado con el repo (mv atómico = seguro
 # aunque este mismo script esté corriendo: bash conserva su fd al inode viejo).
-if [ -f "$REPO/infra/prisma/deploy.sh" ] && ! cmp -s "$REPO/infra/prisma/deploy.sh" "$PRISMA/deploy.sh"; then
+# Con SKIP_FETCH no sincronizamos (el checkout puede no ser el origin canónico).
+if [ "${SKIP_FETCH:-0}" != "1" ] && [ -f "$REPO/infra/prisma/deploy.sh" ] && ! cmp -s "$REPO/infra/prisma/deploy.sh" "$PRISMA/deploy.sh"; then
   cp "$REPO/infra/prisma/deploy.sh" "$PRISMA/deploy.sh.new" && mv "$PRISMA/deploy.sh.new" "$PRISMA/deploy.sh"
   log "deploy.sh actualizado desde el repo"
 fi
