@@ -103,7 +103,7 @@
      calc(… / var(--ui-zoom)), porque los `vh/dvh` NO se dividen por el zoom y se
      renderizarían escalados (p. ej. el sidebar quedaba al 80% del alto y el bloque
      inferior "flotaba"). Cambiar aquí reescala todo de forma coherente. */
-  --ui-zoom: 0.85;
+  --ui-zoom: 0.82;
 
   /* ── Movimiento (§5A · moción con propósito, sobria) ──
      Fundación del sistema de motion: duraciones y curvas centralizadas para que
