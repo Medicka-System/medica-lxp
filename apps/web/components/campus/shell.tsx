@@ -222,11 +222,11 @@ export function CampusShell({
              renderiza al 80% y el bloque inferior queda flotando. Con ella, el
              sidebar llena exacto el alto real bajo zoom. La estructura interna ya es
              flex-col (nav flex-1 scrollable + pie shrink-0), que ancla el pie abajo. */
-          className={`alto-lateral sticky top-[68px] hidden shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none lg:flex ${
+          className={`alto-lateral sticky top-[68px] hidden shrink-0 flex-col overflow-hidden bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none lg:flex ${
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
-          <nav aria-label="Secciones del campus" className="flex-1 overflow-y-auto px-3 py-4">
+          <nav aria-label="Secciones del campus" className="min-h-0 flex-1 overflow-y-auto scroll-sutil px-3 py-4">
             {GRUPOS.map((g, i) => (
               <div key={g.titulo} className={i > 0 ? 'mt-6' : ''}>
                 {colapsado

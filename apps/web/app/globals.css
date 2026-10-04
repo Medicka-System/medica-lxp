@@ -98,12 +98,13 @@
   --content-max: 1240px;
 
   /* ── Escala global de la UI (perilla de zoom) ──
-     Toda la app se encoge al 80%. Fuente ÚNICA de la escala: el body la aplica con
+     Toda la app se encoge al 90%. Fuente ÚNICA de la escala: el body la aplica con
      `zoom` y todo lo que dependa del viewport (altos en dvh) la COMPENSA con
      calc(… / var(--ui-zoom)), porque los `vh/dvh` NO se dividen por el zoom y se
-     renderizarían escalados (p. ej. el sidebar quedaba al 80% del alto y el bloque
-     inferior "flotaba"). Cambiar aquí reescala todo de forma coherente. */
-  --ui-zoom: 0.82;
+     renderizarían escalados (p. ej. el sidebar quedaba corto y el bloque inferior
+     "flotaba"). El contra-zoom del visor DICOM también deriva de aquí (1/0.9 =
+     1.111…). Cambiar este único valor reescala todo de forma coherente. */
+  --ui-zoom: 0.9;
 
   /* ── Movimiento (§5A · moción con propósito, sobria) ──
      Fundación del sistema de motion: duraciones y curvas centralizadas para que
@@ -132,26 +133,50 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  /* Perilla de escala global: toda la UI al 80% (ver --ui-zoom). `zoom` reflowa de
+  /* Perilla de escala global: toda la UI al 90% (ver --ui-zoom). `zoom` reflowa de
      verdad (no es transform), así que encoge TODO proporcional en una sola línea. */
   zoom: var(--ui-zoom);
 }
 
 /* Contra-zoom del visor DICOM (Cornerstone, §4.7): anula el zoom del body para que el
    lienzo renderice a escala NATURAL (zoom × 1/zoom = 1) y el mapeo clic→canvas y las
-   mediciones/anotaciones NO se corran. Se aplica al contenedor exterior del visor. */
+   mediciones/anotaciones NO se corran. Con --ui-zoom 0.9 resuelve a 1/0.9 = 1.111…
+   (un solo valor manda; no se hardcodea en el TSX). Se aplica al contenedor del visor. */
 .contra-zoom-visor {
   zoom: calc(1 / var(--ui-zoom));
 }
 
 /* Alto del sidebar del campus = viewport − header, COMPENSANDO el zoom del body.
-   Los dvh no se dividen por `zoom`, así que un 100dvh crudo se renderiza al 80% y
-   el pie del sidebar "flota" sin llegar abajo; al dividir por --ui-zoom, el lateral
-   llena exacto el alto real bajo zoom. (68px = alto del header, en el mismo espacio
-   de zoom.) En CSS propio y no en clase arbitraria de Tailwind para evitar que el
-   `/` y los espacios del calc se parseen mal. */
+   Los dvh no se dividen por `zoom`, así que un 100dvh crudo se renderiza corto y el
+   pie del sidebar "flota" sin llegar abajo; al dividir por --ui-zoom, el lateral llena
+   exacto el alto real bajo zoom y se re-mide solo al redimensionar la ventana (dvh
+   dinámico). (68px = alto del header, en el mismo espacio de zoom.) En CSS propio y no
+   en clase arbitraria de Tailwind para que el `/` y los espacios del calc no se parseen
+   mal. El sidebar es flex-col: header (logo, en el topbar) → nav (flex-1, min-h-0,
+   scroll propio) → pie (shrink-0, anclado abajo). */
 .alto-lateral {
   height: calc(100dvh / var(--ui-zoom) - 68px);
+}
+
+/* Scrollbar sutil para la lista de navegación del sidebar (fondo navy): fina y
+   translúcida en vez del scrollbar nativo. Solo aparece si la lista no cabe (ventanas
+   bajas); si cabe, no hay barra. Firefox: scrollbar-width/color; WebKit: ::-webkit-*. */
+.scroll-sutil {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.scroll-sutil::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-sutil::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-sutil::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+.scroll-sutil::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 a {
