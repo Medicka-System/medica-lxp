@@ -217,7 +217,12 @@ export function CampusShell({
       <div className="flex pt-[68px]">
         {/* ══ LATERAL ══ */}
         <aside
-          className={`sticky top-[68px] hidden h-[calc(100dvh-68px)] shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none lg:flex ${
+          /* Alto = viewport − header. Se divide por --ui-zoom porque los dvh NO se
+             escalan con el `zoom` del body: sin la compensación, el 100dvh se
+             renderiza al 80% y el bloque inferior queda flotando. Con ella, el
+             sidebar llena exacto el alto real bajo zoom. La estructura interna ya es
+             flex-col (nav flex-1 scrollable + pie shrink-0), que ancla el pie abajo. */
+          className={`alto-lateral sticky top-[68px] hidden shrink-0 flex-col bg-sidebar transition-[width,background-color,color] [transition-duration:var(--dur-lenta)] [transition-timing-function:var(--ease-estandar)] motion-reduce:transition-none lg:flex ${
             colapsado ? 'w-[76px]' : 'w-[264px]'
           }`}
         >
