@@ -12,7 +12,8 @@
 # Imágenes construidas FUERA del VPS (sin swap) y cargadas con `docker load`.
 # Variables/secretos → ./.env (NO versionado). Ver .env.example.
 #
-# Fase PRIVADA: Traefik protege la `web` con basic-auth. NO quitar hasta fase 5b.
+# Acceso: la `web` abre directo en su login (basic-auth de Traefik retirado). El
+# límite real es el JWT de Supabase + RLS (§10); api/worker siguen sin exponerse.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: prisma
@@ -61,9 +62,6 @@ services:
       - traefik.http.routers.prisma.entrypoints=websecure
       - traefik.http.routers.prisma.tls.certresolver=le
       - traefik.http.services.prisma.loadbalancer.server.port=3000
-      # ── Fase privada: basic-auth (§ humo privado). users en ./.env (no versionado). ──
-      - traefik.http.routers.prisma.middlewares=prisma-auth
-      - traefik.http.middlewares.prisma-auth.basicauth.users=${PRISMA_BASICAUTH}
 
   api:
     image: campus-lxp-api:latest
