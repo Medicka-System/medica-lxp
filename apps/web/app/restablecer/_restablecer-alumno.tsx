@@ -221,11 +221,11 @@ export default function RestablecerAlumno({ fondo = '/img/login.jpg' }: { fondo?
   };
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-sidebar">
+    <main className="relative min-alto-ventana overflow-hidden bg-sidebar">
       <FondoFoto src={fondo} />
       <Marca />
 
-      <div className="relative flex min-h-[100dvh] items-center justify-center px-6 py-24">
+      <div className="relative flex min-alto-ventana items-center justify-center px-6 py-24">
         <div className="w-full max-w-[360px]">
           {estado === 'cargando' && (
             <p className="text-center text-[14px] text-[#e4eef3]">Verificando el enlace…</p>

@@ -158,6 +158,15 @@ body {
   height: calc(100dvh / var(--ui-zoom) - 68px);
 }
 
+/* Alto mínimo = viewport REAL, compensando el zoom del body. Para contenedores a
+   pantalla completa (páginas de auth: /login, /restablecer, /admin, /admin/restablecer):
+   un `min-h-[100dvh]` crudo se renderiza al 90% bajo zoom y deja franja (del fondo del
+   body) abajo; al dividir por --ui-zoom cubren la ventana entera. La foto a sangre
+   (absolute inset-0) y el panel del staff (h-full) siguen a este contenedor. */
+.min-alto-ventana {
+  min-height: calc(100dvh / var(--ui-zoom));
+}
+
 /* Scrollbar sutil para la lista de navegación del sidebar (fondo navy): fina y
    translúcida en vez del scrollbar nativo. Solo aparece si la lista no cabe (ventanas
    bajas); si cabe, no hay barra. Firefox: scrollbar-width/color; WebKit: ::-webkit-*. */

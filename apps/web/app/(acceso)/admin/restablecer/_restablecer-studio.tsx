@@ -33,7 +33,7 @@ type Estado = 'cargando' | 'listo' | 'invalido' | 'exito';
 function FondoProfundo({ children }: { children: ReactNode }) {
   return (
     <main
-      className="grid min-h-[100dvh] place-items-center p-6"
+      className="grid min-alto-ventana place-items-center p-6"
       style={{
         background:
           'radial-gradient(70% 60% at 80% 10%,rgba(26,136,128,.28) 0%,rgba(26,136,128,0) 60%),radial-gradient(60% 60% at 10% 100%,rgba(83,195,190,.14) 0%,rgba(83,195,190,0) 60%),#071a33',
