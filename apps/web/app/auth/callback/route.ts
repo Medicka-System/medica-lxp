@@ -19,10 +19,17 @@ export async function GET(request: Request) {
   const next = searchParams.get('next') ?? '/admin';
   const destino = next.startsWith('/') ? next : '/admin';
 
+  // Detrás de Traefik el `origin` del request es INTERNO (localhost:3000). Para armar
+  // la URL pública del redirect usamos x-forwarded-host/proto (los pone el proxy);
+  // si no están (dev directo), caemos al `origin` del request.
+  const fwdHost = request.headers.get('x-forwarded-host');
+  const fwdProto = request.headers.get('x-forwarded-proto') ?? 'https';
+  const base = fwdHost ? `${fwdProto}://${fwdHost}` : origin;
+
   if (code) {
     const supabase = await createClienteSupabaseServidor();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${destino}`);
+    if (!error) return NextResponse.redirect(`${base}${destino}`);
   }
-  return NextResponse.redirect(`${origin}/admin?error=auth`);
+  return NextResponse.redirect(`${base}/admin?error=auth`);
 }
