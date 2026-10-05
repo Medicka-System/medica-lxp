@@ -81,7 +81,7 @@ services:
       NEXT_PUBLIC_APP_URL: https://prisma.medicacapacitacion.com
       # Object storage propio (MinIO del LXP). Interno a la red del stack.
       STORAGE_ENDPOINT: http://minio:9000
-      STORAGE_ENDPOINT_PUBLICO: http://minio:9000
+      STORAGE_ENDPOINT_PUBLICO: ${STORAGE_ENDPOINT_PUBLICO:-http://minio:9000}
       STORAGE_REGION: auto
       STORAGE_BUCKET: ${STORAGE_BUCKET}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID}
@@ -163,12 +163,22 @@ services:
     environment:
       MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY_ID}
       MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_ACCESS_KEY}
+      # CORS a nivel servidor (MinIO no soporta CORS por-bucket): solo el origen del LXP.
+      MINIO_API_CORS_ALLOW_ORIGIN: https://prisma.medicacapacitacion.com
     volumes:
       - minio-data:/data
     networks:
       - prisma_internal
+      - crm_web
     mem_limit: 512m
     cpus: 1.0
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=crm_web
+      - traefik.http.routers.prisma-s3.rule=Host(`s3-prisma.medicacapacitacion.com`)
+      - traefik.http.routers.prisma-s3.entrypoints=websecure
+      - traefik.http.routers.prisma-s3.tls.certresolver=le
+      - traefik.http.services.prisma-s3.loadbalancer.server.port=9000
 
   # NOTA (fase privada): el init `createbuckets` (minio/mc) se omite aquí — el pull
   # anónimo de minio/mc está bloqueado en el VPS y el bucket NO hace falta para el
