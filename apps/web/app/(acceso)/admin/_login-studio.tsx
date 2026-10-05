@@ -581,7 +581,7 @@ function VistaEnviado({
 /* ───────── página ───────── */
 
 export default function LoginStudio({
-  imagen = '/img/login-aula.jpg',
+  imagen = '/img/login.jpg',
   whatsapp = 'https://wa.me/',
   mostrarMicrosoft = true,
   dosPasos = false, // 2FA pendiente de backend (§ sin MFA/lockout aún): no se fuerza la vista de código

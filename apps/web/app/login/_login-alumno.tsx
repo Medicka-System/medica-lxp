@@ -372,7 +372,7 @@ function VistaEnviado({
 /* ───────── página ───────── */
 
 export default function LoginAlumno({
-  fondo = '/img/login-aula.jpg',
+  fondo = '/img/login.jpg',
   whatsapp = 'https://wa.me/',
   aviso = null,
 }: {
