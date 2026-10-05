@@ -33,7 +33,10 @@ const pildora =
 function FondoFoto({ src }: { src: string }) {
   return (
     <>
-      <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
+      <picture>
+        <source srcSet={src.replace(/\.jpg$/, '.webp')} type="image/webp" />
+        <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
+      </picture>
       {/* la foto es clara (batas blancas): velo navy denso para que el texto blanco lea */}
       <div
         aria-hidden

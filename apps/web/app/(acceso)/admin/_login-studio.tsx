@@ -63,13 +63,16 @@ function PanelImagen({ src, mostrarEnlaceCampus }: { src: string; mostrarEnlaceC
   return (
     <div className="relative hidden overflow-hidden rounded-[14px] bg-[#0a2140] lg:block">
       {/* el panel es vertical y la foto apaisada: se ancla al docente y la pizarra */}
-      <img
-        src={src}
-        alt=""
-        aria-hidden
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ objectPosition: '22% 40%' }}
-      />
+      <picture>
+        <source srcSet={src.replace(/\.jpg$/, '.webp')} type="image/webp" />
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ objectPosition: '22% 40%' }}
+        />
+      </picture>
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"

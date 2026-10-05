@@ -47,13 +47,16 @@ function FondoProfundo({ children }: { children: ReactNode }) {
 function PanelImagen({ src }: { src: string }) {
   return (
     <div className="relative hidden overflow-hidden rounded-[14px] bg-[#0a2140] lg:block">
-      <img
-        src={src}
-        alt=""
-        aria-hidden
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ objectPosition: '22% 40%' }}
-      />
+      <picture>
+        <source srcSet={src.replace(/\.jpg$/, '.webp')} type="image/webp" />
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ objectPosition: '22% 40%' }}
+        />
+      </picture>
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
