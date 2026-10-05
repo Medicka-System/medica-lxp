@@ -622,13 +622,17 @@ export default function LoginStudio({
   /* ── Supabase Auth (cliente navegador, solo AUTH) ── */
   const onMicrosoft = async () => {
     // ⚠ Azure OAuth NO funcionará hasta habilitar el proveedor Azure en Supabase Auth
-    // (Client ID/Secret). El flujo queda listo; al volver, el despachador /admin
-    // verifica el rol staff y cierra la sesión si no lo es.
+    // (Client ID/Secret). El flujo queda listo: vuelve al route handler /auth/callback,
+    // que canjea el code por sesión (cookies) y manda a /admin, donde el despachador
+    // verifica el rol staff y despacha (o cierra la sesión si no lo es).
     try {
       const supabase = createClienteSupabaseNavegador();
       const { error: err } = await supabase.auth.signInWithOAuth({
         provider: 'azure',
-        options: { redirectTo: `${window.location.origin}/admin`, scopes: 'email' },
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/admin`,
+          scopes: 'email',
+        },
       });
       if (err) setError('No se pudo abrir Microsoft. (Proveedor Azure pendiente de configurar.)');
     } catch {

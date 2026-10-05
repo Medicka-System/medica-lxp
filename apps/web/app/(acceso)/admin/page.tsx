@@ -19,7 +19,15 @@ export const dynamic = 'force-dynamic';
  * En dev (perfil sin Supabase) no hay sesión real: siempre se muestra el login (para
  * verificación visual). La consola de admin vive en `/admin/panel` (ver (studio-admin)).
  */
-export default async function AdminAccesoPage() {
+export default async function AdminAccesoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+  const avisoError =
+    error === 'auth' ? 'No se pudo completar el acceso con Microsoft. Intente de nuevo.' : null;
+
   if (!authEsDev()) {
     const userId = await getUsuarioSupabase();
     if (userId) {
@@ -38,5 +46,5 @@ export default async function AdminAccesoPage() {
       );
     }
   }
-  return <LoginStudio />;
+  return <LoginStudio avisoInicial={avisoError} />;
 }
