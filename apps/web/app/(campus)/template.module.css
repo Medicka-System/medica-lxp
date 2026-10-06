@@ -10,10 +10,21 @@
 
    Reduced-motion: lo recorta la red global de globals.css ([data-reducir-animaciones]
    / prefers-reduced-motion) + el @media de abajo; con movimiento reducido el contenido
-   aparece al instante, sin fade. */
+   aparece al instante, sin fade.
+
+   ⚠️ Fill `backwards`, NUNCA `both`/`forwards`: este `.entrada` envuelve CADA página,
+   así que todo modal/overlay `position: fixed` del Campus es su descendiente. Una
+   animación que toca `transform` con relleno HACIA ADELANTE (`forwards`/`both`) deja a
+   Chrome tratando el elemento como bloque contenedor de los `fixed` de forma PERMANENTE
+   —aunque el valor retenido sea la identidad—, y entonces los modales se centran respecto
+   a la página completa (muy alta) en vez del viewport: hay que scrollear para hallarlos.
+   Con `backwards` el `from` se aplica antes de correr (sin flash del primer frame) y, al
+   terminar, el elemento vuelve a su base `transform: none` (keyword real) → sin bloque
+   contenedor → los modales quedan fijos al viewport. El `to` equivale a la base
+   (opacity 1, transform none), así que el look es idéntico a `both`. */
 
 .entrada {
-  animation: entradaRuta var(--dur-base) var(--ease-entrada) both;
+  animation: entradaRuta var(--dur-base) var(--ease-entrada) backwards;
 }
 
 @keyframes entradaRuta {
