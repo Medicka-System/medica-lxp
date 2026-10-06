@@ -90,6 +90,9 @@ services:
       ECO_PROVIDER: ${ECO_PROVIDER:-mock}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      # Redactor Presidio (§10): el `api` lo llama al procesar imágenes de reporte (tapa la
+      # PII quemada). Interno a la red del stack. Sin este servicio → fetch failed → 500.
+      REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
     networks:
       - prisma_web       # egress (Supabase cloud / Anthropic / JWKS)
       - prisma_internal  # redis/minio
@@ -98,6 +101,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      redactor-dicom:
+        # service_started (no _healthy): el `api` no debe esperar el warm-up (~1 min) del
+        # servicio ML para arrancar; si una redacción llega antes de estar listo, falla-cerrado
+        # transitoriamente (§10), nunca filtra. Evita acoplar la disponibilidad del api.
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -124,6 +132,9 @@ services:
       STORAGE_BUCKET: ${STORAGE_BUCKET}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+      # Redactor Presidio (§10): `procesar-dicom` manda cada serie tag-limpia a tapar la PII
+      # quemada antes de subir. Interno. Sin el servicio → fetch failed → el job reintenta.
+      REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
     networks:
       - prisma_web       # egress (Supabase cloud) para jobs que escriben competencia
       - prisma_internal  # redis/minio
@@ -132,6 +143,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      redactor-dicom:
+        condition: service_started
 
   redis:
     # Redis PROPIO del LXP (§3), separado del de CORA/CRM. Nunca expuesto (red interna).
@@ -179,6 +192,31 @@ services:
       - traefik.http.routers.prisma-s3.entrypoints=websecure
       - traefik.http.routers.prisma-s3.tls.certresolver=le
       - traefik.http.services.prisma-s3.loadbalancer.server.port=9000
+
+  redactor-dicom:
+    # Redactor de PII QUEMADA en píxeles (§10): Presidio (OCR Tesseract + NER spaCy es)
+    # tapa SOLO la caja del nombre del paciente. ON-PREM e INTERNO (red prisma_internal,
+    # sin puertos ni Traefik). Lo llaman el `api` (imágenes de reporte) y el worker
+    # `procesar-dicom` vía REDACTOR_URL. Imagen PREBUILT por deploy.sh (docker build de
+    # services/redactor-dicom, mismo patrón que web/api/worker — por eso `image:` y no
+    # `build:`: el compose del VPS vive desacoplado de las fuentes). Los modelos (spaCy
+    # es_core_news_lg + Tesseract spa/eng) van HORNEADOS en la imagen → sin descarga en runtime.
+    image: campus-lxp-redactor:latest
+    restart: unless-stopped
+    environment:
+      REDACTOR_SPACY_MODEL: ${REDACTOR_SPACY_MODEL:-es_core_news_lg}
+      REDACTOR_OCR_LANG: ${REDACTOR_OCR_LANG:-spa+eng}
+      REDACTOR_SCORE: ${REDACTOR_SCORE:-0.4}
+    networks:
+      - prisma_internal
+    mem_limit: 2g
+    cpus: 1.5
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8002/health']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   # NOTA (fase privada): el init `createbuckets` (minio/mc) se omite aquí — el pull
   # anónimo de minio/mc está bloqueado en el VPS y el bucket NO hace falta para el
