@@ -42,7 +42,12 @@ ARG NODE_OPTIONS=--max-old-space-size=4096
 ENV NODE_OPTIONS=$NODE_OPTIONS
 COPY . .
 RUN pnpm --filter @campus/shared build
-RUN pnpm --filter @campus/web build
+# Cache de compilación de Next (webpack) ENTRE builds: BuildKit persiste `.next/cache`
+# fuera de la imagen → `next build` recompila INCREMENTAL (un cambio de código ya no
+# rehace el grafo webpack entero; antes se recompilaba al 100% cada build). No afecta el
+# runtime: el mount no queda en la imagen y Next recrea `.next/cache` si lo necesita.
+RUN --mount=type=cache,id=next-cache-web,target=/repo/apps/web/.next/cache \
+    pnpm --filter @campus/web build
 
 # ── Runtime ──
 FROM base AS runtime
