@@ -131,6 +131,55 @@ export type BorradorPost = ConAudiencia &
     | { modo: "encuesta"; pregunta: string; opciones: string[]; cierraEnDias: number }
   );
 
+/**
+ * Editor de texto (barra mínima + textarea). DEFINIDO A NIVEL DE MÓDULO a propósito: si se
+ * define dentro del render de `ComposerModal`, cada keystroke (setTexto → re-render) lo recrea
+ * con identidad nueva → React remonta el <textarea> → se pierde el foco. Aquí su identidad es
+ * estable entre renders; `texto`/`setTexto` entran por props (sin cambiar la lógica de estado).
+ */
+function Editor({
+  texto,
+  setTexto,
+  placeholder,
+  grande = true,
+}: {
+  texto: string;
+  setTexto: (v: string) => void;
+  placeholder: string;
+  grande?: boolean;
+}) {
+  return (
+    <>
+      <div className="mt-3 flex gap-0.5">
+        {[
+          ["Negrita", Bold],
+          ["Cursiva", Italic],
+          ["Lista", List],
+        ].map(([l, I]) => {
+          const Icono = I as typeof Bold;
+          return (
+            <button key={l as string} type="button" aria-label={l as string} className={`grid h-[30px] w-[30px] place-items-center rounded-md text-muted-foreground hover:bg-muted ${focusRing}`}>
+              <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          );
+        })}
+      </div>
+      <label>
+        <span className="sr-only">{placeholder}</span>
+        <textarea
+          rows={grande ? 3 : 2}
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          placeholder={placeholder}
+          className={`mt-1 w-full resize-none bg-transparent leading-[1.6] text-foreground outline-none placeholder:text-muted-foreground ${
+            grande ? "text-[17px]" : "text-[15px]"
+          }`}
+        />
+      </label>
+    </>
+  );
+}
+
 export function ComposerModal({
   yo,
   modoInicial,
@@ -255,37 +304,6 @@ export function ComposerModal({
     onPublicar({ modo: "texto", texto, audiencia, enlace });
   };
 
-  const Editor = ({ placeholder, grande = true }: { placeholder: string; grande?: boolean }) => (
-    <>
-      <div className="mt-3 flex gap-0.5">
-        {[
-          ["Negrita", Bold],
-          ["Cursiva", Italic],
-          ["Lista", List],
-        ].map(([l, I]) => {
-          const Icono = I as typeof Bold;
-          return (
-            <button key={l as string} type="button" aria-label={l as string} className={`grid h-[30px] w-[30px] place-items-center rounded-md text-muted-foreground hover:bg-muted ${focusRing}`}>
-              <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-            </button>
-          );
-        })}
-      </div>
-      <label>
-        <span className="sr-only">{placeholder}</span>
-        <textarea
-          rows={grande ? 3 : 2}
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          placeholder={placeholder}
-          className={`mt-1 w-full resize-none bg-transparent leading-[1.6] text-foreground outline-none placeholder:text-muted-foreground ${
-            grande ? "text-[17px]" : "text-[15px]"
-          }`}
-        />
-      </label>
-    </>
-  );
-
   return (
     <Modal
       titulo="Crear publicación"
@@ -383,12 +401,12 @@ export function ComposerModal({
         </div>
 
         {/* ── TEXTO ── */}
-        {modo === "texto" && <Editor placeholder="¿Qué quiere compartir con sus colegas?" />}
+        {modo === "texto" && <Editor texto={texto} setTexto={setTexto} placeholder="¿Qué quiere compartir con sus colegas?" />}
 
         {/* ── PRESENTAR CASO ── */}
         {modo === "caso" && (
           <>
-            <Editor placeholder="Cuente por qué trae este caso y qué quiere que le miren." grande={false} />
+            <Editor texto={texto} setTexto={setTexto} placeholder="Cuente por qué trae este caso y qué quiere que le miren." grande={false} />
             {caso && (
               <div className="mt-3 overflow-hidden rounded-xl border-[1.5px] border-secondary">
                 <div className="flex items-center gap-2 bg-secondary px-3 py-2">
@@ -477,7 +495,7 @@ export function ComposerModal({
             <p className="mt-3 text-[11.5px] font-semibold">
               Contexto <span className="font-normal text-muted-foreground">(opcional)</span>
             </p>
-            <Editor placeholder="Qué intentó, qué le hace dudar…" grande={false} />
+            <Editor texto={texto} setTexto={setTexto} placeholder="Qué intentó, qué le hace dudar…" grande={false} />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {temas.map((t) => (
                 <Chip key={t}>{t}</Chip>
@@ -492,7 +510,7 @@ export function ComposerModal({
         {/* ── IMAGEN O VIDEO ── */}
         {modo === "media" && (
           <>
-            <Editor placeholder="Cuente qué muestra…" grande={false} />
+            <Editor texto={texto} setTexto={setTexto} placeholder="Cuente qué muestra…" grande={false} />
             {archivos.length > 0 && (
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {archivos.map((a, i) => (
@@ -548,7 +566,7 @@ export function ComposerModal({
         {/* ── GIF (Giphy · hotlink al CDN, sin subida · §3) ── */}
         {modo === "gif" && (
           <>
-            <Editor placeholder="Agregue un comentario…" grande={false} />
+            <Editor texto={texto} setTexto={setTexto} placeholder="Agregue un comentario…" grande={false} />
             <div className="relative mt-3">
               <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={1.75} />
               <input
