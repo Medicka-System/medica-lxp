@@ -135,6 +135,9 @@ services:
       # Redactor Presidio (§10): `procesar-dicom` manda cada serie tag-limpia a tapar la PII
       # quemada antes de subir. Interno. Sin el servicio → fetch failed → el job reintenta.
       REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
+      # Concurrencia de redacción de series (p-limit casero del worker). Coincide con
+      # REDACTOR_WORKERS para saturar el redactor sin desbordarlo.
+      REDACCION_CONCURRENCIA: ${REDACCION_CONCURRENCIA:-3}
     networks:
       - prisma_web       # egress (Supabase cloud) para jobs que escriben competencia
       - prisma_internal  # redis/minio
@@ -207,10 +210,14 @@ services:
       REDACTOR_SPACY_MODEL: ${REDACTOR_SPACY_MODEL:-es_core_news_lg}
       REDACTOR_OCR_LANG: ${REDACTOR_OCR_LANG:-spa+eng}
       REDACTOR_SCORE: ${REDACTOR_SCORE:-0.4}
+      # Workers de PROCESO de uvicorn = concurrencia real del OCR (CPU-bound/bloqueante).
+      # 3 deja 1 core (host=4) al resto del stack + CRM. Cada worker precarga su modelo.
+      REDACTOR_WORKERS: ${REDACTOR_WORKERS:-3}
     networks:
       - prisma_internal
-    mem_limit: 2g
-    cpus: 1.5
+    # 3 workers × ~0.95 GiB (modelo spaCy + libs) ≈ 2.9 GiB → 4g con margen (host 15 GiB).
+    mem_limit: 4g
+    cpus: 3
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:8002/health']
       interval: 30s

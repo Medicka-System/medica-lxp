@@ -32,4 +32,7 @@ EXPOSE 8002
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 \
     CMD curl -fsS http://localhost:8002/health || exit 1
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8002"]
+# Varios workers de PROCESO (concurrencia real para el OCR, que es CPU-bound y bloqueante):
+# cada worker precarga su modelo (warm start). Nº por REDACTOR_WORKERS (default 3). `exec`
+# reemplaza al shell → uvicorn recibe las señales (shutdown limpio).
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port 8002 --workers ${REDACTOR_WORKERS:-3}"]

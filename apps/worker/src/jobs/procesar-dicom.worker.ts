@@ -86,6 +86,30 @@ function indiceDeRef(ref: string | undefined): number {
 }
 
 /**
+ * Map con concurrencia ACOTADA preservando el ORDEN del resultado (`out[i]` ↔ `items[i]`).
+ * Corre a lo sumo `limite` tareas a la vez (coincide con los workers del redactor). Si una
+ * tarea lanza, `Promise.all` rechaza → el error PROPAGA al try/catch del job → reintento y
+ * NADA se persiste (fail-closed §10 intacto: la persistencia es posterior y solo si TODAS
+ * las series se redactaron). No agrega dependencias (p-limit casero).
+ */
+async function mapConLimite<T, R>(
+  items: T[],
+  limite: number,
+  fn: (item: T, indice: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let siguiente = 0;
+  const corredor = async (): Promise<void> => {
+    for (let i = siguiente++; i < items.length; i = siguiente++) {
+      out[i] = await fn(items[i]!, i);
+    }
+  };
+  const n = Math.max(1, Math.min(limite, items.length));
+  await Promise.all(Array.from({ length: n }, () => corredor()));
+  return out;
+}
+
+/**
  * `procesar-dicom` (§8, job #2 · rediseño MULTI-SERIE): al confirmarse la subida de
  * las FUENTES de un estudio (uno o varios `.dcm`, o un `.zip` con varias series), este
  * worker las trae de object storage, DESCOMPRIME los zips server-side (adm-zip · §10 —
@@ -144,14 +168,16 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       //    el job reintenta y NADA se sube sin redactar (nunca se persiste un posible leak).
       //    · DICOM: anonimiza TAGS (dcmjs, bloqueante · §10) + Presidio sobre el binario P10.
       //    · Imagen: no tiene tags; Presidio directo sobre la JPG/PNG. Sin calibración (mm).
-      const procesadas: SerieProcesada[] = [];
-      for (const t of tipados) {
-        procesadas.push(
-          t.formato.tipo === 'imagen'
-            ? await this.procesarImagen(t.buffer, t.formato.ext)
-            : await this.procesarDicom(t.buffer),
-        );
-      }
+      // PARALELO ACOTADO: las series se redactan con concurrencia `REDACCION_CONCURRENCIA`
+      // (default 3 = workers del redactor), no en fila. El redactor (uvicorn multi-worker)
+      // sirve esas N en paralelo; el orden del resultado se preserva (destinos[i]↔procesadas[i]).
+      // Si una serie falla, propaga → job reintenta, nada se persiste (§10 fail-closed).
+      const concurrencia = Number(process.env.REDACCION_CONCURRENCIA ?? '3') || 3;
+      const procesadas: SerieProcesada[] = await mapConLimite(tipados, concurrencia, (t) =>
+        t.formato.tipo === 'imagen'
+          ? this.procesarImagen(t.buffer, t.formato.ext)
+          : this.procesarDicom(t.buffer),
+      );
 
       // 2.5) CUARENTENA BLOQUEANTE (§10 · fail-CLOSED): si el redactor NO pudo garantizar la
       //      redacción de una serie (excepción, formato no decodificable, nombre dudoso o la

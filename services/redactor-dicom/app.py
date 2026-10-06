@@ -92,6 +92,18 @@ def _get_analyzer() -> AnalyzerEngine:
     return _analyzer
 
 
+@app.on_event("startup")
+def _warm_start() -> None:
+    """Warm start (perf): precarga el modelo UNA vez al arrancar CADA worker uvicorn, para que
+    el primer /redact no pague los ~8.5 s de carga. Con --workers N, cada proceso corre este
+    hook → su propio modelo cargado (no por request). Si falla, cae al load perezoso (lazy)."""
+    try:
+        _get_analyzer()
+        log.info("warm start: modelo %s precargado", SPACY_MODEL)
+    except Exception as e:  # noqa: BLE001
+        log.warning("warm start fallo (se cargara en el primer request): %s", e)
+
+
 def _lineas_ocr(img: Image.Image):
     """OCR agrupado por LÍNEA de texto: cada línea con su texto y su caja (l,t,w,h)."""
     data = pytesseract.image_to_data(img, lang=OCR_LANG, output_type=Output.DICT)
