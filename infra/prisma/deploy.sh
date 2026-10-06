@@ -116,6 +116,25 @@ build campus-lxp-web apps/web/Dockerfile \
 build campus-lxp-api    apps/api/Dockerfile
 build campus-lxp-worker apps/worker/Dockerfile
 
+# Redactor Presidio (§10): imagen ML pesada (modelos spaCy es_core_news_lg + Tesseract
+# HORNEADOS, ~min de build) y ESTABLE. Se reconstruye SOLO si falta (p. ej. tras un
+# prune) — NO en cada deploy, para no pagar el build del modelo cada vez. Tiene su PROPIO
+# contexto (services/redactor-dicom, no el root del repo), con las MISMAS flags de
+# memoria/plataforma que los demás builds (BUILD_COMMON).
+if docker image inspect campus-lxp-redactor:latest >/dev/null 2>&1; then
+  log "campus-lxp-redactor ya existe — no se reconstruye (modelos estables)"
+else
+  log "Build campus-lxp-redactor (imagen ausente)"
+  sampler & sp=$!
+  if ! docker build "${BUILD_COMMON[@]}" \
+        -t campus-lxp-redactor:latest \
+        -f "$REPO/services/redactor-dicom/Dockerfile" "$REPO/services/redactor-dicom"; then
+    kill "$sp" 2>/dev/null || true; die "Build de campus-lxp-redactor falló"
+  fi
+  kill "$sp" 2>/dev/null || true
+  crm_ok   # tras el build: ¿el CRM sigue intacto?
+fi
+
 # ── 3) Recrear SOLO prisma-* (proyecto "prisma"); el CRM es otro proyecto ──
 crm_ok
 log "docker compose up -d (solo prisma-*)"
