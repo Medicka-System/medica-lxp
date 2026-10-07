@@ -658,17 +658,24 @@ export function PostCard({
 
   if (post.tipo === "media") {
     const [a, ...resto] = post.piezas ?? [];
-    // Tile por pieza: VIDEO → <video controls> inline (content-type video/* preservado; no se
-    // anida en <button>, sería HTML inválido). IMAGEN → botón que abre el detalle.
+    // Tile por pieza: VIDEO/GIF → elemento directo que LLENA la celda (h-full). IMAGEN → mismo
+    // patrón (img h-full dentro del botón que abre el detalle). OJO: NO envolver la imagen en
+    // `<Estudio ratio="auto">`: su único hijo es un <img absolute>, así que el marco colapsaba a
+    // 0px de alto dentro de la celda de altura fija → la foto salía EN BLANCO (el <img> estaba en
+    // el DOM, con URL firmada y 200, pero invisible). El fallback sin src usa una relación fija.
     const tile = (p: { tipo: "imagen" | "video" | "gif"; src?: string }, tamanoPlay?: number) =>
       p.tipo === "gif" && p.src ? (
         // GIF: imagen animada (hotlink Giphy) — <img> anima el .gif nativamente. Tile simple.
         <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-contain" />
       ) : p.tipo === "video" && p.src ? (
         <video controls preload="metadata" src={p.src} className="h-full w-full bg-sidebar object-cover" />
+      ) : p.tipo === "imagen" && p.src ? (
+        <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
+          <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-cover" />
+        </button>
       ) : (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
-          <Estudio ratio="auto" poster={p.src} play={p.tipo === "video"} tamanoPlay={tamanoPlay} />
+          <Estudio ratio="16 / 10" poster={p.src} play={p.tipo === "video"} tamanoPlay={tamanoPlay} />
         </button>
       );
     return (
