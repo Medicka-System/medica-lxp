@@ -300,7 +300,6 @@ export function AteneoCliente({
                         onReaccionar={onReaccionar}
                         onCompartir={onCompartir}
                         onVotar={onVotar}
-                        onAbrirCaso={onAbrirCaso}
                         onAbrirPerfil={abrirPerfil}
                       />
                     </li>
@@ -367,7 +366,6 @@ export function AteneoCliente({
           onReaccionar={onReaccionar}
           onCompartir={onCompartir}
           onVotar={onVotar}
-          onAbrirCaso={onAbrirCaso}
           onComentar={onComentar}
         />
       )}

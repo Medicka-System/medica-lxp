@@ -483,7 +483,6 @@ export function PostCard({
   onReaccionar,
   onCompartir,
   onVotar,
-  onAbrirCaso,
   onAbrirPerfil,
   visorCaso,
   pedagogiaCaso,
@@ -494,7 +493,6 @@ export function PostCard({
   onReaccionar: (id: string, r: TipoReaccion | null) => void;
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
-  onAbrirCaso: (casoId: string) => void;
   /** Abre el perfil del autor (C). Opcional: sin él, la cabecera no es clicable. */
   onAbrirPerfil?: (userId: string) => void;
   /** Visor DICOM real embebido (solo en el detalle): reemplaza el placeholder. */
@@ -605,9 +603,9 @@ export function PostCard({
               {pedagogiaCaso}
             </div>
           ) : (
-            <button type="button" onClick={() => onAbrirCaso(post.caso.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
+            <button type="button" onClick={() => onAbrir(post.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
               <EstudioCaso
-                casoId={post.caso.id}
+                postId={post.id}
                 piezas={post.caso.piezas}
                 etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
                 badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}

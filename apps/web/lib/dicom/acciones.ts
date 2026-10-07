@@ -234,3 +234,41 @@ export async function lecturaEstudioDicom(
     return { ok: false, error: 'No se pudo contactar el servicio DICOM (apps/api).' };
   }
 }
+
+/**
+ * Lee el estudio ANONIMIZADO de un caso PRESENTADO en el Ateneo, autorizado por la
+ * VISIBILIDAD del POST (no por la propiedad del caso · §10). Resuelve `caso_origen_id`
+ * bajo RLS (`posts_ateneo_select = puede_ver_post_ateneo`): el id de bitácora se queda
+ * SERVER-SIDE y NUNCA se devuelve al cliente — solo las URLs firmadas de las series. Así la
+ * AUDIENCIA del post ve la miniatura/visor del caso sin ser el dueño y sin que el web exponga
+ * el id privado. El binario sigue yendo storage → navegador directo (§2/§3).
+ */
+export async function lecturaEstudioPostAteneo(
+  postId: string,
+): Promise<ResultadoDicom<{ series: SerieLectura[] }>> {
+  const alumno = await getSesionAlumno();
+  const casoId = await comoAlumno(alumno.userId, async (sql) => {
+    const r = await sql<{ caso_origen_id: string | null }[]>`
+      select caso_origen_id from lxp.posts_ateneo where id = ${postId} and tipo = 'caso'`;
+    return r[0]?.caso_origen_id ?? null;
+  });
+  if (!casoId) return { ok: false, error: 'Caso no disponible.' };
+  try {
+    const res = await fetch(
+      `${apiBase()}/dicom/casos/${encodeURIComponent(casoId)}/ingesta/estudio`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tabla: 'bitacora_casos' }),
+        cache: 'no-store',
+      },
+    );
+    if (res.status === 409) return { ok: false, error: 'El estudio aún no está listo para verse.' };
+    if (!res.ok) return { ok: false, error: `No se pudo abrir el estudio (HTTP ${res.status}).` };
+    const d = (await res.json()) as { series: SerieLectura[] };
+    return { ok: true, datos: { series: d.series ?? [] } };
+  } catch (e) {
+    console.error('[lecturaEstudioPostAteneo] fallo:', e);
+    return { ok: false, error: 'No se pudo contactar el servicio DICOM (apps/api).' };
+  }
+}

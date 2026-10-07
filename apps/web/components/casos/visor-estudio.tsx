@@ -18,7 +18,7 @@ import { VisorDicom, type EstudioDicom, type FrameDicom } from '@/components/dic
 import type { ConfigAnotaciones } from '@/components/dicom/use-anotaciones';
 import { registrarEspaciadoImagen } from '@/components/dicom/engine/espaciado-ultrasonido';
 import { imageIdWeb } from '@/components/dicom/engine/web-image-loader';
-import { lecturaEstudioDicom, type SerieLectura } from '@/lib/dicom/acciones';
+import { lecturaEstudioDicom, lecturaEstudioPostAteneo, type SerieLectura } from '@/lib/dicom/acciones';
 import { getAnotaciones, guardarAnotaciones } from '@/lib/dicom/anotaciones-acciones';
 
 /** Imagen (o frames de un multi-frame) de UN `.dcm` anonimizado firmado. */
@@ -95,14 +95,21 @@ function armarEstudio(casoId: string, series: SerieLectura[]): EstudioDicom {
 }
 
 export function VisorEstudio({
-  casoId,
+  casoId = '',
+  postId,
   tabla = 'bitacora_casos',
   soloLectura = false,
   efimero = false,
   // El visor manda: alto generoso por defecto (la herramienta de trabajo del médico).
   className = 'h-[72vh] min-h-[570px]',
 }: {
-  casoId: string;
+  /** Dueño/Studio: id de bitácora/biblioteca (RLS propia). Omitir cuando se usa `postId`. */
+  casoId?: string;
+  /**
+   * Ateneo (audiencia): id del POST. Resuelve el estudio por VISIBILIDAD del post
+   * (`lecturaEstudioPostAteneo` · §10) sin exponer el id del caso. Implica modo efímero.
+   */
+  postId?: string;
   tabla?: TablaEstudioDicom;
   /** Sin barra de herramientas (miniatura/preview): solo se ve, no se manipula ni mide. */
   soloLectura?: boolean;
@@ -123,38 +130,47 @@ export function VisorEstudio({
   // discusión (efimero · Ateneo) = CONGELADO: se ven las guardadas pero no se persisten las
   // nuevas. Memoizado para no re-disparar la carga/restauración en cada render.
   const configAnotaciones = useMemo<ConfigAnotaciones>(
-    () => ({
-      congelado: tabla === 'casos_biblioteca' || soloLectura || efimero,
-      cargar: async () => {
-        const r = await getAnotaciones(casoId, tabla);
-        return r.ok
-          ? r.datos.map((a) => ({
-              id: a.id,
-              serie: a.serie,
-              frame: a.frame,
-              tipo: a.tipo,
-              datos: a.datos,
-              valor: a.valor,
-              autorNombre: a.autorNombre,
-              esMia: a.esMia,
-            }))
-          : [];
-      },
-      guardar: async (items) => {
-        await guardarAnotaciones(casoId, tabla, items);
-      },
-    }),
-    [casoId, tabla, soloLectura, efimero],
+    () =>
+      postId
+        ? // Ateneo (audiencia): sin casoId privado → no se cargan ni persisten mediciones
+          // (vista de discusión, siempre congelada). Evita llamar getAnotaciones sin id.
+          { congelado: true, cargar: async () => [], guardar: async () => {} }
+        : {
+            congelado: tabla === 'casos_biblioteca' || soloLectura || efimero,
+            cargar: async () => {
+              const r = await getAnotaciones(casoId, tabla);
+              return r.ok
+                ? r.datos.map((a) => ({
+                    id: a.id,
+                    serie: a.serie,
+                    frame: a.frame,
+                    tipo: a.tipo,
+                    datos: a.datos,
+                    valor: a.valor,
+                    autorNombre: a.autorNombre,
+                    esMia: a.esMia,
+                  }))
+                : [];
+            },
+            guardar: async (items) => {
+              await guardarAnotaciones(casoId, tabla, items);
+            },
+          },
+    [casoId, postId, tabla, soloLectura, efimero],
   );
 
   useEffect(() => {
     let vivo = true;
     setEstado('cargando');
     (async () => {
-      const r = await lecturaEstudioDicom(casoId, tabla);
+      const r = postId
+        ? await lecturaEstudioPostAteneo(postId)
+        : await lecturaEstudioDicom(casoId, tabla);
       if (!vivo) return;
       if (r.ok && r.datos.series.length > 0) {
-        const armado = armarEstudio(casoId, r.datos.series);
+        // Id de UI para el EstudioDicom (key/selección): el POST id en modo audiencia (no el
+        // id de bitácora), el casoId en el resto. Es solo una key de React, no un handle.
+        const armado = armarEstudio(postId || casoId, r.datos.series);
         setEstudio(armado);
         setEstado('listo');
 
@@ -193,7 +209,7 @@ export function VisorEstudio({
     return () => {
       vivo = false;
     };
-  }, [casoId, tabla]);
+  }, [casoId, postId, tabla]);
 
   if (estado === 'cargando') {
     return (

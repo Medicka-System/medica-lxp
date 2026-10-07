@@ -331,6 +331,44 @@ export async function getPedagogiaCasoAteneo(casoId: string): Promise<BloquePeda
   };
 }
 
+/**
+ * Bloque pedagógico por POST id (feed/detalle del Ateneo · §10). Resuelve el id del caso bajo
+ * RLS (solo si `puede_ver_post_ateneo`) y lo deja SERVER-SIDE. DUEÑO: lee su propia fila (RLS)
+ * → pedagogía COMPLETA (viñeta/hallazgos/presuntivo/estructurado). AUDIENCIA: la fila está
+ * vedada por RLS → cae a la proyección SECURITY DEFINER `caso_presentado` (viñeta + hallazgos,
+ * sin presuntivo/estructurado ni PII). Caso no visible → null (el bloque no se muestra).
+ */
+export async function getPedagogiaCasoPostAteneo(postId: string): Promise<BloquePedagogicoCasoData | null> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return null;
+  const casoId = await comoAlumno(alumno.userId, async (sql) => {
+    const r = await sql<{ caso_origen_id: string | null }[]>`
+      select caso_origen_id from lxp.posts_ateneo where id = ${postId} and tipo = 'caso'`;
+    return r[0]?.caso_origen_id ?? null;
+  });
+  if (!casoId) return null;
+  // Dueño: pedagogía completa (misma frontera que getPedagogiaCasoAteneo).
+  const propio = await getCasoBitacora(alumno.userId, casoId);
+  if (propio) {
+    return {
+      vineta: propio.vineta,
+      hallazgos: propio.hallazgos,
+      presuntivo: propio.presuntivo,
+      contenidoEstructurado: propio.contenidoEstructurado,
+    };
+  }
+  // Audiencia: solo lo que expone la proyección del caso presentado (sin fila privada ni PII).
+  const cp = await comoAlumno(alumno.userId, async (sql) => {
+    const r = await sql<{ vineta: string | null; hallazgos: string | null }[]>`
+      select cp.vineta, cp.hallazgos
+      from lxp.posts_ateneo p
+      cross join lateral lxp.caso_presentado(p.id) cp
+      where p.id = ${postId}`;
+    return r[0] ?? null;
+  });
+  return cp ? { vineta: cp.vineta, hallazgos: cp.hallazgos, presuntivo: null, contenidoEstructurado: null } : null;
+}
+
 /** Conecta con un colega: solicita (ninguna→pendiente) o acepta (pendiente recibida→colegas). */
 export async function conectarColega(otroId: string): Promise<ResultadoAccion & { estado?: 'pendiente' | 'colegas' }> {
   const alumno = await getSesionAlumno();

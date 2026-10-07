@@ -46,7 +46,6 @@ export function DetallePost({
   onReaccionar,
   onCompartir,
   onVotar,
-  onAbrirCaso,
   onComentar,
 }: {
   post: Post;
@@ -56,7 +55,6 @@ export function DetallePost({
   onReaccionar: (id: string, r: TipoReaccion | null) => void;
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
-  onAbrirCaso: (casoId: string) => void;
   onComentar: (postId: string, texto: string, parentId?: string) => void;
 }) {
   const [texto, setTexto] = useState("");
@@ -105,16 +103,16 @@ export function DetallePost({
           onReaccionar={onReaccionar}
           onCompartir={onCompartir}
           onVotar={onVotar}
-          onAbrirCaso={onAbrirCaso}
           visorCaso={
-            post.tipo === "caso" && post.caso.id ? (
+            post.tipo === "caso" && post.caso.piezas > 0 ? (
               // Toolset COMPLETO (zoom/pan/window-level/medición + cine) pero EFÍMERO: las
-              // mediciones no se persisten en el caso (vista de discusión).
-              <VisorEstudio casoId={post.caso.id} tabla="bitacora_casos" efimero className="h-[52vh] min-h-[360px]" />
+              // mediciones no se persisten (vista de discusión). Por POST id → la audiencia ve el
+              // estudio según la visibilidad del post, sin exponer el id de bitácora (§10).
+              <VisorEstudio postId={post.id} efimero className="h-[52vh] min-h-[360px]" />
             ) : undefined
           }
           pedagogiaCaso={
-            post.tipo === "caso" && post.caso.id ? <BloquePedagogicoCaso casoId={post.caso.id} /> : undefined
+            post.tipo === "caso" ? <BloquePedagogicoCaso postId={post.id} /> : undefined
           }
         />
       </div>

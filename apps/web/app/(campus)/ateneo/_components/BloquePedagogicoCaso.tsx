@@ -14,22 +14,25 @@ import { Stethoscope } from "lucide-react";
 import { tieneContenidoEstructurado } from "@campus/shared";
 import { card, kickerWide as kicker, softText } from "@/components/tokens";
 import { ContenidoEstructuradoCasoVista } from "@/components/casos/contenido-estructurado-caso";
-import { getPedagogiaCasoAteneo } from "@/lib/campus/ateneo-social-acciones";
+import { getPedagogiaCasoAteneo, getPedagogiaCasoPostAteneo } from "@/lib/campus/ateneo-social-acciones";
 import type { BloquePedagogicoCasoData } from "./tipos";
 
-export function BloquePedagogicoCaso({ casoId }: { casoId: string }) {
+export function BloquePedagogicoCaso({ casoId, postId }: { casoId?: string; postId?: string }) {
   const [data, setData] = useState<BloquePedagogicoCasoData | null | "cargando">("cargando");
 
   useEffect(() => {
     let vivo = true;
     setData("cargando");
-    void getPedagogiaCasoAteneo(casoId).then((d) => {
+    // Feed/audiencia: por POST id (autorizado por visibilidad del post, sin el id de bitácora · §10);
+    // dueño/composer: por casoId (RLS propia → pedagogía completa). Caso ajeno sin acceso → null.
+    const prom = postId ? getPedagogiaCasoPostAteneo(postId) : getPedagogiaCasoAteneo(casoId ?? "");
+    void prom.then((d) => {
       if (vivo) setData(d);
     });
     return () => {
       vivo = false;
     };
-  }, [casoId]);
+  }, [casoId, postId]);
 
   // Cargando o caso ajeno (RLS → null): no se muestra el bloque.
   if (data === "cargando" || data === null) return null;
