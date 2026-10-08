@@ -186,7 +186,8 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
         }
       }
     });
-  } catch {
+  } catch (e) {
+    console.error('[publicarPostAteneo] fallo:', e);
     return { ok: false, error: 'No se pudo publicar. Revisa los campos e inténtalo de nuevo.' };
   }
   revalidatePath('/ateneo');

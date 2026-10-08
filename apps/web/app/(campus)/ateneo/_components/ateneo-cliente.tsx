@@ -62,6 +62,8 @@ export function AteneoCliente({
   const [lista, setLista] = useState<ListaPerfil | null>(null);
   const [listaData, setListaData] = useState<ListaPerfilData | null>(null);
   const [perfil, setPerfil] = useState<PerfilColegaData | null>(null);
+  // Aviso de error de publicación (toast): el fallo del server action ya no es silencioso.
+  const [avisoError, setAvisoError] = useState<string | null>(null);
   const [, iniciar] = useTransition();
 
   // ── Feed paginado ──────────────────────────────────────────────────────────
@@ -127,6 +129,8 @@ export function AteneoCliente({
     iniciar(async () => {
       const r = await publicarPostAteneo(b);
       if (r.ok) recargarFeed();
+      // Antes el fallo era invisible (modal cerrado, sin aviso) → "no pasa nada".
+      else setAvisoError(r.error ?? 'No se pudo publicar. Inténtalo de nuevo.');
     });
   };
 
@@ -231,6 +235,23 @@ export function AteneoCliente({
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-5 py-7 sm:px-6 lg:px-8">
+      {/* Toast de error de publicación (§5A · estado warning). Descartable; antes el fallo era mudo. */}
+      {avisoError && (
+        <div
+          role="alert"
+          className="fixed inset-x-0 top-4 z-50 mx-auto flex w-[min(92vw,420px)] items-start gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-4 py-3 shadow-[0_6px_20px_rgba(17,24,39,0.12)]"
+        >
+          <p className="min-w-0 flex-1 text-[12.5px] font-semibold text-[color:var(--warning-foreground)]">{avisoError}</p>
+          <button
+            type="button"
+            onClick={() => setAvisoError(null)}
+            aria-label="Descartar"
+            className={`shrink-0 text-[12.5px] font-bold text-[color:var(--warning-foreground)] ${focusRing}`}
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_316px]">
         <div className="min-w-0">
           <EntradaComposer yo={yo} onAbrir={setComposer} />
