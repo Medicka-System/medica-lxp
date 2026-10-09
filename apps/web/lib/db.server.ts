@@ -127,6 +127,36 @@ export async function privacidadDe(userId: string): Promise<PrivacidadFlags> {
 }
 
 /**
+ * Perfiles MENCIONABLES (alumno/docente) por nombre, para el autocomplete de @menciones (mig
+ * 0076). Usa la conexión OWNER (como `nombre_de`/`colegasEnComun`) porque la RLS de `lxp.perfiles`
+ * es own-or-staff: un alumno NO puede leer perfiles ajenos bajo RLS. El ACOTAMIENTO a la audiencia
+ * del post lo hace quien llama (pasando `ids` del scope: roster de grupo / colegas en común); para
+ * 'inscritos' (`ids = null`) cualquier inscrito es mencionable. Devuelve solo id + nombre (datos
+ * que `nombre_de` ya expone); el gate de privacidad (perfilVisible) se aplica aparte.
+ */
+export async function perfilesMencionables(
+  query: string,
+  ids: string[] | null,
+  limit = 16,
+): Promise<{ id: string; nombre: string | null }[]> {
+  const sql = getSql();
+  const q = query.trim();
+  const like = `%${q}%`;
+  if (ids !== null) {
+    if (ids.length === 0) return [];
+    return sql<{ id: string; nombre: string | null }[]>`
+      select user_id as id, nombre from lxp.perfiles
+      where user_id = any(${ids}) and rol in ('alumno', 'docente')
+        and (${q === ''} or nombre ilike ${like})
+      order by nombre limit ${limit}`;
+  }
+  return sql<{ id: string; nombre: string | null }[]>`
+    select user_id as id, nombre from lxp.perfiles
+    where rol in ('alumno', 'docente') and (${q === ''} or nombre ilike ${like})
+    order by nombre limit ${limit}`;
+}
+
+/**
  * Colegas EN COMÚN entre `viewerId` y `otroId` (conexiones aceptadas que ambos comparten).
  *
  * Privacidad (§10): la RLS de `conexiones_ateneo` hace que una conexión sea visible SOLO a sus

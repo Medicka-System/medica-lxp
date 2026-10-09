@@ -11,16 +11,50 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Send, Smile, X } from "lucide-react";
-import { REACCIONES } from "./tipos";
-import type { Comentario, GifItem, Persona, Post, TipoReaccion } from "./tipos";
+import { MENCION_PATTERN, REACCIONES } from "./tipos";
+import type { Comentario, GifItem, MencionCandidato, Persona, Post, TipoReaccion } from "./tipos";
 import { PostCard, SelectorReacciones } from "./PostCard";
 import { EmojiReaccion } from "./EmojiReaccion";
+import { ComentarioTexto } from "./ComentarioTexto";
 import { Avatar, ChipDocente, Modal, focusRing, mono } from "./ui";
 import { GifPicker } from "./GifPicker";
 import { EmojiPickerPopover } from "./EmojiPickerPopover";
 import { capaOverlay } from "@/components/ui/overlay";
 import { VisorEstudio } from "@/components/casos/visor-estudio";
 import { BloquePedagogicoCaso } from "./BloquePedagogicoCaso";
+import { sugerirMencionados } from "@/lib/campus/ateneo-social-acciones";
+
+/**
+ * Convierte los `@Nombre` elegidos del autocomplete a tokens `@[Nombre](uuid)` ANTES de enviar
+ * (solo en texto PLANO; nunca dentro de un token ya formado). Nombres más largos primero para no
+ * pisar prefijos. El server valida cada uuid contra la audiencia del post (mig 0076).
+ */
+function tokenizarMenciones(texto: string, menciones: { id: string; nombre: string }[]): string {
+  if (menciones.length === 0) return texto;
+  const ordenadas = [...menciones].sort((a, b) => b.nombre.length - a.nombre.length);
+  const tokenRe = new RegExp(MENCION_PATTERN, "g");
+  const plano = (s: string) => {
+    let out = s;
+    for (const m of ordenadas) out = out.split(`@${m.nombre}`).join(`@[${m.nombre}](${m.id})`);
+    return out;
+  };
+  let res = "";
+  let last = 0;
+  let mt: RegExpExecArray | null;
+  while ((mt = tokenRe.exec(texto)) !== null) {
+    res += plano(texto.slice(last, mt.index)) + mt[0];
+    last = mt.index + mt[0].length;
+  }
+  return res + plano(texto.slice(last));
+}
+
+/** Fragmento `@query` (sin espacios) justo antes del cursor → dispara el autocomplete. */
+function queryMencion(texto: string, cursor: number): { q: string; at: number } | null {
+  const antes = texto.slice(0, cursor);
+  const m = antes.match(/(?:^|\s)@([\p{L}\p{N}._-]{0,30})$/u);
+  if (!m) return null;
+  return { q: m[1] ?? "", at: cursor - (m[1]?.length ?? 0) - 1 };
+}
 
 /**
  * Comentario-GIF: se persiste como su URL de Giphy en `cuerpo` (comentarios_ateneo es solo texto;
@@ -101,11 +135,13 @@ function Burbuja({
   nivel,
   onResponder,
   onReaccionar,
+  onAbrirPerfil,
 }: {
   c: Comentario;
   nivel: 0 | 1;
   onResponder: (c: Comentario) => void;
   onReaccionar: (comentarioId: string, r: TipoReaccion | null) => void;
+  onAbrirPerfil?: (userId: string) => void;
 }) {
   const gif = urlGif(c.texto);
   const total = c.reacciones?.total ?? 0;
@@ -126,7 +162,9 @@ function Burbuja({
             <p className="text-[12.5px] font-bold">
               {c.autor.nombre} {c.autor.rol === "docente" && <ChipDocente />}
             </p>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-[color:var(--foreground-soft)]">{c.texto}</p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-[color:var(--foreground-soft)]">
+              <ComentarioTexto cuerpo={c.texto} onAbrirPerfil={onAbrirPerfil} />
+            </p>
           </div>
         )}
         <div className="ml-3 mt-1 flex flex-wrap items-center gap-3.5">
@@ -173,6 +211,7 @@ export function DetallePost({
   onCompartir,
   onVotar,
   onComentar,
+  onAbrirPerfil,
 }: {
   post: Post;
   hilo: Comentario[];
@@ -183,12 +222,19 @@ export function DetallePost({
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
   onComentar: (postId: string, texto: string, parentId?: string) => void;
+  /** Abre el perfil de un mencionado (modal del Ateneo). Opcional: sin él, la mención no es clicable. */
+  onAbrirPerfil?: (userId: string) => void;
 }) {
   const [texto, setTexto] = useState("");
   const [orden, setOrden] = useState<"relevantes" | "recientes">("relevantes");
   const [gifSel, setGifSel] = useState<GifItem | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  // Autocomplete de @menciones: candidatos acotados a la audiencia del post (server).
+  const [menciones, setMenciones] = useState<{ id: string; nombre: string }[]>([]);
+  const [mencionQuery, setMencionQuery] = useState<{ q: string; at: number } | null>(null);
+  const [mencionCands, setMencionCands] = useState<MencionCandidato[]>([]);
+  const mencionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Comentario al que se está respondiendo (null = comentario de primer nivel).
   const [respondiendoA, setRespondiendoA] = useState<Comentario | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -215,24 +261,73 @@ export function DetallePost({
     });
   };
 
+  // Cambio de texto: además de setTexto, detecta un `@fragmento` ante el cursor y pide
+  // candidatos (debounce) SOLO con acceso a este post (sugerirMencionados · server, acotado).
+  const onTextoChange = (value: string, cursor: number) => {
+    setTexto(value);
+    const mq = queryMencion(value, cursor);
+    setMencionQuery(mq);
+    if (mencionTimer.current) clearTimeout(mencionTimer.current);
+    if (!mq) {
+      setMencionCands([]);
+      return;
+    }
+    mencionTimer.current = setTimeout(async () => {
+      try {
+        setMencionCands(await sugerirMencionados(post.id, mq.q));
+      } catch {
+        setMencionCands([]);
+      }
+    }, 180);
+  };
+
+  // Elegir un candidato: reemplaza el `@fragmento` por `@Nombre ` (limpio) y registra la mención.
+  const insertarMencion = (cand: MencionCandidato) => {
+    if (!mencionQuery) return;
+    const el = inputRef.current;
+    const cursor = el?.selectionStart ?? texto.length;
+    const antes = texto.slice(0, mencionQuery.at);
+    const despues = texto.slice(cursor);
+    const inserta = `@${cand.nombre} `;
+    setTexto(antes + inserta + despues);
+    setMenciones((ms) => (ms.some((m) => m.id === cand.id) ? ms : [...ms, { id: cand.id, nombre: cand.nombre }]));
+    setMencionQuery(null);
+    setMencionCands([]);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = antes.length + inserta.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const cerrarMencion = () => {
+    setMencionQuery(null);
+    setMencionCands([]);
+  };
+
   // Enviar: un GIF seleccionado se publica como su URL (se renderiza como imagen · urlGif);
-  // si no, el texto. Reusa onComentar (comentarios_ateneo, solo texto · sin migración).
+  // si no, el texto (tokenizando las @menciones elegidas a `@[nombre](uuid)`). Reusa onComentar.
   // Si se está respondiendo, pasa el parentId; para no pasar de 2 niveles, una respuesta a
   // una respuesta (nivel 1) se ancla a su RAÍZ (`parentId ?? id`), no al comentario hijo.
+  const limpiar = () => {
+    setTexto("");
+    setRespondiendoA(null);
+    setMenciones([]);
+    cerrarMencion();
+  };
   const enviar = () => {
     const parentId = respondiendoA ? respondiendoA.parentId ?? respondiendoA.id : undefined;
     if (gifSel) {
       onComentar(post.id, gifSel.url, parentId);
       setGifSel(null);
       setGifOpen(false);
-      setTexto("");
-      setRespondiendoA(null);
+      limpiar();
       return;
     }
     if (!texto.trim()) return;
-    onComentar(post.id, texto, parentId);
-    setTexto("");
-    setRespondiendoA(null);
+    onComentar(post.id, tokenizarMenciones(texto, menciones), parentId);
+    limpiar();
   };
 
   return (
@@ -285,6 +380,34 @@ export function DetallePost({
               </button>
             </div>
           )}
+          {/* Dropdown del autocomplete de @menciones (acotado a la audiencia del post). Flota
+              SOBRE la caja; se cierra con Esc, al elegir o al borrar el `@`. */}
+          <div className="relative">
+          {mencionQuery && mencionCands.length > 0 && (
+            <ul
+              role="listbox"
+              aria-label="Mencionar a"
+              className="absolute bottom-full left-11 right-0 z-20 mb-2 max-h-[220px] overflow-auto rounded-[12px] border border-border bg-card p-1.5 shadow-[0_10px_26px_rgba(17,24,39,0.16)]"
+            >
+              {mencionCands.map((cand) => (
+                <li key={cand.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // no perder el foco del input antes de insertar
+                      insertarMencion(cand);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left transition-colors hover:bg-accent ${focusRing}`}
+                  >
+                    <Avatar p={{ ini: cand.nombre.replace(/^Dra?\.\s*/, "").slice(0, 2).toUpperCase(), rol: "alumno" }} size={28} />
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{cand.nombre}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <form
             className="flex items-center gap-2.5"
             onSubmit={(e) => {
@@ -295,13 +418,27 @@ export function DetallePost({
             <Avatar p={yo} size={34} />
             <div className="flex min-w-0 flex-1 items-center gap-1 rounded-full border border-border bg-muted pr-2 focus-within:border-secondary">
               <label className="min-w-0 flex-1">
-                <span className="sr-only">Escriba un comentario</span>
+                <span className="sr-only">Escriba un comentario (use @ para mencionar)</span>
                 <input
                   ref={inputRef}
                   value={texto}
-                  onChange={(e) => setTexto(e.target.value)}
+                  onChange={(e) => onTextoChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+                  onKeyUp={(e) => {
+                    // Mover el cursor (flechas/clic) también re-evalúa el `@fragmento`.
+                    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+                      const el = e.currentTarget;
+                      onTextoChange(el.value, el.selectionStart ?? el.value.length);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" && mencionQuery) {
+                      e.preventDefault();
+                      cerrarMencion();
+                    }
+                  }}
+                  onBlur={() => cerrarMencion()}
                   disabled={!!gifSel}
-                  placeholder={gifSel ? "GIF listo para enviar…" : "Escriba un comentario…"}
+                  placeholder={gifSel ? "GIF listo para enviar…" : "Escriba un comentario… (@ para mencionar)"}
                   className="h-11 w-full rounded-full bg-transparent px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
                 />
               </label>
@@ -339,6 +476,7 @@ export function DetallePost({
               <Send aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
             </button>
           </form>
+          </div>
         </div>
       }
     >
@@ -381,12 +519,12 @@ export function DetallePost({
         <ul>
           {raices.map((c) => (
             <li key={c.id}>
-              <Burbuja c={c} nivel={0} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} />
+              <Burbuja c={c} nivel={0} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} onAbrirPerfil={onAbrirPerfil} />
               {hijosDe(c.id).length > 0 && (
                 <ul className="ml-[46px] border-l-2 border-border pl-3.5">
                   {hijosDe(c.id).map((h) => (
                     <li key={h.id}>
-                      <Burbuja c={h} nivel={1} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} />
+                      <Burbuja c={h} nivel={1} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} onAbrirPerfil={onAbrirPerfil} />
                     </li>
                   ))}
                 </ul>

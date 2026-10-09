@@ -2,13 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
-import { comoAlumno, colegasEnComun, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
+import { comoAlumno, colegasEnComun, perfilesMencionables, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
 import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { avataresDe, cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import { getCasoBitacora } from './bitacora-datos';
 import type { ResultadoAccion } from './resultado';
 import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
-import type { BloquePedagogicoCasoData, CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
+import { textoPlanoComentario, uuidsMencionados } from '@/app/(campus)/ateneo/_components/tipos';
+import type { BloquePedagogicoCasoData, CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, MencionCandidato, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
 
 /**
  * ATENEO — server actions (§1/§2). CRUD del alumno bajo RLS (`comoAlumno`): las policies
@@ -242,16 +243,110 @@ export async function reaccionarComentarioAteneo(comentarioId: string, tipo: Tip
   return { ok: true };
 }
 
-/** Comenta un post (con `parentId` opcional → hilo de 2 niveles). */
+const UUID_RE = /^[0-9a-fA-F-]{36}$/;
+
+/**
+ * Scope del post (autor + visibilidad) LEÍDO BAJO LA RLS DEL VIEWER: si el viewer no puede ver
+ * el post, no hay fila → null. Fuente para el autocomplete y la validación de menciones.
+ */
+async function scopeDelPost(uid: string, postId: string): Promise<{ autor: string; vis: string } | null> {
+  return comoAlumno(uid, async (sql) => {
+    const r = await sql<{ autor_id: string; visibilidad: string | null }[]>`
+      select autor_id, visibilidad::text as visibilidad from lxp.posts_ateneo where id = ${postId}`;
+    const f = r[0];
+    return f ? { autor: f.autor_id, vis: f.visibilidad ?? 'inscritos' } : null;
+  });
+}
+
+/**
+ * De una lista de uuids, devuelve los que SÍ pertenecen a la AUDIENCIA del post (mismo criterio
+ * que `puede_ver_post_ateneo`): inscritos → cualquier inscrito; grupo → roster del AUTOR
+ * (`ateneo_roster_de`); colegas → `colegasEnComun(viewer, autor)` ∪ {autor} (privacidad: no se
+ * valida contra colegas del autor que el viewer no conoce). Es el candado de servidor para no
+ * crear menciones (ni notificar) fuera de scope; la RLS de la tabla es el segundo candado.
+ */
+async function enScopeDelPost(uid: string, autor: string, vis: string, uuids: string[]): Promise<string[]> {
+  const set = [...new Set(uuids)].filter((u) => UUID_RE.test(u));
+  if (set.length === 0) return [];
+  if (vis === 'colegas') {
+    const comun = new Set((await colegasEnComun(uid, autor)).map((c) => c.id));
+    comun.add(autor);
+    return set.filter((u) => comun.has(u));
+  }
+  if (vis === 'grupo') {
+    // Roster del autor (definer, con gate de compartir grupo con el viewer). No toca perfiles → RLS ok.
+    const roster = await comoAlumno(uid, (sql) => sql<{ id: string }[]>`select lxp.ateneo_roster_de(${autor}) as id`);
+    const ids = new Set(roster.map((r) => r.id));
+    return set.filter((u) => ids.has(u));
+  }
+  // inscritos: válido si es un perfil alumno/docente (lectura por OWNER · perfiles es own-or-staff bajo RLS).
+  const found = await perfilesMencionables('', set, set.length);
+  const ids = new Set(found.map((f) => f.id));
+  return set.filter((u) => ids.has(u));
+}
+
+/**
+ * Candidatos del autocomplete de @menciones, ACOTADOS a la audiencia del post (nunca ofrece a
+ * alguien que no puede ver el post). Excluye al propio viewer y a perfiles ocultos (perfilVisible
+ * = false → su perfil no abre, no se ofrece). Máx 8. `q` vacío → primeros por nombre.
+ */
+export async function sugerirMencionados(postId: string, query: string): Promise<MencionCandidato[]> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return [];
+  const uid = alumno.userId;
+  const q = query.trim();
+  const scope = await scopeDelPost(uid, postId);
+  if (!scope) return [];
+
+  // IDS en scope según la visibilidad del post (null = inscritos → cualquiera). perfilesMencionables
+  // lee por OWNER (perfiles es own-or-staff bajo RLS); el scope es quien acota (roster/colegas en común).
+  let ids: string[] | null;
+  if (scope.vis === 'colegas') {
+    const comun = await colegasEnComun(uid, scope.autor);
+    ids = [...new Set([...comun.map((c) => c.id), scope.autor])];
+  } else if (scope.vis === 'grupo') {
+    const roster = await comoAlumno(uid, (sql) => sql<{ id: string }[]>`select lxp.ateneo_roster_de(${scope.autor}) as id`);
+    ids = roster.map((r) => r.id);
+  } else {
+    ids = null; // inscritos: cualquier alumno/docente
+  }
+
+  const cand = (await perfilesMencionables(q, ids)).filter((c) => c.id !== uid);
+  // Dedup + excluir perfiles ocultos (no se puede abrir su perfil → no se ofrece) + top 8.
+  const vistos = new Set<string>();
+  const unicos = cand.filter((c) => (vistos.has(c.id) ? false : (vistos.add(c.id), true)));
+  const priv = await privacidadDeVarios(unicos.map((c) => c.id));
+  return unicos
+    .filter((c) => priv.get(c.id)?.perfilVisible !== false)
+    .slice(0, 8)
+    .map((c) => ({ id: c.id, nombre: c.nombre ?? 'Colega' }));
+}
+
+/** Comenta un post (con `parentId` opcional → hilo de 2 niveles). Persiste @menciones en scope. */
 export async function comentarAteneoSocial(postId: string, texto: string, parentId?: string): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  const uid = alumno.userId;
   const t = texto.trim();
   if (!t) return { ok: false, error: 'Escribe tu comentario.' };
+  // Menciones: tokens @[nombre](uuid) del cuerpo → validadas contra la audiencia del post ANTES
+  // de insertar (el autocomplete ya acota; esto es el candado de servidor). La RLS es el 2º.
+  const tokens = uuidsMencionados(t);
+  let validas: string[] = [];
+  if (tokens.length) {
+    const scope = await scopeDelPost(uid, postId);
+    if (scope) validas = await enScopeDelPost(uid, scope.autor, scope.vis, tokens);
+  }
   try {
-    await comoAlumno(alumno.userId, async (sql) => {
-      await sql`insert into lxp.comentarios_ateneo (post_id, autor_id, cuerpo, parent_id)
-        values (${postId}, ${alumno.userId}, ${t}, ${parentId ?? null})`;
+    await comoAlumno(uid, async (sql) => {
+      const row = (await sql<{ id: string }[]>`
+        insert into lxp.comentarios_ateneo (post_id, autor_id, cuerpo, parent_id)
+        values (${postId}, ${uid}, ${t}, ${parentId ?? null})
+        returning id`)[0]!;
+      for (const m of validas) {
+        await sql`insert into lxp.comentario_menciones (comentario_id, usuario_mencionado_id)
+          values (${row.id}, ${m}) on conflict do nothing`;
+      }
     });
   } catch {
     return { ok: false, error: 'No se pudo publicar tu comentario.' };
@@ -587,7 +682,7 @@ export async function getListaPerfil(tipo: 'casos' | 'colegas' | 'aportes'): Pro
       const aportes: ItemAporte[] = filas.map((f) => ({
         id: f.id,
         clase: (f.clase === 'comentario' ? 'comentario' : 'publicación') as ItemAporte['clase'],
-        texto: (f.texto ?? '').slice(0, 160),
+        texto: textoPlanoComentario(f.texto ?? '').slice(0, 160),
         cuando: rel(f.created_at),
         postId: f.post_id,
       }));
@@ -648,7 +743,7 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
     const aportes: ItemAporte[] = aportesFilas.map((f) => ({
       id: f.id,
       clase: (f.clase === 'comentario' ? 'comentario' : 'publicación') as ItemAporte['clase'],
-      texto: (f.texto ?? '').slice(0, 160),
+      texto: textoPlanoComentario(f.texto ?? '').slice(0, 160),
       cuando: rel(f.created_at),
       postId: f.post_id,
     }));

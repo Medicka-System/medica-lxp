@@ -21,6 +21,7 @@ export const TIPOS_NOTIFICACION = [
   'respuesta_consulta', // respuesta en una consulta (avisa a la otra parte)
   'entrega_calificada', // el docente calificó una tarea/entrega
   'anuncio', // anuncio segmentado (admin/docente)
+  'mencion_comentario', // te mencionaron en un comentario del Ateneo (in-app · mig 0076)
 ] as const;
 
 export type TipoNotificacion = (typeof TIPOS_NOTIFICACION)[number];
@@ -53,4 +54,7 @@ export const DEFECTOS_NOTIFICACION: Record<
   respuesta_consulta: { in_app: true, correo: true, whatsapp: false },
   entrega_calificada: { in_app: true, correo: true, whatsapp: false },
   anuncio: { in_app: true, correo: true, whatsapp: false },
+  // Menciones del Ateneo: SOLO in-app (el motor correo/WhatsApp no despacha menciones aún ·
+  // fase 2). Por eso no se expone en las categorías de preferencias (no hay toggle muerto).
+  mencion_comentario: { in_app: true, correo: false, whatsapp: false },
 };

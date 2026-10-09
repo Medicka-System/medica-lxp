@@ -49,6 +49,47 @@ export type Comentario = {
   reacciones?: Reacciones;
 };
 
+/* ─────────────── Menciones @ en comentarios (mig 0076) ───────────────
+ * El cuerpo guarda un token DETERMINISTA `@[Nombre](uuid)` (no se parsea @ "fuzzy" en
+ * cada render); la tabla `comentario_menciones` es la verdad de QUIÉN fue mencionado. */
+export const MENCION_PATTERN = String.raw`@\[([^\]]{1,80})\]\(([0-9a-fA-F-]{36})\)`;
+
+export type SegmentoComentario =
+  | { t: 'texto'; v: string }
+  | { t: 'mencion'; nombre: string; id: string };
+
+/** Parte el cuerpo en segmentos de texto y menciones (para el render con links). */
+export function segmentarComentario(cuerpo: string): SegmentoComentario[] {
+  const re = new RegExp(MENCION_PATTERN, 'g');
+  const out: SegmentoComentario[] = [];
+  let i = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cuerpo)) !== null) {
+    if (m.index > i) out.push({ t: 'texto', v: cuerpo.slice(i, m.index) });
+    out.push({ t: 'mencion', nombre: m[1]!, id: m[2]! });
+    i = m.index + m[0].length;
+  }
+  if (i < cuerpo.length) out.push({ t: 'texto', v: cuerpo.slice(i) });
+  return out;
+}
+
+/** Cuerpo en TEXTO PLANO (tokens de mención → `@Nombre`), para listas/resúmenes sin JSX. */
+export function textoPlanoComentario(cuerpo: string): string {
+  return cuerpo.replace(new RegExp(MENCION_PATTERN, 'g'), (_m, nombre: string) => `@${nombre}`);
+}
+
+/** Extrae los uuids mencionados del cuerpo (para persistir/validar el scope). Dedup. */
+export function uuidsMencionados(cuerpo: string): string[] {
+  const re = new RegExp(MENCION_PATTERN, 'g');
+  const ids = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cuerpo)) !== null) ids.add(m[2]!);
+  return [...ids];
+}
+
+/** Un candidato del autocomplete de menciones (acotado a la audiencia del post). */
+export type MencionCandidato = { id: string; nombre: string };
+
 export type CasoBitacora = {
   id: string;
   titulo: string;

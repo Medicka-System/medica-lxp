@@ -31,6 +31,7 @@ const TIPO_LABEL: Record<TipoNotificacion, string> = {
   respuesta_consulta: 'Respuesta a tu consulta',
   entrega_calificada: 'Entrega calificada',
   anuncio: 'Anuncios',
+  mencion_comentario: 'Menciones',
 };
 
 const CANAL_LABEL: Record<CanalNotificacion, string> = {

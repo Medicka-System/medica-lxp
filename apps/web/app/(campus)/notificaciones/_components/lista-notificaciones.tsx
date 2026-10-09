@@ -9,6 +9,7 @@
 import { useTransition } from 'react';
 import Link from 'next/link';
 import {
+  AtSign,
   Award,
   BellOff,
   CheckCheck,
@@ -44,6 +45,7 @@ const META: Record<TipoNotificacion, { icono: LucideIcon; tono: string }> = {
   respuesta_consulta: { icono: MessageSquare, tono: 'text-[color:var(--info-foreground)]' },
   entrega_calificada: { icono: FileCheck2, tono: 'text-[color:var(--secondary)]' },
   anuncio: { icono: Megaphone, tono: 'text-[color:var(--info-foreground)]' },
+  mencion_comentario: { icono: AtSign, tono: 'text-[color:var(--info-foreground)]' },
 };
 
 /** Deep-link a la entidad que originó la notificación (null si no aplica). */
@@ -58,6 +60,8 @@ function hrefDe(n: NotificacionItem): string | null {
       return '/dominio';
     case 'consulta':
       return '/consultas';
+    case 'post':
+      return '/ateneo';
     default:
       return null;
   }

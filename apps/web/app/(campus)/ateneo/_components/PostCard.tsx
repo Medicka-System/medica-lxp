@@ -30,6 +30,7 @@ import {
 import { REACCIONES } from "./tipos";
 import type { Comentario, EnlacePreview, Persona, Post, PostEncuesta, TipoReaccion } from "./tipos";
 import { EmojiReaccion } from "./EmojiReaccion";
+import { ComentarioTexto } from "./ComentarioTexto";
 import { Avatar, Chip, ChipDocente, Estudio, Modal, card, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
 import { capaOverlay } from "@/components/ui/overlay";
@@ -226,11 +227,13 @@ export function PreviewComentarios({
   total,
   yo,
   onVerTodos,
+  onAbrirPerfil,
 }: {
   lista: Comentario[];
   total: number;
   yo: Persona;
   onVerTodos: () => void;
+  onAbrirPerfil?: (userId: string) => void;
 }) {
   return (
     <div className="mt-3 flex flex-col gap-2.5">
@@ -243,7 +246,7 @@ export function PreviewComentarios({
             <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2">
               <p className={`text-[12.5px] leading-relaxed ${softText}`}>
                 <span className="font-bold text-foreground">{c.autor.nombre.replace(/^Dra?\. /, "")}</span>{" "}
-                {c.autor.rol === "docente" && <ChipDocente />} {gif ? <span className="font-semibold text-secondary">GIF</span> : c.texto}
+                {c.autor.rol === "docente" && <ChipDocente />} {gif ? <span className="font-semibold text-secondary">GIF</span> : <ComentarioTexto cuerpo={c.texto} onAbrirPerfil={onAbrirPerfil} />}
               </p>
               {gif && (
                 <img src={gif} alt="GIF" loading="lazy" className="mt-1.5 max-h-24 rounded-lg bg-black object-contain" />
@@ -634,7 +637,7 @@ export function PostCard({
   );
   const preview =
     post.preview.length > 0 ? (
-      <PreviewComentarios lista={post.preview} total={post.comentarios} yo={yo} onVerTodos={() => onAbrir(post.id)} />
+      <PreviewComentarios lista={post.preview} total={post.comentarios} yo={yo} onVerTodos={() => onAbrir(post.id)} onAbrirPerfil={onAbrirPerfil} />
     ) : null;
 
   if (post.tipo === "caso")

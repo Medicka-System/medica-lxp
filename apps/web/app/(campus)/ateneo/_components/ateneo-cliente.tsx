@@ -412,6 +412,7 @@ export function AteneoCliente({
           onCompartir={onCompartir}
           onVotar={onVotar}
           onComentar={onComentar}
+          onAbrirPerfil={abrirPerfil}
         />
       )}
 
