@@ -45,6 +45,8 @@ export type Comentario = {
   autor: Persona;
   texto: string;
   cuando: string;
+  /** Reacciones del comentario (6 tipos · mig 0075). Igual forma que las del post. */
+  reacciones?: Reacciones;
 };
 
 export type CasoBitacora = {

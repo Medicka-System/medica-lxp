@@ -439,6 +439,54 @@ async function main(): Promise<void> {
     );
     check('a5 NO ve el comentario del post de grupo (hereda scope)', num(a5VeComGrupo) === 0, `vio ${num(a5VeComGrupo)}`);
 
+    // ── ATENEO · reacciones a nivel COMENTARIO (mig 0075) ──────────────────
+    // Heredan el scope del comentario (que hereda el del post). a1 comparte grupo con a2 → ve
+    // COM_GRUPO → puede reaccionar (ON CONFLICT DO UPDATE, sin RETURNING · lección 0074).
+    let a1ReaccionaCom = false;
+    try {
+      await comoRollback(sql, claimsA1, async (tx) => {
+        await tx`insert into lxp.reacciones_comentario (comentario_id, usuario_id, tipo)
+                 values (${COM_GRUPO}::uuid, ${a1}, 'util')
+                 on conflict (comentario_id, usuario_id) do update set tipo = 'ojo'`;
+      });
+      a1ReaccionaCom = true;
+    } catch {
+      a1ReaccionaCom = false;
+    }
+    check('a1 SÍ puede reaccionar a un comentario visible', a1ReaccionaCom);
+
+    check(
+      'a1 NO puede reaccionar a un comentario a nombre de a2',
+      await fueRechazada(() =>
+        como(sql, claimsA1, (tx) =>
+          tx`insert into lxp.reacciones_comentario (comentario_id, usuario_id, tipo) values (${COM_GRUPO}::uuid, ${a2}, 'util')`,
+        ),
+      ),
+    );
+
+    // a5 (otra cohorte) NO ve COM_GRUPO → su policy INSERT (que exige ver el comentario) lo rechaza.
+    check(
+      'a5 (otra cohorte) NO puede reaccionar a un comentario que no ve',
+      await fueRechazada(() =>
+        como(sql, claimsA5, (tx) =>
+          tx`insert into lxp.reacciones_comentario (comentario_id, usuario_id, tipo) values (${COM_GRUPO}::uuid, ${a5}, 'util')`,
+        ),
+      ),
+    );
+
+    // Una reacción existente a COM_GRUPO solo la cuentan quienes vean el comentario (SELECT hereda
+    // scope). Se siembra con el owner (sin RLS); la cascada de COM_GRUPO la limpia al final.
+    await sql`insert into lxp.reacciones_comentario (comentario_id, usuario_id, tipo)
+              values (${COM_GRUPO}::uuid, ${a2}, 'util') on conflict do nothing`;
+    const a1VeReacCom = await como(sql, claimsA1, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.reacciones_comentario where comentario_id = ${COM_GRUPO}::uuid`,
+    );
+    check('a1 SÍ ve la reacción del comentario de su grupo', num(a1VeReacCom) === 1, `vio ${num(a1VeReacCom)}`);
+    const a5VeReacCom = await como(sql, claimsA5, (tx) =>
+      tx<{ n: string }[]>`select count(*)::int as n from lxp.reacciones_comentario where comentario_id = ${COM_GRUPO}::uuid`,
+    );
+    check('a5 (otra cohorte) NO ve la reacción del comentario de grupo (hereda scope)', num(a5VeReacCom) === 0, `vio ${num(a5VeReacCom)}`);
+
     await sql`delete from lxp.posts_ateneo where id in (${POST_GRUPO}::uuid, ${POST_INSCRITOS}::uuid)`;
 
     // ── Read-receipts per-mensaje (mig 0051): marca leído los RECIBIDOS, nunca los propios ──

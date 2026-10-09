@@ -21,6 +21,7 @@ import { FeedSkeleton, PostCardSkeleton, focusRing, mono } from './ui';
 import {
   publicarPostAteneo,
   reaccionarAteneo,
+  reaccionarComentarioAteneo,
   comentarAteneoSocial,
   votarEncuesta,
   compartirAteneo,
@@ -170,6 +171,28 @@ export function AteneoCliente({
     setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, compartidos: p.compartidos + 1 } : p)));
     iniciar(async () => {
       await compartirAteneo(id);
+    });
+  };
+
+  // Reacción a un COMENTARIO (optimista): voltea `mia`/`total` al instante y luego recarga el
+  // hilo para reconciliar el `top` exacto (que no se puede recalcular sin los conteos por tipo).
+  const onReaccionarComentario = (comentarioId: string, tipo: TipoReaccion | null) => {
+    setHilo((hs) =>
+      hs.map((c) => {
+        if (c.id !== comentarioId) return c;
+        const prev = c.reacciones ?? { top: [], total: 0 };
+        const antes = prev.mia;
+        const total = prev.total + (tipo && !antes ? 1 : !tipo && antes ? -1 : 0);
+        return { ...c, reacciones: { ...prev, mia: tipo ?? undefined, total } };
+      }),
+    );
+    iniciar(async () => {
+      await reaccionarComentarioAteneo(comentarioId, tipo);
+      // Reconcilia desde el servidor (éxito o fallo) para dejar top/total/mia exactos.
+      if (abierto) {
+        const nuevo = await getHiloAteneo(abierto);
+        setHilo(nuevo);
+      }
     });
   };
 
@@ -385,6 +408,7 @@ export function AteneoCliente({
           yo={yo}
           onCerrar={() => setAbierto(null)}
           onReaccionar={onReaccionar}
+          onReaccionarComentario={onReaccionarComentario}
           onCompartir={onCompartir}
           onVotar={onVotar}
           onComentar={onComentar}

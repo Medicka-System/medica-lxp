@@ -9,13 +9,16 @@
  * El hilo se guarda plano con parentId y se anida al render: dos niveles, nunca más.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Send, Smile, X } from "lucide-react";
+import { REACCIONES } from "./tipos";
 import type { Comentario, GifItem, Persona, Post, TipoReaccion } from "./tipos";
-import { PostCard } from "./PostCard";
+import { PostCard, SelectorReacciones } from "./PostCard";
+import { EmojiReaccion } from "./EmojiReaccion";
 import { Avatar, ChipDocente, Modal, focusRing, mono } from "./ui";
 import { GifPicker } from "./GifPicker";
 import { EmojiPickerPopover } from "./EmojiPickerPopover";
+import { capaOverlay } from "@/components/ui/overlay";
 import { VisorEstudio } from "@/components/casos/visor-estudio";
 import { BloquePedagogicoCaso } from "./BloquePedagogicoCaso";
 
@@ -29,11 +32,87 @@ function urlGif(texto: string): string | null {
   return /^https:\/\/[a-z0-9.-]*giphy\.com\/\S+$/i.test(t) && !/\s/.test(t) ? t : null;
 }
 
-function Burbuja({ c, nivel }: { c: Comentario; nivel: 0 | 1 }) {
+/**
+ * Control de REACCIÓN de un comentario (mig 0075): botón «Reaccionar» que abre el MISMO picker
+ * de 6 emojis del post (`SelectorReacciones`, reusado). Picker por CLICK/TAP con cierre por Esc,
+ * clic afuera o seleccionar — mismo patrón que la barra del post. Re-elegir el tipo actual lo
+ * quita (toggle · `r === mia ? null`).
+ */
+function ReaccionComentario({
+  c,
+  onReaccionar,
+}: {
+  c: Comentario;
+  onReaccionar: (comentarioId: string, r: TipoReaccion | null) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+  const botonRef = useRef<HTMLButtonElement>(null);
+  const mia = c.reacciones?.mia;
+
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!popRef.current?.contains(t) && !botonRef.current?.contains(t)) setAbierto(false);
+    };
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setAbierto(false);
+        botonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", fuera);
+    document.addEventListener("keydown", tecla);
+    return () => {
+      document.removeEventListener("pointerdown", fuera);
+      document.removeEventListener("keydown", tecla);
+    };
+  }, [abierto]);
+
+  return (
+    <span className="relative inline-flex">
+      <div ref={popRef} data-open={abierto} className={`${capaOverlay} absolute bottom-6 left-0 z-10`}>
+        <SelectorReacciones
+          actual={mia}
+          onElegir={(r) => {
+            onReaccionar(c.id, r === mia ? null : r);
+            setAbierto(false);
+          }}
+        />
+      </div>
+      <button
+        ref={botonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={abierto}
+        aria-pressed={!!mia}
+        onClick={() => setAbierto((o) => !o)}
+        className={`text-[11.5px] font-bold ${mia ? "text-secondary" : "text-[color:var(--foreground-soft)]"} ${focusRing}`}
+      >
+        {mia ? REACCIONES[mia].etiqueta : "Reaccionar"}
+      </button>
+    </span>
+  );
+}
+
+function Burbuja({
+  c,
+  nivel,
+  onResponder,
+  onReaccionar,
+}: {
+  c: Comentario;
+  nivel: 0 | 1;
+  onResponder: (c: Comentario) => void;
+  onReaccionar: (comentarioId: string, r: TipoReaccion | null) => void;
+}) {
   const gif = urlGif(c.texto);
+  const total = c.reacciones?.total ?? 0;
+  const top = c.reacciones?.top ?? [];
   return (
     <div className={`flex gap-2.5 ${nivel ? "mt-2.5" : "mt-3.5"}`}>
-      <Avatar p={c.autor} size={nivel ? 30 : 34} />
+      <Avatar p={c.autor} url={c.autor.avatarUrl} size={nivel ? 30 : 34} />
       <div className="min-w-0 flex-1">
         {gif ? (
           <div className="min-w-0">
@@ -50,10 +129,34 @@ function Burbuja({ c, nivel }: { c: Comentario; nivel: 0 | 1 }) {
             <p className="mt-0.5 text-[13px] leading-relaxed text-[color:var(--foreground-soft)]">{c.texto}</p>
           </div>
         )}
-        <div className="ml-3 mt-1 flex gap-3.5">
+        <div className="ml-3 mt-1 flex flex-wrap items-center gap-3.5">
           <span className={`${mono} text-[11px] text-muted-foreground`}>{c.cuando}</span>
-          <button type="button" className={`text-[11.5px] font-bold text-[color:var(--foreground-soft)] ${focusRing}`}>Reaccionar</button>
-          <button type="button" className={`text-[11.5px] font-bold text-[color:var(--foreground-soft)] ${focusRing}`}>Responder</button>
+          <ReaccionComentario c={c} onReaccionar={onReaccionar} />
+          <button
+            type="button"
+            onClick={() => onResponder(c)}
+            className={`text-[11.5px] font-bold text-[color:var(--foreground-soft)] ${focusRing}`}
+          >
+            Responder
+          </button>
+          {/* Resumen de reacciones (top emojis + total), como en el post. Solo si hay algo. */}
+          {total > 0 && (
+            <span className="inline-flex items-center">
+              <span className="flex">
+                {top.map((k, i) => (
+                  <span
+                    key={k}
+                    aria-hidden
+                    className={`grid h-[18px] w-[18px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1" : ""}`}
+                    style={{ background: REACCIONES[k].fondo }}
+                  >
+                    <EmojiReaccion tipo={k} size={11} animar={false} />
+                  </span>
+                ))}
+              </span>
+              <span className={`${mono} ml-1 text-[11px] text-muted-foreground`}>{total}</span>
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -66,6 +169,7 @@ export function DetallePost({
   yo,
   onCerrar,
   onReaccionar,
+  onReaccionarComentario,
   onCompartir,
   onVotar,
   onComentar,
@@ -75,6 +179,7 @@ export function DetallePost({
   yo: Persona;
   onCerrar: () => void;
   onReaccionar: (id: string, r: TipoReaccion | null) => void;
+  onReaccionarComentario: (comentarioId: string, r: TipoReaccion | null) => void;
   onCompartir: (id: string) => void;
   onVotar: (postId: string, opcionId: string) => void;
   onComentar: (postId: string, texto: string, parentId?: string) => void;
@@ -84,9 +189,17 @@ export function DetallePost({
   const [gifSel, setGifSel] = useState<GifItem | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  // Comentario al que se está respondiendo (null = comentario de primer nivel).
+  const [respondiendoA, setRespondiendoA] = useState<Comentario | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const raices = hilo.filter((c) => !c.parentId);
   const hijosDe = (id: string) => hilo.filter((c) => c.parentId === id);
+
+  // Empieza a responder un comentario: fija el destino y lleva el foco a la caja del pie.
+  const empezarRespuesta = (c: Comentario) => {
+    setRespondiendoA(c);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
 
   // Inserta el emoji en la posición del cursor del input de comentario (como FB).
   const insertarEmoji = (emoji: string) => {
@@ -104,17 +217,22 @@ export function DetallePost({
 
   // Enviar: un GIF seleccionado se publica como su URL (se renderiza como imagen · urlGif);
   // si no, el texto. Reusa onComentar (comentarios_ateneo, solo texto · sin migración).
+  // Si se está respondiendo, pasa el parentId; para no pasar de 2 niveles, una respuesta a
+  // una respuesta (nivel 1) se ancla a su RAÍZ (`parentId ?? id`), no al comentario hijo.
   const enviar = () => {
+    const parentId = respondiendoA ? respondiendoA.parentId ?? respondiendoA.id : undefined;
     if (gifSel) {
-      onComentar(post.id, gifSel.url);
+      onComentar(post.id, gifSel.url, parentId);
       setGifSel(null);
       setGifOpen(false);
       setTexto("");
+      setRespondiendoA(null);
       return;
     }
     if (!texto.trim()) return;
-    onComentar(post.id, texto);
+    onComentar(post.id, texto, parentId);
     setTexto("");
+    setRespondiendoA(null);
   };
 
   return (
@@ -124,6 +242,21 @@ export function DetallePost({
       ancho={720}
       pie={
         <div className="px-5 py-3">
+          {/* Barra «Respondiendo a …» (cancelable): indica el destino de la respuesta. */}
+          {respondiendoA && (
+            <div className="mb-2.5 flex items-center gap-2 rounded-[10px] border border-border bg-muted px-3 py-2">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--foreground-soft)]">
+                Respondiendo a {respondiendoA.autor.nombre.replace(/^Dra?\. /, "")}
+              </span>
+              <button
+                type="button"
+                onClick={() => setRespondiendoA(null)}
+                className={`shrink-0 text-[12px] font-bold text-secondary ${focusRing}`}
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
           {/* Panel del GIF picker (reusa el mismo componente del composer de posts). */}
           {gifOpen && (
             <div className="mb-2.5 rounded-[12px] border border-border bg-card p-3">
@@ -248,12 +381,12 @@ export function DetallePost({
         <ul>
           {raices.map((c) => (
             <li key={c.id}>
-              <Burbuja c={c} nivel={0} />
+              <Burbuja c={c} nivel={0} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} />
               {hijosDe(c.id).length > 0 && (
                 <ul className="ml-[46px] border-l-2 border-border pl-3.5">
                   {hijosDe(c.id).map((h) => (
                     <li key={h.id}>
-                      <Burbuja c={h} nivel={1} />
+                      <Burbuja c={h} nivel={1} onResponder={empezarRespuesta} onReaccionar={onReaccionarComentario} />
                     </li>
                   ))}
                 </ul>

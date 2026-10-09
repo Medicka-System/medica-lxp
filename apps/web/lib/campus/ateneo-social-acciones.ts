@@ -216,6 +216,32 @@ export async function reaccionarAteneo(postId: string, tipo: TipoReaccion | null
   return { ok: true };
 }
 
+/**
+ * Reacciona a un COMENTARIO (6 tipos, una por usuario, cambiable · mig 0075). `null` la quita.
+ * Espeja `reaccionarAteneo` (post). El INSERT usa ON CONFLICT DO UPDATE SIN RETURNING (lección
+ * 0074): Postgres no evalúa la policy SELECT sobre la fila nueva. RLS = segundo candado.
+ */
+export async function reaccionarComentarioAteneo(comentarioId: string, tipo: TipoReaccion | null): Promise<ResultadoAccion> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  if (tipo !== null && !TIPOS_REACCION.has(tipo)) return { ok: false, error: 'Reacción no válida.' };
+  try {
+    await comoAlumno(alumno.userId, async (sql) => {
+      if (tipo === null) {
+        await sql`delete from lxp.reacciones_comentario where comentario_id = ${comentarioId} and usuario_id = ${alumno.userId}`;
+      } else {
+        await sql`insert into lxp.reacciones_comentario (comentario_id, usuario_id, tipo)
+          values (${comentarioId}, ${alumno.userId}, ${tipo}::lxp.reaccion_ateneo_tipo)
+          on conflict (comentario_id, usuario_id) do update set tipo = excluded.tipo`;
+      }
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo registrar tu reacción.' };
+  }
+  revalidatePath('/ateneo');
+  return { ok: true };
+}
+
 /** Comenta un post (con `parentId` opcional → hilo de 2 niveles). */
 export async function comentarAteneoSocial(postId: string, texto: string, parentId?: string): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
@@ -456,6 +482,33 @@ export async function getHiloAteneo(postId: string): Promise<Comentario[]> {
              c.cuerpo, c.created_at
       from lxp.comentarios_ateneo c where c.post_id = ${postId}
       order by c.created_at asc`;
+    const ids = filas.map((c) => c.id);
+
+    // Reacciones por comentario (mig 0075): top (hasta 3 más usadas), total y la mía.
+    // Mismo ensamblado que `ensamblarPosts` hace para los posts. Bajo RLS: solo cuentan
+    // las reacciones de comentarios visibles (la tabla hereda el scope del comentario).
+    const reacTipos = ids.length
+      ? await sql<{ comentario_id: string; tipo: string; n: number }[]>`
+          select comentario_id, tipo::text as tipo, count(*)::int as n
+          from lxp.reacciones_comentario where comentario_id = any(${ids})
+          group by comentario_id, tipo order by n desc`
+      : [];
+    const misReac = ids.length
+      ? await sql<{ comentario_id: string; tipo: string }[]>`
+          select comentario_id, tipo::text as tipo from lxp.reacciones_comentario
+          where comentario_id = any(${ids}) and usuario_id = ${alumno.userId}`
+      : [];
+    const topPorCom = new Map<string, TipoReaccion[]>();
+    const totalPorCom = new Map<string, number>();
+    for (const r of reacTipos) {
+      const arr = topPorCom.get(r.comentario_id) ?? [];
+      if (arr.length < 3) arr.push(r.tipo as TipoReaccion);
+      topPorCom.set(r.comentario_id, arr);
+      totalPorCom.set(r.comentario_id, (totalPorCom.get(r.comentario_id) ?? 0) + r.n);
+    }
+    const miaPorCom = new Map<string, TipoReaccion>();
+    for (const r of misReac) miaPorCom.set(r.comentario_id, r.tipo as TipoReaccion);
+
     return filas.map((c) => ({
       id: c.id,
       parentId: c.parent_id ?? undefined,
@@ -468,6 +521,11 @@ export async function getHiloAteneo(postId: string): Promise<Comentario[]> {
       },
       texto: c.cuerpo,
       cuando: rel(c.created_at),
+      reacciones: {
+        top: topPorCom.get(c.id) ?? [],
+        total: totalPorCom.get(c.id) ?? 0,
+        mia: miaPorCom.get(c.id),
+      },
     }));
   });
 }
