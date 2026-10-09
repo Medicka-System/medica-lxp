@@ -8,8 +8,8 @@
  *     fila en `public.usuarios`.
  *   • `lxp.perfiles` se puebla LEYENDO el vínculo `auth.users` (regla 5), no
  *     creando identidad.
- *   • El diseñador (rol LXP `disenador_instruccional`) va con rol CORA
- *     `control_escolar`, porque el CHECK de `public.usuarios` rechaza el rol LXP
+ *   • El staff de autoría del Studio va con rol CORA `control_escolar` (el CHECK de
+ *     `public.usuarios` rechaza los roles LXP), que el mapeo lleva a `admin` en el LXP
  *     (regla 2: los roles LXP viven solo en `lxp.perfiles`).
  *   • `acceso_activo` se deriva de los pagos de CORA vía la función puente
  *     `lxp.cora_acceso_activo` (regla 4: lectura por función, sin acoplar tablas).
@@ -103,16 +103,14 @@ async function seed(sql: Sql): Promise<void> {
   });
   await crearPerfil(sql, docente, { lxpRol: 'docente', acceso: true });
 
-  // El diseñador va con rol CORA control_escolar (el CHECK rechaza el rol LXP).
-  const disenador = await altaCora(sql, {
-    email: `disenador${SEED_EMAIL_DOMINIO}`,
-    nombre: 'Dora Diseñadora',
+  // Staff de autoría del Studio. En CORA es control_escolar (el CHECK rechaza roles LXP) y el
+  // mapeo lo lleva a `admin` en el LXP (control_escolar→admin cubre el diseño instruccional · mig 0077).
+  const adminStudio = await altaCora(sql, {
+    email: `admin-studio${SEED_EMAIL_DOMINIO}`,
+    nombre: 'Admin del Studio',
     coraRol: 'control_escolar',
   });
-  await crearPerfil(sql, disenador, {
-    lxpRol: 'disenador_instruccional',
-    acceso: true,
-  });
+  await crearPerfil(sql, adminStudio, { lxpRol: 'admin', acceso: true });
 
   // ── Alumnos (5) — repartidos en DOS cohortes para ver el aislamiento por grupo:
   //    a1/a2/a3/a4 → Generación 2026-A (donde vive la demo del foro velado);
@@ -259,7 +257,7 @@ async function seed(sql: Sql): Promise<void> {
       insert into lxp.recursos (tipo, nombre, reproduccion, meta, etiquetas, created_by)
       values ('video', 'Barrido FAST — demostración', 'Cloudflare Stream',
               ${sql.json({ duracion: '8:24', resolucion: '1080p', peso: '112 MB' })},
-              ${sql.array(['fast', 'abdomen'])}, ${disenador})
+              ${sql.array(['fast', 'abdomen'])}, ${adminStudio})
       returning id`,
   );
   const recImagen = first(
@@ -267,7 +265,7 @@ async function seed(sql: Sql): Promise<void> {
       insert into lxp.recursos (tipo, nombre, meta, etiquetas, created_by)
       values ('imagen', 'Esquema de planos abdominales',
               ${sql.json({ dimensiones: '1600×900', peso: '240 KB' })},
-              ${sql.array(['anatomia'])}, ${disenador})
+              ${sql.array(['anatomia'])}, ${adminStudio})
       returning id`,
   );
   const recPdf = first(
@@ -275,17 +273,17 @@ async function seed(sql: Sql): Promise<void> {
       insert into lxp.recursos (tipo, nombre, meta, etiquetas, created_by)
       values ('pdf', 'Guía rápida POCUS abdominal',
               ${sql.json({ paginas: 12, peso: '1.4 MB' })},
-              ${sql.array(['pocus', 'referencia'])}, ${disenador})
+              ${sql.array(['pocus', 'referencia'])}, ${adminStudio})
       returning id`,
   );
   await sql`
     insert into lxp.recursos (tipo, nombre, reproduccion, meta, etiquetas, created_by) values
       ('h5p', 'Interactivo: identifica el artefacto', 'Reporta progreso',
-       ${sql.json({ items: 6 })}, ${sql.array(['interactivo'])}, ${disenador}),
+       ${sql.json({ items: 6 })}, ${sql.array(['interactivo'])}, ${adminStudio}),
       ('scorm', 'Módulo SCORM: seguridad del paciente', 'Reporta progreso',
-       ${sql.json({ version_scorm: '1.2', peso: '8.2 MB' })}, ${sql.array(['seguridad'])}, ${disenador}),
+       ${sql.json({ version_scorm: '1.2', peso: '8.2 MB' })}, ${sql.array(['seguridad'])}, ${adminStudio}),
       ('xapi', 'xAPI: checklist de adquisición', 'Reporta progreso',
-       ${sql.json({ fuente: 'Articulate', peso: '5.1 MB' })}, ${sql.array(['adquisicion'])}, ${disenador})`;
+       ${sql.json({ fuente: 'Articulate', peso: '5.1 MB' })}, ${sql.array(['adquisicion'])}, ${adminStudio})`;
 
   // Referencias reales desde la lección de teoría (recursoId en config del bloque):
   await sql`
@@ -402,7 +400,7 @@ async function seed(sql: Sql): Promise<void> {
     await sql<{ id: string }[]>`
       insert into lxp.rubricas (nombre, tipo, descripcion, publicado, creado_por, criterios)
       values ('Rúbrica de entrega — Planos básicos', 'tareas'::lxp.rubrica_tipo,
-              'Evalúa la identificación de planos y la calidad de imagen.', true, ${disenador},
+              'Evalúa la identificación de planos y la calidad de imagen.', true, ${adminStudio},
               ${sql.json([
                 { criterio: 'Plano correcto', descripcion: 'Identifica el plano solicitado', peso: 0.5 },
                 { criterio: 'Calidad de imagen', descripcion: 'Ganancia y profundidad adecuadas', peso: 0.5 },
@@ -447,7 +445,7 @@ async function seed(sql: Sql): Promise<void> {
     await sql<{ id: string }[]>`
       insert into lxp.rubricas (nombre, tipo, descripcion, publicado, creado_por, criterios)
       values ('Rúbrica de participación — Foro clínico', 'tareas'::lxp.rubrica_tipo,
-              'Evalúa la calidad del caso traído y de las respuestas a los compañeros.', true, ${disenador},
+              'Evalúa la calidad del caso traído y de las respuestas a los compañeros.', true, ${adminStudio},
               ${sql.json([
                 { criterio: 'Su caso está contado con datos', descripcion: 'Edad, motivo, qué midió y con qué grado se quedó. Sin datos del paciente.', puntos: 4 },
                 { criterio: 'Argumenta la duda, no solo la reporta', descripcion: 'Dice qué lo hizo dudar y qué lo habría hecho cambiar de opinión.', puntos: 3 },

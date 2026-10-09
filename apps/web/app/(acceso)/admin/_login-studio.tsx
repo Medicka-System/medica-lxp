@@ -34,10 +34,9 @@ const tintas = {
   enlace: 'text-[#8fe0db]',
 };
 
-/** Destino por rol tras un login válido (§5B): admin/super → consola; docente/diseñador → su espacio. */
+/** Destino por rol tras un login válido (§5B): admin/super → consola; docente → su espacio. */
 function destinoPorRol(rol: RolStaff): string {
   if (rol === 'docente') return '/docente';
-  if (rol === 'disenador_instruccional') return '/studio/programas';
   return '/admin/panel'; // admin | super_admin
 }
 

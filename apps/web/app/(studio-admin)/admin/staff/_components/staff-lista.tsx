@@ -15,7 +15,7 @@ import { Avatar } from '@/components/avatar';
 import { ChipRol } from './rol-chip';
 import type { StaffData } from './contrato';
 
-type Filtro = 'todos' | 'docente' | 'disenador_instruccional' | 'admin';
+type Filtro = 'todos' | 'docente' | 'admin';
 
 const TRACKS = '1.7fr 150px 1.3fr 1.4fr 150px';
 
@@ -35,7 +35,7 @@ export function StaffLista({ data }: { data: StaffData }) {
   }, [staff, filtro, busca]);
 
   const tarjetas: [string, string, string, boolean][] = [
-    ['Staff activo', String(totales.total), `${totales.conteos.docentes} docentes · ${totales.conteos.disenadores} diseñadores · ${totales.conteos.admins} admins`, false],
+    ['Staff activo', String(totales.total), `${totales.conteos.docentes} docentes · ${totales.conteos.admins} admins`, false],
     ['Con sobrecarga', String(totales.conSobrecarga), `docentes con ${8}+ casos en cola`, true],
     ['Validaciones esta semana', String(totales.validadosSemana), 'casos validados por el equipo', false],
     ['Respuesta media', totales.respuestaMedia ?? '—', 'de consulta del alumno a respuesta del docente', false],
@@ -44,7 +44,6 @@ export function StaffLista({ data }: { data: StaffData }) {
   const tabs: [Filtro, string, number][] = [
     ['todos', 'Todos', totales.conteos.todos],
     ['docente', 'Docentes', totales.conteos.docentes],
-    ['disenador_instruccional', 'Diseñadores', totales.conteos.disenadores],
     ['admin', 'Admins', totales.conteos.admins],
   ];
 

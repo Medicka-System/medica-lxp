@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAutoria } from '@/lib/studio/session';
-import { comoStaff } from '@/lib/db.server';
+import { afirmarFilas, comoStaff } from '@/lib/db.server';
 import { comoTareaConfig, type RubricaCatalogo, type TareaConfig } from '@/lib/studio/tarea-contrato';
 
 /** Convierte HTML del EditorRico a texto plano (fallback de instrucciones · como el foro). */
@@ -117,7 +117,7 @@ export async function guardarTarea(
     }
 
     const final: TareaConfig = { ...config, actividadId };
-    await sql`update lxp.lecciones set config = ${sql.json(final as never)} where id = ${leccionId}`;
+    afirmarFilas(await sql`update lxp.lecciones set config = ${sql.json(final as never)} where id = ${leccionId}`, 'config de tarea (lección)');
   });
   refrescar(programaId);
 }

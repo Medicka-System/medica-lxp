@@ -17,7 +17,6 @@ export type RolLxp =
   | 'super_admin'
   | 'admin'
   | 'docente'
-  | 'disenador_instruccional'
   | 'alumno';
 
 /**

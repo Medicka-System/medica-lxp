@@ -77,10 +77,12 @@ async function main(): Promise<void> {
     const claimsA4: Claims = { sub: a4, role: 'authenticated' };
     const claimsA5: Claims = { sub: a5, role: 'authenticated' };
     const claimsAnon: Claims = { sub: null, role: 'anon' };
-    // Un miembro del staff (es_staff) para las pruebas de "staff ve todo" (Ola C).
+    // Un miembro del staff (es_staff) para las pruebas de "staff ve todo" (Ola C). Desde el fix
+    // P9 (mig 0077) el rol de diseño instruccional ya NO cuenta como staff en los candados → se
+    // elige super_admin/admin/docente, que SÍ pasan es_staff().
     const staffId = (
       await sql<{ id: string }[]>`select user_id as id from lxp.perfiles
-        where rol in ('super_admin','admin','docente','disenador_instruccional') limit 1`
+        where rol in ('super_admin','admin','docente') limit 1`
     )[0]?.id;
     if (!staffId) throw new Error('No se encontró un perfil de staff. ¿Corriste el seed?');
     const claimsStaff: Claims = { sub: staffId, role: 'authenticated' };

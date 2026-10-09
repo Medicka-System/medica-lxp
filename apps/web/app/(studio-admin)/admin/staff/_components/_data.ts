@@ -17,7 +17,6 @@ const AREA_DEFAULT: Record<RolStaff, string> = {
   super_admin: 'Gobierno de la plataforma',
   admin: 'Operación académica',
   docente: 'Docencia clínica',
-  disenador_instruccional: 'Diseño instruccional',
 };
 
 /** Área/especialidad real; si no está registrada, un rótulo por rol. */
@@ -37,16 +36,14 @@ function fecha(d: Date): string {
   return d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
 }
 
-function cargoDe(rol: RolStaff, grupos: number, curados: number): string {
+function cargoDe(rol: RolStaff, grupos: number): string {
   if (rol === 'docente') return grupos > 0 ? `${grupos} grupo${grupos === 1 ? '' : 's'}` : 'sin grupos asignados';
-  if (rol === 'disenador_instruccional') return curados > 0 ? `${curados} casos curados` : 'contenido y casos';
   if (rol === 'admin') return 'Experiencia global';
   return 'Toda la plataforma';
 }
 
-function actividadDe(rol: RolStaff, validaciones7d: number, curados: number): string {
+function actividadDe(rol: RolStaff, validaciones7d: number): string {
   if (rol === 'docente') return validaciones7d > 0 ? `${validaciones7d} validaciones esta semana` : 'sin validaciones recientes';
-  if (rol === 'disenador_instruccional') return curados > 0 ? `${curados} casos en la Biblioteca` : 'sin curaciones';
   return 'gobierno de la plataforma';
 }
 
@@ -54,7 +51,7 @@ export async function getStaff(userId: string): Promise<StaffData> {
   // Leemos las refs de avatar DENTRO del callback (bajo RLS) y firmamos DESPUÉS
   // (patrón getShellData): no sostener la conexión abierta durante el fetch de firma.
   const { totales, staffRaw } = await comoStaff(userId, async (sql) => {
-    const [perfiles, gruposPorDoc, colaPorDoc, valPorDoc, curadosPorCurador, respuesta] = await Promise.all([
+    const [perfiles, gruposPorDoc, colaPorDoc, valPorDoc, respuesta] = await Promise.all([
       sql<{ user_id: string; nombre: string; email: string | null; rol: RolStaff; created_at: Date; especialidad: string | null; avatar_url: string | null }[]>`
         select user_id, nombre, email, rol::text as rol, created_at, especialidad, avatar_url
         from lxp.perfiles where rol <> 'alumno' order by nombre`,
@@ -69,9 +66,6 @@ export async function getStaff(userId: string): Promise<StaffData> {
       sql<{ id_docente: string; n: number }[]>`
         select id_docente, count(*)::int as n from lxp.validaciones
         where created_at >= now() - interval '7 days' group by id_docente`,
-      sql<{ curador_id: string; n: number }[]>`
-        select curador_id, count(*)::int as n from lxp.casos_biblioteca
-        where curador_id is not null group by curador_id`,
       // Respuesta media: consulta→primera respuesta del docente (real).
       sql<{ seg: number | null }[]>`
         select avg(extract(epoch from (r.primera - m.primera)))::float8 as seg
@@ -84,12 +78,10 @@ export async function getStaff(userId: string): Promise<StaffData> {
     const grupos = new Map(gruposPorDoc.map((r) => [r.docente_id, r.n]));
     const cola = new Map(colaPorDoc.map((r) => [r.docente_id, r.n]));
     const val7d = new Map(valPorDoc.map((r) => [r.id_docente, r.n]));
-    const curados = new Map(curadosPorCurador.map((r) => [r.curador_id, r.n]));
 
     const staff: (Omit<MiembroStaff, 'avatarUrl'> & { avatarRef: string | null })[] = perfiles.map((p) => {
       const g = grupos.get(p.user_id) ?? 0;
       const q = cola.get(p.user_id) ?? 0;
-      const c = curados.get(p.user_id) ?? 0;
       const v = val7d.get(p.user_id) ?? 0;
       return {
         id: p.user_id,
@@ -99,8 +91,8 @@ export async function getStaff(userId: string): Promise<StaffData> {
         rol: p.rol,
         email: p.email,
         area: areaDe(p.rol, p.especialidad),
-        cargo: cargoDe(p.rol, g, c),
-        actividad: actividadDe(p.rol, v, c),
+        cargo: cargoDe(p.rol, g),
+        actividad: actividadDe(p.rol, v),
         desde: fecha(p.created_at),
         senal: p.rol === 'docente' && q >= SOBRECARGA ? `sobrecarga: ${q} casos en cola` : undefined,
       };
@@ -111,7 +103,6 @@ export async function getStaff(userId: string): Promise<StaffData> {
     const conteos = {
       todos: staff.length,
       docentes: staff.filter((s) => s.rol === 'docente').length,
-      disenadores: staff.filter((s) => s.rol === 'disenador_instruccional').length,
       admins: staff.filter((s) => s.rol === 'admin' || s.rol === 'super_admin').length,
     };
 
@@ -141,7 +132,6 @@ const ETIQUETA_ROL: Record<RolStaff, string> = {
   super_admin: 'Súper admin · toda la plataforma',
   admin: 'Admin · experiencia global',
   docente: 'Docente · solo sus grupos',
-  disenador_instruccional: 'Diseñador · autoría de contenido',
 };
 
 export async function getDetalleStaff(userId: string, staffId: string): Promise<DetalleStaff | null> {

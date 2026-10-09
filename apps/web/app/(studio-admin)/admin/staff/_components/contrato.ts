@@ -5,7 +5,7 @@
  * roles (frontera §5B); esas acciones son placeholder aquí. Eco = placeholder (§7A).
  */
 
-export type RolStaff = 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+export type RolStaff = 'super_admin' | 'admin' | 'docente';
 
 export type MiembroStaff = {
   id: string;
@@ -32,7 +32,7 @@ export type TotalesStaff = {
   validadosSemana: number;
   /** Tiempo medio consulta→primera respuesta del docente (real · `lxp.consultas`). */
   respuestaMedia: string | null;
-  conteos: { todos: number; docentes: number; disenadores: number; admins: number };
+  conteos: { todos: number; docentes: number; admins: number };
 };
 
 export type StaffData = { totales: TotalesStaff; staff: MiembroStaff[] };

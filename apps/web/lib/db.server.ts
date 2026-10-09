@@ -212,7 +212,7 @@ export async function resolverStaffDev(email: string): Promise<{
   userId: string;
   nombre: string;
   email: string;
-  rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+  rol: 'super_admin' | 'admin' | 'docente';
 } | null> {
   const sql = getSql();
   const rows = await sql<
@@ -220,7 +220,7 @@ export async function resolverStaffDev(email: string): Promise<{
       user_id: string;
       nombre: string;
       email: string;
-      rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+      rol: 'super_admin' | 'admin' | 'docente';
     }[]
   >`
     select p.user_id, p.nombre, coalesce(p.email, u.email) as email, p.rol::text as rol
@@ -243,7 +243,7 @@ export async function resolverStaffPorId(userId: string): Promise<{
   userId: string;
   nombre: string;
   email: string;
-  rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+  rol: 'super_admin' | 'admin' | 'docente';
 } | null> {
   const sql = getSql();
   const rows = await sql<
@@ -251,7 +251,7 @@ export async function resolverStaffPorId(userId: string): Promise<{
       user_id: string;
       nombre: string;
       email: string;
-      rol: 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+      rol: 'super_admin' | 'admin' | 'docente';
     }[]
   >`
     select p.user_id, p.nombre, coalesce(p.email, u.email) as email, p.rol::text as rol
@@ -362,14 +362,43 @@ export async function resolverAlumnoPorId(userId: string): Promise<AlumnoResuelt
 }
 
 /**
- * Auto-provisión de `lxp.perfiles` en el primer login (§1/§10): llama a la función
- * SECURITY DEFINER `lxp.provisionar_perfil()` (mig 0063), que lee CORA (`cora_usuario`)
- * y hace upsert del perfil del usuario actual. El LXP escribe SOLO su schema. Idempotente.
- * Se ejecuta impersonando al usuario (claims sub) para que `auth.uid()` resuelva dentro
- * de la función — mismo mecanismo que `comoAlumno` (no se toca public/auth).
+ * ÚNICO punto de auto-provisión de `lxp.perfiles` desde CORA (§1/§10 · fix P9). Lo invocan
+ * los TRES resolvers de sesión (alumno/staff/docente) ARRIBA, antes de cualquier RBAC, para
+ * que un usuario que CORA ya creó tenga su perfil la primera vez que entra —por cualquier
+ * puerta, no solo el Campus—. Llama al wrapper `lxp.provisionar_perfil()` (mig 0077), que
+ * delega en `lxp.provisionar_perfil_de(auth.uid())` donde vive el ÚNICO mapeo. SECURITY
+ * DEFINER + idempotente. Se impersona al usuario (claims sub) para que `auth.uid()` resuelva
+ * dentro de la función — mismo mecanismo que `comoAlumno` (no se toca public/auth).
  */
-export async function provisionarPerfil(userId: string): Promise<void> {
+export async function asegurarPerfilProvisionado(userId: string): Promise<void> {
   await comoAlumno(userId, async (sql) => {
     await sql`select lxp.provisionar_perfil()`;
   });
+}
+
+/**
+ * Rol en `lxp.perfiles` del usuario, o `null` si NO tiene perfil. Lo usan los resolvers de
+ * sesión para distinguir (tras provisionar) "sin perfil / sin acceso LXP" (asesor/desconocido)
+ * de "tiene perfil pero de otro rol" (p. ej. alumno en una puerta de staff) → negación/ruteo
+ * EXPLÍCITO, no un rebote mudo (fix P9 · req 4). Lectura de bootstrap (conexión owner).
+ */
+export async function rolDePerfil(userId: string): Promise<string | null> {
+  const sql = getSql();
+  const rows = await sql<{ rol: string }[]>`
+    select rol::text as rol from lxp.perfiles where user_id = ${userId} limit 1`;
+  return rows[0]?.rol ?? null;
+}
+
+/**
+ * INVARIANTE de writes de autoría del Studio (fix P9): un `UPDATE`/`DELETE` bajo RLS que no
+ * ve la fila (sin permiso de autoría o id inexistente) afecta 0 filas SIN error → la UI
+ * optimista "miente". Este helper TRUENA con un error claro si el write no afectó filas.
+ * `res.count` es el nº de filas afectadas en postgres.js (para UPDATE/DELETE sin RETURNING).
+ */
+export function afirmarFilas(res: { count: number }, contexto: string): void {
+  if (res.count === 0) {
+    throw new Error(
+      `No se pudo guardar (${contexto}): el write afectó 0 filas — sin permiso de autoría o el registro no existe.`,
+    );
+  }
 }

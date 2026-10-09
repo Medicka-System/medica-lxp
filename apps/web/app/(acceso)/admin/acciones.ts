@@ -3,7 +3,7 @@ import { authEsDev } from '@/lib/auth/config';
 import { getUsuarioSupabase } from '@/lib/supabase/server';
 import { resolverStaffPorId } from '@/lib/db.server';
 
-export type RolStaff = 'super_admin' | 'admin' | 'docente' | 'disenador_instruccional';
+export type RolStaff = 'super_admin' | 'admin' | 'docente';
 
 /**
  * Rol LXP del staff de la sesión Supabase actual, o `null` si no hay sesión o el

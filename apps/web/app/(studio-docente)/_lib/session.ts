@@ -1,7 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { resolverStaffDev, resolverStaffPorId } from '@/lib/db.server';
+import { asegurarPerfilProvisionado, resolverStaffDev, resolverStaffPorId } from '@/lib/db.server';
 import { authEsDev } from '@/lib/auth/config';
 import { getUsuarioSupabase } from '@/lib/supabase/server';
 
@@ -23,6 +23,10 @@ async function resolverStaffActual(): Promise<Awaited<ReturnType<typeof resolver
   }
   const userId = await getUsuarioSupabase();
   if (!userId) redirect('/admin'); // sin sesión → login del Studio (no el del alumno)
+  // MISMO punto de provisión que alumno/staff (fix P9): un docente que entra a su consola se
+  // provisiona solo. Si tras esto no hay perfil de staff, el caller rutea (asesor → /inicio →
+  // el resolver de alumno da la negación EXPLÍCITA sin-acceso).
+  await asegurarPerfilProvisionado(userId);
   return resolverStaffPorId(userId);
 }
 
@@ -55,7 +59,7 @@ export const requireDocente = cache(async (): Promise<SesionDocente> => {
   const staff = await resolverStaffActual();
   if (!staff) redirect('/inicio'); // alumno o sin perfil → fuera de la consola docente
   if (staff.rol !== 'docente') {
-    redirect(staff.rol === 'disenador_instruccional' ? '/studio/programas' : '/inicio');
+    redirect('/inicio'); // admin/super_admin → fuera de la consola docente
   }
   return { userId: staff.userId, nombre: staff.nombre, email: staff.email };
 });

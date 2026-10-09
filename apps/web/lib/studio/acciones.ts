@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAutoria, requireCurador } from '@/lib/studio/session';
-import { comoStaff } from '@/lib/db.server';
+import { afirmarFilas, comoStaff } from '@/lib/db.server';
 import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
@@ -54,7 +54,7 @@ export async function renombrarPrograma(programaId: string, nombre: string): Pro
   const limpio = nombre.trim();
   if (!limpio) return;
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.programas set nombre = ${limpio} where id = ${programaId}`;
+    afirmarFilas(await sql`update lxp.programas set nombre = ${limpio} where id = ${programaId}`, 'renombrar programa');
   });
   refrescar(programaId);
 }
@@ -293,22 +293,22 @@ export async function actualizarGrupo(
   await comoStaff(userId, async (sql) => {
     if (datos.nombre !== undefined) {
       const limpio = datos.nombre.trim();
-      if (limpio) await sql`update lxp.grupos set nombre = ${limpio} where id = ${grupoId}`;
+      if (limpio) afirmarFilas(await sql`update lxp.grupos set nombre = ${limpio} where id = ${grupoId}`, 'grupo: nombre');
     }
     if (datos.modalidad !== undefined) {
-      await sql`update lxp.grupos set modalidad = ${datos.modalidad}::lxp.modalidad where id = ${grupoId}`;
+      afirmarFilas(await sql`update lxp.grupos set modalidad = ${datos.modalidad}::lxp.modalidad where id = ${grupoId}`, 'grupo: modalidad');
     }
     if (datos.fechaInicio !== undefined) {
-      await sql`update lxp.grupos set fecha_inicio = ${datos.fechaInicio || null} where id = ${grupoId}`;
+      afirmarFilas(await sql`update lxp.grupos set fecha_inicio = ${datos.fechaInicio || null} where id = ${grupoId}`, 'grupo: fecha inicio');
     }
     if (datos.fechaFin !== undefined) {
-      await sql`update lxp.grupos set fecha_fin = ${datos.fechaFin || null} where id = ${grupoId}`;
+      afirmarFilas(await sql`update lxp.grupos set fecha_fin = ${datos.fechaFin || null} where id = ${grupoId}`, 'grupo: fecha fin');
     }
     if (datos.docenteId !== undefined) {
-      await sql`update lxp.grupos set docente_id = ${datos.docenteId || null} where id = ${grupoId}`;
+      afirmarFilas(await sql`update lxp.grupos set docente_id = ${datos.docenteId || null} where id = ${grupoId}`, 'grupo: docente');
     }
     if (datos.imagenPortada !== undefined) {
-      await sql`update lxp.grupos set imagen_portada = ${datos.imagenPortada || null} where id = ${grupoId}`;
+      afirmarFilas(await sql`update lxp.grupos set imagen_portada = ${datos.imagenPortada || null} where id = ${grupoId}`, 'grupo: portada');
     }
   });
   refrescarGrupo(grupoId);
@@ -338,7 +338,7 @@ export async function renombrarModulo(
   const limpio = nombre.trim();
   if (!limpio) return;
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.modulos set nombre = ${limpio} where id = ${moduloId}`;
+    afirmarFilas(await sql`update lxp.modulos set nombre = ${limpio} where id = ${moduloId}`, 'renombrar módulo');
   });
   refrescar(programaId);
 }
@@ -346,7 +346,7 @@ export async function renombrarModulo(
 export async function eliminarModulo(programaId: string, moduloId: string): Promise<void> {
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
-    await sql`delete from lxp.modulos where id = ${moduloId}`;
+    afirmarFilas(await sql`delete from lxp.modulos where id = ${moduloId}`, 'eliminar módulo');
   });
   refrescar(programaId);
 }
@@ -389,7 +389,7 @@ export async function actualizarHorasLeccion(
   const { userId } = await requireAutoria();
   const valor = Number.isFinite(horas) && horas >= 0 ? horas : 0;
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.lecciones set horas = ${valor} where id = ${leccionId}`;
+    afirmarFilas(await sql`update lxp.lecciones set horas = ${valor} where id = ${leccionId}`, 'horas de lección');
   });
   refrescar(programaId);
 }
@@ -408,9 +408,9 @@ export async function guardarConfigLeccion(
 ): Promise<void> {
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.lecciones set config = ${sql.json(
+    afirmarFilas(await sql`update lxp.lecciones set config = ${sql.json(
       config as Parameters<typeof sql.json>[0],
-    )} where id = ${leccionId}`;
+    )} where id = ${leccionId}`, 'config de lección');
   });
   refrescar(programaId);
 }
@@ -424,7 +424,7 @@ export async function renombrarLeccion(
   const limpio = nombre.trim();
   if (!limpio) return;
   await comoStaff(userId, async (sql) => {
-    await sql`update lxp.lecciones set nombre = ${limpio} where id = ${leccionId}`;
+    afirmarFilas(await sql`update lxp.lecciones set nombre = ${limpio} where id = ${leccionId}`, 'renombrar lección');
   });
   refrescar(programaId);
 }
@@ -432,7 +432,7 @@ export async function renombrarLeccion(
 export async function eliminarLeccion(programaId: string, leccionId: string): Promise<void> {
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
-    await sql`delete from lxp.lecciones where id = ${leccionId}`;
+    afirmarFilas(await sql`delete from lxp.lecciones where id = ${leccionId}`, 'eliminar lección');
   });
   refrescar(programaId);
 }
@@ -505,7 +505,7 @@ export async function guardarConfigForo(
 
     // 2. Persiste la config (con el ancla) en lecciones.config — fuente de verdad.
     const final: ConfigForo = { ...cfg, actividadId };
-    await sql`update lxp.lecciones set config = ${sql.json(final)} where id = ${leccionId}`;
+    afirmarFilas(await sql`update lxp.lecciones set config = ${sql.json(final)} where id = ${leccionId}`, 'config de foro (lección)');
   });
   refrescar(programaId);
 }

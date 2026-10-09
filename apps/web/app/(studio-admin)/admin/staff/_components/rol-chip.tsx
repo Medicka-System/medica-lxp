@@ -1,4 +1,4 @@
-import { ShieldCheck, SquarePen, Stethoscope } from 'lucide-react';
+import { ShieldCheck, Stethoscope } from 'lucide-react';
 import { softText } from '@/components/tokens';
 import type { RolStaff } from './contrato';
 
@@ -10,7 +10,6 @@ export const ROL_META: Record<RolStaff, { etiqueta: string; clase: string; Icono
     clase: 'border border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
     Icono: ShieldCheck,
   },
-  disenador_instruccional: { etiqueta: 'Diseñador', clase: 'bg-accent text-accent-foreground', Icono: SquarePen },
   docente: { etiqueta: 'Docente', clase: `border border-border bg-muted ${softText}`, Icono: Stethoscope },
 };
 

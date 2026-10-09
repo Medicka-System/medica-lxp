@@ -21,7 +21,7 @@ import type {
  */
 
 const STAFF_ROLES = new Set(['admin', 'super_admin']);
-const DOC_ROLES = new Set(['docente', 'disenador_instruccional']);
+const DOC_ROLES = new Set(['docente']);
 
 function iniDe(nombre: string): string {
   const p = nombre.trim().split(/\s+/).filter((x) => !/^(dr|dra)\.?$/i.test(x));

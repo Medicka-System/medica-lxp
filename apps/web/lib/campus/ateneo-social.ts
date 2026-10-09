@@ -58,7 +58,7 @@ const DOM_LABEL: Record<string, string> = {
   interpretacion: 'Interpretación',
   decision_medica: 'Decisión médica',
 };
-const STAFF_ROLES = new Set(['docente', 'admin', 'super_admin', 'disenador_instruccional']);
+const STAFF_ROLES = new Set(['docente', 'admin', 'super_admin']);
 
 type FilaPost = {
   id: string;

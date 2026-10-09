@@ -34,7 +34,6 @@ export default async function AdminAccesoPage({
       const staff = await resolverStaffPorId(userId);
       if (staff) {
         if (staff.rol === 'docente') redirect('/docente');
-        if (staff.rol === 'disenador_instruccional') redirect('/studio/programas');
         redirect('/admin/panel'); // admin | super_admin
       }
       // Autenticado pero sin perfil de staff → login + cierre de la sesión no-staff.

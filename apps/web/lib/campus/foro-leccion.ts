@@ -91,7 +91,7 @@ export type ForoLeccionData = {
 
 /* ───────────────────────────── Helpers puros ───────────────────────────── */
 
-const STAFF = new Set(['docente', 'admin', 'super_admin', 'disenador_instruccional']);
+const STAFF = new Set(['docente', 'admin', 'super_admin']);
 
 function inicialesDe(nombre: string): string {
   const partes = nombre.trim().split(/\s+/).filter((p) => !/^(dr|dra|dr\.|dra\.)$/i.test(p));

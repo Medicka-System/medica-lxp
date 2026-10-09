@@ -4,7 +4,8 @@ import { redirect } from 'next/navigation';
 import {
   resolverAlumnoDev,
   resolverAlumnoPorId,
-  provisionarPerfil,
+  asegurarPerfilProvisionado,
+  rolDePerfil,
   type AlumnoResuelto,
 } from './db.server';
 import { authEsDev } from './auth/config';
@@ -39,14 +40,20 @@ export const getSesionAlumno = cache(async (): Promise<SesionAlumno> => {
   const userId = await getUsuarioSupabase();
   if (!userId) redirect('/login');
 
-  let alumno = await resolverAlumnoPorId(userId);
-  if (!alumno) {
-    // Primer request autenticado sin perfil → auto-provisión desde CORA y reintento.
-    await provisionarPerfil(userId);
-    alumno = await resolverAlumnoPorId(userId);
-  }
-  // Autenticado pero CORA no lo reconoce como alumno provisionable → de vuelta al login.
-  if (!alumno) redirect('/login?e=sin-perfil');
+  // ÚNICO punto de provisión, ARRIBA (antes de resolver rol · fix P9): el perfil se crea
+  // desde CORA la 1ª vez que el usuario entra por cualquier puerta. Idempotente.
+  await asegurarPerfilProvisionado(userId);
 
-  return alumno;
+  const alumno = await resolverAlumnoPorId(userId);
+  if (alumno) return alumno;
+
+  // Sin perfil de ALUMNO tras provisionar → negación/ruteo EXPLÍCITO (no rebote mudo · req 4).
+  const rol = await rolDePerfil(userId);
+  if (rol === null) {
+    console.warn(`[sesion-alumno] ${userId}: sin perfil LXP tras provisionar (rol CORA sin mapeo: asesor/desconocido) → sin acceso.`);
+    redirect('/login?e=sin-acceso');
+  }
+  // Tiene perfil pero es STAFF (no alumno) → a su consola del Studio, no al login.
+  console.warn(`[sesion-alumno] ${userId}: perfil "${rol}" (staff) en ruta de Campus → al Studio.`);
+  redirect('/admin');
 });

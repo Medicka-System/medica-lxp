@@ -1,7 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { resolverStaffDev, resolverStaffPorId } from '@/lib/db.server';
+import { asegurarPerfilProvisionado, resolverStaffDev, resolverStaffPorId, rolDePerfil } from '@/lib/db.server';
 import { authEsDev } from '@/lib/auth/config';
 import { getUsuarioSupabase } from '@/lib/supabase/server';
 
@@ -12,8 +12,10 @@ import { getUsuarioSupabase } from '@/lib/supabase/server';
  */
 export type SesionStaff = NonNullable<Awaited<ReturnType<typeof resolverStaffDev>>>;
 
-/** Roles que construyen contenido (autoría · §5B): diseñador + admins. */
-const ROLES_AUTORIA = ['disenador_instruccional', 'admin', 'super_admin'] as const;
+/** Roles que construyen contenido (autoría · §5B). Empata con `lxp.es_autoria()` (mig 0077):
+ *  control_escolar→admin cubre el diseño instruccional; el rol disenador_instruccional quedó
+ *  inerte (el mapeo CORA→LXP nunca lo produce) y se retiró de app y SQL. */
+const ROLES_AUTORIA = ['admin', 'super_admin'] as const;
 
 /**
  * Roles que CURAN la biblioteca clínica (§5B): autoría + DOCENTE. El docente estructura
@@ -25,7 +27,7 @@ const ROLES_CURADURIA = [...ROLES_AUTORIA, 'docente'] as const;
 
 export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
   if (authEsDev()) {
-    const email = process.env.DEV_STAFF_EMAIL ?? 'disenador@seed.local';
+    const email = process.env.DEV_STAFF_EMAIL ?? 'admin-studio@seed.local';
     const staff = await resolverStaffDev(email);
     if (!staff) {
       throw new Error(
@@ -39,9 +41,19 @@ export const getSesionStaff = cache(async (): Promise<SesionStaff> => {
   // (p. ej. un alumno) → a su Campus; el rol concreto lo decide cada guard.
   const userId = await getUsuarioSupabase();
   if (!userId) redirect('/admin'); // sin sesión → login del Studio (no el del alumno)
+  // MISMO punto de provisión que el alumno (fix P9): un staff que entra por /admin se
+  // provisiona solo (control_escolar→admin, docente→docente, etc.), antes del RBAC.
+  await asegurarPerfilProvisionado(userId);
   const staff = await resolverStaffPorId(userId);
-  if (!staff) redirect('/inicio');
-  return staff;
+  if (staff) return staff;
+  // Sin perfil de staff tras provisionar → negación/ruteo EXPLÍCITO (no rebote mudo · req 4).
+  const rol = await rolDePerfil(userId);
+  if (rol === null) {
+    console.warn(`[sesion-staff] ${userId}: sin perfil LXP tras provisionar (rol CORA sin mapeo: asesor/desconocido) → sin acceso al Studio.`);
+    redirect('/admin?e=sin-acceso');
+  }
+  // Tiene perfil pero es alumno → a su Campus.
+  redirect('/inicio');
 });
 
 /**
@@ -76,6 +88,5 @@ export function etiquetaRol(rol: SesionStaff['rol']): string {
     super_admin: 'Súper administración',
     admin: 'Administración',
     docente: 'Docencia',
-    disenador_instruccional: 'Diseño instruccional',
   }[rol];
 }

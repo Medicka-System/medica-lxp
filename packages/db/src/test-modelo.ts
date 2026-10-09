@@ -76,10 +76,10 @@ async function main(): Promise<void> {
       if (!row) throw new Error(`No se encontró el perfil ${email}. ¿Corriste el seed?`);
       return row.user_id;
     };
-    const disenador = idPor('disenador@seed.local'); // autoría (§5B)
+    const adminStudio = idPor('admin-studio@seed.local'); // autoría (§5B · admin, es_autoria)
     const a1 = idPor('a1@seed.local'); // alumno con acceso
 
-    const claimsDisenador: Claims = { sub: disenador, role: 'authenticated' };
+    const claimsAdminStudio: Claims = { sub: adminStudio, role: 'authenticated' };
     const claimsA1: Claims = { sub: a1, role: 'authenticated' };
     const claimsAnon: Claims = { sub: null, role: 'anon' };
 
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     if (!modulo) throw new Error('No hay módulos en el seed.');
 
     // ── 5) La autoría crea teoría ordenable + una lección config-backed ─
-    await comoRollback(sql, claimsDisenador, async (tx) => {
+    await comoRollback(sql, claimsAdminStudio, async (tx) => {
       // Lección teoria → bloques ordenables.
       const lTeoria = (
         await tx<{ id: string }[]>`
