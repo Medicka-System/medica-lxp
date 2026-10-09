@@ -7,6 +7,8 @@
  * NUNCA se muestra el uuid; si no hay onAbrirPerfil, se pinta como texto resaltado no-clicable.
  */
 
+// (marcador de build — deploy web-only de prueba del patrón selectivo de deploy.sh)
+
 import { segmentarComentario } from './tipos';
 import { focusRing } from './ui';
 

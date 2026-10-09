@@ -2,17 +2,23 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # Deploy de UN comando del stack LXP "prisma"  ·  vive en /var/www/prisma/deploy.sh
 #
-#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh'          # despliega HEAD de main
-#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh <rama>'   # despliega otra rama
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh'          # FULL: las 3 imágenes (default)
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh web'      # SOLO web (front) — rápido
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh api'      # SOLO api
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh worker'   # SOLO worker
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh web api'  # combinables
+#   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh full'     # explícito = las 3
+#   BRANCH=otra ssh … 'bash /var/www/prisma/deploy.sh web'   # otra rama (ahora por ENV, no posicional)
 #
 # Qué hace:
 #   1) Trae el código a /var/www/prisma/repo con git (fetch + reset --hard a
-#      origin/<rama>). Determinista al HEAD; NO sube node_modules (git no los trackea).
+#      origin/$BRANCH). Determinista al HEAD; NO sube node_modules (git no los trackea).
 #      El VPS ya tiene llave SSH con acceso de lectura al repo (sin secreto nuevo).
-#   2) Construye las 3 imágenes del LXP con BuildKit + caché de capas (manifiestos
-#      primero → pnpm install cacheado), --memory=6g/--memory-swap=10g, NODE_OPTIONS
-#      y --platform linux/amd64. Build-args de Supabase tomados de /var/www/prisma/.env.
-#   3) `docker compose up -d` → recrea SOLO los servicios prisma-* (proyecto "prisma").
+#   2) Construye SOLO el/los servicio(s) del MODO con BuildKit + caché de capas (manifiestos
+#      primero → pnpm install cacheado + cache mount de .next/cache), --memory=6g/--memory-swap=10g,
+#      NODE_OPTIONS y --platform linux/amd64. Build-args de Supabase tomados de /var/www/prisma/.env.
+#   3) `docker compose up -d <svc…>` → recrea SOLO el/los servicio(s) del modo (como el CRM);
+#      en `full`, `up -d` sin nombres ensura TODOS los prisma-* (proyecto "prisma").
 #
 # PRIORIDAD #1 — NO TOCAR EL CRM:
 #   · SOLO opera dentro de /var/www/prisma y sobre imágenes campus-lxp-*.
@@ -28,7 +34,9 @@ REPO="$PRISMA/repo"
 COMPOSE="$PRISMA/docker-compose.yml"
 ENV_FILE="$PRISMA/.env"
 GIT_URL="git@github.com:Medicka-System/medica-lxp.git"
-BRANCH="${1:-main}"
+# Rama: ahora por ENV (BRANCH=otra ./deploy.sh …), NO por posicional — el/los POSICIONAL(es)
+# son el MODO (qué servicios reconstruir). Default main (igual que antes).
+BRANCH="${BRANCH:-main}"
 APP_URL="https://prisma.medicacapacitacion.com"
 
 export DOCKER_BUILDKIT=1
@@ -39,6 +47,32 @@ die() { echo -e "\n\033[1;31m!! $*\033[0m" >&2; exit 1; }
 
 [ -f "$ENV_FILE" ] || die "Falta $ENV_FILE"
 [ -f "$COMPOSE" ]  || die "Falta $COMPOSE"
+
+# ── Modo de deploy: QUÉ servicio(s) reconstruir/recrear ──
+#   (sin args) | full        → los 3 (web api worker) · comportamiento histórico
+#   web | api | worker       → SOLO ese servicio (como el CRM: build + up -d <svc>)
+#   combinables              → `./deploy.sh web api`
+#   arg desconocido          → ABORTA (no se adivina)
+# El guard anti-CRM, el git reset/clean y el cache de .next corren en TODOS los modos.
+SERVICIOS=()
+MODO_FULL=0
+if [ "$#" -eq 0 ]; then
+  MODO_FULL=1
+else
+  for arg in "$@"; do
+    case "$arg" in
+      full)           MODO_FULL=1 ;;
+      web|api|worker) SERVICIOS+=("$arg") ;;
+      *) die "Modo desconocido: '$arg'. Válidos: web, api, worker, full (o sin argumento = full)." ;;
+    esac
+  done
+fi
+if [ "$MODO_FULL" -eq 1 ]; then
+  SERVICIOS=(web api worker)
+fi
+# ¿Entra el servicio $1 en este deploy?
+en_servicios() { local s; for s in "${SERVICIOS[@]}"; do [ "$s" = "$1" ] && return 0; done; return 1; }
+log "Modo de deploy: $([ "$MODO_FULL" -eq 1 ] && echo 'full (web api worker)' || echo "solo ${SERVICIOS[*]}")"
 
 # ── Firma de salud del CRM (nombre + nº de reinicios + arranque). Si cambia, el CRM
 #    sufrió → abortamos. Fuente única de verdad para "no tocar el CRM". ──
@@ -108,13 +142,21 @@ build() {
   crm_ok   # tras cada build: ¿el CRM sigue intacto?
 }
 
-build campus-lxp-web apps/web/Dockerfile \
-  --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
-  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
-  --build-arg NEXT_PUBLIC_API_URL="$APP_URL" \
-  --build-arg NEXT_PUBLIC_APP_URL="$APP_URL"
-build campus-lxp-api    apps/api/Dockerfile
-build campus-lxp-worker apps/worker/Dockerfile
+# Solo se reconstruye el/los servicio(s) del modo (ver arriba). El cache mount de .next/cache
+# (BuildKit) sigue vivo dentro de `build` → el web-only es rápido.
+if en_servicios web; then
+  build campus-lxp-web apps/web/Dockerfile \
+    --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+    --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+    --build-arg NEXT_PUBLIC_API_URL="$APP_URL" \
+    --build-arg NEXT_PUBLIC_APP_URL="$APP_URL"
+fi
+if en_servicios api; then
+  build campus-lxp-api    apps/api/Dockerfile
+fi
+if en_servicios worker; then
+  build campus-lxp-worker apps/worker/Dockerfile
+fi
 
 # Redactor Presidio (§10): imagen ML pesada (modelos spaCy es_core_news_lg + Tesseract
 # HORNEADOS, ~min de build) y ESTABLE. Se reconstruye SOLO si falta (p. ej. tras un
@@ -137,8 +179,16 @@ fi
 
 # ── 3) Recrear SOLO prisma-* (proyecto "prisma"); el CRM es otro proyecto ──
 crm_ok
-log "docker compose up -d (solo prisma-*)"
-docker compose -f "$COMPOSE" up -d
+# `up -d` NOMBRANDO el/los servicio(s) (como el CRM): Compose no recrea los demás prisma-*
+# (api/worker NO se tocan en modo web). En `full` se omiten los nombres → ensura TODOS los
+# prisma-* (redis/minio/lrs/redactor incluidos), igual que antes.
+if [ "$MODO_FULL" -eq 1 ]; then
+  log "docker compose up -d (todos los prisma-*)"
+  docker compose -f "$COMPOSE" up -d
+else
+  log "docker compose up -d (solo: ${SERVICIOS[*]})"
+  docker compose -f "$COMPOSE" up -d "${SERVICIOS[@]}"
+fi
 crm_ok
 
 # Limpieza de capas colgantes (dangling): no borra imágenes en uso por el CRM.
