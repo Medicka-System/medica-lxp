@@ -26,7 +26,7 @@ import {
   Italic,
   List,
   ScanLine,
-  Search,
+  Smile,
   Sticker,
   Trash2,
   Upload,
@@ -34,10 +34,12 @@ import {
   X,
 } from "lucide-react";
 import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen } from "./tipos";
-import { Avatar, Chip, Estudio, Modal, focusRing, mono, softText } from "./ui";
+import { Avatar, Chip, Modal, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
+import { GifPicker } from "./GifPicker";
+import { EmojiPickerPopover } from "./EmojiPickerPopover";
 import { capaOverlay } from "@/components/ui/overlay";
-import { firmarSubidaMediaAteneo, gifsBuscar, gifsTrending, unfurlEnlace } from "@/lib/campus/ateneo-social-acciones";
+import { firmarSubidaMediaAteneo, unfurlEnlace } from "@/lib/campus/ateneo-social-acciones";
 
 // Límites de subida (Nivel 1): imagen ≤ 10 MB, video ≤ 50 MB.
 const MAX_IMAGEN = 10 * 1024 * 1024;
@@ -148,9 +150,26 @@ function Editor({
   placeholder: string;
   grande?: boolean;
 }) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
+  // Inserta el emoji en la POSICIÓN DEL CURSOR del textarea (como FB), no al final.
+  const insertarEmoji = (emoji: string) => {
+    const ta = taRef.current;
+    const start = ta?.selectionStart ?? texto.length;
+    const end = ta?.selectionEnd ?? texto.length;
+    setTexto(texto.slice(0, start) + emoji + texto.slice(end));
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = start + emoji.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
+
   return (
     <>
-      <div className="mt-3 flex gap-0.5">
+      <div className="mt-3 flex items-center gap-0.5">
         {[
           ["Negrita", Bold],
           ["Cursiva", Italic],
@@ -163,10 +182,30 @@ function Editor({
             </button>
           );
         })}
+        {/* Emoji (estilo FB: buscador + categorías + recientes). Abre HACIA ABAJO (el editor va arriba). */}
+        <span className="relative ml-auto">
+          <button
+            type="button"
+            aria-label="Emoji"
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen((o) => !o)}
+            className={`grid h-[30px] w-[30px] place-items-center rounded-md ${emojiOpen ? "text-secondary" : "text-muted-foreground"} hover:bg-muted ${focusRing}`}
+          >
+            <Smile aria-hidden className="h-[17px] w-[17px]" strokeWidth={1.75} />
+          </button>
+          <EmojiPickerPopover
+            abierto={emojiOpen}
+            onCerrar={() => setEmojiOpen(false)}
+            onEmoji={(e) => insertarEmoji(e)}
+            posicion="right"
+            direccion="down"
+          />
+        </span>
       </div>
       <label>
         <span className="sr-only">{placeholder}</span>
         <textarea
+          ref={taRef}
           rows={grande ? 3 : 2}
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
@@ -200,33 +239,24 @@ export function ComposerModal({
   const [temas, setTemas] = useState<string[]>([]);
   const [opciones, setOpciones] = useState<string[]>(["", ""]);
   const [cierra, setCierra] = useState(3);
-  const [archivos, setArchivos] = useState<{ file: File; nombre: string; tipo: "imagen" | "video"; progreso: number }[]>([]);
+  const [archivos, setArchivos] = useState<{ file: File; nombre: string; tipo: "imagen" | "video"; progreso: number; previewUrl: string }[]>([]);
   const [audiencia, setAudiencia] = useState<Audiencia>("ateneo");
   const [menuAud, setMenuAud] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [errorMedia, setErrorMedia] = useState<string | null>(null);
-  const [gifs, setGifs] = useState<GifItem[]>([]);
-  const [gifQ, setGifQ] = useState("");
   const [gifSel, setGifSel] = useState<GifItem | null>(null);
-  const [gifCargando, setGifCargando] = useState(false);
   // Enlace pegado → tarjeta OG (unfurl server-side con guard SSRF). Snapshot que se persiste.
   const [enlace, setEnlace] = useState<EnlacePreview | null>(null);
   const [enlaceCargando, setEnlaceCargando] = useState(false);
   const [enlaceDescartadas, setEnlaceDescartadas] = useState<string[]>([]);
   const enlaceUrlRef = useRef<string | null>(null); // última url para la que se disparó el fetch
 
-  // Al entrar al modo GIF, trae tendencias; la búsqueda es reactiva a gifQ (con debounce).
-  useEffect(() => {
-    if (modo !== "gif") return;
-    let vivo = true;
-    setGifCargando(true);
-    const q = gifQ.trim();
-    const t = setTimeout(async () => {
-      const res = q ? await gifsBuscar(q) : await gifsTrending();
-      if (vivo) { setGifs(res); setGifCargando(false); }
-    }, q ? 350 : 0);
-    return () => { vivo = false; clearTimeout(t); };
-  }, [modo, gifQ]);
+  // Revoca las object URLs del preview al desmontar (el composer puede cerrarse sin quitar
+  // cada archivo) → evita fugas de memoria. Un ref sigue el valor vivo de `archivos`.
+  const archivosRef = useRef(archivos);
+  archivosRef.current = archivos;
+  useEffect(() => () => archivosRef.current.forEach((a) => URL.revokeObjectURL(a.previewUrl)), []);
+
 
   // Detecta la 1ª URL del texto y pide su previsualización (debounce 500ms). El fetch OG lo hace
   // el `api` server-side con guard SSRF; el cliente nunca sale a la red. La encuesta no lleva texto.
@@ -514,21 +544,26 @@ export function ComposerModal({
             {archivos.length > 0 && (
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {archivos.map((a, i) => (
-                  <div key={i} className="relative overflow-hidden rounded-[10px]" style={{ aspectRatio: "1" }}>
-                    {a.progreso < 100 ? (
-                      <div className="grid h-full place-items-center bg-[color:var(--track)] text-center">
+                  <div key={i} className="relative overflow-hidden rounded-[10px] bg-black" style={{ aspectRatio: "1" }}>
+                    {/* Preview real del archivo elegido (imagen o 1er frame del video). */}
+                    {a.tipo === "video" ? (
+                      <video src={a.previewUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                    ) : (
+                      <img src={a.previewUrl} alt={a.nombre} className="h-full w-full object-cover" />
+                    )}
+                    {/* Overlay de progreso solo mientras sube (al publicar). */}
+                    {a.progreso < 100 && (
+                      <div className="absolute inset-0 grid place-items-center bg-black/60 text-center">
                         <div>
-                          <span className={`${mono} block text-[12px] font-bold ${softText}`}>{a.progreso}%</span>
-                          <span className="mx-auto mt-1.5 block h-1 w-[60px] overflow-hidden rounded-full bg-border">
+                          <span className={`${mono} block text-[12px] font-bold text-white`}>{a.progreso}%</span>
+                          <span className="mx-auto mt-1.5 block h-1 w-[60px] overflow-hidden rounded-full bg-white/30">
                             <span className="block h-full bg-primary" style={{ width: `${a.progreso}%` }} />
                           </span>
-                          <span className="mt-1 block text-[10px] text-muted-foreground">subiendo</span>
+                          <span className="mt-1 block text-[10px] text-white/80">subiendo</span>
                         </div>
                       </div>
-                    ) : (
-                      <Estudio ratio="1" play={false} />
                     )}
-                    <button type="button" onClick={() => setArchivos((s) => s.filter((_, j) => j !== i))} aria-label={`Quitar ${a.nombre}`} className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full text-white" style={{ background: "rgba(15,45,82,.85)" }}>
+                    <button type="button" onClick={() => setArchivos((s) => { const x = s[i]; if (x) URL.revokeObjectURL(x.previewUrl); return s.filter((_, j) => j !== i); })} aria-label={`Quitar ${a.nombre}`} className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full text-white" style={{ background: "rgba(15,45,82,.85)" }}>
                       <X aria-hidden className="h-3 w-3" strokeWidth={2.2} />
                     </button>
                   </div>
@@ -552,7 +587,8 @@ export function ComposerModal({
                       setErrorMedia(`"${f.name}" supera el máximo (${esVid ? "50" : "10"} MB).`);
                       return [];
                     }
-                    return [{ file: f, nombre: f.name, tipo: (esVid ? "video" : "imagen") as "imagen" | "video", progreso: 100 }];
+                    // Preview inmediato con el aspecto REAL del archivo (como FB), antes de subir.
+                    return [{ file: f, nombre: f.name, tipo: (esVid ? "video" : "imagen") as "imagen" | "video", progreso: 100, previewUrl: URL.createObjectURL(f) }];
                   });
                   if (nuevos.length) setErrorMedia(null);
                   setArchivos((s) => [...s, ...nuevos].slice(0, 8));
@@ -563,54 +599,14 @@ export function ComposerModal({
           </>
         )}
 
-        {/* ── GIF (Giphy · hotlink al CDN, sin subida · §3) ── */}
+        {/* ── GIF (Giphy · componente REUSABLE, mismo que en comentarios · §3) ── */}
         {modo === "gif" && (
-          <>
+          <div className="mt-3">
             <Editor texto={texto} setTexto={setTexto} placeholder="Agregue un comentario…" grande={false} />
-            <div className="relative mt-3">
-              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={1.75} />
-              <input
-                type="search"
-                value={gifQ}
-                onChange={(e) => setGifQ(e.target.value)}
-                placeholder="Buscar GIFs en GIPHY…"
-                aria-label="Buscar GIFs"
-                className={`h-11 w-full rounded-[11px] border-[1.5px] border-border bg-card pl-9 pr-3 text-[13px] font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground ${focusRing}`}
-              />
+            <div className="mt-3">
+              <GifPicker onSelect={(g) => setGifSel(gifSel?.id === g.id ? null : g)} selId={gifSel?.id} />
             </div>
-            <div className="mt-3 max-h-[300px] overflow-y-auto rounded-[11px]">
-              {gifCargando && gifs.length === 0 ? (
-                <div className="grid h-24 place-items-center text-[12px] text-muted-foreground">Cargando GIFs…</div>
-              ) : gifs.length === 0 ? (
-                <div className="grid h-24 place-items-center text-[12px] text-muted-foreground">Sin resultados.</div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {gifs.map((g) => {
-                    const sel = gifSel?.id === g.id;
-                    return (
-                      <button
-                        key={g.id}
-                        type="button"
-                        onClick={() => setGifSel(sel ? null : g)}
-                        aria-pressed={sel}
-                        className={`relative overflow-hidden rounded-[10px] bg-muted ${focusRing} ${sel ? "ring-2 ring-primary ring-offset-1" : ""}`}
-                        style={{ aspectRatio: "1" }}
-                      >
-                        <img src={g.preview} alt="" loading="lazy" className="h-full w-full object-cover" />
-                        {sel && (
-                          <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-primary text-white">
-                            <Check aria-hidden className="h-3 w-3" strokeWidth={2.6} />
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {/* Atribución obligatoria (ToS de Giphy) */}
-            <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Powered by GIPHY</p>
-          </>
+          </div>
         )}
 
         {/* ── ENCUESTA ── */}

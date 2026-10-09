@@ -138,6 +138,21 @@ body {
   zoom: var(--ui-zoom);
 }
 
+/* ── Desbordes de texto (global · patrón redes sociales) ──────────────────────
+   Una URL o palabra larguísima SIN espacios (pega-un-link, token, RFC) rompía el
+   contenedor y empujaba el layout. `overflow-wrap: anywhere` permite partirla cuando
+   no cabe; aplica a todo bloque de texto del proyecto (post/comentario/chat/ficha). */
+p, h1, h2, h3, h4, h5, h6, a, li, blockquote, figcaption, dd, dt, label, summary {
+  overflow-wrap: anywhere;
+}
+/* Los hijos de un contenedor flex tienen `min-width:auto` por defecto → no se encogen
+   bajo su contenido y el texto largo desborda. `min-width:0` lo corrige sin afectar a
+   los que fijan su tamaño con `shrink-0` (ahí min-width:0 es inocuo). Patrón estándar. */
+.flex > *,
+.inline-flex > * {
+  min-width: 0;
+}
+
 /* Contra-zoom del visor DICOM (Cornerstone, §4.7): anula el zoom del body para que el
    lienzo renderice a escala NATURAL (zoom × 1/zoom = 1) y el mapeo clic→canvas y las
    mediciones/anotaciones NO se corran. Con --ui-zoom 0.9 resuelve a 1/0.9 = 1.111…

@@ -144,26 +144,40 @@ export function BarraInteracciones({
 
   return (
     <>
-      <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
-        <span className="flex items-center">
-          <span className="flex">
-            {post.reacciones.top.map((k, i) => (
-              <span
-                key={k}
-                aria-hidden
-                className={`grid h-[26px] w-[26px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1.5" : ""}`}
-                style={{ background: REACCIONES[k].fondo }}
-              >
-                <EmojiReaccion tipo={k} size={17} animar={false} />
+      {/* Resumen (estilo FB): la fila de conteos solo aparece si HAY algo que contar.
+          Sin reacciones ni comentarios ni compartidos → no se dibuja nada (antes salía un "0"
+          suelto con la fila de emojis vacía). */}
+      {(post.reacciones.total > 0 || post.comentarios > 0 || post.compartidos > 0) && (
+        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+          {post.reacciones.total > 0 && (
+            <span className="flex items-center">
+              <span className="flex">
+                {post.reacciones.top.map((k, i) => (
+                  <span
+                    key={k}
+                    aria-hidden
+                    className={`grid h-[26px] w-[26px] place-items-center rounded-full border-2 border-card ${i ? "-ml-1.5" : ""}`}
+                    style={{ background: REACCIONES[k].fondo }}
+                  >
+                    <EmojiReaccion tipo={k} size={17} animar={false} />
+                  </span>
+                ))}
               </span>
-            ))}
-          </span>
-          <span className={`${mono} ml-[7px] text-[12px] text-muted-foreground`}>{post.reacciones.total}</span>
-        </span>
-        <button type="button" onClick={() => onComentar(post.id)} className={`ml-auto text-[12px] text-muted-foreground hover:underline ${focusRing}`}>
-          {post.comentarios} comentarios · {post.compartidos} compartidos
-        </button>
-      </div>
+              <span className={`${mono} ml-[7px] text-[12px] text-muted-foreground`}>{post.reacciones.total}</span>
+            </span>
+          )}
+          {(post.comentarios > 0 || post.compartidos > 0) && (
+            <button type="button" onClick={() => onComentar(post.id)} className={`ml-auto text-[12px] text-muted-foreground hover:underline ${focusRing}`}>
+              {[
+                post.comentarios > 0 ? `${post.comentarios} ${post.comentarios === 1 ? "comentario" : "comentarios"}` : null,
+                post.compartidos > 0 ? `${post.compartidos} ${post.compartidos === 1 ? "compartido" : "compartidos"}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="relative mt-2.5 grid grid-cols-3 gap-1 border-t border-border pt-1.5">
         {/* Overlay del picker: montado siempre y conmutado por `data-open` para animar
@@ -220,17 +234,24 @@ export function PreviewComentarios({
 }) {
   return (
     <div className="mt-3 flex flex-col gap-2.5">
-      {lista.slice(0, 3).map((c) => (
-        <div key={c.id} className="flex gap-2.5">
-          <Avatar p={c.autor} url={c.autor.avatarUrl} size={30} />
-          <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2">
-            <p className={`text-[12.5px] leading-relaxed ${softText}`}>
-              <span className="font-bold text-foreground">{c.autor.nombre.replace(/^Dra?\. /, "")}</span>{" "}
-              {c.autor.rol === "docente" && <ChipDocente />} {c.texto}
-            </p>
+      {lista.slice(0, 3).map((c) => {
+        // Comentario-GIF (cuerpo = URL de Giphy): miniatura en vez de la URL cruda.
+        const gif = /^https:\/\/[a-z0-9.-]*giphy\.com\/\S+$/i.test((c.texto ?? "").trim()) ? c.texto.trim() : null;
+        return (
+          <div key={c.id} className="flex gap-2.5">
+            <Avatar p={c.autor} url={c.autor.avatarUrl} size={30} />
+            <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2">
+              <p className={`text-[12.5px] leading-relaxed ${softText}`}>
+                <span className="font-bold text-foreground">{c.autor.nombre.replace(/^Dra?\. /, "")}</span>{" "}
+                {c.autor.rol === "docente" && <ChipDocente />} {gif ? <span className="font-semibold text-secondary">GIF</span> : c.texto}
+              </p>
+              {gif && (
+                <img src={gif} alt="GIF" loading="lazy" className="mt-1.5 max-h-24 rounded-lg bg-black object-contain" />
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {total > lista.length && (
         <button type="button" onClick={onVerTodos} className={`self-start text-[12.5px] font-semibold text-secondary ${focusRing}`}>
           Ver los {total} comentarios
@@ -474,6 +495,36 @@ function EditarPostModal({
   );
 }
 
+/* ───────────── imagen de media (estilo FB) ─────────────
+ * FEED: aspecto NATURAL de la imagen con TOPE 4:5 (alto máx = ancho × 1.25). Horizontal /
+ * cuadrada / vertical ≤ 4:5 → completas, SIN recorte. Más altas que 4:5 → se topan a 4:5 con
+ * `object-cover` (solo esas). La relación natural se lee en `onLoad` (no la sabemos en SSR).
+ * DETALLE: imagen COMPLETA (object-contain) con tope de alto por viewport — NUNCA cortada. */
+function ImagenMedia({ src, enDetalle, onAbrir }: { src: string; enDetalle: boolean; onAbrir: () => void }) {
+  const [capada, setCapada] = useState(false);
+  if (enDetalle) {
+    return <img src={src} alt="" className="mx-auto max-h-[78vh] w-auto max-w-full rounded-[10px] bg-black object-contain" />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      className={`block w-full overflow-hidden rounded-[10px] bg-black ${capada ? "aspect-[4/5]" : ""} ${focusRing}`}
+    >
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onLoad={(e) => {
+          const t = e.currentTarget;
+          if (t.naturalWidth && t.naturalHeight > t.naturalWidth * 1.25) setCapada(true);
+        }}
+        className={capada ? "h-full w-full object-cover" : "block h-auto w-full"}
+      />
+    </button>
+  );
+}
+
 /* ───────────── el post ───────────── */
 
 export function PostCard({
@@ -486,6 +537,7 @@ export function PostCard({
   onAbrirPerfil,
   visorCaso,
   pedagogiaCaso,
+  enDetalle = false,
 }: {
   post: Post;
   yo: Persona;
@@ -499,6 +551,8 @@ export function PostCard({
   visorCaso?: React.ReactNode;
   /** Bloque pedagógico (viñeta/hallazgos/diagnóstico · solo en el detalle), debajo del visor. */
   pedagogiaCaso?: React.ReactNode;
+  /** En el DETALLE la imagen única se muestra COMPLETA (sin recorte); en el feed, con tope 4:5. */
+  enDetalle?: boolean;
 }) {
   // Menú ⋯ (B4): edición/eliminación son del AUTOR; copiar/ocultar sobre el ajeno.
   const esPropio = post.autor.id === yo.id;
@@ -658,39 +712,53 @@ export function PostCard({
 
   if (post.tipo === "media") {
     const [a, ...resto] = post.piezas ?? [];
-    // Tile por pieza: VIDEO/GIF → elemento directo que LLENA la celda (h-full). IMAGEN → mismo
-    // patrón (img h-full dentro del botón que abre el detalle). OJO: NO envolver la imagen en
-    // `<Estudio ratio="auto">`: su único hijo es un <img absolute>, así que el marco colapsaba a
-    // 0px de alto dentro de la celda de altura fija → la foto salía EN BLANCO (el <img> estaba en
-    // el DOM, con URL firmada y 200, pero invisible). El fallback sin src usa una relación fija.
+    const multi = resto.length > 0;
+    // MULTI (2-3): mosaico RECORTADO (como FB) — cada celda llena su hueco con object-cover.
     const tile = (p: { tipo: "imagen" | "video" | "gif"; src?: string }, tamanoPlay?: number) =>
       p.tipo === "gif" && p.src ? (
-        // GIF: imagen animada (hotlink Giphy) — <img> anima el .gif nativamente. Tile simple.
-        <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-contain" />
+        <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-black object-contain" />
       ) : p.tipo === "video" && p.src ? (
-        <video controls preload="metadata" src={p.src} className="h-full w-full bg-sidebar object-cover" />
+        <video controls preload="metadata" src={p.src} className="h-full w-full bg-black object-cover" />
       ) : p.tipo === "imagen" && p.src ? (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
-          <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-sidebar object-cover" />
+          <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-black object-cover" />
         </button>
       ) : (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
           <Estudio ratio="16 / 10" poster={p.src} play={p.tipo === "video"} tamanoPlay={tamanoPlay} />
         </button>
       );
+    // SINGLE: aspecto NATURAL por tipo. Imagen → ImagenMedia (tope 4:5 / completa en detalle);
+    // gif/video → letterbox NEGRO a tamaño natural, con tope de alto (no recorta).
+    const topeAlto = enDetalle ? "max-h-[78vh]" : "max-h-[70vh]";
+    const single = (p: { tipo: "imagen" | "video" | "gif"; src?: string }) =>
+      p.tipo === "imagen" && p.src ? (
+        <ImagenMedia src={p.src} enDetalle={enDetalle} onAbrir={() => onAbrir(post.id)} />
+      ) : p.tipo === "gif" && p.src ? (
+        <img src={p.src} alt="" loading="lazy" className={`w-full ${topeAlto} rounded-[10px] bg-black object-contain`} />
+      ) : p.tipo === "video" && p.src ? (
+        <video controls preload="metadata" src={p.src} className={`w-full ${topeAlto} rounded-[10px] bg-black object-contain`} />
+      ) : (
+        <button type="button" onClick={() => onAbrir(post.id)} className={`block w-full overflow-hidden rounded-[10px] ${focusRing}`}>
+          <Estudio ratio="16 / 10" poster={p.src} play={p.tipo === "video"} />
+        </button>
+      );
     return (
       <article className={`${card} px-5 py-[18px]`}>
         <Cabecera menu={menu} onAbrirPerfil={onAbrirPerfil} post={post} chip={<Chip icono={<ImageIcon aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>{post.piezas.length} {post.piezas.length === 1 ? "pieza" : "piezas"}</Chip>} />
         <p className={`mt-3.5 text-[14px] leading-relaxed ${softText}`}>{textoLocal ?? post.texto}</p>
-        {/* Grilla de medios: SOLO si hay al menos una pieza (si no, el post queda como texto). */}
-        {a && (
-          <div className={`mt-3 grid h-[250px] w-full gap-1.5 overflow-hidden rounded-[10px] ${resto.length ? "grid-cols-[2fr_1fr] grid-rows-2" : ""}`}>
-            <span className={`overflow-hidden rounded-[10px] ${resto.length ? "row-span-2" : ""}`}>{tile(a)}</span>
-            {resto.slice(0, 2).map((p, i) => (
-              <span key={i} className="overflow-hidden rounded-[10px]">{tile(p, 40)}</span>
-            ))}
-          </div>
-        )}
+        {/* Media: SOLO si hay al menos una pieza (si no, el post queda como texto). */}
+        {a &&
+          (multi ? (
+            <div className="mt-3 grid h-[320px] w-full grid-cols-[2fr_1fr] grid-rows-2 gap-1.5 overflow-hidden rounded-[10px]">
+              <span className="row-span-2 overflow-hidden rounded-[10px]">{tile(a)}</span>
+              {resto.slice(0, 2).map((p, i) => (
+                <span key={i} className="overflow-hidden rounded-[10px]">{tile(p, 40)}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3">{single(a)}</div>
+          ))}
         {interacciones}
         {preview}
       </article>
