@@ -37,6 +37,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import base64
 import io
 import logging
 import os
@@ -69,6 +70,18 @@ MAX_DIGIT_RATIO = 0.1
 PAD = int(os.environ.get("REDACTOR_PAD", "6"))
 # SOLO el nombre del paciente. (PatientID excluido por decisión del proyecto.)
 ENTITIES = ["PERSON"]
+
+# ── Thumbnail (§5A/§10) ──────────────────────────────────────────────────────
+# El thumb se genera SIEMPRE del frame YA REDACTADO (nunca del original · §10). Borde
+# largo ~480 px, JPEG calidad ~72. Viaja base64 en el header X-Thumb-B64 (ADITIVO: el
+# cuerpo sigue siendo el binario redactado). Para no rebasar el límite de header del
+# cliente (undici/Node ~16 KB total), si el base64 crece de más se baja calidad y luego
+# tamaño; si aún así no cabe, se omite el thumb (el worker deja estudio_thumb_ref null →
+# fallback raster-cliente). Nunca es bloqueante: un fallo de thumb no cuarentena el caso.
+THUMB_BORDE = int(os.environ.get("REDACTOR_THUMB_BORDE", "480"))
+THUMB_CALIDAD = int(os.environ.get("REDACTOR_THUMB_CALIDAD", "72"))
+# Tope del base64 (chars) para quedar bajo el límite de header del cliente, con margen.
+THUMB_MAX_B64 = int(os.environ.get("REDACTOR_THUMB_MAX_B64", "14000"))
 
 app = FastAPI(title="Campus LXP · Redactor DICOM (Presidio)", version="2.0.0")
 
@@ -215,6 +228,33 @@ def _pil_rgb(frame: np.ndarray, samples: int) -> Image.Image:
     return Image.fromarray(f8, "L").convert("RGB")
 
 
+def _thumb_b64(img: Image.Image) -> str:
+    """Genera el thumbnail JPEG (base64) desde una imagen YA REDACTADA (§10).
+
+    `img` debe ser el frame redactado (salida verificada), NUNCA el original. Redimensiona
+    al borde largo THUMB_BORDE (manteniendo aspecto) y guarda JPEG. Si el base64 supera
+    THUMB_MAX_B64 (límite de header del cliente), baja calidad y luego tamaño; si aun así
+    no cabe, devuelve "" (sin thumb → el worker deja la ref null → fallback). No lanza."""
+    try:
+        base = img.convert("RGB")
+        base.thumbnail((THUMB_BORDE, THUMB_BORDE))  # in-place, mantiene proporción
+        for borde in (THUMB_BORDE, 360, 256):
+            work = base
+            if borde != THUMB_BORDE:
+                work = base.copy()
+                work.thumbnail((borde, borde))
+            for calidad in (THUMB_CALIDAD, 60, 50, 40):
+                buf = io.BytesIO()
+                work.save(buf, format="JPEG", quality=calidad, optimize=True)
+                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                if len(b64) <= THUMB_MAX_B64:
+                    return b64
+        return ""  # no cupo bajo el límite → sin thumb (no bloquea)
+    except Exception as e:  # noqa: BLE001
+        log.warning("thumb no generado: %s", e)
+        return ""
+
+
 def _verificar_limpia(img: Image.Image) -> Tuple[bool, int]:
     """VERIFICACIÓN §10: re-corre OCR+NER sobre la imagen YA redactada. Limpia si NO queda
     ninguna caja de nombre (`redactar`) NI línea dudosa (`revisar`). Devuelve (limpia?, n_restantes)."""
@@ -224,8 +264,9 @@ def _verificar_limpia(img: Image.Image) -> Tuple[bool, int]:
 
 
 # ── Cabeceras de respuesta ──────────────────────────────────────────────────
-def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "") -> Response:
-    """Éxito verificado: se devuelve el binario REDACTADO (sin PII quemada)."""
+def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "", thumb_b64: str = "") -> Response:
+    """Éxito verificado: se devuelve el binario REDACTADO (sin PII quemada). El thumb
+    (base64 del frame YA redactado · §10) viaja ADITIVO en X-Thumb-B64; "" = sin thumb."""
     return Response(
         content=body,
         media_type=media,
@@ -235,6 +276,7 @@ def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "") -> Response:
             "X-Redaccion-Fallida": "0",
             "X-Entidad": "PERSON",
             "X-Transfer-Syntax-In": ts_in,
+            "X-Thumb-B64": thumb_b64,
         },
     )
 
@@ -285,11 +327,14 @@ def _redact_imagen(data: bytes, content_type: str) -> Response:
         cuerpo = out.getvalue()
 
         # VERIFICACIÓN §10: re-abrir la salida y re-OCR. Si sobrevive un nombre → FALLO.
-        limpia, restantes = _verificar_limpia(Image.open(io.BytesIO(cuerpo)).convert("RGB"))
+        verif = Image.open(io.BytesIO(cuerpo)).convert("RGB")
+        limpia, restantes = _verificar_limpia(verif)
         if not limpia:
             return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", content_type)
-        log.info("redact IMG ok content_type=%s redacciones=%d", content_type, len(cajas))
-        return _ok(cuerpo, media, len(cajas), content_type)
+        # Thumb desde la imagen YA REDACTADA y VERIFICADA (§10 · nunca del original).
+        thumb = _thumb_b64(verif)
+        log.info("redact IMG ok content_type=%s redacciones=%d thumb=%d", content_type, len(cajas), len(thumb))
+        return _ok(cuerpo, media, len(cajas), content_type, thumb)
     except Exception as e:  # noqa: BLE001
         return _fallo(f"img:{e}", content_type)
 
@@ -358,17 +403,20 @@ def _redact_dicom(data: bytes) -> Response:
             rarr = rr.pixel_array.reshape(
                 (rframes, rows, cols, 3) if samples == 3 else (rframes, rows, cols)
             )
-            limpia, restantes = _verificar_limpia(_pil_rgb(rarr[0], samples))
+            verif = _pil_rgb(rarr[0], samples)
+            limpia, restantes = _verificar_limpia(verif)
         except Exception as e:  # noqa: BLE001
             return _fallo(f"verificacion-relectura:{e}", ts_in)
         if not limpia:
             return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", ts_in)
 
+        # Thumb desde el frame 0 YA REDACTADO (re-leído de la salida · §10): nunca el original.
+        thumb = _thumb_b64(verif)
         log.info(
-            "redact DICOM ok ts_in=%s redacciones=%d frames=%d ocr=%d",
-            ts_in, len(cajas), frames, len(ocr_texto),
+            "redact DICOM ok ts_in=%s redacciones=%d frames=%d ocr=%d thumb=%d",
+            ts_in, len(cajas), frames, len(ocr_texto), len(thumb),
         )
-        return _ok(cuerpo, "application/dicom", len(cajas), ts_in)
+        return _ok(cuerpo, "application/dicom", len(cajas), ts_in, thumb)
     except Exception as e:  # noqa: BLE001
         return _fallo(f"redact:{e}", ts_in)
 

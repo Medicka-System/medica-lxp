@@ -209,6 +209,11 @@ export type EstudioAlumno = {
   nota?: string;
   /** ¿El docente ya abrió este estudio? `false` = nuevo → puntito verde en la card de la rejilla. */
   vistoDocente: boolean;
+  /**
+   * URL firmada ESTABLE del thumb (JPEG server-side, familia B · media/imagenes/*). `null` =
+   * sin thumb → la card cae al raster-cliente (MiniaturaEstudio · fallback de transición).
+   */
+  thumbUrl: string | null;
 };
 
 /** Cabecera del alumno en la rejilla de Validación (identidad + cifras). */

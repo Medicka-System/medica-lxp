@@ -113,8 +113,22 @@ export interface DestinoAnonimizado {
   urlSubida: string;
 }
 
+/**
+ * Destino firmado del THUMBNAIL del estudio (JPEG del primer frame YA redactado · §10).
+ * Vive bajo `media/imagenes/casos/{casoId}/thumb.jpg` → lo sirve la familia B estable
+ * (URL firmada cacheable). El worker sube aquí el thumb de la serie 0 al REEMPLAZAR.
+ */
+export interface DestinoThumb {
+  /** Clave del JPEG del thumb en object storage (`media/imagenes/casos/{id}/thumb.jpg`). */
+  ref: string;
+  /** URL firmada de ESCRITURA del thumb. */
+  urlSubida: string;
+}
+
 export interface FirmarAnonimizadosResp {
   destinos: DestinoAnonimizado[];
+  /** Destino del thumb del caso (serie 0). El worker lo usa solo al reemplazar el estudio. */
+  thumb?: DestinoThumb;
 }
 
 /**

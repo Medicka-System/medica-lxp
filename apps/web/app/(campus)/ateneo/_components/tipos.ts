@@ -101,6 +101,12 @@ export type CasoBitacora = {
   fecha: string;
   validado: boolean;
   poster?: string;
+  /**
+   * URL firmada ESTABLE del thumb (JPEG server-side, familia B · media/imagenes/*). `null`/ausente
+   * = sin thumb → `EstudioCaso` cae al raster-cliente (fallback de transición). Resuelta
+   * server-side (feed: vía caso_presentado; composer: del caso propio) sin exponer el id (§10).
+   */
+  thumbUrl?: string | null;
 };
 
 /**

@@ -200,15 +200,18 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
   // `bitacora_casos` siga privada (owner/staff) — sin exponer la fila completa ni PII (§10).
   // Antes se leía `bitacora_casos` directo bajo RLS owner-only → el caso llegaba vacío.
   const casos = idsPostCaso.length
-    ? await sql<{ post_id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; created_at: Date }[]>`
+    ? await sql<{ post_id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; estudio_thumb_ref: string | null; created_at: Date }[]>`
         select p.id as post_id, cp.organo, cp.dominio_iaim, cp.hallazgos,
-               cp.estado_validacion as estado, cp.estudio_series, cp.created_at
+               cp.estado_validacion as estado, cp.estudio_series, cp.estudio_thumb_ref, cp.created_at
         from lxp.posts_ateneo p
         cross join lateral lxp.caso_presentado(p.id) cp
         where p.id = any(${idsPostCaso})`
     : [];
   const casoPorPost = new Map<string, (typeof casos)[number]>();
   for (const c of casos) casoPorPost.set(c.post_id, c);
+  // Thumb ESTABLE del caso presentado (familia B): se firma server-side la ref media/imagenes/*
+  // (el id de bitácora NO se expone a la audiencia · §10). Firma en lote.
+  const thumbUrlCaso = await firmarLecturaImagenes(casos.map((c) => c.estudio_thumb_ref));
   const aCaso = (postId: string, tituloPost: string): CasoBitacora | null => {
     const c = casoPorPost.get(postId);
     if (!c) return null;
@@ -224,6 +227,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       loops,
       fecha: fmtDia(c.created_at),
       validado: c.estado === 'aprobado',
+      thumbUrl: c.estudio_thumb_ref ? thumbUrlCaso[c.estudio_thumb_ref] ?? null : null,
     };
   };
 
@@ -386,13 +390,15 @@ export async function getAteneoSocial(
     };
 
     // ── Mis casos (para presentar en el composer): anonimizados/validados primero ──
-    const misCasosFilas = await sql<{ id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; anonimizado_en: Date | null; created_at: Date }[]>`
+    const misCasosFilas = await sql<{ id: string; organo: string | null; dominio_iaim: string | null; hallazgos: string | null; estado: string; estudio_series: unknown; estudio_thumb_ref: string | null; anonimizado_en: Date | null; created_at: Date }[]>`
       select id, organo, dominio_iaim, hallazgos, estado_validacion::text as estado,
-             estudio_series, anonimizado_en, created_at
+             estudio_series, estudio_thumb_ref, anonimizado_en, created_at
       from lxp.bitacora_casos
       where id_alumno = ${userId} and anonimizado_en is not null
       order by (estado_validacion = 'aprobado') desc, created_at desc
       limit 12`;
+    // Thumb ESTABLE del caso propio (familia B): firma en lote las refs media/imagenes/*.
+    const thumbUrlMisCasos = await firmarLecturaImagenes(misCasosFilas.map((c) => c.estudio_thumb_ref));
     const misCasos: CasoBitacora[] = misCasosFilas.map((c) => {
       const series = Array.isArray(c.estudio_series) ? (c.estudio_series as { frames?: unknown[] }[]) : [];
       return {
@@ -405,6 +411,7 @@ export async function getAteneoSocial(
         loops: series.filter((s) => Array.isArray(s.frames) && s.frames.length > 1).length,
         fecha: fmtDia(c.created_at),
         validado: c.estado === 'aprobado',
+        thumbUrl: c.estudio_thumb_ref ? thumbUrlMisCasos[c.estudio_thumb_ref] ?? null : null,
       };
     });
 

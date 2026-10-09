@@ -62,6 +62,15 @@ export class StorageService {
   }
 
   /**
+   * Clave del THUMBNAIL de un caso/estudio (JPEG del primer frame YA redactado · §10).
+   * Vive bajo `media/imagenes/*` A PROPÓSITO: así lo sirve la familia B estable
+   * (`media/imagenes/firmar-lectura`) sin tocar su filtro. Determinista por `casoId`.
+   */
+  claveThumbCaso(casoId: string): string {
+    return `media/imagenes/casos/${casoId}/thumb.jpg`;
+  }
+
+  /**
    * Clave de un DOCUMENTO de contenido de la Biblioteca (PDF/Word/PowerPoint · §5C).
    * Educativo, sin PII → NO pasa por el redactor Presidio (§10). Se lee con URL firmada.
    */

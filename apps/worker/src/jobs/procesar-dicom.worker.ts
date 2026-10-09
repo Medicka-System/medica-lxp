@@ -4,6 +4,7 @@ import AdmZip from 'adm-zip';
 import {
   QUEUE_PROCESAR_DICOM,
   type DestinoAnonimizado,
+  type DestinoThumb,
   type FirmarAnonimizadosResp,
   type ProcesarDicomJob,
   type TablaEstudioDicom,
@@ -52,6 +53,8 @@ type SerieProcesada = {
   /** Cajas de NOMBRE ennegrecidas por Presidio. */
   redacciones: number;
   revisionManual: boolean;
+  /** Thumb JPEG del primer frame YA REDACTADO (§10); null si el redactor no lo emitió. */
+  thumb: Buffer | null;
 };
 
 /** Resultado de redactar la PII quemada de un `.dcm` con el servicio Presidio. */
@@ -61,6 +64,8 @@ type RedaccionPresidio = {
   redacciones: number;
   /** El OCR vio texto pero NER no reconoció un nombre → cuarentena (revisión humana). */
   revisionManual: boolean;
+  /** Thumb JPEG (del frame YA redactado · §10) decodificado del header X-Thumb-B64; null si no vino. */
+  thumb: Buffer | null;
 };
 
 /** Traza auditable agregada del estudio (§10) — forma JSON serializable. */
@@ -200,8 +205,9 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       }
 
       // 3) Pedir al `api` las URLs firmadas de escritura (una por serie), con la extensión
-      //    de cada una (dcm/jpg/png). El `api` es el único firmante (§3).
-      const destinos = await this.firmarAnonimizados(
+      //    de cada una (dcm/jpg/png). El `api` es el único firmante (§3). Incluye el destino
+      //    del THUMB del caso (serie 0), que se usa solo al REEMPLAZAR.
+      const { destinos, thumb: destinoThumb } = await this.firmarAnonimizados(
         casoId,
         tabla,
         procesadas.length,
@@ -235,11 +241,33 @@ export class ProcesarDicomWorker extends TrabajadorBase {
         await this.borrarCrudo(fuente.urlBorradoCrudo);
       }
 
+      // 5.5) THUMB del caso (JPEG del primer frame YA REDACTADO · §10). Solo al REEMPLAZAR:
+      //      al anexar, la serie 0 no cambia → se conserva el thumb existente (no se toca la
+      //      columna). Best-effort: si no hay thumb o falla la subida, queda estudio_thumb_ref
+      //      = null → el front cae al raster-cliente (fallback de transición). Un fallo del
+      //      thumb NUNCA rompe el job (el thumb es cosmético, no §10-bloqueante).
+      // `undefined` = no tocar la columna (anexar); `null`/ref = fijarla (reemplazar).
+      let thumbRef: string | null | undefined = undefined;
+      if (!anexar) {
+        thumbRef = null;
+        const thumbBuf = procesadas[0]?.thumb ?? null;
+        if (thumbBuf && destinoThumb) {
+          try {
+            await this.subirBinario(destinoThumb.urlSubida, thumbBuf, 'image/jpeg');
+            thumbRef = destinoThumb.ref;
+          } catch (e) {
+            this.logger.warn(
+              `Caso ${casoId} (${tabla}): no se pudo subir el thumb (se usará fallback): ${String(e)}`,
+            );
+          }
+        }
+      }
+
       // 6) Persistir. Al anexar, concatena a las existentes; al reemplazar, sólo las
       //    nuevas. La referencia del estudio se fija junto con anonimizado_en (CHECK 0014/0024).
       const series = anexar ? [...existentes, ...nuevas] : nuevas;
       const traza = this.agregarTraza(procesadas);
-      await this.guardarEstudio(tabla, casoId, series, traza);
+      await this.guardarEstudio(tabla, casoId, series, traza, thumbRef);
 
       this.logger.log(
         `Caso ${casoId} (${tabla}) ${anexar ? 'ampliado' : 'anonimizado'}: ${series.length} serie(s) ` +
@@ -319,6 +347,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       removidos_n: anon.traza.removidos_n,
       redacciones: red.redacciones,
       revisionManual: red.revisionManual,
+      thumb: red.thumb,
     };
   }
 
@@ -344,6 +373,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       removidos_n: 0,
       redacciones: red.redacciones,
       revisionManual: red.revisionManual,
+      thumb: red.thumb,
     };
   }
 
@@ -354,7 +384,7 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     cantidad: number,
     desde = 0,
     extensiones: string[] = [],
-  ): Promise<DestinoAnonimizado[]> {
+  ): Promise<{ destinos: DestinoAnonimizado[]; thumb?: DestinoThumb }> {
     const base = process.env.API_URL ?? 'http://localhost:8000';
     const resp = await fetch(
       `${base}/dicom/casos/${encodeURIComponent(casoId)}/ingesta/firmar-anonimizados`,
@@ -367,8 +397,8 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     if (!resp.ok) {
       throw new Error(`El api no firmó los anonimizados (${resp.status}).`);
     }
-    const { destinos } = (await resp.json()) as FirmarAnonimizadosResp;
-    return destinos;
+    const { destinos, thumb } = (await resp.json()) as FirmarAnonimizadosResp;
+    return { destinos, thumb };
   }
 
   /** Agrega las trazas por serie (tags + redacción Presidio) en una traza del estudio. */
@@ -414,10 +444,14 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       throw new Error(`El servicio redactor-dicom respondió ${resp.status}.`);
     }
     const redactado = Buffer.from(await resp.arrayBuffer());
+    // Thumb (base64 del frame YA redactado · §10) en el header X-Thumb-B64; "" = sin thumb.
+    const thumbB64 = resp.headers.get('x-thumb-b64') ?? '';
+    const thumb = thumbB64 ? Buffer.from(thumbB64, 'base64') : null;
     return {
       buffer: redactado,
       redacciones: Number(resp.headers.get('x-redacciones') ?? '0'),
       revisionManual: resp.headers.get('x-revision-manual') === '1',
+      thumb,
     };
   }
 
@@ -435,12 +469,17 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     }
   }
 
-  /** Persiste el estudio anonimizado (estado + ref + series + traza) en la tabla dueña. */
+  /**
+   * Persiste el estudio anonimizado (estado + ref + series + traza) en la tabla dueña.
+   * `thumbRef`: `undefined` = no tocar `estudio_thumb_ref` (anexar); `string`/`null` = fijarla
+   * (reemplazar; la ref del JPEG del thumb o null si no se generó → fallback raster-cliente).
+   */
   private async guardarEstudio(
     tabla: TablaEstudioDicom,
     casoId: string,
     series: SeriePersistida[],
     traza: TrazaEstudio,
+    thumbRef: string | null | undefined = undefined,
   ): Promise<void> {
     const sql = this.db.sql;
     const refPrimaria = series[0]!.ref;
@@ -464,6 +503,14 @@ export class ProcesarDicomWorker extends TrabajadorBase {
             anonimizacion     = ${sql.json(traza)},
             anonimizado_en    = now()
         where id = ${casoId}`;
+    }
+    // Fijar la ref del thumb SOLO cuando se indicó (reemplazar); en anexar se deja intacta.
+    if (thumbRef !== undefined) {
+      if (tabla === 'casos_biblioteca') {
+        await sql`update lxp.casos_biblioteca set estudio_thumb_ref = ${thumbRef} where id = ${casoId}`;
+      } else {
+        await sql`update lxp.bitacora_casos set estudio_thumb_ref = ${thumbRef} where id = ${casoId}`;
+      }
     }
   }
 

@@ -376,6 +376,7 @@ export async function getEstudiosAlumno(
         imagenes: number;
         feedback: string | null;
         visto_docente: boolean;
+        estudio_thumb_ref: string | null;
       }[]
     >`
       select c.id, c.diagnostico_presuntivo, c.organo, c.hallazgos, c.visto_docente,
@@ -384,6 +385,7 @@ export async function getEstudiosAlumno(
              c.horas_estimadas::float8 as horas,
              coalesce((select max((s->>'frames')::int) from jsonb_array_elements(c.estudio_series) s), 1) as frames,
              coalesce(jsonb_array_length(c.estudio_series), 0)::int as imagenes,
+             c.estudio_thumb_ref,
              v.feedback
       from lxp.bitacora_casos c
       left join lxp.modulos m on m.id = c.modulo_id
@@ -402,6 +404,9 @@ export async function getEstudiosAlumno(
     const horasCompetencia = comp.reduce((s, c) => s + c.horas, 0);
     const interpretacion = comp.find((c) => c.dominio_iaim === 'interpretacion');
 
+    // Thumbs estables (familia B): firma en lote las refs media/imagenes/* presentes.
+    const thumbUrls = await firmarLecturaImagenes(casos.map((c) => c.estudio_thumb_ref));
+
     const ahora = Date.now();
     const estudios: EstudioAlumno[] = casos.map((r) => {
       const estado = estadoEstudioDe(r.estado_validacion);
@@ -416,6 +421,7 @@ export async function getEstudiosAlumno(
         estado,
         horas: r.horas,
         vistoDocente: r.visto_docente,
+        thumbUrl: r.estudio_thumb_ref ? thumbUrls[r.estudio_thumb_ref] ?? null : null,
         ...(estado === 'pendiente'
           ? { horasEsperando: Math.max(0, Math.floor((ahora - r.created_at.getTime()) / HORA_MS)) }
           : {}),

@@ -122,6 +122,11 @@ export type CasoBitacora = {
   horas: number;
   /** Feedback del docente si fue rechazado/aprobado (lxp.validaciones). */
   feedback: string | null;
+  /**
+   * URL firmada ESTABLE del thumb (JPEG server-side, familia B · media/imagenes/*). `null` =
+   * sin thumb generado → la card cae al raster-cliente (useThumbEstudio · fallback de transición).
+   */
+  thumbUrl: string | null;
 };
 
 /** Detalle de un caso de la bitácora (para la pantalla completa con visor · §4.7). */

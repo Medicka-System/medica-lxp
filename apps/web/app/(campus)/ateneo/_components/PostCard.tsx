@@ -664,6 +664,7 @@ export function PostCard({
               <EstudioCaso
                 postId={post.id}
                 piezas={post.caso.piezas}
+                thumbUrl={post.caso.thumbUrl}
                 etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
                 badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}
               />

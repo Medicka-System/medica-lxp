@@ -35,6 +35,7 @@ const serie = (revisionManual: boolean) => ({
   removidos_n: 1,
   redacciones: revisionManual ? 0 : 1,
   revisionManual,
+  thumb: revisionManual ? null : Buffer.from([9, 9, 9]),
 });
 
 const job = {
@@ -80,9 +81,10 @@ describe('ProcesarDicomWorker · cuarentena §10 (fail-closed)', () => {
     const w = worker as unknown as Record<string, unknown>;
     w.leerBinario = jest.fn(async () => new ArrayBuffer(8));
     w.procesarDicom = jest.fn(async () => serie(false));
-    const firmar = (w.firmarAnonimizados = jest.fn(async () => [
-      { urlSubida: 'http://put', ref: 'dicom/casos/caso-1/0.dcm' },
-    ]));
+    const firmar = (w.firmarAnonimizados = jest.fn(async () => ({
+      destinos: [{ indice: 0, urlSubida: 'http://put', ref: 'dicom/casos/caso-1/0.dcm' }],
+      thumb: { ref: 'media/imagenes/casos/caso-1/thumb.jpg', urlSubida: 'http://put-thumb' },
+    })));
     const subir = (w.subirBinario = jest.fn());
     const guardar = (w.guardarEstudio = jest.fn());
     w.borrarCrudo = jest.fn(async () => undefined);
@@ -90,7 +92,8 @@ describe('ProcesarDicomWorker · cuarentena §10 (fail-closed)', () => {
     const res = await worker.procesar(job);
 
     expect(firmar).toHaveBeenCalledTimes(1);
-    expect(subir).toHaveBeenCalledTimes(1);
+    // 2 subidas: la serie 0 (.dcm) + el thumb (reemplazo con thumb presente).
+    expect(subir).toHaveBeenCalledTimes(2);
     expect(guardar).toHaveBeenCalledTimes(1); // se persiste como 'anonimizado'
     expect(res).toEqual({ casoId: 'caso-1', series: 1 });
   });

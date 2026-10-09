@@ -67,6 +67,7 @@ export function EstudioCaso({
   badge,
   play = true,
   tamanoPlay,
+  thumbUrl,
 }: {
   /** Dueño/composer: id de bitácora (RLS propia). Omitir en el feed (usa `postId`). */
   casoId?: string;
@@ -79,13 +80,20 @@ export function EstudioCaso({
   badge?: string;
   play?: boolean;
   tamanoPlay?: number;
+  /**
+   * Thumb ESTABLE (JPEG server-side, familia B) resuelto server-side. Si viene, se usa directo
+   * como póster y NO se rasteriza en cliente. `null`/ausente → fallback raster-cliente (fase 1).
+   */
+  thumbUrl?: string | null;
 }) {
   const porPost = !!postId;
-  // Ambos hooks se llaman SIEMPRE (reglas de hooks); solo uno queda `activo` según la fuente.
-  const thumbCaso = useThumbEstudio(casoId ?? "", "bitacora_casos", !porPost && !!casoId && piezas >= 1, RASTER);
-  const thumbPost = useThumbEstudioPresentado(postId, porPost && piezas >= 1);
+  // Con thumb estable NO rasterizamos: ambos hooks quedan inactivos (se llaman SIEMPRE por las
+  // reglas de hooks). Sin thumb estable, se rasteriza en cliente según la fuente (owner/post).
+  const estable = !!thumbUrl;
+  const thumbCaso = useThumbEstudio(casoId ?? "", "bitacora_casos", !estable && !porPost && !!casoId && piezas >= 1, RASTER);
+  const thumbPost = useThumbEstudioPresentado(postId, !estable && porPost && piezas >= 1);
   const thumb = porPost ? thumbPost : thumbCaso;
-  const poster = thumb.fase === "listo" ? thumb.url : undefined;
+  const poster = thumbUrl ?? (thumb.fase === "listo" ? thumb.url : undefined);
   return (
     <Estudio ratio={ratio} poster={poster} etiqueta={etiqueta} badge={badge} play={play} tamanoPlay={tamanoPlay} />
   );

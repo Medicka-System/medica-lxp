@@ -48,7 +48,7 @@ export function CardEstudio({ estudio, onAbrir }: { estudio: EstudioAlumno; onAb
           className="pointer-events-none absolute left-2 top-2 z-10 h-2.5 w-2.5 animate-pulse rounded-full bg-green-500 ring-2 ring-green-500/40"
         />
       )}
-      <MiniaturaEstudio casoId={e.id} titulo={e.titulo} onAbrir={onAbrir} />
+      <MiniaturaEstudio casoId={e.id} titulo={e.titulo} onAbrir={onAbrir} thumbUrl={e.thumbUrl} />
 
       <div className="flex flex-1 flex-col px-[15px] pb-[15px] pt-3.5">
         <div className="flex flex-wrap items-center gap-1.5">

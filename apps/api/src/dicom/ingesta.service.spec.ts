@@ -21,6 +21,7 @@ function crear(): { svc: IngestaService; encolar: jest.Mock } {
   const storage = {
     claveCrudo: (id: string, i: number) => `dicom/crudo/${id}/${i}`,
     claveAnonimizado: (id: string, i: number) => `dicom/casos/${id}/${i}.dcm`,
+    claveThumbCaso: (id: string) => `media/imagenes/casos/${id}/thumb.jpg`,
     firmarSubida: (k: string) => `https://minio/${k}?sig=put`,
     firmarLectura: (k: string) => `https://minio/${k}?sig=get`,
     firmarBorrado: (k: string) => `https://minio/${k}?sig=del`,
@@ -85,6 +86,9 @@ describe('IngestaService', () => {
     expect(r.destinos).toHaveLength(3);
     expect(r.destinos[2]).toMatchObject({ indice: 2, ref: 'dicom/casos/c1/2.dcm' });
     expect(r.destinos[0]!.urlSubida).toContain('sig=put');
+    // Destino del thumb del caso (serie 0) bajo media/imagenes/* (familia B · §10).
+    expect(r.thumb).toMatchObject({ ref: 'media/imagenes/casos/c1/thumb.jpg' });
+    expect(r.thumb.urlSubida).toContain('sig=put');
   });
 
   it('urlLecturaEstudio firma la lectura de cada serie cuando está anonimizado', async () => {

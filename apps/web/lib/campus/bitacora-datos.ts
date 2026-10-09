@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
+import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import {
   DOMINIOS,
   type BitacoraData,
@@ -157,6 +158,7 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
         created_at: Date;
         estado_validacion: EstadoCaso;
         estudio_estado: EstudioEstado;
+        estudio_thumb_ref: string | null;
         series: number;
         cine_loop: boolean;
         horas: number;
@@ -174,6 +176,7 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
         c.created_at,
         c.estado_validacion,
         c.estudio_estado,
+        c.estudio_thumb_ref,
         c.contenido_estructurado->'fuente'->>'plantillaNombre' as plantilla_nombre,
         c.contenido_estructurado->'fuente'->>'tipoEstudio'     as tipo_estudio,
         coalesce(jsonb_array_length(c.estudio_series), 0)::int as series,
@@ -243,6 +246,9 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
 
     const horasAcreditadas = Math.round(comp.reduce((s, c) => s + c.horas, 0));
 
+    // Thumbs estables (familia B): firma en lote las refs media/imagenes/* presentes.
+    const thumbUrls = await firmarLecturaImagenes(casos.map((c) => c.estudio_thumb_ref));
+
     const items: CasoBitacora[] = casos.map((c) => ({
       id: c.id,
       titulo: tituloCaso(c.plantilla_nombre, c.tipo_estudio, hallazgoCorto(c.hallazgos)),
@@ -257,6 +263,7 @@ export async function getBitacora(userId: string): Promise<BitacoraData> {
       cineLoop: c.cine_loop,
       horas: c.horas,
       feedback: c.feedback,
+      thumbUrl: c.estudio_thumb_ref ? thumbUrls[c.estudio_thumb_ref] ?? null : null,
     }));
 
     const modulos: ModuloOpcion[] = modulosRows.map((m) => ({

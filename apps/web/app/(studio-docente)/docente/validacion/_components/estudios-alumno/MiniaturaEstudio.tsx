@@ -19,17 +19,22 @@ export function MiniaturaEstudio({
   casoId,
   titulo,
   onAbrir,
+  thumbUrl,
 }: {
   casoId: string;
   titulo: string;
   onAbrir: (id: string) => void;
+  /** Thumb ESTABLE (JPEG server-side, familia B). Si viene, se usa directo y NO se rasteriza. */
+  thumbUrl?: string | null;
 }) {
-  // Miniatura en cliente (DICOM/JPG/PNG) vía el hook compartido; proporción por defecto
-  // 755/570 (≈1.32:1) mientras se mide la real, para no saltar el layout. Se rasteriza a
-  // 768×576 (misma resolución que la card del alumno) para que no se vea pixelada aquí.
-  const estado = useThumbEstudio(casoId, 'bitacora_casos', true, { ancho: 768, alto: 576 });
+  // Thumb ESTABLE (JPEG server-side) por defecto: directo, cacheable, sin Cornerstone. FALLBACK
+  // (fase 1): si el caso no tiene thumb estable, se rasteriza en cliente (DICOM/JPG/PNG) vía el
+  // hook compartido. El hook se llama SIEMPRE (reglas de hooks) pero solo queda `activo` sin
+  // thumb estable. Proporción 755/570 (≈1.32:1) por defecto; el raster mide la real al cargar.
+  const estado = useThumbEstudio(casoId, 'bitacora_casos', !thumbUrl, { ancho: 768, alto: 576 });
+  const url = thumbUrl ?? (estado.fase === 'listo' ? estado.url : null);
 
-  const aspecto = estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '755 / 570';
+  const aspecto = !thumbUrl && estado.fase === 'listo' ? `${estado.ancho} / ${estado.alto}` : '755 / 570';
 
   return (
     <button
@@ -39,8 +44,8 @@ export function MiniaturaEstudio({
       className={`relative block w-full overflow-hidden bg-black p-0 ${focus}`}
       style={{ aspectRatio: aspecto }}
     >
-      {estado.fase === 'listo' ? (
-        <img src={estado.url} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+      {url ? (
+        <img src={url} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
       ) : estado.fase === 'cargando' ? (
         <span aria-hidden className="absolute inset-0 animate-pulse bg-gradient-to-br from-white/[0.06] to-white/[0.02]" />
       ) : (

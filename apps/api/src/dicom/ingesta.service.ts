@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import {
   QUEUE_PROCESAR_DICOM,
   type DestinoAnonimizado,
+  type DestinoThumb,
   type FuenteDicom,
   type ProcesarDicomJob,
   type TablaEstudioDicom,
@@ -179,7 +180,7 @@ export class IngestaService {
     cantidad: number,
     desde = 0,
     extensiones: string[] = [],
-  ): Promise<{ destinos: DestinoAnonimizado[] }> {
+  ): Promise<{ destinos: DestinoAnonimizado[]; thumb: DestinoThumb }> {
     await this.exigirCaso(casoId, tabla);
     const destinos: DestinoAnonimizado[] = Array.from({ length: Math.max(0, cantidad) }, (_, i) => {
       const indice = desde + i;
@@ -188,7 +189,11 @@ export class IngestaService {
       const ref = this.storage.claveAnonimizado(casoId, indice, extensiones[i] ?? 'dcm');
       return { indice, ref, urlSubida: this.storage.firmarSubida(ref) };
     });
-    return { destinos };
+    // Destino del thumb del caso (serie 0): el `api` firma el PUT (§3, único firmante); el
+    // worker lo usa solo al REEMPLAZAR (al anexar, la serie 0 no cambia → no se re-genera).
+    const thumbRef = this.storage.claveThumbCaso(casoId);
+    const thumb: DestinoThumb = { ref: thumbRef, urlSubida: this.storage.firmarSubida(thumbRef) };
+    return { destinos, thumb };
   }
 
   /**

@@ -357,14 +357,18 @@ function SheetSubirCaso({
 
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
   const tieneEstudio = c.estudioEstado === 'anonimizado';
-  // Thumbnail = PRIMER frame del estudio, renderizado en CLIENTE (DICOM wadouri o JPG/PNG web)
-  // con el MISMO pipeline que la consola de validación del docente (useThumbEstudio →
-  // renderMiniaturasDetalle). Solo cuando el estudio ya está anonimizado y tiene series.
-  // Raster 768×576 (≥ contenedor ~605×156, ~2× retina) para que la card no se vea pixelada.
-  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1, {
+  // Thumbnail ESTABLE: JPEG generado UNA vez en el servidor al anonimizar (del frame YA
+  // redactado · §10), servido con URL firmada cacheable (familia B). No se re-firma por mount
+  // → persiste al navegar y volver, aparece al instante. FALLBACK (fase 1): si el caso aún no
+  // tiene thumb server-side (viejos / cuarentena), se rasteriza en CLIENTE (useThumbEstudio →
+  // renderMiniaturasDetalle). El hook se llama SIEMPRE (reglas de hooks) pero solo queda
+  // `activo` cuando NO hay thumb estable, para no bajar el .dcm en balde.
+  const thumbEstable = c.thumbUrl;
+  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1 && !thumbEstable, {
     ancho: 768,
     alto: 576,
   });
+  const thumbUrl = thumbEstable ?? (thumb.fase === 'listo' ? thumb.url : null);
   const etiquetaEstudio =
     c.estudioEstado === 'revision_manual'
       ? 'no se pudo anonimizar · en revisión'
@@ -386,9 +390,9 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
       }`}
     >
       <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
-        {thumb.fase === 'listo' ? (
-          // <img> directo: el hook ya rasterizó el primer frame a un PNG (data URL) en cliente.
-          <img src={thumb.url} alt="" className="h-[156px] w-full object-cover" />
+        {thumbUrl ? (
+          // Thumb estable (JPEG server-side, URL firmada) o, en fallback, el raster-cliente.
+          <img src={thumbUrl} alt="" className="h-[156px] w-full object-cover" />
         ) : (
           <VisorDicomPlaceholder
             etiqueta={etiquetaEstudio}

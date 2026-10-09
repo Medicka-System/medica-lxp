@@ -15,6 +15,7 @@ dentro del contenedor `redactor-dicom` (`pytest` en /app) o en CI con la imagen 
 """
 from __future__ import annotations
 
+import base64
 import io
 
 import numpy as np
@@ -118,6 +119,19 @@ def _ocr(texto_img: Image.Image) -> str:
     return pytesseract.image_to_string(texto_img).upper()
 
 
+def _assert_thumb(resp) -> None:
+    """El thumb (X-Thumb-B64) existe, es JPEG válido, borde largo <= 480 y NO tiene el nombre
+    (§10: sale del frame YA redactado, nunca del original). El worker lo decodifica igual."""
+    b64 = resp.headers.get("X-Thumb-B64") or ""
+    assert b64, "no se emitió el thumb (X-Thumb-B64 vacío)"
+    img = Image.open(io.BytesIO(base64.b64decode(b64)))
+    assert img.format == "JPEG", f"el thumb no es JPEG: {img.format}"
+    assert max(img.size) <= 480, f"thumb mayor al borde objetivo: {img.size}"
+    assert len(b64) <= 16000, f"thumb muy grande para el header ({len(b64)} chars)"
+    txt = _ocr(img.convert("RGB"))
+    assert "RAMIREZ" not in txt and "GUADALUPE" not in txt, f"nombre sobrevive en el thumb: {txt!r}"
+
+
 def _assert_redactado(resp) -> pydicom.Dataset:
     """Aserciones comunes de ÉXITO: no fail-open, TS sin comprimir, y sin el nombre en píxeles."""
     assert resp.status_code == 200
@@ -131,6 +145,7 @@ def _assert_redactado(resp) -> pydicom.Dataset:
     for f in range(frames):
         txt = _ocr(Image.fromarray(arr[f], "RGB"))
         assert "RAMIREZ" not in txt and "GUADALUPE" not in txt, f"nombre sobrevive en frame {f}: {txt!r}"
+    _assert_thumb(resp)  # el thumb server-side viaja con cada éxito (§5A/§10)
     return ds
 
 
@@ -178,3 +193,4 @@ def test_imagen_web_quemada_redacta():
     assert int(resp.headers["X-Redacciones"]) >= 1
     txt = _ocr(Image.open(io.BytesIO(resp.body)).convert("RGB"))
     assert "RAMIREZ" not in txt and "GUADALUPE" not in txt
+    _assert_thumb(resp)  # el thumb server-side también en el camino de imagen web
