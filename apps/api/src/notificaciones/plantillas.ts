@@ -62,6 +62,13 @@ const PLANTILLAS: Record<
     titulo: texto(d, 'titulo', 'Anuncio'),
     cuerpo: texto(d, 'cuerpo', ''),
   }),
+  // Menciones del Ateneo: la notificación in-app la crea el trigger (mig 0076) con su propio
+  // título/cuerpo; esta plantilla existe por completitud del contrato (si el motor llegara a
+  // despacharla). El correo/WhatsApp de menciones es fase 2.
+  mencion_comentario: (d) => ({
+    titulo: 'Te mencionaron en el Ateneo',
+    cuerpo: `${texto(d, 'autor', 'Un colega')} te mencionó en un comentario.`,
+  }),
 };
 
 /**
