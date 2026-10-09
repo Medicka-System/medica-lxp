@@ -100,6 +100,31 @@ describe('<VisorDicom />', () => {
     espia.mockRestore();
   });
 
+  it('el panel de mediciones es un OVERLAY flotante (no roba alto al visor) y es colapsable', async () => {
+    // Regresión: antes el panel era hermano del canvas en el flex-col de alto fijo y le
+    // robaba altura (el visor se encogía al medir). Ahora flota `absolute` sobre el stage.
+    const user = userEvent.setup();
+    render(
+      <VisorDicom
+        estudio={estudioFijo()}
+        crearMotor={() => crearMotorFake()}
+        anotaciones={{ congelado: false, cargar: async () => [], guardar: async () => {} }}
+      />,
+    );
+    // Existe el toggle del panel…
+    const toggle = await screen.findByRole('button', { name: /mediciones/i });
+    // …y vive en un contenedor OVERLAY (`absolute`) → no ocupa espacio del flex del canvas.
+    const overlay = toggle.parentElement as HTMLElement;
+    expect(overlay.className).toMatch(/\babsolute\b/);
+    // Colapsado por defecto: no tapa la imagen.
+    expect(screen.queryByText(/sin mediciones todav/i)).not.toBeInTheDocument();
+    // Colapsable: abrir despliega, cerrar oculta.
+    await user.click(toggle);
+    expect(screen.getByText(/sin mediciones todav/i)).toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.queryByText(/sin mediciones todav/i)).not.toBeInTheDocument();
+  });
+
   it('cambiar de serie por el selector actualiza la selección', async () => {
     const user = userEvent.setup();
     render(<VisorDicom estudio={estudioFijo()} crearMotor={() => crearMotorFake()} />);

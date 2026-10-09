@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, ImageOff, Film, Maximize2, Minimize2, Ruler, Trash2, Check, Lock } from 'lucide-react';
+import { Loader2, ImageOff, Film, Maximize2, Minimize2, Ruler, Trash2, Check, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { HerramientaId } from './herramientas';
 import type { MotorVisor } from './motor';
@@ -210,6 +210,19 @@ export function VisorDicom({
             )}
           </button>
 
+          {/* Panel de mediciones (FASE 2) como OVERLAY: flota sobre el stage sin ocupar
+              espacio del flex → el canvas NO se encoge al medir. Colapsable para no tapar
+              la imagen. Baja si el badge "Cine" ocupa la esquina superior derecha. */}
+          {persistencia.activo && (
+            <OverlayMediciones
+              lista={persistencia.lista}
+              guardado={persistencia.guardado}
+              congelado={persistencia.congelado}
+              onEliminar={persistencia.eliminar}
+              desplazado={esCine}
+            />
+          )}
+
           {!listo && !error && (
             <div className="z-10 flex flex-col items-center gap-2 text-white/70">
               <Loader2 className="animate-spin" size={26} strokeWidth={1.75} />
@@ -246,78 +259,114 @@ export function VisorDicom({
           orientacion="horizontal"
         />
       )}
-
-      {persistencia.activo && (
-        <PanelMediciones
-          lista={persistencia.lista}
-          guardado={persistencia.guardado}
-          congelado={persistencia.congelado}
-          onEliminar={persistencia.eliminar}
-        />
-      )}
     </div>
   );
 }
 
-/** Panel de mediciones guardadas (FASE 2): lista con autor/valor y estado de guardado. */
-function PanelMediciones({
+/**
+ * Panel de mediciones (FASE 2) como OVERLAY flotante sobre el stage del visor. Antes era un
+ * hermano del canvas en el `flex-col` de alto fijo y le robaba altura (el visor se encogía al
+ * medir); como overlay `absolute` NO ocupa espacio del layout → el canvas conserva su tamaño.
+ * Colapsable para no tapar la imagen cuando no se consulta. La LÓGICA de mediciones no cambia
+ * (sigue en `useAnotaciones`): esto es solo presentación/posición.
+ */
+function OverlayMediciones({
   lista,
   guardado,
   congelado,
   onEliminar,
+  desplazado,
 }: {
   lista: ReturnType<typeof useAnotaciones>['lista'];
   guardado: ReturnType<typeof useAnotaciones>['guardado'];
   congelado: boolean;
   onEliminar: (uid: string) => void;
+  /** Baja el panel si el badge "Cine" ocupa la esquina superior derecha. */
+  desplazado: boolean;
 }) {
+  const [abierto, setAbierto] = useState(false);
+
   return (
-    <div className="border-t border-border bg-card">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <Ruler size={15} strokeWidth={1.75} className="text-muted-foreground" />
+    <div
+      className={cn(
+        'absolute right-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-border bg-card/95 shadow-rest backdrop-blur-sm',
+        abierto ? 'w-[232px]' : 'w-auto',
+        desplazado ? 'top-12' : 'top-3',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        className="flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Ruler size={15} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
         <span className="text-[12px] font-semibold">Mediciones</span>
         <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{lista.length}</span>
-        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium">
-          {congelado ? (
-            <span className="inline-flex items-center gap-1 text-muted-foreground">
-              <Lock size={12} strokeWidth={2} /> Curado · no se guarda
-            </span>
-          ) : guardado === 'guardando' ? (
-            <span className="inline-flex items-center gap-1 text-muted-foreground">
-              <Loader2 size={12} strokeWidth={2} className="animate-spin" /> Guardando…
-            </span>
-          ) : guardado === 'guardado' ? (
-            <span className="inline-flex items-center gap-1 text-secondary">
-              <Check size={13} strokeWidth={2.5} /> Guardado
-            </span>
-          ) : guardado === 'error' ? (
-            <span className="text-destructive">No se pudo guardar</span>
-          ) : null}
-        </span>
-      </div>
+        <EtiquetaGuardado estado={guardado} congelado={congelado} />
+        {abierto ? (
+          <ChevronUp size={14} strokeWidth={2} className="ml-1 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronDown size={14} strokeWidth={2} className="ml-1 shrink-0 text-muted-foreground" />
+        )}
+      </button>
 
-      {lista.length > 0 && (
-        <ul className="max-h-[132px] overflow-y-auto border-t border-border">
-          {lista.map((m) => (
-            <li key={m.uid} className="flex items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-accent">
-              <span className="font-semibold">{etiquetaTipo(m.tipo)}</span>
-              {m.valor && <span className="font-mono tabular-nums text-secondary">{m.valor}</span>}
-              <span className="ml-auto truncate text-[11px] text-muted-foreground">{m.autor}</span>
-              {m.esMia && !congelado && (
-                <button
-                  type="button"
-                  aria-label="Borrar medición"
-                  onClick={() => onEliminar(m.uid)}
-                  className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-muted-foreground transition-colors hover:bg-[color:var(--track)] hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <Trash2 size={13} strokeWidth={1.75} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {abierto &&
+        (lista.length > 0 ? (
+          <ul className="max-h-[200px] overflow-y-auto border-t border-border">
+            {lista.map((m) => (
+              <li key={m.uid} className="flex items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-accent">
+                <span className="font-semibold">{etiquetaTipo(m.tipo)}</span>
+                {m.valor && <span className="font-mono tabular-nums text-secondary">{m.valor}</span>}
+                <span className="ml-auto truncate text-[11px] text-muted-foreground">{m.autor}</span>
+                {m.esMia && !congelado && (
+                  <button
+                    type="button"
+                    aria-label="Borrar medición"
+                    onClick={() => onEliminar(m.uid)}
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-muted-foreground transition-colors hover:bg-[color:var(--track)] hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <Trash2 size={13} strokeWidth={1.75} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+            Sin mediciones todavía. Usa las herramientas de la barra para medir.
+          </p>
+        ))}
     </div>
+  );
+}
+
+/** Indicador compacto de estado de guardado (curado / guardando / guardado / error). */
+function EtiquetaGuardado({
+  estado,
+  congelado,
+}: {
+  estado: ReturnType<typeof useAnotaciones>['guardado'];
+  congelado: boolean;
+}) {
+  return (
+    <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium">
+      {congelado ? (
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          <Lock size={12} strokeWidth={2} /> Curado
+        </span>
+      ) : estado === 'guardando' ? (
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          <Loader2 size={12} strokeWidth={2} className="animate-spin" /> Guardando…
+        </span>
+      ) : estado === 'guardado' ? (
+        <span className="inline-flex items-center gap-1 text-secondary">
+          <Check size={13} strokeWidth={2.5} /> Guardado
+        </span>
+      ) : estado === 'error' ? (
+        <span className="text-destructive">No se pudo guardar</span>
+      ) : null}
+    </span>
   );
 }
 

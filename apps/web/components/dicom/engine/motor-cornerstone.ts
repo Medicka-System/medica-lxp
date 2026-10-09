@@ -150,6 +150,8 @@ export class MotorCornerstone implements MotorVisor {
   private toolGroup: ReturnType<typeof ToolGroupManager.createToolGroup> | null = null;
   private herramientaPrimaria = '';
   private elemento: HTMLDivElement | null = null;
+  /** Observa el contenedor para reajustar el canvas cuando cambia de tamaño (ver `montar`). */
+  private observadorTamano: ResizeObserver | null = null;
   /** Blindaje de teardown: `destruir()` es idempotente (doble cleanup / React StrictMode). */
   private destruido = false;
 
@@ -190,6 +192,22 @@ export class MotorCornerstone implements MotorVisor {
       bindings: [{ mouseButton: ToolsEnums.MouseBindings.Secondary }],
     });
     this.toolGroup = toolGroup;
+
+    // Reajusta el canvas cuando el CONTENEDOR cambia de tamaño (pantalla completa, resize de
+    // ventana, cambios de layout). Cornerstone NO observa el tamaño por su cuenta: sin esto el
+    // canvas conserva el tamaño del montaje y la imagen se deforma / el mapeo clic→canvas se
+    // descuadra. `keepCamera = true` conserva zoom/pan y mantiene las mediciones alineadas.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.observadorTamano = new ResizeObserver(() => {
+        if (this.destruido) return;
+        try {
+          this.engine?.resize(true, true);
+        } catch {
+          /* resize best-effort: un fallo jamás debe tumbar el visor */
+        }
+      });
+      this.observadorTamano.observe(elemento as HTMLDivElement);
+    }
   }
 
   async cargarSerie(
@@ -352,6 +370,13 @@ export class MotorCornerstone implements MotorVisor {
   destruir(): void {
     if (this.destruido) return;
     this.destruido = true;
+    try {
+      this.observadorTamano?.disconnect();
+    } catch (e) {
+      console.warn('[MotorCornerstone] ResizeObserver.disconnect falló (teardown tolerante):', e);
+    } finally {
+      this.observadorTamano = null;
+    }
     try {
       if (this.toolGroup) ToolGroupManager.destroyToolGroup(this.toolGroupId);
     } catch (e) {
