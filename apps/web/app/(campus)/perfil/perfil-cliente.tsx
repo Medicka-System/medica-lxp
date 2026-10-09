@@ -202,9 +202,10 @@ export function MiPerfilCliente({ data }: { data: PerfilData }) {
             meta: `${c.organo} · ${c.dominio}`,
             validado: c.validado,
           }))}
+          colegasComun={perfilPublico.colegasComun}
+          aportes={perfilPublico.aportes}
           onCerrar={() => setPerfilPublico(null)}
           onConectar={() => {}}
-          onMensaje={() => {}}
           onAbrirCaso={() => router.push('/bitacora')}
           esPropio
           contexto={contextoPublico}

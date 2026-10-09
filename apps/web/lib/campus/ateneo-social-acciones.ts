@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getSesionAlumno } from '@/lib/session';
-import { comoAlumno, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
+import { comoAlumno, colegasEnComun, privacidadDe, privacidadDeVarios } from '@/lib/db.server';
 import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { avataresDe, cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import { getCasoBitacora } from './bitacora-datos';
@@ -633,6 +633,35 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
       area: 'Ateneo', organo: '—', dominio: '—', piezas: 0, loops: 0, fecha: '', validado: false,
     }));
     const estadoConexion = (base.estado === 'colegas' ? 'colegas' : base.estado === 'pendiente' ? 'pendiente' : 'ninguna') as PerfilResumen['estadoConexion'];
+
+    // Aportes del colega VISIBLES para quien mira: publicaciones + comentarios bajo la RLS del
+    // viewer (posts_ateneo_select / comentarios_ateneo_select) → solo lo que le toca ver. No se
+    // expone nada de un post que el viewer no puede ver.
+    const aportesFilas = await sql<{ id: string; clase: string; texto: string | null; created_at: Date; post_id: string }[]>`
+      select id, clase, texto, created_at, post_id from (
+        select id, 'publicación' as clase, coalesce(cuerpo, vineta, titulo) as texto, created_at, id as post_id
+        from lxp.posts_ateneo where autor_id = ${userId}
+        union all
+        select c.id, 'comentario' as clase, c.cuerpo as texto, c.created_at, c.post_id
+        from lxp.comentarios_ateneo c where c.autor_id = ${userId}
+      ) t order by created_at desc limit 40`;
+    const aportes: ItemAporte[] = aportesFilas.map((f) => ({
+      id: f.id,
+      clase: (f.clase === 'comentario' ? 'comentario' : 'publicación') as ItemAporte['clase'],
+      texto: (f.texto ?? '').slice(0, 160),
+      cuando: rel(f.created_at),
+      postId: f.post_id,
+    }));
+
+    // Colegas EN COMÚN (owner-pool · acotado a la red del viewer · respeta la privacidad de
+    // conexiones, §10). Nombres vía nombre_de; avatares vía perfil_publico_de (RLS-safe).
+    const comun = await colegasEnComun(uid, userId);
+    const comunAvatares = await avataresDe(sql, comun.map((c) => c.id));
+    const colegasComun: Persona[] = comun.map((c) => {
+      const n = c.nombre ?? 'Colega';
+      return { id: c.id, ini: inic(n), nombre: n, rol: 'alumno' as const, meta: 'Colega del Ateneo', avatarUrl: comunAvatares.get(c.id) ?? null };
+    });
+
     return {
       perfil: {
         id: userId, ini: inic(base.nombre), nombre: base.nombre, rol: 'alumno' as const,
@@ -643,6 +672,8 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
         portadaUrl: (media?.portada_url && mediaUrls[media.portada_url]) || null,
       },
       casos,
+      colegasComun,
+      aportes,
     };
   });
 }

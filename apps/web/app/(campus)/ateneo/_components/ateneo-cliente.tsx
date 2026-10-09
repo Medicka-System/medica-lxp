@@ -432,9 +432,10 @@ export function AteneoCliente({
         <PerfilColega
           perfil={perfil.perfil}
           casos={perfil.casos.map((c) => ({ id: c.id, titulo: c.titulo, meta: `${c.organo} · ${c.dominio}`, validado: c.validado }))}
+          colegasComun={perfil.colegasComun}
+          aportes={perfil.aportes}
           onCerrar={() => setPerfil(null)}
           onConectar={onConectar}
-          onMensaje={() => {}}
           onAbrirCaso={onAbrirCaso}
         />
       )}

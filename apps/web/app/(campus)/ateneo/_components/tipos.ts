@@ -154,8 +154,14 @@ export type ListaPerfilData =
   | { tipo: "colegas"; colegas: Persona[] }
   | { tipo: "aportes"; aportes: ItemAporte[] };
 
-/** Perfil de un colega abierto desde el feed: resumen + sus casos presentados (visibles). */
-export type PerfilColegaData = { perfil: PerfilResumen & { motivo?: string }; casos: CasoBitacora[] };
+/** Perfil de un colega abierto desde el feed: resumen + casos presentados visibles + colegas en
+ *  común (privacidad: ⊆ la red del viewer) + aportes visibles (bajo RLS del viewer). */
+export type PerfilColegaData = {
+  perfil: PerfilResumen & { motivo?: string };
+  casos: CasoBitacora[];
+  colegasComun: Persona[];
+  aportes: ItemAporte[];
+};
 
 /* ───────────────────────────── Mock ───────────────────────────── */
 

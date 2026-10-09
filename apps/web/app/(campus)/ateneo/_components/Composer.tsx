@@ -16,15 +16,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
-  Bold,
   Check,
   ChevronDown,
   CircleHelp,
   Globe,
   GraduationCap,
   Image as ImageIcon,
-  Italic,
-  List,
   ScanLine,
   Smile,
   Sticker,
@@ -34,7 +31,7 @@ import {
   X,
 } from "lucide-react";
 import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen } from "./tipos";
-import { Avatar, Chip, Modal, focusRing, mono, softText } from "./ui";
+import { Avatar, Modal, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
 import { GifPicker } from "./GifPicker";
 import { EmojiPickerPopover } from "./EmojiPickerPopover";
@@ -170,18 +167,6 @@ function Editor({
   return (
     <>
       <div className="mt-3 flex items-center gap-0.5">
-        {[
-          ["Negrita", Bold],
-          ["Cursiva", Italic],
-          ["Lista", List],
-        ].map(([l, I]) => {
-          const Icono = I as typeof Bold;
-          return (
-            <button key={l as string} type="button" aria-label={l as string} className={`grid h-[30px] w-[30px] place-items-center rounded-md text-muted-foreground hover:bg-muted ${focusRing}`}>
-              <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-            </button>
-          );
-        })}
         {/* Emoji (estilo FB: buscador + categorías + recientes). Abre HACIA ABAJO (el editor va arriba). */}
         <span className="relative ml-auto">
           <button
@@ -237,6 +222,7 @@ export function ComposerModal({
   const [casoId, setCasoId] = useState<string | undefined>(misCasos.find((c) => c.validado)?.id);
   const [pregunta, setPregunta] = useState("");
   const [temas, setTemas] = useState<string[]>([]);
+  const [temaInput, setTemaInput] = useState("");
   const [opciones, setOpciones] = useState<string[]>(["", ""]);
   const [cierra, setCierra] = useState(3);
   const [archivos, setArchivos] = useState<{ file: File; nombre: string; tipo: "imagen" | "video"; progreso: number; previewUrl: string }[]>([]);
@@ -286,6 +272,15 @@ export function ComposerModal({
     if (u) setEnlaceDescartadas((s) => (s.includes(u) ? s : [...s, u]));
     setEnlace(null);
     setEnlaceCargando(false);
+  };
+
+  // Agrega un tema libre (lo normaliza a #slug, sin espacios; dedup; máx 8 — igual que el server).
+  const agregarTema = () => {
+    const slug = temaInput.trim().replace(/^#+/, "").replace(/\s+/g, "-").toLowerCase();
+    if (!slug) { setTemaInput(""); return; }
+    const t = `#${slug}`.slice(0, 24);
+    setTemas((s) => (s.includes(t) || s.length >= 8 ? s : [...s, t]));
+    setTemaInput("");
   };
 
   const caso = misCasos.find((c) => c.id === casoId);
@@ -526,13 +521,41 @@ export function ComposerModal({
               Contexto <span className="font-normal text-muted-foreground">(opcional)</span>
             </p>
             <Editor texto={texto} setTexto={setTexto} placeholder="Qué intentó, qué le hace dudar…" grande={false} />
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {temas.map((t) => (
-                <Chip key={t}>{t}</Chip>
+                <span key={t} className="inline-flex h-[26px] items-center gap-1 rounded-full bg-accent px-2.5 text-[11.5px] font-semibold text-accent-foreground">
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() => setTemas((s) => s.filter((x) => x !== t))}
+                    aria-label={`Quitar ${t}`}
+                    className={`-mr-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-black/10 ${focusRing}`}
+                  >
+                    <X aria-hidden className="h-3 w-3" strokeWidth={2.2} />
+                  </button>
+                </span>
               ))}
-              <button type="button" onClick={() => setTemas((s) => [...s, "#renal"])} className={`inline-flex h-[26px] items-center rounded-full border border-dashed border-border px-2.5 text-[11.5px] font-semibold text-secondary ${focusRing}`}>
-                + tema
-              </button>
+              {temas.length < 8 && (
+                <label className="inline-flex min-w-[130px] flex-1">
+                  <span className="sr-only">Agregar un tema</span>
+                  <input
+                    type="text"
+                    value={temaInput}
+                    onChange={(e) => setTemaInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        agregarTema();
+                      } else if (e.key === "Backspace" && !temaInput && temas.length) {
+                        setTemas((s) => s.slice(0, -1));
+                      }
+                    }}
+                    onBlur={agregarTema}
+                    placeholder={temas.length ? "+ tema" : "Agregue un tema (p. ej. renal)"}
+                    className={`h-[26px] w-full rounded-full border border-dashed border-border bg-transparent px-2.5 text-[11.5px] font-semibold text-secondary outline-none placeholder:font-normal placeholder:text-muted-foreground focus:border-secondary ${focusRing}`}
+                  />
+                </label>
+              )}
             </div>
           </>
         )}

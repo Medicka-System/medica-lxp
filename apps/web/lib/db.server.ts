@@ -127,6 +127,52 @@ export async function privacidadDe(userId: string): Promise<PrivacidadFlags> {
 }
 
 /**
+ * Colegas EN COMÚN entre `viewerId` y `otroId` (conexiones aceptadas que ambos comparten).
+ *
+ * Privacidad (§10): la RLS de `conexiones_ateneo` hace que una conexión sea visible SOLO a sus
+ * dos partes — un tercero no puede listar las conexiones ajenas. Por eso NO exponemos la lista
+ * de colegas de `otroId`: solo la INTERSECCIÓN con la red del propio `viewerId`. El resultado es
+ * SIEMPRE ⊆ los colegas del viewer (personas que el viewer ya tiene derecho a ver); nunca
+ * revela una conexión de `otroId` fuera de ese círculo. Es el patrón "amigos en común".
+ *
+ * Usa la conexión OWNER (`getSql`, sin `set role`) porque la intersección no se puede computar
+ * bajo la RLS del viewer (las filas de `otroId` le son invisibles). El acotamiento al círculo del
+ * viewer es el límite de privacidad, no la sesión. Nombres vía `lxp.nombre_de` (no datos privados).
+ *
+ * `viewerId === otroId` ("ver como me ven"): la intersección consigo mismo = TODAS mis conexiones.
+ */
+export async function colegasEnComun(
+  viewerId: string,
+  otroId: string,
+): Promise<{ id: string; nombre: string | null }[]> {
+  const sql = getSql();
+  if (viewerId === otroId) {
+    return sql<{ id: string; nombre: string | null }[]>`
+      select x as id, lxp.nombre_de(x) as nombre
+      from (
+        select case when solicitante_id = ${viewerId} then receptor_id else solicitante_id end as x
+        from lxp.conexiones_ateneo
+        where estado = 'colegas' and (solicitante_id = ${viewerId} or receptor_id = ${viewerId})
+      ) mios
+      order by nombre`;
+  }
+  return sql<{ id: string; nombre: string | null }[]>`
+    select vc.x as id, lxp.nombre_de(vc.x) as nombre
+    from (
+      select case when solicitante_id = ${viewerId} then receptor_id else solicitante_id end as x
+      from lxp.conexiones_ateneo
+      where estado = 'colegas' and (solicitante_id = ${viewerId} or receptor_id = ${viewerId})
+    ) vc
+    where exists (
+      select 1 from lxp.conexiones_ateneo c2
+      where c2.estado = 'colegas'
+        and ((c2.solicitante_id = ${otroId} and c2.receptor_id = vc.x)
+          or (c2.receptor_id = ${otroId} and c2.solicitante_id = vc.x))
+    )
+    order by nombre`;
+}
+
+/**
  * Bootstrap de sesión de DEV para el staff (hasta el auth real del Sprint 11):
  * resuelve al miembro del staff por email con una consulta directa (sin rol),
  * simulando lo que en producción vendría del JWT. Solo roles de plataforma LXP

@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { ArrowLeft, Award, Check, ChevronRight, Eye, FileText, MessageSquare, Plus, Search, Users } from "lucide-react";
-import type { ListaPerfilData, PerfilResumen } from "./tipos";
+import type { ItemAporte, ListaPerfilData, PerfilResumen, Persona } from "./tipos";
 
 /** Insignia mínima para la vista pública (modo propio · "ver como me ven"). */
 export type InsigniaPublica = { id: string; nombre: string; obtenida: boolean };
@@ -231,9 +231,10 @@ export function RailSocial({
 export function PerfilColega({
   perfil,
   casos,
+  colegasComun,
+  aportes,
   onCerrar,
   onConectar,
-  onMensaje,
   onAbrirCaso,
   esPropio = false,
   contexto,
@@ -242,9 +243,12 @@ export function PerfilColega({
 }: {
   perfil: PerfilResumen;
   casos: { id: string; titulo: string; meta: string; validado: boolean }[];
+  /** Colegas EN COMÚN con quien mira (privacidad: ⊆ la red del viewer). En modo propio = mis colegas. */
+  colegasComun: Persona[];
+  /** Aportes (publicaciones/comentarios) del colega VISIBLES para quien mira (bajo RLS). */
+  aportes: ItemAporte[];
   onCerrar: () => void;
   onConectar: (id: string) => void;
-  onMensaje: (id: string) => void;
   onAbrirCaso: (id: string) => void;
   /** Modo "ver como me ven": es el propio perfil → sin conectar/mensaje, con banner + volver. */
   esPropio?: boolean;
@@ -301,9 +305,6 @@ export function PerfilColega({
                   Conectar
                 </button>
               )}
-              <button type="button" onClick={() => onMensaje(perfil.id)} aria-label="Enviar mensaje" className={`grid h-11 w-11 place-items-center rounded-[10px] border border-border bg-card text-[color:var(--foreground-soft)] ${focusRing}`}>
-                <MessageSquare aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              </button>
             </span>
           )}
         </div>
@@ -392,10 +393,54 @@ export function PerfilColega({
             ))}
           </ul>
         )}
-        {lista !== "casos" && (
-          <p role="tabpanel" className="mt-3 rounded-[11px] border border-border bg-muted px-4 py-6 text-center text-[12.5px] text-muted-foreground">
-            Lista de {lista} — se carga bajo demanda.
-          </p>
+        {lista === "colegas" && (
+          <div role="tabpanel" className="mt-3">
+            {/* Privacidad: las conexiones de un colega son privadas (RLS); solo mostramos las
+                que ambos comparten (en común con usted). En modo propio = mis colegas. */}
+            {!esPropio && colegasComun.length > 0 && (
+              <p className="mb-1.5 text-[11px] font-semibold text-muted-foreground">Colegas en común con usted</p>
+            )}
+            {colegasComun.length ? (
+              <ul className="flex flex-col gap-1">
+                {colegasComun.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2.5 rounded-[11px] px-2 py-2">
+                    <Avatar p={p} url={p.avatarUrl} size={36} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] font-bold">{p.nombre}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{p.meta}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="rounded-[11px] border border-border bg-muted px-4 py-6 text-center text-[12.5px] text-muted-foreground">
+                {esPropio ? "Aún no tiene colegas." : "No tienen colegas en común."}
+              </p>
+            )}
+          </div>
+        )}
+        {lista === "aportes" && (
+          <div role="tabpanel" className="mt-3">
+            {aportes.length ? (
+              <ul className="flex flex-col gap-2">
+                {aportes.map((a) => (
+                  <li key={a.id} className="flex gap-2.5 rounded-[11px] border border-border bg-card px-3 py-2.5">
+                    <span aria-hidden className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-muted ${softText}`}>
+                      {a.clase === "comentario" ? <MessageSquare className="h-3.5 w-3.5" strokeWidth={1.75} /> : <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`${mono} block text-[10px] uppercase tracking-[0.1em] text-muted-foreground`}>{a.clase} · {a.cuando}</span>
+                      <span className={`mt-0.5 block text-[12.5px] ${softText}`}>{a.texto || "—"}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="rounded-[11px] border border-border bg-muted px-4 py-6 text-center text-[12.5px] text-muted-foreground">
+                {esPropio ? "Aún no ha aportado en el Ateneo." : "No hay aportes visibles para usted."}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </Modal>
