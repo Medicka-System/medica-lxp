@@ -503,10 +503,24 @@ function EditarPostModal({
  * cuadrada / vertical ≤ 4:5 → completas, SIN recorte. Más altas que 4:5 → se topan a 4:5 con
  * `object-cover` (solo esas). La relación natural se lee en `onLoad` (no la sabemos en SSR).
  * DETALLE: imagen COMPLETA (object-contain) con tope de alto por viewport — NUNCA cortada. */
-function ImagenMedia({ src, enDetalle, onAbrir }: { src: string; enDetalle: boolean; onAbrir: () => void }) {
+/** Pieza de media con derivados responsivos opcionales (Fase 2). */
+type PiezaMedia = { tipo: "imagen" | "video" | "gif"; src?: string; srcset?: { w: number; url: string }[] };
+
+/** `srcset` string a partir de los derivados firmados, o `undefined` si no hay. */
+function srcSetDe(srcset?: { w: number; url: string }[]): string | undefined {
+  return srcset && srcset.length ? srcset.map((s) => `${s.url} ${s.w}w`).join(", ") : undefined;
+}
+
+function ImagenMedia({ src, srcset, enDetalle, onAbrir }: { src: string; srcset?: { w: number; url: string }[]; enDetalle: boolean; onAbrir: () => void }) {
   const [capada, setCapada] = useState(false);
+  // Fase 2: `srcset` de derivados webp; si uno falla (viejo/sin backfill) → `onError` lo desactiva
+  // y el navegador recae en `src` (original). `sizes` = ancho real de la columna del feed.
+  const [sinDeriv, setSinDeriv] = useState(false);
+  const ss = sinDeriv ? undefined : srcSetDe(srcset);
+  const sizes = ss ? (enDetalle ? "100vw" : "(max-width: 680px) 100vw, 600px") : undefined;
+  const onError = () => { if (ss) setSinDeriv(true); };
   if (enDetalle) {
-    return <img src={src} alt="" className="mx-auto max-h-[78vh] w-auto max-w-full rounded-[10px] bg-black object-contain" />;
+    return <img src={src} srcSet={ss} sizes={sizes} onError={onError} alt="" className="mx-auto max-h-[78vh] w-auto max-w-full rounded-[10px] bg-black object-contain" />;
   }
   return (
     <button
@@ -516,6 +530,9 @@ function ImagenMedia({ src, enDetalle, onAbrir }: { src: string; enDetalle: bool
     >
       <img
         src={src}
+        srcSet={ss}
+        sizes={sizes}
+        onError={onError}
         alt=""
         loading="lazy"
         onLoad={(e) => {
@@ -525,6 +542,23 @@ function ImagenMedia({ src, enDetalle, onAbrir }: { src: string; enDetalle: bool
         className={capada ? "h-full w-full object-cover" : "block h-auto w-full"}
       />
     </button>
+  );
+}
+
+/** `<img>` de celda de mosaico con derivados + fallback al original (Fase 2). */
+function ImgMosaico({ src, srcset, className }: { src: string; srcset?: { w: number; url: string }[]; className: string }) {
+  const [sinDeriv, setSinDeriv] = useState(false);
+  const ss = sinDeriv ? undefined : srcSetDe(srcset);
+  return (
+    <img
+      src={src}
+      srcSet={ss}
+      sizes={ss ? "(max-width: 680px) 50vw, 300px" : undefined}
+      onError={() => { if (ss) setSinDeriv(true); }}
+      alt=""
+      loading="lazy"
+      className={className}
+    />
   );
 }
 
@@ -718,14 +752,14 @@ export function PostCard({
     const [a, ...resto] = post.piezas ?? [];
     const multi = resto.length > 0;
     // MULTI (2-3): mosaico RECORTADO (como FB) — cada celda llena su hueco con object-cover.
-    const tile = (p: { tipo: "imagen" | "video" | "gif"; src?: string }, tamanoPlay?: number) =>
+    const tile = (p: PiezaMedia, tamanoPlay?: number) =>
       p.tipo === "gif" && p.src ? (
         <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-black object-contain" />
       ) : p.tipo === "video" && p.src ? (
         <video controls preload="metadata" src={p.src} className="h-full w-full bg-black object-cover" />
       ) : p.tipo === "imagen" && p.src ? (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
-          <img src={p.src} alt="" loading="lazy" className="h-full w-full bg-black object-cover" />
+          <ImgMosaico src={p.src} srcset={p.srcset} className="h-full w-full bg-black object-cover" />
         </button>
       ) : (
         <button type="button" onClick={() => onAbrir(post.id)} className={`block h-full w-full ${focusRing}`}>
@@ -735,9 +769,9 @@ export function PostCard({
     // SINGLE: aspecto NATURAL por tipo. Imagen → ImagenMedia (tope 4:5 / completa en detalle);
     // gif/video → letterbox NEGRO a tamaño natural, con tope de alto (no recorta).
     const topeAlto = enDetalle ? "max-h-[78vh]" : "max-h-[70vh]";
-    const single = (p: { tipo: "imagen" | "video" | "gif"; src?: string }) =>
+    const single = (p: PiezaMedia) =>
       p.tipo === "imagen" && p.src ? (
-        <ImagenMedia src={p.src} enDetalle={enDetalle} onAbrir={() => onAbrir(post.id)} />
+        <ImagenMedia src={p.src} srcset={p.srcset} enDetalle={enDetalle} onAbrir={() => onAbrir(post.id)} />
       ) : p.tipo === "gif" && p.src ? (
         <img src={p.src} alt="" loading="lazy" className={`w-full ${topeAlto} rounded-[10px] bg-black object-contain`} />
       ) : p.tipo === "video" && p.src ? (

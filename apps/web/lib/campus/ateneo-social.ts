@@ -12,6 +12,7 @@ import type {
   Reacciones,
   TipoReaccion,
 } from '@/app/(campus)/ateneo/_components/tipos';
+import { clavesDerivadosImagen } from '@campus/shared';
 
 /**
  * ATENEO — data layer del alumno (§1). Recablea el motor (posts_ateneo/comentarios_ateneo/
@@ -150,7 +151,14 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       .filter((m) => m.tipo !== 'gif')
       .map((m) => m.url)
       .filter((u): u is string => !!u));
-  const urlPorRef = mediaRefs.length ? await firmarLecturaImagenes(mediaRefs) : {};
+  // Derivados responsivos (Fase 2): además del original, firmamos las claves webp DETERMINISTAS
+  // (640/1080/1600) de cada imagen de contenido → el feed emite `srcset` y el navegador baja
+  // decenas de KB. Firma ESTABLE (misma batch · Fase 1). Las claves se firman aunque el derivado
+  // no exista aún (backfill pendiente/falla) → el `<img>` cae al original vía `onError`.
+  const derivRefs = mediaRefs.flatMap((ref) => clavesDerivadosImagen(ref).map((d) => d.ref));
+  const urlPorRef = mediaRefs.length || derivRefs.length
+    ? await firmarLecturaImagenes([...mediaRefs, ...derivRefs])
+    : {};
 
   const reacTipos = await sql<{ post_id: string; tipo: string; n: number }[]>`
     select post_id, tipo::text as tipo, count(*)::int as n
@@ -279,7 +287,13 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
         const src = tipo === 'gif'
           ? (typeof m.url === 'string' ? m.url : undefined)
           : (typeof m.url === 'string' ? urlPorRef[m.url] ?? undefined : undefined);
-        return { tipo, src };
+        // srcset de derivados (solo imagen de contenido): webp firmados por ancho conocido.
+        const srcset = tipo === 'imagen' && typeof m.url === 'string'
+          ? clavesDerivadosImagen(m.url)
+              .map((d) => ({ w: d.ancho, url: urlPorRef[d.ref] }))
+              .filter((x): x is { w: number; url: string } => !!x.url)
+          : undefined;
+        return { tipo, src, ...(srcset && srcset.length ? { srcset } : {}) };
       });
       return { ...base, tipo: 'media', texto: f.cuerpo ?? '', piezas };
     }

@@ -11,8 +11,9 @@ import { EcoEvaluacionWorker } from './eco-evaluacion.worker';
 import { IngestaGrabacionZoomWorker } from './ingesta-grabacion-zoom.worker';
 import { RenderTtsWorker } from './render-tts.worker';
 import { NotificacionesWorker } from './notificaciones.worker';
+import { GenerarDerivadosImagenWorker } from './generar-derivados-imagen.worker';
 
-/** Consumidores BullMQ del dominio (§8, jobs 2-12 + course builder). */
+/** Consumidores BullMQ del dominio (§8, jobs 2-12 + course builder + entrega). */
 @Module({
   providers: [
     CalculoCompetenciaWorker,
@@ -27,6 +28,7 @@ import { NotificacionesWorker } from './notificaciones.worker';
     IngestaGrabacionZoomWorker,
     RenderTtsWorker,
     NotificacionesWorker,
+    GenerarDerivadosImagenWorker,
   ],
 })
 export class JobsModule {}

@@ -29,4 +29,14 @@ export class MediaImagenesController {
   firmarLectura(@Body() b: LecturaBody) {
     return this.svc.firmarLectura(b?.refs ?? []);
   }
+
+  /**
+   * Encola la generación de derivados responsivos (Fase 2) de las imágenes de contenido dadas.
+   * Lo llama el web tras publicar un post de imagen (y el backfill). Idempotente aguas abajo:
+   * el worker regenera; refs no derivables (video/gif/casos) se ignoran.
+   */
+  @Post('derivar')
+  derivar(@Body() b: LecturaBody) {
+    return this.svc.derivar(b?.refs ?? []);
+  }
 }

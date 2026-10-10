@@ -126,6 +126,9 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
   const vis = b.audiencia === 'colegas' ? 'colegas' : b.audiencia === 'grupo' ? 'grupo' : 'inscritos';
   // Snapshot de enlace (OG) — se congela con el post; NO se re-fetchea en lectura.
   const enlace = sanearEnlace(b.enlace);
+  // Refs de IMÁGENES de contenido a derivar (webp responsivos · Fase 2). Se llenan en el modo
+  // media y se encolan DESPUÉS de commitear el post (best-effort; no bloquean la publicación).
+  let refsADerivar: string[] = [];
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       const enlaceJson = enlace ? sql.json(enlace) : null;
@@ -160,6 +163,8 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
           .slice(0, 8)
           .map((m) => ({ tipo: m.tipo === 'video' ? 'video' : 'imagen', url: m.ref }));
         if (media.length === 0 && !t) throw new Error('vacio');
+        // Las imágenes (no el video) se derivan a webp responsivos tras commitear (Fase 2).
+        refsADerivar = media.filter((m) => m.tipo === 'imagen').map((m) => m.url);
         await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, media, enlace, estado, visibilidad)
           values (${alumno.userId}, 'media', ${tituloDesde(t, 'Imágenes')}, ${t}, ${sql.json(media)}, ${enlaceJson}, 'aprobado', ${vis})`;
       } else if (b.modo === 'gif') {
@@ -190,6 +195,19 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
   } catch (e) {
     console.error('[publicarPostAteneo] fallo:', e);
     return { ok: false, error: 'No se pudo publicar. Revisa los campos e inténtalo de nuevo.' };
+  }
+  // Derivados responsivos (Fase 2) — BEST-EFFORT tras publicar: si falla, el post queda igual y
+  // el feed sirve el original (fallback). El `api` encola el job `generar-derivados-imagen`.
+  if (refsADerivar.length > 0) {
+    try {
+      await fetch(`${apiBase()}/media/imagenes/derivar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ refs: refsADerivar }),
+      });
+    } catch (e) {
+      console.error('[publicarPostAteneo] derivar (no fatal):', e);
+    }
   }
   revalidatePath('/ateneo');
   return { ok: true };

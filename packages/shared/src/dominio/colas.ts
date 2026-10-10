@@ -15,6 +15,7 @@ export const QUEUE_ECO_EVALUACION = 'eco-evaluacion' as const;
 export const QUEUE_INGESTA_GRABACION_ZOOM = 'ingesta-grabacion-zoom' as const;
 export const QUEUE_RENDER_TTS = 'render-tts' as const;
 export const QUEUE_NOTIFICACIONES = 'notificaciones' as const;
+export const QUEUE_GENERAR_DERIVADOS_IMAGEN = 'generar-derivados-imagen' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -129,6 +130,31 @@ export interface FirmarAnonimizadosResp {
   destinos: DestinoAnonimizado[];
   /** Destino del thumb del caso (serie 0). El worker lo usa solo al reemplazar el estudio. */
   thumb?: DestinoThumb;
+}
+
+/**
+ * Job `generar-derivados-imagen` (Fase 2 entrega): genera variantes webp responsivas de una
+ * imagen de CONTENIDO (`media/imagenes/{id}.{ext}`) tras publicarse un post de imagen. El `api`
+ * firma TODO por adelantado (los anchos se conocen · §3 único firmante): URL interna de lectura
+ * del original + un PUT interno por derivado. El worker solo baja → redimensiona (sharp) → sube.
+ * Best-effort: si falla, el feed cae al original (fallback). No toca el original ni PII.
+ */
+export interface DestinoDerivado {
+  /** Ancho objetivo en px (640 | 1080 | 1600). */
+  ancho: number;
+  /** Clave destino del derivado (`media/imagenes/{id}/{ancho}.webp`). */
+  ref: string;
+  /** URL firmada de ESCRITURA del derivado. */
+  urlSubida: string;
+}
+
+export interface GenerarDerivadosImagenJob {
+  /** Ref del original de contenido (`media/imagenes/{id}.{ext}`). */
+  ref: string;
+  /** URL firmada de LECTURA del original (interna; la usa el worker). */
+  urlLectura: string;
+  /** Un destino por ancho a generar. */
+  destinos: DestinoDerivado[];
 }
 
 /**

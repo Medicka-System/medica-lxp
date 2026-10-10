@@ -155,7 +155,9 @@ export type PostMedia = PostBase & {
   tipo: "media";
   texto: string;
   // "gif" = hotlink al CDN de Giphy (src = URL externa tal cual, no ref de storage).
-  piezas: { tipo: "imagen" | "video" | "gif"; src?: string }[];
+  // `srcset` (solo imagen): derivados webp responsivos firmados (Fase 2); el <img> los usa y
+  // cae a `src` (original) si un derivado falta. Ausente = sin derivados → solo original.
+  piezas: { tipo: "imagen" | "video" | "gif"; src?: string; srcset?: { w: number; url: string }[] }[];
 };
 
 /** Un GIF de Giphy en el picker (lo entrega el proxy /media/gifs del api). */
