@@ -6,6 +6,7 @@ const storage = {
   claveImagenContenido: jest.fn((id: string, ext: string) => `media/imagenes/${id}.${ext}`),
   firmarSubida: jest.fn(() => 'http://storage/put'),
   firmarLectura: jest.fn(() => 'http://storage/get'),
+  firmarLecturaEstable: jest.fn(() => 'http://storage/get'), // lectura cacheable (Fase 1 entrega)
 } as unknown as StorageService;
 
 describe('MediaImagenesService', () => {

@@ -195,6 +195,21 @@ services:
       - traefik.http.routers.prisma-s3.entrypoints=websecure
       - traefik.http.routers.prisma-s3.tls.certresolver=le
       - traefik.http.services.prisma-s3.loadbalancer.server.port=9000
+      # ── Fase 1 ENTREGA — Cache-Control para media/imagenes/* (no-PII) ──
+      # Router MÁS ESPECÍFICO (Host + PathPrefix) con prioridad alta → Traefik lo elige
+      # ANTES que `prisma-s3` SOLO para las imágenes de contenido; los .dcm anonimizados
+      # (dicom/casos/*) y reportes siguen por el router general SIN Cache-Control. Reusa el
+      # mismo service `prisma-s3` (MinIO:9000). Pareja con la firma ESTABLE (URL byte-idéntica
+      # por ventana · storage.firmarLecturaEstable) → el navegador cachea y deja de
+      # re-descargar. max-age=3600 alineado a la ventana de firma (1 h; expiry de la URL 2 h).
+      # NO aplicado aún: toma efecto en el próximo deploy (recrea prisma-minio).
+      - traefik.http.routers.prisma-s3-media.rule=Host(`s3-prisma.medicacapacitacion.com`) && PathPrefix(`/campus-lxp-media/media/imagenes/`)
+      - traefik.http.routers.prisma-s3-media.entrypoints=websecure
+      - traefik.http.routers.prisma-s3-media.tls.certresolver=le
+      - traefik.http.routers.prisma-s3-media.priority=100
+      - traefik.http.routers.prisma-s3-media.service=prisma-s3
+      - traefik.http.routers.prisma-s3-media.middlewares=prisma-s3-cache
+      - traefik.http.middlewares.prisma-s3-cache.headers.customResponseHeaders.Cache-Control=public, max-age=3600
 
   redactor-dicom:
     # Redactor de PII QUEMADA en píxeles (§10): Presidio (OCR Tesseract + NER spaCy es)

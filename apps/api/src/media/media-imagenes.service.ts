@@ -45,13 +45,18 @@ export class MediaImagenesService {
     };
   }
 
-  /** Firma la lectura de imágenes de contenido (solo claves `media/imagenes/`). */
+  /**
+   * Firma la lectura de imágenes de contenido (solo claves `media/imagenes/`). Usa firma
+   * ESTABLE (Fase 1 entrega): la URL es byte-idéntica dentro de la ventana → el navegador
+   * la cachea y deja de re-descargar en cada render/scroll/regreso. Sigue firmada (gating
+   * de visibilidad intacto: el feed solo pasa aquí los refs que el usuario puede ver).
+   */
   firmarLectura(refs: string[]): { urls: Record<string, string> } {
     if (!Array.isArray(refs)) throw new BadRequestException('refs inválido.');
     const urls: Record<string, string> = {};
     for (const ref of refs) {
       if (typeof ref === 'string' && ref.startsWith('media/imagenes/')) {
-        urls[ref] = this.storage.firmarLectura(ref, undefined, true); // PÚBLICA (navegador)
+        urls[ref] = this.storage.firmarLecturaEstable(ref, undefined, true); // PÚBLICA + cacheable
       }
     }
     return { urls };

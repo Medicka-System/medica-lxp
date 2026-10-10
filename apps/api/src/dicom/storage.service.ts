@@ -5,6 +5,17 @@ import { presignS3, type MetodoS3 } from './sigv4';
 const EXPIRA_SEG = 3600;
 
 /**
+ * Firma ESTABLE (cacheable) para lecturas de contenido no-PII (`media/imagenes/*` · Fase 1
+ * entrega). La URL se ancla al inicio de una VENTANA → es BYTE-IDÉNTICA dentro de la ventana,
+ * así el navegador la cachea por URL (deja de re-descargar en cada render/scroll/regreso). La
+ * expiración es HOLGADA (≥ 2× ventana) para que una URL emitida al final de la ventana no
+ * caduque a mitad de sesión. NO es public-read: sigue requiriendo firma (gating de visibilidad
+ * intacto — el feed solo firma lo que el usuario puede ver).
+ */
+const VENTANA_ESTABLE_SEG = 3600; // 1 h: la URL no cambia dentro de la hora
+const EXPIRA_ESTABLE_SEG = 7200; // 2 h: holgura cómoda > ventana
+
+/**
  * Acceso a object storage (S3-compatible: MinIO/Supabase → R2 · §3). El `api` es el
  * único FIRMANTE: emite URLs firmadas de vida corta para que el cliente suba y el
  * worker lea/escriba/borre — el binario nunca pasa por el `api` ni por Postgres.
@@ -83,7 +94,13 @@ export class StorageService {
    * `publico=true` firma con el endpoint que verá el NAVEGADOR (host); `false` (default)
    * con el interno de Docker (worker / `api` server-side). Ver `endpointPublico`.
    */
-  private firmar(metodo: MetodoS3, key: string, ahora: Date, publico: boolean): string {
+  private firmar(
+    metodo: MetodoS3,
+    key: string,
+    ahora: Date,
+    publico: boolean,
+    expiraSeg: number = EXPIRA_SEG,
+  ): string {
     return presignS3({
       metodo,
       endpoint: publico ? this.endpointPublico : this.endpoint,
@@ -92,7 +109,7 @@ export class StorageService {
       key,
       accessKey: this.accessKey,
       secretKey: this.secretKey,
-      expiraSeg: EXPIRA_SEG,
+      expiraSeg,
       ahora,
     });
   }
@@ -103,6 +120,19 @@ export class StorageService {
 
   firmarLectura(key: string, ahora = new Date(), publico = false): string {
     return this.firmar('GET', key, ahora, publico);
+  }
+
+  /**
+   * Firma GET ESTABLE/cacheable para contenido no-PII (`media/imagenes/*`): ancla el timestamp
+   * al inicio de la ventana (`VENTANA_ESTABLE_SEG`) → la URL es byte-idéntica dentro de la
+   * ventana (el navegador cachea por URL). Expiry holgado (`EXPIRA_ESTABLE_SEG` ≥ 2× ventana)
+   * para que una URL emitida al final de la ventana no caduque a media sesión. Sigue firmada
+   * (NO public-read): el gating de visibilidad lo hace el feed (solo firma lo visible).
+   */
+  firmarLecturaEstable(key: string, ahora = new Date(), publico = false): string {
+    const ventanaMs = VENTANA_ESTABLE_SEG * 1000;
+    const anclado = new Date(Math.floor(ahora.getTime() / ventanaMs) * ventanaMs);
+    return this.firmar('GET', key, anclado, publico, EXPIRA_ESTABLE_SEG);
   }
 
   firmarBorrado(key: string, ahora = new Date(), publico = false): string {

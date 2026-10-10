@@ -20,11 +20,13 @@ export async function firmarLecturaImagenes(refs: (string | null | undefined)[])
   );
   if (propios.length === 0) return {};
   try {
+    // Sin `cache:'no-store'`: con firma ESTABLE (ventana) las URLs ya no cambian por render,
+    // así que no hace falta forzar no-store aquí. El cacheo REAL que importa es el del
+    // navegador sobre el `<img>` (URL estable + Cache-Control de la imagen · Fase 1 entrega).
     const res = await fetch(`${apiBase()}/media/imagenes/firmar-lectura`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ refs: propios }),
-      cache: 'no-store',
     });
     if (!res.ok) return {};
     const d = (await res.json()) as { urls?: Record<string, string> };
