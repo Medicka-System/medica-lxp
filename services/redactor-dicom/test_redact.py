@@ -15,8 +15,8 @@ dentro del contenedor `redactor-dicom` (`pytest` en /app) o en CI con la imagen 
 """
 from __future__ import annotations
 
-import base64
 import io
+import re
 
 import numpy as np
 import pydicom
@@ -119,33 +119,53 @@ def _ocr(texto_img: Image.Image) -> str:
     return pytesseract.image_to_string(texto_img).upper()
 
 
-def _assert_thumb(resp) -> None:
-    """El thumb (X-Thumb-B64) existe, es JPEG válido, borde largo <= 480 y NO tiene el nombre
-    (§10: sale del frame YA redactado, nunca del original). El worker lo decodifica igual."""
-    b64 = resp.headers.get("X-Thumb-B64") or ""
-    assert b64, "no se emitió el thumb (X-Thumb-B64 vacío)"
-    img = Image.open(io.BytesIO(base64.b64decode(b64)))
+def _partes_multipart(resp) -> dict:
+    """Parsea la respuesta MULTIPART de éxito en {name: bytes} (partes `bin` y `thumb`)."""
+    ct = resp.headers["content-type"]
+    assert ct.startswith("multipart/form-data"), f"no es multipart: {ct}"
+    boundary = ct.split("boundary=")[1].strip().encode()
+    partes = {}
+    for seg in resp.body.split(b"--" + boundary):
+        seg = seg.lstrip(b"\r\n")
+        if not seg or seg.startswith(b"--"):  # preámbulo vacío o cierre
+            continue
+        head, _, data = seg.partition(b"\r\n\r\n")
+        if data.endswith(b"\r\n"):
+            data = data[:-2]
+        m = re.search(rb'name="([^"]+)"', head)
+        if m:
+            partes[m.group(1).decode()] = data
+    return partes
+
+
+def _assert_thumb(partes: dict) -> None:
+    """El thumb (parte `thumb` del multipart) existe, es JPEG válido, borde largo <= 480 y NO
+    tiene el nombre (§10: sale del frame YA redactado, nunca del original)."""
+    thumb = partes.get("thumb")
+    assert thumb, "no se emitió el thumb (parte `thumb` ausente)"
+    img = Image.open(io.BytesIO(thumb))
     assert img.format == "JPEG", f"el thumb no es JPEG: {img.format}"
     assert max(img.size) <= 480, f"thumb mayor al borde objetivo: {img.size}"
-    assert len(b64) <= 16000, f"thumb muy grande para el header ({len(b64)} chars)"
     txt = _ocr(img.convert("RGB"))
     assert "RAMIREZ" not in txt and "GUADALUPE" not in txt, f"nombre sobrevive en el thumb: {txt!r}"
 
 
 def _assert_redactado(resp) -> pydicom.Dataset:
-    """Aserciones comunes de ÉXITO: no fail-open, TS sin comprimir, y sin el nombre en píxeles."""
+    """Aserciones comunes de ÉXITO: no fail-open, TS sin comprimir, y sin el nombre en píxeles.
+    La salida es MULTIPART: `bin` = .dcm redactado, `thumb` = JPEG del frame redactado."""
     assert resp.status_code == 200
     assert resp.headers["X-Revision-Manual"] == "0", resp.headers.get("X-Error")
     assert resp.headers["X-Redaccion-Fallida"] == "0"
     assert int(resp.headers["X-Redacciones"]) >= 1
-    ds = pydicom.dcmread(io.BytesIO(resp.body))  # strict: la salida es P10 canónico
+    partes = _partes_multipart(resp)
+    ds = pydicom.dcmread(io.BytesIO(partes["bin"]))  # strict: la salida es P10 canónico
     assert str(ds.file_meta.TransferSyntaxUID) == str(ExplicitVRLittleEndian)
     frames = int(getattr(ds, "NumberOfFrames", 1) or 1)
     arr = ds.pixel_array.reshape((frames, ds.Rows, ds.Columns, 3))
     for f in range(frames):
         txt = _ocr(Image.fromarray(arr[f], "RGB"))
         assert "RAMIREZ" not in txt and "GUADALUPE" not in txt, f"nombre sobrevive en frame {f}: {txt!r}"
-    _assert_thumb(resp)  # el thumb server-side viaja con cada éxito (§5A/§10)
+    _assert_thumb(partes)  # el thumb server-side viaja en el body (parte `thumb` · §5A/§10)
     return ds
 
 
@@ -191,6 +211,7 @@ def test_imagen_web_quemada_redacta():
     resp = redactor._redact_imagen(buf.getvalue(), "image/png")
     assert resp.headers["X-Revision-Manual"] == "0", resp.headers.get("X-Error")
     assert int(resp.headers["X-Redacciones"]) >= 1
-    txt = _ocr(Image.open(io.BytesIO(resp.body)).convert("RGB"))
+    partes = _partes_multipart(resp)
+    txt = _ocr(Image.open(io.BytesIO(partes["bin"])).convert("RGB"))
     assert "RAMIREZ" not in txt and "GUADALUPE" not in txt
-    _assert_thumb(resp)  # el thumb server-side también en el camino de imagen web
+    _assert_thumb(partes)  # el thumb server-side también en el camino de imagen web (parte `thumb`)

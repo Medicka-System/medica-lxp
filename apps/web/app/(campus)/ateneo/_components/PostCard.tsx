@@ -696,8 +696,6 @@ export function PostCard({
           ) : (
             <button type="button" onClick={() => onAbrir(post.id)} className={`mt-3.5 block w-full overflow-hidden rounded-xl border border-border text-left ${focusRing}`}>
               <EstudioCaso
-                postId={post.id}
-                piezas={post.caso.piezas}
                 thumbUrl={post.caso.thumbUrl}
                 etiqueta={`${post.caso.organo.toLowerCase()} · ${post.caso.area.toLowerCase()}`}
                 badge={`${post.caso.piezas} piezas${post.caso.loops ? ` · ${post.caso.loops} loop` : ""}`}

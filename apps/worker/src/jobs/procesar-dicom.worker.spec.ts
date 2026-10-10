@@ -98,3 +98,40 @@ describe('ProcesarDicomWorker · cuarentena §10 (fail-closed)', () => {
     expect(res).toEqual({ casoId: 'caso-1', series: 1 });
   });
 });
+
+describe('ProcesarDicomWorker · redactarPixeles (contrato MULTIPART)', () => {
+  const llamar = (resp: Response) => {
+    const { worker } = nuevoWorker();
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => resp);
+    return (worker as unknown as { redactarPixeles: (b: Buffer, ct: string) => Promise<{ buffer: Buffer; thumb: Buffer | null; revisionManual: boolean; redacciones: number }> })
+      .redactarPixeles(Buffer.from([1, 2, 3]), 'application/dicom');
+  };
+
+  it('ÉXITO: parsea el multipart → `bin` (redactado) + `thumb` (JPEG)', async () => {
+    const fd = new FormData();
+    fd.set('bin', new Blob([new Uint8Array([9, 9, 9, 9])], { type: 'application/dicom' }), 'bin');
+    fd.set('thumb', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 'thumb');
+    const resp = new Response(fd, { headers: { 'x-redacciones': '1', 'x-revision-manual': '0' } });
+    const r = await llamar(resp);
+    expect(r.revisionManual).toBe(false);
+    expect([...r.buffer]).toEqual([9, 9, 9, 9]);
+    expect(r.thumb && [...r.thumb]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  it('ÉXITO sin parte thumb → thumb null (best-effort, placeholder)', async () => {
+    const fd = new FormData();
+    fd.set('bin', new Blob([new Uint8Array([1, 2])], { type: 'application/dicom' }), 'bin');
+    const resp = new Response(fd, { headers: { 'x-redacciones': '1', 'x-revision-manual': '0' } });
+    const r = await llamar(resp);
+    expect(r.thumb).toBeNull();
+    expect([...r.buffer]).toEqual([1, 2]);
+  });
+
+  it('CUARENTENA: X-Revision-Manual=1 → no parsea, buffer vacío, thumb null (fail-closed)', async () => {
+    const resp = new Response('', { headers: { 'x-redacciones': '0', 'x-revision-manual': '1' } });
+    const r = await llamar(resp);
+    expect(r.revisionManual).toBe(true);
+    expect(r.buffer.length).toBe(0);
+    expect(r.thumb).toBeNull();
+  });
+});

@@ -37,7 +37,7 @@ Endpoints:
 """
 from __future__ import annotations
 
-import base64
+import uuid
 import io
 import logging
 import os
@@ -72,16 +72,13 @@ PAD = int(os.environ.get("REDACTOR_PAD", "6"))
 ENTITIES = ["PERSON"]
 
 # ── Thumbnail (§5A/§10) ──────────────────────────────────────────────────────
-# El thumb se genera SIEMPRE del frame YA REDACTADO (nunca del original · §10). Borde
-# largo ~480 px, JPEG calidad ~72. Viaja base64 en el header X-Thumb-B64 (ADITIVO: el
-# cuerpo sigue siendo el binario redactado). Para no rebasar el límite de header del
-# cliente (undici/Node ~16 KB total), si el base64 crece de más se baja calidad y luego
-# tamaño; si aún así no cabe, se omite el thumb (el worker deja estudio_thumb_ref null →
-# fallback raster-cliente). Nunca es bloqueante: un fallo de thumb no cuarentena el caso.
+# El thumb se genera SIEMPRE del frame YA REDACTADO (nunca del original · §10). Borde largo
+# ~480 px, JPEG calidad ~72. Viaja en el BODY (respuesta MULTIPART: parte `bin` = binario
+# redactado, parte `thumb` = JPEG) — sin base64 ni tope de header, así la calidad la fija el
+# 480px/q72 real, no el header. Nunca bloqueante: si el thumb falla, se omite la parte `thumb`
+# y el worker deja estudio_thumb_ref null (placeholder); no cuarentena el caso.
 THUMB_BORDE = int(os.environ.get("REDACTOR_THUMB_BORDE", "480"))
 THUMB_CALIDAD = int(os.environ.get("REDACTOR_THUMB_CALIDAD", "72"))
-# Tope del base64 (chars) para quedar bajo el límite de header del cliente, con margen.
-THUMB_MAX_B64 = int(os.environ.get("REDACTOR_THUMB_MAX_B64", "14000"))
 
 app = FastAPI(title="Campus LXP · Redactor DICOM (Presidio)", version="2.0.0")
 
@@ -228,31 +225,37 @@ def _pil_rgb(frame: np.ndarray, samples: int) -> Image.Image:
     return Image.fromarray(f8, "L").convert("RGB")
 
 
-def _thumb_b64(img: Image.Image) -> str:
-    """Genera el thumbnail JPEG (base64) desde una imagen YA REDACTADA (§10).
+def _thumb_jpeg(img: Image.Image) -> bytes | None:
+    """Genera el thumbnail JPEG (bytes) desde una imagen YA REDACTADA (§10).
 
-    `img` debe ser el frame redactado (salida verificada), NUNCA el original. Redimensiona
-    al borde largo THUMB_BORDE (manteniendo aspecto) y guarda JPEG. Si el base64 supera
-    THUMB_MAX_B64 (límite de header del cliente), baja calidad y luego tamaño; si aun así
-    no cabe, devuelve "" (sin thumb → el worker deja la ref null → fallback). No lanza."""
+    `img` debe ser el frame redactado (salida verificada), NUNCA el original. Redimensiona al
+    borde largo THUMB_BORDE (manteniendo aspecto) y guarda JPEG a THUMB_CALIDAD — SIN tope ni
+    base64 (viaja por el body multipart). `None` si falla (sin thumb → el worker deja la ref
+    null → placeholder). No lanza."""
     try:
         base = img.convert("RGB")
         base.thumbnail((THUMB_BORDE, THUMB_BORDE))  # in-place, mantiene proporción
-        for borde in (THUMB_BORDE, 360, 256):
-            work = base
-            if borde != THUMB_BORDE:
-                work = base.copy()
-                work.thumbnail((borde, borde))
-            for calidad in (THUMB_CALIDAD, 60, 50, 40):
-                buf = io.BytesIO()
-                work.save(buf, format="JPEG", quality=calidad, optimize=True)
-                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-                if len(b64) <= THUMB_MAX_B64:
-                    return b64
-        return ""  # no cupo bajo el límite → sin thumb (no bloquea)
+        buf = io.BytesIO()
+        base.save(buf, format="JPEG", quality=THUMB_CALIDAD, optimize=True)
+        return buf.getvalue()
     except Exception as e:  # noqa: BLE001
         log.warning("thumb no generado: %s", e)
-        return ""
+        return None
+
+
+def _multipart(partes: List[Tuple[str, str, bytes]]) -> Response:
+    """Respuesta MULTIPART/form-data con partes binarias (name, content-type, data). El worker
+    la parsea con `Response.formData()`. Boundary aleatorio (no colisiona con el binario)."""
+    boundary = uuid.uuid4().hex
+    out = bytearray()
+    for name, ctype, data in partes:
+        out += f"--{boundary}\r\n".encode()
+        out += f'Content-Disposition: form-data; name="{name}"; filename="{name}"\r\n'.encode()
+        out += f"Content-Type: {ctype}\r\n\r\n".encode()
+        out += data
+        out += b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
 
 
 def _verificar_limpia(img: Image.Image) -> Tuple[bool, int]:
@@ -264,19 +267,23 @@ def _verificar_limpia(img: Image.Image) -> Tuple[bool, int]:
 
 
 # ── Cabeceras de respuesta ──────────────────────────────────────────────────
-def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "", thumb_b64: str = "") -> Response:
-    """Éxito verificado: se devuelve el binario REDACTADO (sin PII quemada). El thumb
-    (base64 del frame YA redactado · §10) viaja ADITIVO en X-Thumb-B64; "" = sin thumb."""
+def _ok(body: bytes, media: str, redacciones: int, ts_in: str = "", thumb: bytes | None = None) -> Response:
+    """Éxito verificado: respuesta MULTIPART con el binario REDACTADO (parte `bin`) y, si se
+    generó, el thumb JPEG del frame YA redactado (parte `thumb` · §10). Sin base64 ni tope de
+    header. Metadatos (redacciones, revisión) siguen en headers; X-Thumb-B64 ELIMINADO."""
+    partes: List[Tuple[str, str, bytes]] = [("bin", media, body)]
+    if thumb:
+        partes.append(("thumb", "image/jpeg", thumb))
+    contenido, media_type = _multipart(partes)
     return Response(
-        content=body,
-        media_type=media,
+        content=contenido,
+        media_type=media_type,
         headers={
             "X-Redacciones": str(redacciones),
             "X-Revision-Manual": "0",
             "X-Redaccion-Fallida": "0",
             "X-Entidad": "PERSON",
             "X-Transfer-Syntax-In": ts_in,
-            "X-Thumb-B64": thumb_b64,
         },
     )
 
@@ -332,7 +339,7 @@ def _redact_imagen(data: bytes, content_type: str) -> Response:
         if not limpia:
             return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", content_type)
         # Thumb desde la imagen YA REDACTADA y VERIFICADA (§10 · nunca del original).
-        thumb = _thumb_b64(verif)
+        thumb = _thumb_jpeg(verif)
         log.info("redact IMG ok content_type=%s redacciones=%d thumb=%d", content_type, len(cajas), len(thumb))
         return _ok(cuerpo, media, len(cajas), content_type, thumb)
     except Exception as e:  # noqa: BLE001
@@ -411,7 +418,7 @@ def _redact_dicom(data: bytes) -> Response:
             return _fallo(f"verificacion: {restantes} nombre(s) sobreviven tras redactar", ts_in)
 
         # Thumb desde el frame 0 YA REDACTADO (re-leído de la salida · §10): nunca el original.
-        thumb = _thumb_b64(verif)
+        thumb = _thumb_jpeg(verif)
         log.info(
             "redact DICOM ok ts_in=%s redacciones=%d frames=%d ocr=%d thumb=%d",
             ts_in, len(cajas), frames, len(ocr_texto), len(thumb),

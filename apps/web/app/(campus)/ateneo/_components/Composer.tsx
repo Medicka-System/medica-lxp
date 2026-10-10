@@ -445,7 +445,7 @@ export function ComposerModal({
                 </div>
                 <div className="flex gap-3 p-3">
                   <div className="w-[150px] shrink-0 overflow-hidden rounded-lg">
-                    <EstudioCaso casoId={caso.id} piezas={caso.piezas} thumbUrl={caso.thumbUrl} ratio="16 / 10" tamanoPlay={30} />
+                    <EstudioCaso thumbUrl={caso.thumbUrl} ratio="16 / 10" tamanoPlay={30} />
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13.5px] font-bold leading-snug">{caso.titulo}</span>
@@ -477,7 +477,7 @@ export function ComposerModal({
                     } ${focusRing}`}
                   >
                     <span className="relative block overflow-hidden rounded-[7px]">
-                      <EstudioCaso casoId={c.id} piezas={c.piezas} thumbUrl={c.thumbUrl} ratio="16 / 10" play={false} />
+                      <EstudioCaso thumbUrl={c.thumbUrl} ratio="16 / 10" play={false} />
                       {on && (
                         <span className="absolute right-1.5 top-1.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-primary text-[color:var(--sidebar)]">
                           <Check aria-hidden className="h-3 w-3" strokeWidth={3} />

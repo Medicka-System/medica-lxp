@@ -41,7 +41,6 @@ import {
   CAMPO_HALLAZGOS_DEFECTO,
 } from '@/lib/reportes/plantilla-caso-defecto';
 import { subirCaso } from '@/lib/campus/acciones-bitacora';
-import { useThumbEstudio } from '@/components/casos/use-thumb-estudio';
 import {
   DOMINIO_LABEL,
   ETIQUETA_ESTADO,
@@ -358,17 +357,10 @@ function SheetSubirCaso({
 function TarjetaCaso({ c }: { c: CasoBitacora }) {
   const tieneEstudio = c.estudioEstado === 'anonimizado';
   // Thumbnail ESTABLE: JPEG generado UNA vez en el servidor al anonimizar (del frame YA
-  // redactado · §10), servido con URL firmada cacheable (familia B). No se re-firma por mount
-  // → persiste al navegar y volver, aparece al instante. FALLBACK (fase 1): si el caso aún no
-  // tiene thumb server-side (viejos / cuarentena), se rasteriza en CLIENTE (useThumbEstudio →
-  // renderMiniaturasDetalle). El hook se llama SIEMPRE (reglas de hooks) pero solo queda
-  // `activo` cuando NO hay thumb estable, para no bajar el .dcm en balde.
-  const thumbEstable = c.thumbUrl;
-  const thumb = useThumbEstudio(c.id, 'bitacora_casos', tieneEstudio && c.piezas >= 1 && !thumbEstable, {
-    ancho: 768,
-    alto: 576,
-  });
-  const thumbUrl = thumbEstable ?? (thumb.fase === 'listo' ? thumb.url : null);
+  // redactado · §10), servido con URL firmada cacheable (familia B). Si el caso no tiene thumb
+  // (viejos / cuarentena) → placeholder limpio (VisorDicomPlaceholder); NO se rasteriza en
+  // cliente. El visor interactivo del caso (al abrir) sigue en Cornerstone, aparte.
+  const thumbUrl = c.thumbUrl;
   const etiquetaEstudio =
     c.estudioEstado === 'revision_manual'
       ? 'no se pudo anonimizar · en revisión'
@@ -391,7 +383,7 @@ function TarjetaCaso({ c }: { c: CasoBitacora }) {
     >
       <Link href={`/bitacora/${c.id}`} className={`relative block ${focusRing}`}>
         {thumbUrl ? (
-          // Thumb estable (JPEG server-side, URL firmada) o, en fallback, el raster-cliente.
+          // Thumb estable (JPEG server-side, URL firmada cacheable · familia B).
           <img src={thumbUrl} alt="" className="h-[156px] w-full object-cover" />
         ) : (
           <VisorDicomPlaceholder

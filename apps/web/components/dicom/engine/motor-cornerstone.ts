@@ -555,32 +555,3 @@ export async function renderImagenesPng(imageIds: string[], lado = 1100): Promis
   });
 }
 
-/** Miniatura con su proporción NATIVA (px reales de la imagen), para encuadrar sin deformar. */
-export type MiniaturaDetalle = { url: string; ancho: number; alto: number };
-
-/**
- * Como `renderMiniaturas`, pero además devuelve las dimensiones reales de la imagen
- * (`Columns`/`Rows` del DICOM, no del canvas offscreen) para que el consumidor fije un
- * `aspect-ratio` fiel a la proporción nativa del estudio (§5A · card de la rejilla del
- * alumno). Devuelve `null` por imagen que no se pudo previsualizar. No lanza.
- */
-export async function renderMiniaturasDetalle(
-  imageIds: string[],
-  // Tamaño del canvas offscreen = RESOLUCIÓN del raster. Default 160×120 (tira de series /
-  // validación). El consumidor que muestra la miniatura GRANDE (card de Mi Bitácora) pide un
-  // tamaño ≥ su contenedor (idealmente 2× retina) para que no se vea pixelada.
-  opts: { ancho?: number; alto?: number } = {},
-): Promise<(MiniaturaDetalle | null)[]> {
-  const ancho = opts.ancho ?? 160;
-  const alto = opts.alto ?? 120;
-  return renderLotePool(imageIds, { ancho, alto, timeoutMs: 8000 }, (viewport) => {
-    const canvas = viewport.getCanvas();
-    const url = canvas ? canvas.toDataURL('image/jpeg', 0.6) : null;
-    if (!url) return null;
-    // Dimensiones reales de la imagen (no del canvas 160×120): [cols, rows, 1].
-    const dims = viewport.getImageData()?.dimensions;
-    const ancho = Array.isArray(dims) ? dims[0] ?? 0 : 0;
-    const alto = Array.isArray(dims) ? dims[1] ?? 0 : 0;
-    return ancho > 0 && alto > 0 ? { url, ancho, alto } : { url, ancho: 4, alto: 3 };
-  });
-}

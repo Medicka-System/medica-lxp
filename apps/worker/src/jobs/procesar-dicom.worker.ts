@@ -428,10 +428,12 @@ export class ProcesarDicomWorker extends TrabajadorBase {
 
   /**
    * Redacta la PII quemada (nombre) con el servicio Presidio (§10 · ON-PREM). Envía el
-   * binario (DICOM P10 o imagen JPG/PNG, según `contentType`) y recibe el binario con la
-   * caja del nombre ennegrecida + metadata (`X-Redacciones`, `X-Revision-Manual`). El
-   * servicio ramifica por content-type. Un fallo de red LANZA → el job reintenta y nada se
-   * sube sin redactar (nunca se persiste un posible leak).
+   * binario (DICOM P10 o imagen JPG/PNG, según `contentType`) y recibe:
+   *  · CUARENTENA (`X-Revision-Manual: 1`, cuerpo vacío) → no se publica (fail-closed).
+   *  · ÉXITO → respuesta MULTIPART: parte `bin` = binario redactado, parte `thumb` = JPEG del
+   *    frame YA redactado (§10), OPCIONAL (best-effort; si no vino, thumb=null → placeholder).
+   * Metadatos (`X-Redacciones`, `X-Revision-Manual`) siguen en headers. Un fallo de red LANZA →
+   * el job reintenta y nada se sube sin redactar (nunca se persiste un posible leak).
    */
   private async redactarPixeles(buffer: Buffer, contentType: string): Promise<RedaccionPresidio> {
     const base = process.env.REDACTOR_URL ?? 'http://localhost:8002';
@@ -443,16 +445,22 @@ export class ProcesarDicomWorker extends TrabajadorBase {
     if (!resp.ok) {
       throw new Error(`El servicio redactor-dicom respondió ${resp.status}.`);
     }
-    const redactado = Buffer.from(await resp.arrayBuffer());
-    // Thumb (base64 del frame YA redactado · §10) en el header X-Thumb-B64; "" = sin thumb.
-    const thumbB64 = resp.headers.get('x-thumb-b64') ?? '';
-    const thumb = thumbB64 ? Buffer.from(thumbB64, 'base64') : null;
-    return {
-      buffer: redactado,
-      redacciones: Number(resp.headers.get('x-redacciones') ?? '0'),
-      revisionManual: resp.headers.get('x-revision-manual') === '1',
-      thumb,
-    };
+    const redacciones = Number(resp.headers.get('x-redacciones') ?? '0');
+    const revisionManual = resp.headers.get('x-revision-manual') === '1';
+    // CUARENTENA: cuerpo vacío, no hay multipart que parsear (fail-closed · §10).
+    if (revisionManual) {
+      return { buffer: Buffer.alloc(0), redacciones, revisionManual: true, thumb: null };
+    }
+    // ÉXITO: parsear el multipart (parte `bin` obligatoria, `thumb` opcional).
+    const form = await resp.formData();
+    const bin = form.get('bin');
+    if (!(bin instanceof Blob)) {
+      throw new Error('El redactor no devolvió la parte `bin` del multipart.');
+    }
+    const redactado = Buffer.from(await bin.arrayBuffer());
+    const parteThumb = form.get('thumb');
+    const thumb = parteThumb instanceof Blob ? Buffer.from(await parteThumb.arrayBuffer()) : null;
+    return { buffer: redactado, redacciones, revisionManual: false, thumb };
   }
 
   /** Marca el estado del pipeline en la tabla dueña (bitácora o banco curado). */

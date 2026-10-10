@@ -124,7 +124,7 @@ export type CasoBitacora = {
   feedback: string | null;
   /**
    * URL firmada ESTABLE del thumb (JPEG server-side, familia B · media/imagenes/*). `null` =
-   * sin thumb generado → la card cae al raster-cliente (useThumbEstudio · fallback de transición).
+   * sin thumb generado → la card muestra un placeholder limpio (sin raster-cliente).
    */
   thumbUrl: string | null;
 };
