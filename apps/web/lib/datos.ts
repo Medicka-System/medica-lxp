@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoAlumno } from './db.server';
 import { gruposDelAlumno } from './campus/inscripcion';
-import { firmarLecturaImagen } from './media/firmar-imagenes.server';
+import { firmarLecturaImagen, firmarDerivado } from './media/firmar-imagenes.server';
 
 /**
  * Consultas del Campus del alumno. TODAS corren con RLS (rol authenticated) vía
@@ -19,7 +19,7 @@ const DOMINIO_LABEL: Record<string, string> = {
 // ── Shell ────────────────────────────────────────────────────────────────────
 export async function getShellData(
   userId: string,
-): Promise<{ casosPendientes: number; avatarUrl: string | null }> {
+): Promise<{ casosPendientes: number; avatarUrl: string | null; avatarSrcset?: { w: number; url: string }[] }> {
   const { casosPendientes, avatarRef } = await comoAlumno(userId, async (sql) => {
     const rows = await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where estado_validacion = 'pendiente'`;
@@ -28,8 +28,9 @@ export async function getShellData(
       select avatar_url from lxp.perfiles where user_id = ${userId}`;
     return { casosPendientes: rows[0]?.n ?? 0, avatarRef: perfil[0]?.avatar_url ?? null };
   });
-  const avatarUrl = await firmarLecturaImagen(avatarRef);
-  return { casosPendientes, avatarUrl };
+  // Avatar del header (toda página) con derivados webp (48/96/192) + fallback al original.
+  const d = await firmarDerivado(avatarRef, 'avatar');
+  return { casosPendientes, avatarUrl: d?.url ?? null, avatarSrcset: d?.srcset };
 }
 
 // ── Home ─────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
-import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { firmarDerivados } from '@/lib/media/firmar-imagenes.server';
 import type {
   AlumnoSeguimiento,
   ConteosAlumnos,
@@ -492,10 +492,10 @@ export async function getGrupoDetalleSeguimiento(
 
   // Firma los avatares FUERA de la tx (patrón getShellData · lib/datos.ts): batch-sign
   // de las refs del roster y se adjunta la URL por alumno (null si no hay/no se firmó).
-  const urls = await firmarLecturaImagenes([...res.avatarRefs.values()]);
+  const derivados = await firmarDerivados([...res.avatarRefs.values()], 'avatar');
   res.detalle.alumnos = res.detalle.alumnos.map((a) => {
     const ref = res.avatarRefs.get(a.id);
-    return { ...a, avatarUrl: (ref && urls[ref]) || null };
+    return { ...a, avatarUrl: (ref && derivados[ref]?.url) || null, avatarSrcset: ref ? derivados[ref]?.srcset : undefined };
   });
   return res.detalle;
 }

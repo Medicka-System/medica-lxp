@@ -7,6 +7,7 @@
  */
 
 import { mono } from '@/components/tokens';
+import { ImgDerivada } from '@/components/img-derivada';
 
 const focus =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
@@ -144,11 +145,13 @@ export const inputBase =
 export function AvatarPerfil({
   ini,
   url,
+  srcset,
   size = 96,
   anillo = false,
 }: {
   ini: string;
   url?: string | null;
+  srcset?: { w: number; url: string }[];
   size?: number;
   anillo?: boolean;
 }) {
@@ -161,7 +164,7 @@ export function AvatarPerfil({
       }`}
     >
       {url ? (
-        <img src={url} alt="" className="h-full w-full object-cover" />
+        <ImgDerivada url={url} srcset={srcset} sizes={`${size}px`} className="h-full w-full object-cover" />
       ) : (
         <span className={mono}>{ini}</span>
       )}

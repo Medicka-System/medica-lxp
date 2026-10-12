@@ -38,6 +38,7 @@ export type CursoResumen = {
   grupo: { id: string; nombre: string } | null;
   /** URL firmada de la portada del grupo (su cohorte), si tiene una. Cae al placeholder si null. */
   portadaUrl: string | null;
+  portadaSrcset?: { w: number; url: string }[];
   descripcion: string | null;
   modulos: number;
   lecciones: number;

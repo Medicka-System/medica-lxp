@@ -45,6 +45,7 @@ export type AlumnoSeguimiento = {
   iniciales: string;
   /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   nombre: string;
   matricula: string | null;
   moduloEnCurso: string | null;

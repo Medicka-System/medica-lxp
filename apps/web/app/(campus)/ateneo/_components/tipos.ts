@@ -19,6 +19,8 @@ export type Persona = {
    * cross-user vía `perfil_publico_de` · §10 y la firma). `null`/`undefined` → iniciales.
    */
   avatarUrl?: string | null;
+  /** Derivados webp del avatar (48/96/192) firmados; el `<Avatar>` los usa como `srcset`. */
+  avatarSrcset?: { w: number; url: string }[];
 };
 
 /** Reacciones clínicas, no el repertorio de Facebook. */
@@ -184,6 +186,8 @@ export type PerfilResumen = Persona & {
   aceptaColegas?: boolean;
   /** Portada (pleca) LISTA para `<img>` — URL ya firmada (`perfil_publico_de.portada_url`). null → degradado navy. */
   portadaUrl?: string | null;
+  /** Derivados webp de la portada (640/1280) firmados; el `<img>` los usa como `srcset`. */
+  portadaSrcset?: { w: number; url: string }[];
 };
 
 export type AteneoData = {

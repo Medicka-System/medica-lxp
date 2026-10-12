@@ -293,6 +293,7 @@ export type AlumnoRef = {
   nombre: string;
   /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
 };
 
 /** Referencia a la actividad (lección `tarea`/`autoevaluacion`) del selector. */
@@ -401,6 +402,7 @@ export type ContraparteConsulta = {
   ini: string;
   /** URL de foto YA firmada (null = sin foto → cae a iniciales). La firma el server. */
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   nombre: string;
   tipo: TipoContraparte;
   /** Contexto académico (solo alumno); `null` para staff. */

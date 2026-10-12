@@ -197,6 +197,17 @@ async function guardarRefImagen(columna: 'avatar_url' | 'portada_url', ref: stri
   } catch {
     return { ok: false, error: 'No se pudo guardar la imagen.' };
   }
+  // Derivados responsivos BEST-EFFORT (avatar 48/96/192 · portada 640/1280). Si falla, el
+  // consumidor cae al original (fallback). El `api` encola el job sharp.
+  try {
+    await fetch(`${apiBase()}/media/imagenes/derivar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refs: [ref], tipo: columna === 'avatar_url' ? 'avatar' : 'portada' }),
+    });
+  } catch (e) {
+    console.error('[guardarRefImagen] derivar (no fatal):', e);
+  }
   revalidatePath('/perfil');
   return { ok: true };
 }

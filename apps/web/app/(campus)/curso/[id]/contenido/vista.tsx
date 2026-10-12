@@ -8,6 +8,7 @@
  */
 
 import { useRouter } from 'next/navigation';
+import { ImgDerivada } from '@/components/img-derivada';
 import { ArrowRight, Check, GraduationCap, Lightbulb, Lock, LogIn } from 'lucide-react';
 import type { Modulo } from '../_components/curso';
 import { CabeceraPagina, Chip, card, focusRing, mono } from '../_components/curso';
@@ -32,7 +33,7 @@ function TarjetaModulo({ m, onAbrir }: { m: Modulo; onAbrir: (leccionId: string)
     >
       <span aria-hidden className="relative grid w-full place-items-center overflow-hidden" style={{ aspectRatio: '16 / 7', background: 'var(--sidebar)' }}>
         {m.portadaUrl ? (
-          <img src={m.portadaUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <ImgDerivada url={m.portadaUrl} sizes="(max-width: 680px) 100vw, 380px" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <span className="absolute inset-0" style={{ background: `radial-gradient(90% 140% at ${m.luz}, rgba(26,136,128,.72) 0%, rgba(15,45,82,0) 62%)` }} />
         )}

@@ -14,6 +14,11 @@ interface FirmarSubidaBody {
 interface LecturaBody {
   refs: string[];
 }
+interface DerivarBody {
+  refs: string[];
+  /** Perfil de anchos: 'avatar' | 'portada' | 'contenido' (default). */
+  tipo?: 'avatar' | 'portada' | 'contenido';
+}
 
 @Controller('media/imagenes')
 export class MediaImagenesController {
@@ -36,7 +41,7 @@ export class MediaImagenesController {
    * el worker regenera; refs no derivables (video/gif/casos) se ignoran.
    */
   @Post('derivar')
-  derivar(@Body() b: LecturaBody) {
-    return this.svc.derivar(b?.refs ?? []);
+  derivar(@Body() b: DerivarBody) {
+    return this.svc.derivar(b?.refs ?? [], b?.tipo ?? 'contenido');
   }
 }

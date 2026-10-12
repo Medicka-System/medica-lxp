@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { ImgDerivada } from '@/components/img-derivada';
 import Link from 'next/link';
 import { BookOpen, Clock, Layers, Play, Users } from 'lucide-react';
 import { card, mono } from '@/components/tokens';
@@ -17,7 +18,7 @@ export function TarjetaCurso({ curso, className, style }: { curso: CursoResumen;
     <article className={cn(card, 'flex flex-col overflow-hidden', className)} style={style}>
       {curso.portadaUrl ? (
         // Portada propia de la cohorte (grupo) del alumno. <img>: URL firmada de storage.
-        <img src={curso.portadaUrl} alt="" className="aspect-[16/9] w-full object-cover" />
+        <ImgDerivada url={curso.portadaUrl} srcset={curso.portadaSrcset} sizes="(max-width: 680px) 100vw, 400px" className="aspect-[16/9] w-full object-cover" />
       ) : (
         /* Franja de marca (sin gradientes salvo hero · §5A) */
         <div className="h-1.5 w-full bg-primary" aria-hidden />

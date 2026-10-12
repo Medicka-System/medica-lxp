@@ -1,4 +1,5 @@
 import 'server-only';
+import { clavesDerivados, type TipoDerivado } from '@campus/shared';
 
 /**
  * Firma la LECTURA (vida corta) de imágenes de CONTENIDO (`media/imagenes/*`) del course
@@ -42,4 +43,43 @@ export async function firmarLecturaImagen(ref: string | null | undefined): Promi
   if (!ref) return null;
   const urls = await firmarLecturaImagenes([ref]);
   return urls[ref] ?? null;
+}
+
+/** Imagen con derivados responsivos: URL del original + `srcset` de los webp por ancho. */
+export type ImagenDerivada = { url: string; srcset: { w: number; url: string }[] };
+
+/**
+ * Firma, EN UN SOLO lote, el original + sus derivados (`media/imagenes/{id}/{w}.webp`) para
+ * un TIPO (avatar/portada/contenido) y devuelve `ref → { url, srcset }`. Las URLs son estables
+ * (Fase 1, cacheables). `srcset` solo trae los derivados cuya URL se firmó; el consumidor cae
+ * al `url` (original) por `onError` si un webp falta (viejos/sin backfill). No lanza.
+ */
+export async function firmarDerivados(
+  refs: (string | null | undefined)[],
+  tipo: TipoDerivado,
+): Promise<Record<string, ImagenDerivada>> {
+  const originales = [...new Set(refs)].filter((r): r is string => typeof r === 'string' && !!r);
+  if (originales.length === 0) return {};
+  const derivKeys = originales.flatMap((ref) => clavesDerivados(ref, tipo).map((d) => d.ref));
+  const urls = await firmarLecturaImagenes([...originales, ...derivKeys]);
+  const out: Record<string, ImagenDerivada> = {};
+  for (const ref of originales) {
+    const url = urls[ref];
+    if (!url) continue; // sin original firmable → no se muestra
+    const srcset = clavesDerivados(ref, tipo)
+      .map((d) => ({ w: d.ancho, url: urls[d.ref] }))
+      .filter((x): x is { w: number; url: string } => !!x.url);
+    out[ref] = { url, srcset };
+  }
+  return out;
+}
+
+/** Azúcar para una sola ref con derivados (null si no hay/no se pudo firmar el original). */
+export async function firmarDerivado(
+  ref: string | null | undefined,
+  tipo: TipoDerivado,
+): Promise<ImagenDerivada | null> {
+  if (!ref) return null;
+  const m = await firmarDerivados([ref], tipo);
+  return m[ref] ?? null;
 }

@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Check, Play, X } from "lucide-react";
+import { ImgDerivada } from "@/components/img-derivada";
 import type { Persona } from "./tipos";
 
 export const mono = "font-mono tabular-nums";
@@ -25,11 +26,14 @@ export function Avatar({
   p,
   size = 40,
   url,
+  srcset,
 }: {
   p: Pick<Persona, "ini" | "rol">;
   size?: number;
   /** URL de imagen LISTA para `<img>` (ya firmada/pública · el call-site la firma). Sin url → iniciales. */
   url?: string | null;
+  /** Derivados webp del avatar (48/96/192) firmados; `onError`→original si faltan. */
+  srcset?: { w: number; url: string }[];
 }) {
   return (
     <span className="relative shrink-0 self-start leading-none">
@@ -38,7 +42,7 @@ export function Avatar({
         style={{ width: size, height: size, fontSize: size * 0.34 }}
         className="grid place-items-center overflow-hidden rounded-full bg-sidebar font-bold leading-none text-sidebar-foreground"
       >
-        {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : p.ini}
+        {url ? <ImgDerivada url={url} srcset={srcset} sizes={`${size}px`} className="h-full w-full object-cover" /> : p.ini}
       </span>
       {p.rol === "docente" && (
         <span

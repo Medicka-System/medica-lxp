@@ -35,7 +35,7 @@ export default async function CampusLayout({ children }: { children: React.React
       reducirInicial={lectura.reducirAnimaciones}
     >
       <CampusShell
-        usuario={{ nombre: alumno.nombre, matricula: alumno.matricula, avatarUrl: shell.avatarUrl }}
+        usuario={{ nombre: alumno.nombre, matricula: alumno.matricula, avatarUrl: shell.avatarUrl, avatarSrcset: shell.avatarSrcset }}
         userId={alumno.userId}
         casosPendientes={shell.casosPendientes}
         noLeidas={noLeidas}

@@ -15,6 +15,7 @@ import type { ItemAporte, ListaPerfilData, PerfilResumen, Persona } from "./tipo
 /** Insignia mínima para la vista pública (modo propio · "ver como me ven"). */
 export type InsigniaPublica = { id: string; nombre: string; obtenida: boolean };
 import { Avatar, Estudio, Modal, card, focusRing, kicker, mono, softText } from "./ui";
+import { ImgDerivada } from "@/components/img-derivada";
 
 export type ListaPerfil = "colegas" | "casos" | "aportes";
 
@@ -64,7 +65,7 @@ export function ListaPerfilModal({
             <ul className="flex flex-col gap-1">
               {data!.colegas.map((p) => (
                 <li key={p.id} className="flex items-center gap-2.5 rounded-[11px] px-2 py-2">
-                  <Avatar p={p} url={p.avatarUrl} size={36} />
+                  <Avatar p={p} url={p.avatarUrl} srcset={p.avatarSrcset} size={36} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] font-bold">{p.nombre}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">{p.meta}</span>
@@ -162,14 +163,14 @@ export function RailSocial({
         {/* Pleca de portada (§5A): foto del alumno o degradado navy de reposo, con el avatar encimado */}
         <div className="relative h-[64px]" style={{ background: "var(--sidebar)" }}>
           {yo.portadaUrl ? (
-            <img src={yo.portadaUrl} alt="" className="h-full w-full object-cover" />
+            <ImgDerivada url={yo.portadaUrl} srcset={yo.portadaSrcset} sizes="(max-width: 680px) 100vw, 640px" className="h-full w-full object-cover" />
           ) : (
             <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
           )}
         </div>
         <div className="px-4 pb-3.5">
           <div className="-mt-[30px] inline-flex rounded-full border-4 border-card bg-card">
-            <Avatar p={yo} url={yo.avatarUrl} size={54} />
+            <Avatar p={yo} url={yo.avatarUrl} srcset={yo.avatarSrcset} size={54} />
           </div>
           <p className="mt-2 text-[15px] font-bold">{yo.nombre}</p>
           <p className="mt-0.5 text-[12px] text-muted-foreground">{yo.meta}</p>
@@ -207,7 +208,7 @@ export function RailSocial({
           {sugerencias.map((s) => (
             <li key={s.id} className="mt-3 flex items-center gap-2.5">
               <button type="button" onClick={() => onAbrirPerfil(s.id)} className={`flex min-w-0 flex-1 items-center gap-2.5 text-left ${focusRing}`}>
-                <Avatar p={s} url={s.avatarUrl} size={36} />
+                <Avatar p={s} url={s.avatarUrl} srcset={s.avatarSrcset} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-bold">{s.nombre}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">{s.meta}</span>
@@ -262,14 +263,14 @@ export function PerfilColega({
     <Modal titulo={esPropio ? "Así se ve tu perfil público" : `Perfil de ${perfil.nombre}`} onCerrar={onCerrar} ancho={560}>
       <div className="relative h-[92px]" style={{ background: "var(--sidebar)" }}>
         {perfil.portadaUrl ? (
-          <img src={perfil.portadaUrl} alt="" className="h-full w-full object-cover" />
+          <ImgDerivada url={perfil.portadaUrl} srcset={perfil.portadaSrcset} sizes="560px" className="h-full w-full object-cover" />
         ) : (
           <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 160% at 88% 0%, rgba(26,136,128,.6) 0%, rgba(15,45,82,0) 62%)" }} />
         )}
       </div>
       <div className="px-[22px] pb-5">
         <div className="-mt-[36px] inline-flex rounded-full border-4 border-card bg-card">
-          <Avatar p={perfil} url={perfil.avatarUrl} size={70} />
+          <Avatar p={perfil} url={perfil.avatarUrl} srcset={perfil.avatarSrcset} size={70} />
         </div>
         <div className="mt-2.5 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1">
@@ -404,7 +405,7 @@ export function PerfilColega({
               <ul className="flex flex-col gap-1">
                 {colegasComun.map((p) => (
                   <li key={p.id} className="flex items-center gap-2.5 rounded-[11px] px-2 py-2">
-                    <Avatar p={p} url={p.avatarUrl} size={36} />
+                    <Avatar p={p} url={p.avatarUrl} srcset={p.avatarSrcset} size={36} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] font-bold">{p.nombre}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">{p.meta}</span>

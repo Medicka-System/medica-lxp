@@ -1,6 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
-import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { firmarLecturaImagenes, firmarDerivados } from '@/lib/media/firmar-imagenes.server';
 import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
 import type { EstudioDicom, SerieDicom } from '@/components/dicom';
 import type {
@@ -931,16 +931,13 @@ export async function getEntregasVista(
     };
   });
 
-  // Firma los avatares FUERA de la tx y adjunta la URL por alumno (entregas + roster).
-  const urls = await firmarLecturaImagenes([...avatarRefs.values()]);
-  const urlDe = (id: string): string | null => {
-    const ref = avatarRefs.get(id);
-    return (ref && urls[ref]) || null;
-  };
+  // Firma los avatares FUERA de la tx con derivados webp (48/96/192) + fallback.
+  const derivados = await firmarDerivados([...avatarRefs.values()], 'avatar');
+  const dDe = (id: string) => { const ref = avatarRefs.get(id); return ref ? derivados[ref] : undefined; };
   return {
     ...vista,
-    entregas: vista.entregas.map((e) => ({ ...e, alumno: { ...e.alumno, avatarUrl: urlDe(e.alumno.id) } })),
-    sinEntregar: vista.sinEntregar.map((a) => ({ ...a, avatarUrl: urlDe(a.id) })),
+    entregas: vista.entregas.map((e) => ({ ...e, alumno: { ...e.alumno, avatarUrl: dDe(e.alumno.id)?.url ?? null, avatarSrcset: dDe(e.alumno.id)?.srcset } })),
+    sinEntregar: vista.sinEntregar.map((a) => ({ ...a, avatarUrl: dDe(a.id)?.url ?? null, avatarSrcset: dDe(a.id)?.srcset })),
   };
 }
 
@@ -1105,13 +1102,14 @@ export async function getConsultasDocente(userId: string): Promise<ConsultasDoce
     return { docente: { nombre: yo?.nombre ?? 'Docente' }, grupos, conversaciones, sinResponder };
   });
 
-  // Firma los avatares FUERA de la tx y adjunta la URL a cada contraparte.
-  const urls = await firmarLecturaImagenes([...avatarRefs.values()]);
+  // Firma los avatares FUERA de la tx con derivados webp del avatar + fallback.
+  const derivados = await firmarDerivados([...avatarRefs.values()], 'avatar');
   return {
     ...data,
     conversaciones: data.conversaciones.map((c) => {
       const ref = avatarRefs.get(c.contraparte.id);
-      return { ...c, contraparte: { ...c.contraparte, avatarUrl: (ref && urls[ref]) || null } };
+      const d = ref ? derivados[ref] : undefined;
+      return { ...c, contraparte: { ...c.contraparte, avatarUrl: d?.url ?? null, avatarSrcset: d?.srcset } };
     }),
   };
 }

@@ -580,7 +580,7 @@ export async function buscarColegas(q: string): Promise<(PerfilResumen & { motiv
         motivo: s.rol === 'docente' ? 'docente del campus' : 'del diplomado',
         estadoConexion: (s.estado === 'colegas' ? 'colegas' : s.estado === 'pendiente' ? 'pendiente' : 'ninguna') as PerfilResumen['estadoConexion'],
         aceptaColegas: priv.get(s.user_id)?.aceptarColegas ?? true,
-        avatarUrl: avatares.get(s.user_id) ?? null,
+        avatarUrl: avatares.get(s.user_id)?.url ?? null, avatarSrcset: avatares.get(s.user_id)?.srcset,
       }));
   });
 }
@@ -685,7 +685,7 @@ export async function getListaPerfil(tipo: 'casos' | 'colegas' | 'aportes'): Pro
       const avatares = await avataresDe(sql, filas.map((f) => f.id));
       const colegas: Persona[] = filas.map((f) => {
         const n = f.nombre ?? 'Colega';
-        return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo', avatarUrl: avatares.get(f.id) ?? null };
+        return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo', avatarUrl: avatares.get(f.id)?.url ?? null, avatarSrcset: avatares.get(f.id)?.srcset };
       });
       return { tipo, colegas };
     }
@@ -772,7 +772,7 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
     const comunAvatares = await avataresDe(sql, comun.map((c) => c.id));
     const colegasComun: Persona[] = comun.map((c) => {
       const n = c.nombre ?? 'Colega';
-      return { id: c.id, ini: inic(n), nombre: n, rol: 'alumno' as const, meta: 'Colega del Ateneo', avatarUrl: comunAvatares.get(c.id) ?? null };
+      return { id: c.id, ini: inic(n), nombre: n, rol: 'alumno' as const, meta: 'Colega del Ateneo', avatarUrl: comunAvatares.get(c.id)?.url ?? null, avatarSrcset: comunAvatares.get(c.id)?.srcset };
     });
 
     return {

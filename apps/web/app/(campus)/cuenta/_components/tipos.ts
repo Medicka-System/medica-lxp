@@ -29,7 +29,9 @@ export type AlumnoPerfil = {
   id: string;
   nombre: string;
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   portadaUrl: string | null;
+  portadaSrcset?: { w: number; url: string }[];
   sede: string;
   enCampusDesde: string; // "septiembre 2025"
 };

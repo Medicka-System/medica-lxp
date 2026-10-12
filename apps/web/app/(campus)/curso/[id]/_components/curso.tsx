@@ -40,8 +40,8 @@ export function Chip({ tono, icono, children }: { tono: Tono; icono?: ReactNode;
  * `staff` se acepta por compatibilidad de las secciones, pero el avatar unificado ya
  * es navy; el rol se distingue con su chip.
  */
-export function Avatar({ ini, url, size = 36 }: { ini: string; url?: string | null; size?: number; staff?: boolean }) {
-  return <AvatarBase ini={ini} url={url} size={size} />;
+export function Avatar({ ini, url, srcset, size = 36 }: { ini: string; url?: string | null; srcset?: { w: number; url: string }[]; size?: number; staff?: boolean }) {
+  return <AvatarBase ini={ini} url={url} srcset={srcset} size={size} />;
 }
 
 /** Segmentado de filtro: activo navy, con conteo opcional en mono. */
@@ -211,4 +211,5 @@ export type Integrante = {
   enLinea: boolean;
   ultima: string;
   avatarUrl?: string | null;
+  avatarSrcset?: { w: number; url: string }[];
 };

@@ -311,6 +311,19 @@ export async function actualizarGrupo(
       afirmarFilas(await sql`update lxp.grupos set imagen_portada = ${datos.imagenPortada || null} where id = ${grupoId}`, 'grupo: portada');
     }
   });
+  // Derivados responsivos de la portada (640/1280) BEST-EFFORT; fallback al original si falla.
+  if (datos.imagenPortada && datos.imagenPortada.startsWith('media/imagenes/')) {
+    const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    try {
+      await fetch(`${base}/media/imagenes/derivar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ refs: [datos.imagenPortada], tipo: 'portada' }),
+      });
+    } catch (e) {
+      console.error('[actualizarGrupo] derivar portada (no fatal):', e);
+    }
+  }
   refrescarGrupo(grupoId);
 }
 

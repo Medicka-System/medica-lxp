@@ -42,7 +42,7 @@ function Fila({ p, abierta, onAbrir, onCerrar }: { p: Integrante; abierta: boole
     <div ref={ref} className={`relative ${COLS} border-t border-border ${abierta ? 'bg-accent' : 'hover:bg-muted'}`}>
       <span className="flex min-w-0 items-center gap-3 px-[18px] py-3">
         <span className="relative shrink-0">
-          <Avatar ini={p.ini} url={p.avatarUrl} size={38} staff={staff} />
+          <Avatar ini={p.ini} url={p.avatarUrl} srcset={p.avatarSrcset} size={38} staff={staff} />
           {p.enLinea && <span aria-label="en línea" className="absolute -bottom-px -right-px h-[11px] w-[11px] rounded-full border-2 border-card bg-primary" />}
         </span>
         <span className="min-w-0">

@@ -15,6 +15,7 @@ export type AlumnoFila = {
   ini: string;
   nombre: string;
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   competencia: number | null;
   casosAprobados: number;
   casosTotal: number;
@@ -51,6 +52,7 @@ export type Expediente = {
   nombre: string;
   email: string | null;
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   estado: EstadoAlumno;
   senal?: string;
   desde: string;

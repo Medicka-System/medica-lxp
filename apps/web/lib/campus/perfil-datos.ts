@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { getDominioData } from '@/lib/datos';
-import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { firmarDerivado } from '@/lib/media/firmar-imagenes.server';
 import { getReconocimiento } from './certificados-datos';
 import type {
   AjustesData,
@@ -89,10 +89,13 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
       select count(*)::int as n from lxp.comentarios_ateneo
       where autor_id = ${sesion.userId} and created_at >= now() - interval '7 days'`)[0]?.n ?? 0;
 
-    // Firma la lectura (vida corta) de avatar/portada (refs media/imagenes/* · §2).
-    const urls = await firmarLecturaImagenes([p?.avatar_url, p?.portada_url]);
-    const avatarUrl = (p?.avatar_url && urls[p.avatar_url]) || null;
-    const portadaUrl = (p?.portada_url && urls[p.portada_url]) || null;
+    // Firma avatar (48/96/192) y portada (640/1280) con derivados + fallback al original.
+    const _av = await firmarDerivado(p?.avatar_url, 'avatar');
+    const _po = await firmarDerivado(p?.portada_url, 'portada');
+    const avatarUrl = _av?.url ?? null;
+    const avatarSrcset = _av?.srcset;
+    const portadaUrl = _po?.url ?? null;
+    const portadaSrcset = _po?.srcset;
 
     const especialidad = p?.especialidad ?? 'Ultrasonografía';
     const sede = p?.sede ?? 'Campus Médica';
@@ -119,7 +122,9 @@ export async function getPerfilData(sesion: SesionBasica): Promise<PerfilData> {
         id: sesion.userId,
         nombre: sesion.nombre,
         avatarUrl,
+        avatarSrcset,
         portadaUrl,
+        portadaSrcset,
         sede,
         enCampusDesde: fmtMesAno.format(new Date(p?.created_at ?? Date.now())),
       },

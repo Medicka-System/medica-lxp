@@ -242,7 +242,7 @@ export function PreviewComentarios({
         const gif = /^https:\/\/[a-z0-9.-]*giphy\.com\/\S+$/i.test((c.texto ?? "").trim()) ? c.texto.trim() : null;
         return (
           <div key={c.id} className="flex gap-2.5">
-            <Avatar p={c.autor} url={c.autor.avatarUrl} size={30} />
+            <Avatar p={c.autor} url={c.autor.avatarUrl} srcset={c.autor.avatarSrcset} size={30} />
             <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2">
               <p className={`text-[12.5px] leading-relaxed ${softText}`}>
                 <span className="font-bold text-foreground">{c.autor.nombre.replace(/^Dra?\. /, "")}</span>{" "}
@@ -261,7 +261,7 @@ export function PreviewComentarios({
         </button>
       )}
       <button type="button" onClick={onVerTodos} className={`flex items-center gap-2.5 text-left ${focusRing}`}>
-        <Avatar p={yo} url={yo.avatarUrl} size={30} />
+        <Avatar p={yo} url={yo.avatarUrl} srcset={yo.avatarSrcset} size={30} />
         <span className="flex h-10 flex-1 items-center rounded-full border border-border bg-card px-3.5 text-[12.5px] text-muted-foreground">
           Escriba un comentario…
         </span>
@@ -374,10 +374,10 @@ function Cabecera({ post, chip, onAbrirPerfil, menu }: { post: Post; chip?: Reac
     <div className="flex items-center gap-3">
       {abrir ? (
         <button type="button" onClick={abrir} aria-label={`Ver perfil de ${post.autor.nombre}`} className={`shrink-0 rounded-full ${focusRing}`}>
-          <Avatar p={post.autor} url={post.autor.avatarUrl} size={42} />
+          <Avatar p={post.autor} url={post.autor.avatarUrl} srcset={post.autor.avatarSrcset} size={42} />
         </button>
       ) : (
-        <Avatar p={post.autor} url={post.autor.avatarUrl} size={42} />
+        <Avatar p={post.autor} url={post.autor.avatarUrl} srcset={post.autor.avatarSrcset} size={42} />
       )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">

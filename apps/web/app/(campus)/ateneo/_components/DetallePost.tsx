@@ -148,7 +148,7 @@ function Burbuja({
   const top = c.reacciones?.top ?? [];
   return (
     <div className={`flex gap-2.5 ${nivel ? "mt-2.5" : "mt-3.5"}`}>
-      <Avatar p={c.autor} url={c.autor.avatarUrl} size={nivel ? 30 : 34} />
+      <Avatar p={c.autor} url={c.autor.avatarUrl} srcset={c.autor.avatarSrcset} size={nivel ? 30 : 34} />
       <div className="min-w-0 flex-1">
         {gif ? (
           <div className="min-w-0">

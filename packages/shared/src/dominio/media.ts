@@ -1,20 +1,31 @@
 /**
- * Derivados responsivos de imágenes de CONTENIDO (`media/imagenes/*` · Fase 2 entrega).
+ * Derivados responsivos de imágenes de `media/imagenes/*` (Fase 2 + avatares/portadas).
  *
- * El feed del Ateneo bajaba el ORIGINAL (1–2 MB) en cada post de imagen. Generamos variantes
- * webp en 3 anchos y el `<img>` usa `srcset` → el navegador baja ~decenas de KB. El original
- * se conserva intacto (zoom/detalle y fallback).
+ * El feed/listas bajaban el ORIGINAL (1–2 MB) por imagen. Generamos variantes webp y el `<img>`
+ * usa `srcset` → el navegador baja ~decenas de KB (o ~KB para avatares). El original se conserva
+ * (zoom/detalle y fallback).
  *
  * Clave DETERMINISTA (sin columna): el original `media/imagenes/{id}.{ext}` deriva en
  * `media/imagenes/{id}/{ancho}.webp`. El feed, el `api` (firma) y el worker (genera) calculan
  * la misma clave con estos helpers — única fuente de verdad del contrato de nombres.
  *
- * Alcance: SOLO imágenes de contenido (las pesadas del feed). Avatares/portadas (chicas) y los
- * `.dcm` anonimizados del visor (`dicom/casos/*`, §10) NO entran aquí.
+ * PERFIL DE ANCHOS POR TIPO: los avatares se muestran a ≤96 px (→ 48/96/192, 192 cubre 2×),
+ * las portadas a ~600–1280 px (→ 640/1280), el contenido del feed a ancho de columna/detalle
+ * (→ 640/1080/1600). El worker es genérico: genera los anchos que trae el job (el `api` elige
+ * según el tipo). Los `.dcm` anonimizados del visor (`dicom/casos/*`, §10) NO entran (subpath).
  */
 
-/** Anchos de los derivados responsivos (px). Orden ascendente. */
-export const ANCHOS_DERIVADO_IMAGEN = [640, 1080, 1600] as const;
+/** Tipo de derivado → su set de anchos. El `api` elige el set según el tipo del upload. */
+export const ANCHOS_DERIVADO = {
+  avatar: [48, 96, 192],
+  portada: [640, 1280],
+  contenido: [640, 1080, 1600],
+} as const;
+
+export type TipoDerivado = keyof typeof ANCHOS_DERIVADO;
+
+/** Anchos del contenido del feed (compat · = ANCHOS_DERIVADO.contenido). */
+export const ANCHOS_DERIVADO_IMAGEN = ANCHOS_DERIVADO.contenido;
 
 /** Calidad webp de los derivados. */
 export const CALIDAD_DERIVADO_IMAGEN = 75;
@@ -47,9 +58,14 @@ export function claveDerivadoImagen(ref: string, ancho: number): string | null {
   return id ? `media/imagenes/${id}/${ancho}.webp` : null;
 }
 
-/** Las N claves de derivados de `ref` (vacío si no es imagen de contenido). */
-export function clavesDerivadosImagen(ref: string): { ancho: number; ref: string }[] {
+/** Las claves de derivados de `ref` para un TIPO (vacío si `ref` no es derivable). */
+export function clavesDerivados(ref: string, tipo: TipoDerivado): { ancho: number; ref: string }[] {
   const id = idDeImagenContenido(ref);
   if (!id) return [];
-  return ANCHOS_DERIVADO_IMAGEN.map((ancho) => ({ ancho, ref: `media/imagenes/${id}/${ancho}.webp` }));
+  return ANCHOS_DERIVADO[tipo].map((ancho) => ({ ancho, ref: `media/imagenes/${id}/${ancho}.webp` }));
+}
+
+/** Claves de derivados de CONTENIDO (compat feed · = clavesDerivados(ref, 'contenido')). */
+export function clavesDerivadosImagen(ref: string): { ancho: number; ref: string }[] {
+  return clavesDerivados(ref, 'contenido');
 }

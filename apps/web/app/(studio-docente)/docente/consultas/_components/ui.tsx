@@ -3,6 +3,8 @@
  * estilo (mono/kicker/softText/focusRing) salen del sistema del Studio (§5A) — sin hex.
  */
 
+import { ImgDerivada } from '@/components/img-derivada';
+
 export { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 
 /** Marca de Eco: rombo con ondas concéntricas (violeta = info · §5A). Solo Eco la usa. */
@@ -39,11 +41,14 @@ export function Avatar({
   ini,
   size = 38,
   url,
+  srcset,
 }: {
   ini: string;
   size?: number;
   /** URL de imagen LISTA para `<img>` (ya firmada/pública). Sin url → iniciales. */
   url?: string | null;
+  /** Derivados webp del avatar (48/96/192); `onError`→original si faltan. */
+  srcset?: { w: number; url: string }[];
 }) {
   return (
     <span
@@ -51,7 +56,7 @@ export function Avatar({
       style={{ width: size, height: size, fontSize: size * 0.34 }}
       className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-sidebar font-bold text-sidebar-foreground"
     >
-      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : ini}
+      {url ? <ImgDerivada url={url} srcset={srcset} sizes={`${size}px`} className="h-full w-full object-cover" /> : ini}
     </span>
   );
 }

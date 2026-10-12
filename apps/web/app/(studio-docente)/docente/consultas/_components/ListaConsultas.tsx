@@ -143,7 +143,7 @@ export function ListaConsultas({
                     : `border-l-transparent hover:bg-muted ${sin ? 'bg-[#fffdf7]' : ''}`
                 }`}
               >
-                <Avatar ini={c.contraparte.ini} url={c.contraparte.avatarUrl} />
+                <Avatar ini={c.contraparte.ini} url={c.contraparte.avatarUrl} srcset={c.contraparte.avatarSrcset} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-snug">

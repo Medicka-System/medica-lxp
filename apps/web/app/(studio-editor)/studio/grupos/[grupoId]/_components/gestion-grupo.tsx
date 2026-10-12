@@ -20,6 +20,7 @@
  */
 
 import { useMemo, useState, useTransition } from 'react';
+import { ImgDerivada } from '@/components/img-derivada';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -355,7 +356,7 @@ export function GestionGrupo({
           <div className="mt-2.5 overflow-hidden rounded-[11px] border border-border bg-muted">
             {portadaUrl ? (
               // <img> a propósito: URL firmada de object storage, no asset local de next/image.
-              <img src={portadaUrl} alt="Portada del grupo" className="aspect-[16/9] w-full object-cover" />
+              <ImgDerivada url={portadaUrl} srcset={portadaUrl === grupo.portadaUrl ? grupo.portadaSrcset : undefined} sizes="(max-width: 680px) 100vw, 640px" className="aspect-[16/9] w-full object-cover" />
             ) : (
               <div className="grid aspect-[16/9] w-full place-items-center text-muted-foreground">
                 <span className="flex flex-col items-center gap-1.5">

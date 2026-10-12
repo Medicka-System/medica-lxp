@@ -31,7 +31,7 @@ export function MenuCuenta({
   onCerrarSesion,
 }: {
   open: boolean;
-  usuario: { nombre: string; matricula: string; avatarUrl?: string | null };
+  usuario: { nombre: string; matricula: string; avatarUrl?: string | null; avatarSrcset?: { w: number; url: string }[] };
   onCerrar: () => void;
   onCerrarSesion: () => void;
 }) {
@@ -56,7 +56,7 @@ export function MenuCuenta({
       )}
     >
       <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
-        <AvatarPerfil ini={iniciales(usuario.nombre)} url={usuario.avatarUrl} size={40} />
+        <AvatarPerfil ini={iniciales(usuario.nombre)} url={usuario.avatarUrl} srcset={usuario.avatarSrcset} size={40} />
         <div className="min-w-0">
           <p className="truncate text-[13.5px] font-bold text-foreground">{usuario.nombre}</p>
           <p className={`mt-0.5 truncate text-[11px] text-muted-foreground ${mono}`}>{usuario.matricula}</p>

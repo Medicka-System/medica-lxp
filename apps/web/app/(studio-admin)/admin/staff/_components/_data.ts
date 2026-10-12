@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
-import { firmarLecturaImagenes, firmarLecturaImagen } from '@/lib/media/firmar-imagenes.server';
+import { firmarDerivados, firmarDerivado } from '@/lib/media/firmar-imagenes.server';
 import type { StaffData, MiembroStaff, RolStaff, DetalleStaff, CifraCarga, RegistroTrabajo } from './contrato';
 
 /**
@@ -119,10 +119,11 @@ export async function getStaff(userId: string): Promise<StaffData> {
   });
 
   // Firma en lote de las fotos (fuera de la conexión RLS). Cae a iniciales si falla/null.
-  const urls = await firmarLecturaImagenes(staffRaw.map((s) => s.avatarRef));
+  const derivados = await firmarDerivados(staffRaw.map((s) => s.avatarRef), 'avatar');
   const staff: MiembroStaff[] = staffRaw.map(({ avatarRef, ...s }) => ({
     ...s,
-    avatarUrl: avatarRef ? urls[avatarRef] ?? null : null,
+    avatarUrl: avatarRef ? derivados[avatarRef]?.url ?? null : null,
+    avatarSrcset: avatarRef ? derivados[avatarRef]?.srcset : undefined,
   }));
 
   return { totales, staff };
@@ -232,6 +233,8 @@ export async function getDetalleStaff(userId: string, staffId: string): Promise<
 
   // Firma la foto fuera de la conexión RLS. Cae a iniciales si falla/null.
   const { avatarRef, ...detalle } = salida;
-  const avatarUrl = await firmarLecturaImagen(avatarRef);
-  return { ...detalle, avatarUrl };
+  const _d = await firmarDerivado(avatarRef, 'avatar');
+  const avatarUrl = _d?.url ?? null;
+  const avatarSrcset = _d?.srcset;
+  return { ...detalle, avatarUrl, avatarSrcset };
 }

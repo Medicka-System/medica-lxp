@@ -398,7 +398,8 @@ export async function getRoster(userId: string, _programaId: string, _grupoId: s
         // presencia/última conexión: NO existen en el modelo → placeholder.
         enLinea: false,
         ultima: '',
-        avatarUrl: avatares.get(f.id) ?? null,
+        avatarUrl: avatares.get(f.id)?.url ?? null,
+        avatarSrcset: avatares.get(f.id)?.srcset,
       }));
   });
 }

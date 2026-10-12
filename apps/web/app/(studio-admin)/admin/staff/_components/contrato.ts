@@ -12,6 +12,7 @@ export type MiembroStaff = {
   ini: string;
   /** Foto de perfil ya firmada (lista para render) o null → cae a iniciales. */
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   nombre: string;
   rol: RolStaff;
   email: string | null;
@@ -58,6 +59,7 @@ export type DetalleStaff = {
   ini: string;
   /** Foto de perfil ya firmada (lista para render) o null → cae a iniciales. */
   avatarUrl: string | null;
+  avatarSrcset?: { w: number; url: string }[];
   nombre: string;
   rol: RolStaff;
   email: string | null;

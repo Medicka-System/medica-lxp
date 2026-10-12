@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoAlumno, privacidadDeVarios } from '@/lib/db.server';
 import type { Sql } from '@/lib/db.server';
-import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { firmarLecturaImagenes, firmarDerivados, firmarDerivado, type ImagenDerivada } from '@/lib/media/firmar-imagenes.server';
 import type {
   AteneoData,
   CasoBitacora,
@@ -92,12 +92,12 @@ function persona(
     autor_esp: string | null;
     autor_sede: string | null;
   },
-  avatarUrl: string | null = null,
+  avatar: ImagenDerivada | null = null,
 ): Persona {
   const nombre = f.autor ?? 'Colega';
   const rol = f.autor_rol && STAFF_ROLES.has(f.autor_rol) ? 'docente' : 'alumno';
   const meta = [f.autor_esp, f.autor_sede].filter(Boolean).join(' · ') || 'Campus Médica';
-  return { id: f.autor_id, ini: ini(nombre), nombre, rol, meta, avatarUrl };
+  return { id: f.autor_id, ini: ini(nombre), nombre, rol, meta, avatarUrl: avatar?.url ?? null, avatarSrcset: avatar?.srcset };
 }
 
 /**
@@ -107,15 +107,16 @@ function persona(
  * perfiles ocultos (perfilVisible=false) → cae a iniciales. Las refs `media/imagenes/*` se
  * firman a URL de lectura (patrón del feed). Devuelve `id → url|null`.
  */
-export async function avataresDe(sql: Sql, ids: string[]): Promise<Map<string, string | null>> {
-  const m = new Map<string, string | null>();
+export async function avataresDe(sql: Sql, ids: string[]): Promise<Map<string, ImagenDerivada | null>> {
+  const m = new Map<string, ImagenDerivada | null>();
   const uniq = [...new Set(ids.filter(Boolean))];
   if (uniq.length === 0) return m;
   const filas = await sql<{ id: string; avatar_url: string | null }[]>`
     select id, avatar_url from lxp.perfil_publico_de(${uniq}::uuid[])`;
   const refs = filas.map((f) => f.avatar_url).filter((r): r is string => !!r);
-  const urls = refs.length ? await firmarLecturaImagenes(refs) : {};
-  for (const f of filas) m.set(f.id, f.avatar_url ? urls[f.avatar_url] ?? null : null);
+  // Derivados webp del avatar (48/96/192) + original, firmados en lote → srcset cacheable.
+  const porRef = refs.length ? await firmarDerivados(refs, 'avatar') : {};
+  for (const f of filas) m.set(f.id, f.avatar_url ? porRef[f.avatar_url] ?? null : null);
   return m;
 }
 
@@ -383,7 +384,9 @@ export async function getAteneoSocial(
         from lxp.perfiles where user_id = ${userId}`
     )[0];
     const yoNombre = yoFila?.nombre ?? 'Usted';
-    const yoMedia = await firmarLecturaImagenes([yoFila?.avatar_url, yoFila?.portada_url]);
+    // Avatar (48/96/192) y portada (640/1280) propios con derivados + fallback al original.
+    const yoAvatar = await firmarDerivado(yoFila?.avatar_url, 'avatar');
+    const yoPortada = await firmarDerivado(yoFila?.portada_url, 'portada');
     const colegaIds = await colegasDe(sql, userId);
     const casosMios = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where id_alumno = ${userId}`)[0]?.n ?? 0;
@@ -399,8 +402,10 @@ export async function getAteneoSocial(
       colegas: colegaIds.length,
       casos: casosMios,
       aportes: aportesMios,
-      avatarUrl: (yoFila?.avatar_url && yoMedia[yoFila.avatar_url]) || null,
-      portadaUrl: (yoFila?.portada_url && yoMedia[yoFila.portada_url]) || null,
+      avatarUrl: yoAvatar?.url ?? null,
+      avatarSrcset: yoAvatar?.srcset,
+      portadaUrl: yoPortada?.url ?? null,
+      portadaSrcset: yoPortada?.srcset,
     };
 
     // ── Mis casos (para presentar en el composer): anonimizados/validados primero ──
@@ -469,7 +474,8 @@ export async function getAteneoSocial(
           estadoConexion,
           enComun: s.comunes > 0 ? { total: s.comunes, inis: [] } : undefined,
           aceptaColegas: privSug.get(s.user_id)?.aceptarColegas ?? true,
-          avatarUrl: sugAvatares.get(s.user_id) ?? null,
+          avatarUrl: sugAvatares.get(s.user_id)?.url ?? null,
+          avatarSrcset: sugAvatares.get(s.user_id)?.srcset,
         };
       });
 

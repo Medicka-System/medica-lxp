@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState, useTransition } from 'react';
+import { ImgDerivada } from '@/components/img-derivada';
 import { useRouter } from 'next/navigation';
 import {
   Link2,
@@ -224,7 +225,7 @@ export function GruposTabla({
                     >
                       {g.portadaUrl ? (
                         // <img>: URL firmada de object storage (portada del grupo), no asset local.
-                        <img src={g.portadaUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                        <ImgDerivada url={g.portadaUrl} srcset={g.portadaSrcset} sizes="120px" className="absolute inset-0 h-full w-full object-cover" />
                       ) : (
                         <span
                           className="absolute inset-0"

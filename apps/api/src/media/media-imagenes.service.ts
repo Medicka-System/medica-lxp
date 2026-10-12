@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
+  ANCHOS_DERIVADO,
   QUEUE_GENERAR_DERIVADOS_IMAGEN,
-  clavesDerivadosImagen,
+  clavesDerivados,
   esImagenContenidoDerivable,
   type DestinoDerivado,
   type GenerarDerivadosImagenJob,
+  type TipoDerivado,
 } from '@campus/shared';
 import { StorageService } from '../dicom/storage.service';
 import { ColasProducer } from '../colas/colas-producer';
@@ -36,17 +38,19 @@ export class MediaImagenesService {
   ) {}
 
   /**
-   * Encola la generación de DERIVADOS responsivos (Fase 2) para imágenes de CONTENIDO recién
-   * publicadas. El `api` firma TODO por adelantado (§3 único firmante): URL INTERNA de lectura
-   * del original + un PUT INTERNO por ancho (el worker corre dentro de Docker). Ignora refs que
-   * no sean imagen de contenido derivable (video/gif/casos/avatares fuera de alcance). Devuelve
-   * cuántos trabajos se encolaron. Best-effort: el feed cae al original si un derivado falta.
+   * Encola la generación de DERIVADOS responsivos para imágenes de `media/imagenes/*` (feed,
+   * avatares, portadas). `tipo` elige el set de anchos (ANCHOS_DERIVADO): el `api` firma TODO
+   * por adelantado (§3 único firmante): URL INTERNA de lectura del original + un PUT INTERNO
+   * por ancho (el worker corre dentro de Docker y es genérico: genera los anchos del job).
+   * Ignora refs no derivables (video/gif/casos/`.dcm`). Best-effort: el consumidor cae al
+   * original si un derivado falta. Devuelve cuántos trabajos se encolaron.
    */
-  async derivar(refs: unknown): Promise<{ encolados: number }> {
+  async derivar(refs: unknown, tipo: TipoDerivado = 'contenido'): Promise<{ encolados: number }> {
+    const t: TipoDerivado = tipo in ANCHOS_DERIVADO ? tipo : 'contenido';
     const lista = Array.isArray(refs) ? refs.filter((r): r is string => typeof r === 'string') : [];
     const derivables = [...new Set(lista)].filter(esImagenContenidoDerivable);
     for (const ref of derivables) {
-      const destinos: DestinoDerivado[] = clavesDerivadosImagen(ref).map((d) => ({
+      const destinos: DestinoDerivado[] = clavesDerivados(ref, t).map((d) => ({
         ancho: d.ancho,
         ref: d.ref,
         urlSubida: this.storage.firmarSubida(d.ref), // INTERNA (worker en Docker)

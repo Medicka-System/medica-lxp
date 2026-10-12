@@ -32,7 +32,7 @@ const focusDark =
 const focusLight =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-card';
 
-export type ShellUsuario = { nombre: string; matricula: string; avatarUrl?: string | null };
+export type ShellUsuario = { nombre: string; matricula: string; avatarUrl?: string | null; avatarSrcset?: { w: number; url: string }[] };
 
 /**
  * Contexto para que una ruta hija (el interior del curso · app/(campus)/curso/[id])
@@ -327,7 +327,7 @@ export function CampusShell({
                   aria-expanded={cuentaAbierta}
                   className={`flex h-11 items-center gap-2.5 rounded-full pl-1 pr-1 transition-colors hover:bg-accent sm:pr-3 ${focusLight}`}
                 >
-                  <Avatar ini={ini} url={usuario.avatarUrl} size={36} />
+                  <Avatar ini={ini} url={usuario.avatarUrl} srcset={usuario.avatarSrcset} size={36} />
                   <span className="hidden min-w-0 text-left leading-tight sm:block">
                     <span className="block truncate text-[13px] font-bold">{usuario.nombre}</span>
                     <span className={`block truncate text-[10.5px] text-muted-foreground ${mono}`}>{usuario.matricula}</span>
@@ -337,7 +337,7 @@ export function CampusShell({
                 {/* Montado siempre: el Overlay interno anima entrada Y salida según `open`. */}
                 <MenuCuenta
                   open={cuentaAbierta}
-                  usuario={{ nombre: usuario.nombre, matricula: usuario.matricula, avatarUrl: usuario.avatarUrl }}
+                  usuario={{ nombre: usuario.nombre, matricula: usuario.matricula, avatarUrl: usuario.avatarUrl, avatarSrcset: usuario.avatarSrcset }}
                   onCerrar={() => cerrarCuenta(false)}
                   onCerrarSesion={onCerrarSesion}
                 />
@@ -371,7 +371,7 @@ export function CampusShell({
             );
           })}
           <button type="button" onClick={() => setMasAbierto(true)} aria-expanded={masAbierto} className="flex h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-[10px]">
-            <Avatar ini={ini} url={usuario.avatarUrl} size={21} />
+            <Avatar ini={ini} url={usuario.avatarUrl} srcset={usuario.avatarSrcset} size={21} />
             <span className="text-[10.5px] font-medium leading-none text-muted-foreground">Perfil</span>
           </button>
         </div>
@@ -395,7 +395,7 @@ export function CampusShell({
           className="absolute inset-x-0 bottom-0 origin-bottom rounded-t-[18px] border-t border-border bg-card p-5 pb-[calc(20px+env(safe-area-inset-bottom))]"
         >
             <div className="flex items-center gap-3">
-              <Avatar ini={ini} url={usuario.avatarUrl} size={44} />
+              <Avatar ini={ini} url={usuario.avatarUrl} srcset={usuario.avatarSrcset} size={44} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14.5px] font-bold">{usuario.nombre}</p>
                 <p className={`truncate text-[11px] text-muted-foreground ${mono}`}>{usuario.matricula}</p>

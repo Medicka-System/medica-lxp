@@ -50,4 +50,19 @@ describe('MediaImagenesService', () => {
     expect(job.destinos.map((d: { ancho: number }) => d.ancho)).toEqual([640, 1080, 1600]);
     expect(job.destinos[0].ref).toBe('media/imagenes/aaaa/640.webp');
   });
+
+  it('derivar tipo=avatar usa los anchos 48/96/192', async () => {
+    const r = await svc.derivar(['media/imagenes/zz.jpg'], 'avatar');
+    expect(r.encolados).toBe(1);
+    const [, job] = (colas.encolar as jest.Mock).mock.calls[0];
+    expect(job.destinos.map((d: { ancho: number }) => d.ancho)).toEqual([48, 96, 192]);
+    expect(job.destinos[2].ref).toBe('media/imagenes/zz/192.webp');
+  });
+
+  it('derivar tipo=portada usa los anchos 640/1280', async () => {
+    const r = await svc.derivar(['media/imagenes/pp.png'], 'portada');
+    expect(r.encolados).toBe(1);
+    const [, job] = (colas.encolar as jest.Mock).mock.calls[0];
+    expect(job.destinos.map((d: { ancho: number }) => d.ancho)).toEqual([640, 1280]);
+  });
 });

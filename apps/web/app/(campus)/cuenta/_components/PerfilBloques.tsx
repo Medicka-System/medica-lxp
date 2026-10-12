@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { ImgDerivada } from '@/components/img-derivada';
 import {
   Award,
   Camera,
@@ -106,7 +107,7 @@ export function PortadaPerfil({
       {/* A · Banda de portada */}
       <div className="relative h-24 bg-sidebar sm:h-[120px]">
         {alumno.portadaUrl ? (
-          <img src={alumno.portadaUrl} alt="" className="h-full w-full object-cover" />
+          <ImgDerivada url={alumno.portadaUrl} srcset={alumno.portadaSrcset} sizes="(max-width: 680px) 100vw, 640px" className="h-full w-full object-cover" />
         ) : (
           <div
             aria-hidden
@@ -136,7 +137,7 @@ export function PortadaPerfil({
             className="grid h-20 w-20 place-items-center overflow-hidden rounded-full border-4 border-card bg-sidebar text-[26px] font-extrabold text-sidebar-foreground sm:h-24 sm:w-24 sm:text-[30px]"
           >
             {alumno.avatarUrl ? (
-              <img src={alumno.avatarUrl} alt="" className="h-full w-full object-cover" />
+              <ImgDerivada url={alumno.avatarUrl} srcset={alumno.avatarSrcset} sizes="96px" className="h-full w-full object-cover" />
             ) : (
               <span className={mono}>{ini}</span>
             )}

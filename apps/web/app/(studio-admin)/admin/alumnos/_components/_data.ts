@@ -1,7 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
-import { firmarLecturaImagen, firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
+import { firmarDerivado, firmarDerivados } from '@/lib/media/firmar-imagenes.server';
 import { haceCuanto } from '@/lib/format';
 import type { AlumnosData, AlumnoFila, EstadoAlumno, Expediente } from './contrato';
 
@@ -106,11 +106,12 @@ export async function getAlumnos(userId: string): Promise<AlumnosData> {
     };
   });
 
-  // Firma en LOTE (una sola llamada) tras cerrar la tx.
-  const urls = await firmarLecturaImagenes(refs);
+  // Firma en LOTE (una sola llamada) tras cerrar la tx — con derivados webp del avatar.
+  const derivados = await firmarDerivados(refs, 'avatar');
   const alumnos: AlumnoFila[] = data.alumnos.map(({ avatarRef, ...a }) => ({
     ...a,
-    avatarUrl: (avatarRef && urls[avatarRef]) || null,
+    avatarUrl: (avatarRef && derivados[avatarRef]?.url) || null,
+    avatarSrcset: avatarRef ? derivados[avatarRef]?.srcset : undefined,
   }));
 
   return { totales: data.totales, alumnos };
@@ -202,9 +203,9 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
   });
 
   if (!res) return null;
-  // Firma tras cerrar la tx (patrón getShellData en lib/datos.ts).
-  const avatarUrl = await firmarLecturaImagen(res.avatarRef);
-  return { ...res.expediente, avatarUrl };
+  // Firma tras cerrar la tx (patrón getShellData en lib/datos.ts) — con derivados del avatar.
+  const d = await firmarDerivado(res.avatarRef, 'avatar');
+  return { ...res.expediente, avatarUrl: d?.url ?? null, avatarSrcset: d?.srcset };
 }
 
 type ActividadEstado = 'pendiente' | 'aprobado' | 'rechazado';

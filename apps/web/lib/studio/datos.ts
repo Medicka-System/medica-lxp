@@ -1,6 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
-import { firmarLecturaImagenes, firmarLecturaImagen } from '@/lib/media/firmar-imagenes.server';
+import { firmarLecturaImagenes, firmarLecturaImagen, firmarDerivados, firmarDerivado } from '@/lib/media/firmar-imagenes.server';
 import { firmarLecturaArchivo } from '@/lib/media/firmar-archivos.server';
 import { firmarReproduccionVideo } from '@/lib/media/firmar-video.server';
 import type {
@@ -254,6 +254,7 @@ export type GrupoResumen = {
   estado: EstadoGrupo;
   /** URL firmada de la portada del grupo (null → placeholder). */
   portadaUrl: string | null;
+  portadaSrcset?: { w: number; url: string }[];
 };
 
 /** Estado del grupo a partir de sus fechas (asíncrono = siempre en curso). */
@@ -297,7 +298,7 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
 
     const alumnosPorCora = new Map(conteos.map((c) => [c.cora_grupo_id, c.alumnos]));
     // Firma las portadas en un solo lote (ref → url); las que no tienen quedan sin URL.
-    const portadas = await firmarLecturaImagenes(rows.map((r) => r.imagen_portada));
+    const portadas = await firmarDerivados(rows.map((r) => r.imagen_portada), 'portada');
     const hoy = new Date();
     return rows.map((r) => ({
       id: r.id,
@@ -312,7 +313,8 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
       overrides: r.overrides,
       alumnos: r.cora_grupo_id ? (alumnosPorCora.get(r.cora_grupo_id) ?? 0) : 0,
       estado: estadoDeGrupo(r.fecha_inicio, r.fecha_fin, hoy),
-      portadaUrl: r.imagen_portada ? (portadas[r.imagen_portada] ?? null) : null,
+      portadaUrl: r.imagen_portada ? (portadas[r.imagen_portada]?.url ?? null) : null,
+      portadaSrcset: r.imagen_portada ? portadas[r.imagen_portada]?.srcset : undefined,
     }));
   });
 }
@@ -360,6 +362,7 @@ export type GrupoDetalle = {
   imagenPortadaRef: string | null;
   /** URL firmada de la portada (preview en el editor · null si no hay). */
   portadaUrl: string | null;
+  portadaSrcset?: { w: number; url: string }[];
 };
 
 export async function getGrupoDetalle(
@@ -419,6 +422,8 @@ export async function getGrupoDetalle(
     }
 
     const hoy = new Date();
+    // Portada del grupo con derivados webp (640/1280) + fallback al original (preview editor).
+    const _gp = await firmarDerivado(g.imagen_portada, 'portada');
     return {
       id: g.id,
       nombre: g.nombre,
@@ -453,7 +458,8 @@ export async function getGrupoDetalle(
         creadoEn: o.created_at,
       })),
       imagenPortadaRef: g.imagen_portada,
-      portadaUrl: await firmarLecturaImagen(g.imagen_portada),
+      portadaUrl: _gp?.url ?? null,
+      portadaSrcset: _gp?.srcset,
     };
   });
 }
