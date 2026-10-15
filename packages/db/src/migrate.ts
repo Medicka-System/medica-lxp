@@ -64,6 +64,9 @@ function verificarDestino(target: string, url: string): void {
 const SOLO_LOCAL = new Set([
   '0000_local_auth_cora_shim.sql',
   '0009_cora_mock.sql',
+  // Extensión académica del mock de CORA (bc_programas + grupos.programa_id) que usa el
+  // PUENTE 1 (0082). En Supabase ya existen (tablas reales de CORA) → se omite (§10).
+  '0081_cora_mock_academico.sql',
 ]);
 
 /**

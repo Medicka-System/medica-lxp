@@ -5,6 +5,7 @@ import { firmarDerivados } from '@/lib/media/firmar-imagenes.server';
 import { gruposDelAlumno, programasDelAlumno } from './inscripcion';
 import type {
   CursoResumen,
+  CursoPendiente,
   ModuloCatalogo,
   ProgramaCatalogo,
 } from './cursos-contrato';
@@ -88,12 +89,17 @@ async function primeraLeccionPorPrograma(
 
 /**
  * Mis cursos: programas en los que el alumno está INSCRITO (vía su grupo · inscripción
- * CORA, §10). Fallback de resiliencia: si el alumno aún no tiene ninguna inscripción
- * mapeada (usuario en transición), devuelve el catálogo publicado para poder arrancar
- * y no dejar una pantalla vacía (documentado en el contrato · Sprint 11 endurece).
+ * CORA, §10). SIN fallback de catálogo — el alumno ve SOLO sus cursos reales (PUENTE 1).
+ *
+ * Primero corre `lxp.reflejar_grupos_cora()` (idempotente): materializa en `lxp.grupos`
+ * los grupos CORA del alumno cuyo programa el diseñador ya ligó. Reemplaza el
+ * materializado manual. Los grupos cuyo programa aún no está ligado NO se reflejan aquí;
+ * se listan como "contenido pendiente" en `getCursosPendientes`.
  */
 export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
   return comoAlumno(userId, async (sql) => {
+    // Reflejo automático de la inscripción CORA → lxp.grupos (antes de leer cohortes).
+    await sql`select lxp.reflejar_grupos_cora()`;
     const [programas, grupos, completados, primeras] = await Promise.all([
       programasPublicados(sql),
       gruposDelAlumno(sql, userId),
@@ -109,9 +115,8 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
     // Firma las portadas de las cohortes del alumno en un solo lote (ref → url).
     const portadas = await firmarDerivados(grupos.map((g) => g.imagenPortada), 'portada');
 
-    const mios = inscritos.size > 0
-      ? programas.filter((p) => inscritos.has(p.id))
-      : programas;
+    // SOLO los programas en los que el alumno tiene un grupo reflejado (sin fallback).
+    const mios = programas.filter((p) => inscritos.has(p.id));
 
     return mios.map((p): CursoResumen => {
       const hechos = completados.get(p.id) ?? 0;
@@ -132,6 +137,25 @@ export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
         continuar: primeras.get(p.id) ?? null,
       };
     });
+  });
+}
+
+/**
+ * "Contenido pendiente": grupos CORA del alumno cuyo programa el diseñador aún NO ligó
+ * a contenido LXP (PUENTE 1 · mig 0082). Lee `lxp.mis_grupos_cora_pendientes()` (definer,
+ * solo lectura). El alumno está inscrito, pero todavía no hay temario — se muestra como
+ * pendiente, nunca como inscripción falsa ni como catálogo.
+ */
+export async function getCursosPendientes(userId: string): Promise<CursoPendiente[]> {
+  return comoAlumno(userId, async (sql) => {
+    const filas = await sql<
+      { cora_grupo_id: string; grupo_nombre: string; programa_nombre: string }[]
+    >`select cora_grupo_id, grupo_nombre, programa_nombre from lxp.mis_grupos_cora_pendientes()`;
+    return filas.map((f) => ({
+      coraGrupoId: f.cora_grupo_id,
+      grupoNombre: f.grupo_nombre,
+      programaNombre: f.programa_nombre,
+    }));
   });
 }
 

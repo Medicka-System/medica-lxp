@@ -12,14 +12,17 @@
  *   • "Continuar donde lo dejaste": primera lección del programa (por orden de
  *     módulo/lección) — deep-link a /leccion/[id].
  *
- * INSCRIPCIÓN REAL AL GRUPO (mig 0036 · §1/§6/§10):
+ * INSCRIPCIÓN REAL AL GRUPO (mig 0036 + PUENTE 1 · mig 0082 · §1/§6/§10):
  *   • El alumno se inscribe al GRUPO (instancia del programa), no al programa. El
  *     enlace CORA↔LXP es `lxp.grupos.cora_grupo_id` (vínculo por valor a public.grupos),
  *     leído vía `lxp.cora_grupos_de` (SECURITY DEFINER, solo lectura). Mis cursos y el
  *     flag `inscrito` derivan de `programasDelAlumno` (sus grupos → sus programas).
- *     Fallback de resiliencia: sin inscripción mapeada, Mis cursos muestra el catálogo
- *     publicado para poder arrancar. En el Sprint 11 solo cambia la FUENTE (CORA real),
- *     no la lógica; en local la simula el seed.
+ *   • REFLEJO AUTOMÁTICO: al abrir Mis cursos se corre `lxp.reflejar_grupos_cora()`
+ *     (idempotente): materializa en `lxp.grupos` los grupos CORA del alumno cuyo
+ *     programa el diseñador YA ligó (`lxp.programas.cora_programa_id`). Reemplaza el
+ *     materializado manual. SIN fallback de catálogo: el alumno ve SOLO sus cursos reales.
+ *   • CONTENIDO PENDIENTE: un grupo CORA cuyo programa aún no está ligado NO se refleja
+ *     como curso; aparece como "pendiente" (ver `CursoPendiente`), nunca inscripción falsa.
  *
  * PENDIENTE DE API / DB (fuera de apps/web — NO se implementa aquí):
  *   • Upsell / checkout modular: la compra de un programa o módulo suelto vive en el
@@ -51,6 +54,18 @@ export type CursoResumen = {
   avancePct: number;
   /** Lección para "Continuar" (primera del programa, o la siguiente sin completar). */
   continuar: { leccionId: string; nombre: string } | null;
+};
+
+/**
+ * Grupo CORA del alumno cuyo programa el diseñador aún NO ligó a contenido LXP
+ * (PUENTE 1 · mig 0082). Se muestra como "contenido pendiente" en Mis cursos — el
+ * alumno está inscrito, pero todavía no hay temario que consumir. NO es un curso real
+ * ni dispara el catálogo.
+ */
+export type CursoPendiente = {
+  coraGrupoId: string;
+  grupoNombre: string;
+  programaNombre: string;
 };
 
 /** Módulo dentro de una ficha de catálogo (upsell modular · Explorar). */

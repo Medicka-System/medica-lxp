@@ -59,6 +59,69 @@ export async function renombrarPrograma(programaId: string, nombre: string): Pro
   refrescar(programaId);
 }
 
+// ── Vínculo a CORA (PUENTE 1 · mig 0082) ─────────────────────────────────────────
+/** Ítem del catálogo de programas de CORA para el selector del diseñador. */
+export type ProgramaCoraCatalogo = { id: string; identificador: string; nombre: string };
+
+/**
+ * Catálogo de programas ACTIVOS de CORA (solo lo académico: id/identificador/nombre),
+ * vía la función SECURITY DEFINER read-only `lxp.cora_programas_catalogo` (§10 — nunca
+ * acopla tablas ni lee columnas comerciales). Lo consume el selector del Studio.
+ */
+export async function catalogoProgramasCora(): Promise<ProgramaCoraCatalogo[]> {
+  const { userId } = await requireAutoria();
+  return comoStaff(userId, async (sql) => {
+    const filas = await sql<{ id: string; identificador: string; nombre_programa: string }[]>`
+      select id, identificador, nombre_programa from lxp.cora_programas_catalogo()`;
+    return filas.map((f) => ({ id: f.id, identificador: f.identificador, nombre: f.nombre_programa }));
+  });
+}
+
+/**
+ * Liga (o desliga) un programa LXP a su programa de CORA (una vez por programa · §1).
+ * Setea `cora_programa_id` + `cora_programa_slug` resolviendo el slug del CATÁLOGO
+ * (no se confía el slug del cliente). `coraId = null` desvincula. Un programa CORA se
+ * liga a lo sumo a UN programa LXP (índice único parcial · mig 0082): si ya está tomado,
+ * devuelve un error legible en vez de reventar la UI.
+ */
+export async function vincularProgramaCora(
+  programaId: string,
+  coraId: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  try {
+    await comoStaff(userId, async (sql) => {
+      if (!coraId) {
+        afirmarFilas(
+          await sql`update lxp.programas set cora_programa_id = null, cora_programa_slug = null where id = ${programaId}`,
+          'desvincular programa CORA',
+        );
+        return;
+      }
+      // Resuelve el slug desde el catálogo definer (valida que el id exista y sea académico).
+      const cat = await sql<{ identificador: string }[]>`
+        select identificador from lxp.cora_programas_catalogo() where id = ${coraId} limit 1`;
+      if (!cat[0]) throw new Error('PROGRAMA_CORA_NO_ENCONTRADO');
+      afirmarFilas(
+        await sql`
+          update lxp.programas
+          set cora_programa_id = ${coraId}, cora_programa_slug = ${cat[0].identificador}
+          where id = ${programaId}`,
+        'vincular programa CORA',
+      );
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('programas_cora_unico') || msg.includes('duplicate key'))
+      return { ok: false, error: 'Ese programa de CORA ya está vinculado a otro programa del LXP.' };
+    if (msg.includes('PROGRAMA_CORA_NO_ENCONTRADO'))
+      return { ok: false, error: 'No se encontró ese programa en CORA (¿sigue activo?).' };
+    return { ok: false, error: 'No se pudo guardar el vínculo con CORA.' };
+  }
+  refrescar(programaId);
+  return { ok: true };
+}
+
 // La PUBLICACIÓN con versionado NO es CRUD (§2): vive en `apps/api` (módulo
 // `publicacion`) y el web la dispara desde `publicacion-acciones.ts`. No se toca la
 // columna `publicado` a mano — la fuente de verdad es `estado` (mig 0013) y el
@@ -253,28 +316,11 @@ function refrescarGrupo(grupoId?: string) {
   if (grupoId) revalidatePath(`/studio/grupos/${grupoId}`);
 }
 
-/** Instancia un grupo a partir de un programa. CRUD simple (Regla de Oro §2). */
-export async function crearGrupo(datos: {
-  programaId: string;
-  nombre: string;
-  modalidad: 'sincrono' | 'asincrono';
-  fechaInicio?: string | null;
-  fechaFin?: string | null;
-}): Promise<void> {
-  const { userId } = await requireAutoria();
-  const nombre = datos.nombre.trim() || 'Grupo sin título';
-  const inicio = datos.modalidad === 'sincrono' ? datos.fechaInicio || null : null;
-  const fin = datos.modalidad === 'sincrono' ? datos.fechaFin || null : null;
-  const id = await comoStaff(userId, async (sql) => {
-    const rows = await sql<{ id: string }[]>`
-      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, fecha_fin)
-      values (${datos.programaId}, ${nombre}, ${datos.modalidad}::lxp.modalidad, ${inicio}, ${fin})
-      returning id`;
-    return rows[0]!.id;
-  });
-  revalidatePath('/studio/grupos');
-  redirect(`/studio/grupos/${id}`);
-}
+// DEPRECADO (PUENTE 1 · mig 0082): el LXP ya NO crea grupos a mano. Un grupo creado
+// aquí nacería SIN `cora_grupo_id` (huérfano: ningún alumno lo resuelve vía
+// `cora_grupos_de`). Los grupos nacen en CORA y se materializan en `lxp.grupos` por
+// `lxp.reflejar_grupos_cora()` (al abrir Mis Cursos). Se conserva `actualizarGrupo`
+// para editar lo del grupo YA reflejado (docente, portada, personalizaciones).
 
 /** Edita los datos que el grupo SÍ posee: nombre, modalidad, fechas, docente. */
 export async function actualizarGrupo(

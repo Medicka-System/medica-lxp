@@ -113,6 +113,9 @@ export type ProgramaBuilder = {
   version: number;
   gruposActivos: number;
   actualizado: Date;
+  /** Vínculo a CORA (PUENTE 1 · mig 0082): programa de `public.bc_programas` ligado, o null. */
+  coraProgramaId: string | null;
+  coraProgramaSlug: string | null;
   totales: { modulos: number; horas: number; lecciones: number; bloques: number };
   modulos: Modulo[];
 };
@@ -131,9 +134,12 @@ export async function getProgramaBuilder(
           version: number;
           updated_at: Date;
           grupos: number;
+          cora_programa_id: string | null;
+          cora_programa_slug: string | null;
         }[]
       >`
         select p.id, p.nombre, p.publicado, p.version, p.updated_at,
+               p.cora_programa_id, p.cora_programa_slug,
                coalesce((select count(*) from lxp.grupos g where g.programa_id = p.id), 0)::int as grupos
         from lxp.programas p where p.id = ${programaId} limit 1`
     )[0];
@@ -223,6 +229,8 @@ export async function getProgramaBuilder(
       version: prog.version,
       gruposActivos: prog.grupos,
       actualizado: prog.updated_at,
+      coraProgramaId: prog.cora_programa_id,
+      coraProgramaSlug: prog.cora_programa_slug,
       totales: {
         modulos: modulos.length,
         horas: Math.round(modulos.reduce((s, m) => s + m.horas, 0)),
