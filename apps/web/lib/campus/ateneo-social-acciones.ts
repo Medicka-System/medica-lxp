@@ -35,9 +35,11 @@ export async function firmarSubidaMediaAteneo(
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
   try {
+    // X-Usuario-Id: el api cuenta el rate-limit por usuario (no por la IP interna del web). Es
+    // FIRMA (no write) → ya no compite con la firma de lectura del feed de los demás alumnos.
     const res = await fetch(`${apiBase()}/media/imagenes/firmar-subida`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-usuario-id': alumno.userId },
       body: JSON.stringify({ ext }),
       cache: 'no-store',
     });
@@ -202,7 +204,7 @@ export async function publicarPostAteneo(b: BorradorPost): Promise<ResultadoAcci
     try {
       await fetch(`${apiBase()}/media/imagenes/derivar`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-usuario-id': alumno.userId },
         body: JSON.stringify({ refs: refsADerivar }),
       });
     } catch (e) {
@@ -590,7 +592,7 @@ export async function buscarColegas(q: string): Promise<(PerfilResumen & { motiv
       order by pf.nombre limit 12`;
     // Gate de privacidad (Bloque 4): quien tenga perfilVisible=false NO aparece en la búsqueda.
     const priv = await privacidadDeVarios(filas.map((f) => f.user_id));
-    const avatares = await avataresDe(sql, filas.map((f) => f.user_id));
+    const avatares = await avataresDe(sql, filas.map((f) => f.user_id), alumno.userId);
     return filas
       .filter((s) => priv.get(s.user_id)?.perfilVisible !== false)
       .map((s) => ({
@@ -707,7 +709,7 @@ export async function getListaPerfil(tipo: 'casos' | 'colegas' | 'aportes'): Pro
           where estado = 'colegas' and (solicitante_id = ${uid} or receptor_id = ${uid})
         ) cn
         order by nombre`;
-      const avatares = await avataresDe(sql, filas.map((f) => f.id));
+      const avatares = await avataresDe(sql, filas.map((f) => f.id), uid);
       const colegas: Persona[] = filas.map((f) => {
         const n = f.nombre ?? 'Colega';
         return { id: f.id, ini: inic(n), nombre: n, rol: 'alumno', meta: 'Colega del Ateneo', avatarUrl: avatares.get(f.id)?.url ?? null, avatarSrcset: avatares.get(f.id)?.srcset };
@@ -759,7 +761,7 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
     // Foto + portada del colega (cross-user) vía perfil_publico_de (§10) → URLs firmadas.
     const media = (await sql<{ avatar_url: string | null; portada_url: string | null }[]>`
       select avatar_url, portada_url from lxp.perfil_publico_de(${[userId]}::uuid[])`)[0];
-    const mediaUrls = await firmarLecturaImagenes([media?.avatar_url, media?.portada_url]);
+    const mediaUrls = await firmarLecturaImagenes([media?.avatar_url, media?.portada_url], uid);
     // Casos PRESENTADOS visibles: sus posts tipo caso (la RLS de posts aplica la visibilidad).
     const postsCaso = await sql<{ id: string; titulo: string; cuerpo: string | null; caso_origen_id: string | null; created_at: Date }[]>`
       select id, titulo, cuerpo, caso_origen_id, created_at
@@ -794,7 +796,7 @@ export async function getPerfilColega(userId: string): Promise<PerfilColegaData 
     // Colegas EN COMÚN (owner-pool · acotado a la red del viewer · respeta la privacidad de
     // conexiones, §10). Nombres vía nombre_de; avatares vía perfil_publico_de (RLS-safe).
     const comun = await colegasEnComun(uid, userId);
-    const comunAvatares = await avataresDe(sql, comun.map((c) => c.id));
+    const comunAvatares = await avataresDe(sql, comun.map((c) => c.id), uid);
     const colegasComun: Persona[] = comun.map((c) => {
       const n = c.nombre ?? 'Colega';
       return { id: c.id, ini: inic(n), nombre: n, rol: 'alumno' as const, meta: 'Colega del Ateneo', avatarUrl: comunAvatares.get(c.id)?.url ?? null, avatarSrcset: comunAvatares.get(c.id)?.srcset };

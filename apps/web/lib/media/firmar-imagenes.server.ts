@@ -14,8 +14,16 @@ function apiBase(): string {
   return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 }
 
-/** Firma varias refs de una vez. Devuelve `{ ref → url }` (vacío si falla, no lanza). */
-export async function firmarLecturaImagenes(refs: (string | null | undefined)[]): Promise<Record<string, string>> {
+/**
+ * Firma varias refs de una vez. Devuelve `{ ref → url }` (vacío si falla, no lanza).
+ * `usuarioId` (opcional): el `sub` de la sesión ya verificada por el BFF → se reenvía en
+ * `X-Usuario-Id` para que el rate-limit del `api` cuente POR USUARIO, no por la IP interna del
+ * web (si no se pasa, el api cae a IP). La firma va al bucket de firma (no al de escrituras).
+ */
+export async function firmarLecturaImagenes(
+  refs: (string | null | undefined)[],
+  usuarioId?: string,
+): Promise<Record<string, string>> {
   const propios = [...new Set(refs)].filter(
     (r): r is string => typeof r === 'string' && r.startsWith('media/imagenes/'),
   );
@@ -26,7 +34,7 @@ export async function firmarLecturaImagenes(refs: (string | null | undefined)[])
     // navegador sobre el `<img>` (URL estable + Cache-Control de la imagen · Fase 1 entrega).
     const res = await fetch(`${apiBase()}/media/imagenes/firmar-lectura`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(usuarioId ? { 'x-usuario-id': usuarioId } : {}) },
       body: JSON.stringify({ refs: propios }),
     });
     if (!res.ok) return {};
@@ -39,9 +47,9 @@ export async function firmarLecturaImagenes(refs: (string | null | undefined)[])
 }
 
 /** Azúcar para una sola ref (null si no hay o no se pudo firmar). */
-export async function firmarLecturaImagen(ref: string | null | undefined): Promise<string | null> {
+export async function firmarLecturaImagen(ref: string | null | undefined, usuarioId?: string): Promise<string | null> {
   if (!ref) return null;
-  const urls = await firmarLecturaImagenes([ref]);
+  const urls = await firmarLecturaImagenes([ref], usuarioId);
   return urls[ref] ?? null;
 }
 
@@ -57,11 +65,12 @@ export type ImagenDerivada = { url: string; srcset: { w: number; url: string }[]
 export async function firmarDerivados(
   refs: (string | null | undefined)[],
   tipo: TipoDerivado,
+  usuarioId?: string,
 ): Promise<Record<string, ImagenDerivada>> {
   const originales = [...new Set(refs)].filter((r): r is string => typeof r === 'string' && !!r);
   if (originales.length === 0) return {};
   const derivKeys = originales.flatMap((ref) => clavesDerivados(ref, tipo).map((d) => d.ref));
-  const urls = await firmarLecturaImagenes([...originales, ...derivKeys]);
+  const urls = await firmarLecturaImagenes([...originales, ...derivKeys], usuarioId);
   const out: Record<string, ImagenDerivada> = {};
   for (const ref of originales) {
     const url = urls[ref];
@@ -78,8 +87,9 @@ export async function firmarDerivados(
 export async function firmarDerivado(
   ref: string | null | undefined,
   tipo: TipoDerivado,
+  usuarioId?: string,
 ): Promise<ImagenDerivada | null> {
   if (!ref) return null;
-  const m = await firmarDerivados([ref], tipo);
+  const m = await firmarDerivados([ref], tipo, usuarioId);
   return m[ref] ?? null;
 }

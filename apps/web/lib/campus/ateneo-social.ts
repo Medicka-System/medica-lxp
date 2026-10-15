@@ -108,7 +108,7 @@ function persona(
  * perfiles ocultos (perfilVisible=false) → cae a iniciales. Las refs `media/imagenes/*` se
  * firman a URL de lectura (patrón del feed). Devuelve `id → url|null`.
  */
-export async function avataresDe(sql: Sql, ids: string[]): Promise<Map<string, ImagenDerivada | null>> {
+export async function avataresDe(sql: Sql, ids: string[], usuarioId?: string): Promise<Map<string, ImagenDerivada | null>> {
   const m = new Map<string, ImagenDerivada | null>();
   const uniq = [...new Set(ids.filter(Boolean))];
   if (uniq.length === 0) return m;
@@ -116,7 +116,8 @@ export async function avataresDe(sql: Sql, ids: string[]): Promise<Map<string, I
     select id, avatar_url from lxp.perfil_publico_de(${uniq}::uuid[])`;
   const refs = filas.map((f) => f.avatar_url).filter((r): r is string => !!r);
   // Derivados webp del avatar (48/96/192) + original, firmados en lote → srcset cacheable.
-  const porRef = refs.length ? await firmarDerivados(refs, 'avatar') : {};
+  // `usuarioId` viaja al api (X-Usuario-Id) para el rate-limit por usuario (firma, no write).
+  const porRef = refs.length ? await firmarDerivados(refs, 'avatar', usuarioId) : {};
   for (const f of filas) m.set(f.id, f.avatar_url ? porRef[f.avatar_url] ?? null : null);
   return m;
 }
@@ -200,7 +201,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string, profu
   // no exista aún (backfill pendiente/falla) → el `<img>` cae al original vía `onError`.
   const derivRefs = mediaRefs.flatMap((ref) => clavesDerivadosImagen(ref).map((d) => d.ref));
   const urlPorRef = mediaRefs.length || derivRefs.length
-    ? await firmarLecturaImagenes([...mediaRefs, ...derivRefs])
+    ? await firmarLecturaImagenes([...mediaRefs, ...derivRefs], userId)
     : {};
 
   const reacTipos = await sql<{ post_id: string; tipo: string; n: number }[]>`
@@ -226,7 +227,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string, profu
   const avatarPorId = await avataresDe(sql, [
     ...filas.map((f) => f.autor_id),
     ...coms.map((c) => c.autor_id),
-  ]);
+  ], userId);
 
   const previewPorPost = new Map<string, Comentario[]>();
   for (const c of coms) {
@@ -262,7 +263,7 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string, profu
   for (const c of casos) casoPorPost.set(c.post_id, c);
   // Thumb ESTABLE del caso presentado (familia B): se firma server-side la ref media/imagenes/*
   // (el id de bitácora NO se expone a la audiencia · §10). Firma en lote.
-  const thumbUrlCaso = await firmarLecturaImagenes(casos.map((c) => c.estudio_thumb_ref));
+  const thumbUrlCaso = await firmarLecturaImagenes(casos.map((c) => c.estudio_thumb_ref), userId);
   const aCaso = (postId: string, tituloPost: string): CasoBitacora | null => {
     const c = casoPorPost.get(postId);
     if (!c) return null;
@@ -424,8 +425,8 @@ export async function getAteneoSocial(
     )[0];
     const yoNombre = yoFila?.nombre ?? 'Usted';
     // Avatar (48/96/192) y portada (640/1280) propios con derivados + fallback al original.
-    const yoAvatar = await firmarDerivado(yoFila?.avatar_url, 'avatar');
-    const yoPortada = await firmarDerivado(yoFila?.portada_url, 'portada');
+    const yoAvatar = await firmarDerivado(yoFila?.avatar_url, 'avatar', userId);
+    const yoPortada = await firmarDerivado(yoFila?.portada_url, 'portada', userId);
     const colegaIds = await colegasDe(sql, userId);
     const casosMios = (await sql<{ n: number }[]>`
       select count(*)::int as n from lxp.bitacora_casos where id_alumno = ${userId}`)[0]?.n ?? 0;
@@ -456,7 +457,7 @@ export async function getAteneoSocial(
       order by (estado_validacion = 'aprobado') desc, created_at desc
       limit 12`;
     // Thumb ESTABLE del caso propio (familia B): firma en lote las refs media/imagenes/*.
-    const thumbUrlMisCasos = await firmarLecturaImagenes(misCasosFilas.map((c) => c.estudio_thumb_ref));
+    const thumbUrlMisCasos = await firmarLecturaImagenes(misCasosFilas.map((c) => c.estudio_thumb_ref), userId);
     const misCasos: CasoBitacora[] = misCasosFilas.map((c) => {
       const series = Array.isArray(c.estudio_series) ? (c.estudio_series as { frames?: unknown[] }[]) : [];
       return {
