@@ -30,9 +30,10 @@ import {
   Users,
   X,
 } from "lucide-react";
-import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen } from "./tipos";
+import type { CasoBitacora, EnlacePreview, GifItem, ModoComposer, PerfilResumen, Post } from "./tipos";
 import { Avatar, Modal, focusRing, mono, softText } from "./ui";
 import { EstudioCaso } from "./EstudioCaso";
+import { OriginalEmbebido } from "./PostCard";
 import { GifPicker } from "./GifPicker";
 import { EmojiPickerPopover } from "./EmojiPickerPopover";
 import { capaOverlay } from "@/components/ui/overlay";
@@ -727,6 +728,99 @@ export function ComposerModal({
             )}
           </div>
         )}
+        <div className="h-1" />
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Modal de Compartir (repost estilo FB · mig 0079) ─────────────
+ * Compartir = post NUEVO que embebe el ORIGINAL + comentario propio opcional, con la audiencia
+ * que elige quien comparte (independiente del original). Reusa el `Editor`, el `Modal`, el
+ * selector de audiencia (`AUDIENCIAS`) y el embed `OriginalEmbebido`. `original` es el post a
+ * previsualizar (la raíz si se comparte un reshare); el backend aplica la anti-cadena. */
+export function CompartirModal({
+  yo,
+  original,
+  onCerrar,
+  onCompartir,
+}: {
+  yo: PerfilResumen;
+  original: Post | null;
+  onCerrar: () => void;
+  onCompartir: (comentario: string, audiencia: Audiencia) => void;
+}) {
+  const [texto, setTexto] = useState("");
+  const [audiencia, setAudiencia] = useState<Audiencia>("ateneo");
+  const [menuAud, setMenuAud] = useState(false);
+
+  return (
+    <Modal
+      titulo="Compartir publicación"
+      onCerrar={onCerrar}
+      ancho={560}
+      pie={
+        <div className="px-5 pb-[18px] pt-3.5">
+          <button
+            type="button"
+            onClick={() => onCompartir(texto, audiencia)}
+            className={`h-12 w-full rounded-[11px] bg-primary text-[14.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+          >
+            Compartir ahora
+          </button>
+        </div>
+      }
+    >
+      <div className="px-5 pt-4">
+        {/* autor + audiencia (mismo patrón que el composer) */}
+        <div className="flex items-center gap-3">
+          <Avatar p={yo} url={yo.avatarUrl} srcset={yo.avatarSrcset} size={42} />
+          <div>
+            <p className="text-[14px] font-bold">{yo.nombre}</p>
+            <div className="relative mt-1">
+              <button
+                type="button"
+                onClick={() => setMenuAud((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={menuAud}
+                className={`inline-flex h-[26px] items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 text-[11.5px] font-semibold ${softText} ${focusRing}`}
+              >
+                {(() => {
+                  const AudIcono = (AUDIENCIAS.find(([id]) => id === audiencia) ?? AUDIENCIAS[0])[1];
+                  return <AudIcono aria-hidden className="h-3 w-3" strokeWidth={1.75} />;
+                })()}
+                {(AUDIENCIAS.find(([id]) => id === audiencia) ?? AUDIENCIAS[0])[2]}
+                <ChevronDown aria-hidden className="h-3 w-3" strokeWidth={2} />
+              </button>
+              <div role="menu" data-open={menuAud} className={`${capaOverlay} absolute left-0 top-[30px] z-20 w-[190px] overflow-hidden rounded-[10px] border border-border bg-card shadow-[0_6px_20px_rgba(17,24,39,0.12)]`}>
+                {AUDIENCIAS.map(([id, Icono, etiqueta, ayuda]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAudiencia(id);
+                      setMenuAud(false);
+                    }}
+                    className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent ${focusRing} ${audiencia === id ? "bg-accent" : ""}`}
+                  >
+                    <Icono aria-hidden className="mt-px h-4 w-4 shrink-0 text-secondary" strokeWidth={1.75} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-bold">{etiqueta}</span>
+                      <span className={`block text-[11px] ${softText}`}>{ayuda}</span>
+                    </span>
+                    {audiencia === id && <Check aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary" strokeWidth={2.4} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <Editor texto={texto} setTexto={setTexto} placeholder="Escriba algo sobre esto (opcional)…" grande={false} />
+
+        {/* Previsualización del original embebido (misma tarjeta compacta del feed). */}
+        <OriginalEmbebido original={original} />
         <div className="h-1" />
       </div>
     </Modal>

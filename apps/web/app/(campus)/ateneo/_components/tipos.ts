@@ -172,7 +172,21 @@ export type PostEncuesta = PostBase & {
   cierra: string;
 };
 
-export type Post = PostTexto | PostCaso | PostPregunta | PostMedia | PostEncuesta;
+/**
+ * Reshare (Compartir · repost estilo FB): post nuevo del usuario que EMBEBE un ORIGINAL
+ * (mig 0079 · `post_compartido_id`). `texto` = comentario propio opcional. `original` es el
+ * post embebido YA resuelto bajo la RLS del viewer: `null` si el original se borró o el viewer
+ * no tiene acceso → se renderiza "no disponible". El original se muestra en tarjeta COMPACTA y
+ * NO-interactiva (sin reaccionar/votar/comentar dentro del embed). Siempre apunta a la raíz
+ * (sin cadenas: compartir un reshare apunta al original, no al reshare).
+ */
+export type PostCompartido = PostBase & {
+  tipo: "compartido";
+  texto: string;
+  original: Post | null;
+};
+
+export type Post = PostTexto | PostCaso | PostPregunta | PostMedia | PostEncuesta | PostCompartido;
 
 export type ModoComposer = "texto" | "caso" | "pregunta" | "media" | "encuesta" | "gif";
 

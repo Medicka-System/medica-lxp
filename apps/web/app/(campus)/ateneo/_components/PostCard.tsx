@@ -562,6 +562,119 @@ function ImgMosaico({ src, srcset, className }: { src: string; srcset?: { w: num
   );
 }
 
+/* ───────────── embed del original (reshare · Compartir) ─────────────
+ * Tarjeta COMPACTA y NO-interactiva del post original dentro de un reshare: sin barra de
+ * reacción/comentar/compartir, encuesta NO-votable, caso SIN visor (solo thumb + chips), sin
+ * exponer PII ni id de bitácora (§10 · el `original` ya viene resuelto bajo la RLS del viewer).
+ * `original = null` → "no disponible" (borrado o sin acceso). Reusado por el composer de Compartir. */
+
+/** Cuerpo compacto del original según su tipo (estático, sin interacción). */
+function CuerpoOriginal({ o }: { o: Post }) {
+  if (o.tipo === "caso")
+    return (
+      <>
+        <p className="text-[13.5px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{o.titulo}</p>
+        {o.texto && <p className={`mt-1 line-clamp-2 text-[12.5px] leading-relaxed ${softText}`}>{o.texto}</p>}
+        <div className="mt-2 overflow-hidden rounded-[9px] border border-border">
+          <EstudioCaso
+            thumbUrl={o.caso.thumbUrl}
+            etiqueta={`${o.caso.organo.toLowerCase()} · ${o.caso.area.toLowerCase()}`}
+            badge={`${o.caso.piezas} piezas${o.caso.loops ? ` · ${o.caso.loops} loop` : ""}`}
+          />
+          <span className="flex flex-wrap items-center gap-2 bg-accent px-3 py-2">
+            <Chip tono="teal">{o.caso.area} · {o.caso.organo}</Chip>
+            <Chip tono="teal">{o.caso.dominio}</Chip>
+          </span>
+        </div>
+      </>
+    );
+  if (o.tipo === "pregunta")
+    return (
+      <>
+        <p className="text-[14px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{o.pregunta}</p>
+        {o.contexto && <p className={`mt-1 line-clamp-3 text-[12.5px] leading-relaxed ${softText}`}>{o.contexto}</p>}
+      </>
+    );
+  if (o.tipo === "encuesta") {
+    const total = o.opciones.reduce((s, x) => s + x.votos, 0);
+    return (
+      <>
+        <p className="text-[14px] font-bold leading-snug" style={{ textWrap: "pretty" }}>{o.pregunta}</p>
+        {/* Opciones ESTÁTICAS (no-votables en el embed): el voto vive en el post original. */}
+        <div className="mt-2 flex flex-col gap-1.5">
+          {o.opciones.map((op) => {
+            const pct = total ? Math.round((op.votos / total) * 100) : 0;
+            return (
+              <div key={op.id} className="relative overflow-hidden rounded-[9px] border border-border bg-card px-3 py-2">
+                <span aria-hidden className="absolute inset-y-0 left-0 bg-muted" style={{ width: `${pct}%` }} />
+                <span className="relative flex items-center justify-between text-[12.5px]">
+                  <span className="min-w-0 flex-1 truncate font-medium">{op.texto}</span>
+                  <span className={`${mono} ml-2 text-muted-foreground`}>{pct}%</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <p className={`${mono} mt-1.5 text-[11px] text-muted-foreground`}>{total} votos · {o.cierra}</p>
+      </>
+    );
+  }
+  if (o.tipo === "media") {
+    const p = o.piezas?.[0];
+    const extra = (o.piezas?.length ?? 0) - 1;
+    return (
+      <>
+        {o.texto && <p className={`text-[13px] leading-relaxed ${softText}`}>{o.texto}</p>}
+        {p && (p.tipo === "video" || p.src) && (
+          <div className="relative mt-2 overflow-hidden rounded-[9px] bg-black">
+            {p.tipo === "video" && p.src ? (
+              // Sin controles → no-interactivo (fotograma); el video se reproduce en el original.
+              <video src={p.src} muted preload="metadata" className="max-h-[300px] w-full object-contain" />
+            ) : p.src ? (
+              <img src={p.src} alt="" loading="lazy" className="max-h-[300px] w-full object-contain" />
+            ) : null}
+            {extra > 0 && (
+              <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-bold text-white">
+                +{extra}
+              </span>
+            )}
+          </div>
+        )}
+      </>
+    );
+  }
+  // texto (y fallback de un reshare mal-anidado en el embed): solo el cuerpo.
+  const texto = "texto" in o ? o.texto : "";
+  return <p className={`text-[13.5px] leading-relaxed ${softText}`} style={{ textWrap: "pretty" }}>{texto}</p>;
+}
+
+export function OriginalEmbebido({ original }: { original: Post | null }) {
+  if (!original)
+    return (
+      <div className="mt-3 rounded-[11px] border border-border bg-muted px-4 py-3.5">
+        <p className="text-[12.5px] font-semibold text-muted-foreground">Publicación no disponible</p>
+        <p className="mt-0.5 text-[11.5px] text-muted-foreground">Es posible que se haya eliminado o que no tengas acceso.</p>
+      </div>
+    );
+  return (
+    <div className="mt-3 overflow-hidden rounded-[11px] border border-border bg-card">
+      <div className="flex items-center gap-2.5 px-3.5 pt-3">
+        <Avatar p={original.autor} url={original.autor.avatarUrl} srcset={original.autor.avatarSrcset} size={30} />
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 text-[13px] font-bold">
+            <span className="truncate">{original.autor.nombre}</span>
+            {original.autor.rol === "docente" && <ChipDocente />}
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">{original.autor.meta} · {original.cuando}</p>
+        </div>
+      </div>
+      <div className="px-3.5 pb-3.5 pt-2">
+        <CuerpoOriginal o={original} />
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── el post ───────────── */
 
 export function PostCard({
@@ -603,7 +716,7 @@ export function PostCard({
   const textoEditable =
     post.tipo === "pregunta" || post.tipo === "encuesta"
       ? post.pregunta
-      : post.tipo === "texto" || post.tipo === "caso" || post.tipo === "media"
+      : post.tipo === "texto" || post.tipo === "caso" || post.tipo === "media" || post.tipo === "compartido"
         ? post.texto
         : "";
 
@@ -673,6 +786,26 @@ export function PostCard({
     post.preview.length > 0 ? (
       <PreviewComentarios lista={post.preview} total={post.comentarios} yo={yo} onVerTodos={() => onAbrir(post.id)} onAbrirPerfil={onAbrirPerfil} />
     ) : null;
+
+  if (post.tipo === "compartido") {
+    const comentario = textoLocal ?? post.texto;
+    return (
+      <article className={`${card} px-5 py-[18px]`}>
+        <Cabecera
+          menu={menu}
+          onAbrirPerfil={onAbrirPerfil}
+          post={post}
+          chip={<Chip icono={<Share2 aria-hidden className="h-3 w-3" strokeWidth={1.75} />}>Compartió</Chip>}
+        />
+        {comentario && (
+          <p className={`mt-3 text-[14px] leading-relaxed ${softText}`} style={{ textWrap: "pretty" }}>{comentario}</p>
+        )}
+        <OriginalEmbebido original={post.original} />
+        {interacciones}
+        {preview}
+      </article>
+    );
+  }
 
   if (post.tipo === "caso")
     return (

@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useCanalRealtime } from '@/lib/realtime/use-canal';
-import { ComposerModal, EntradaComposer, type BorradorPost } from './Composer';
+import { ComposerModal, CompartirModal, EntradaComposer, type Audiencia, type BorradorPost } from './Composer';
 import { DetallePost } from './DetallePost';
 import { PostCard } from './PostCard';
 import { PerfilColega, RailSocial, ListaPerfilModal, type ListaPerfil } from './Social';
@@ -58,6 +58,8 @@ export function AteneoCliente({
   const [filtro, setFiltro] = useState<Filtro>('todo');
   const [sugerencias, setSugerencias] = useState(data.sugerencias);
   const [composer, setComposer] = useState<ModoComposer | null>(null);
+  // Compartir (repost · mig 0079): el post objetivo cuyo original se previsualiza en el modal.
+  const [compartiendo, setCompartiendo] = useState<Post | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
   const [hilo, setHilo] = useState<Comentario[]>([]);
   const [lista, setLista] = useState<ListaPerfil | null>(null);
@@ -167,12 +169,30 @@ export function AteneoCliente({
     });
   };
 
+  // Compartir: abre el modal de reshare con el objetivo (el backend aplica la anti-cadena a la
+  // raíz). El modal recoge comentario + audiencia y luego llama `confirmarCompartir`.
   const onCompartir = (id: string) => {
-    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, compartidos: p.compartidos + 1 } : p)));
+    const t = posts.find((p) => p.id === id);
+    if (t) setCompartiendo(t);
+  };
+
+  const confirmarCompartir = (comentario: string, audiencia: Audiencia) => {
+    const t = compartiendo;
+    setCompartiendo(null);
+    if (!t) return;
+    // Optimista: sube el contador del post objetivo (el COUNT real se reconcilia al recargar).
+    setPosts((ps) => ps.map((p) => (p.id === t.id ? { ...p, compartidos: p.compartidos + 1 } : p)));
     iniciar(async () => {
-      await compartirAteneo(id);
+      const r = await compartirAteneo(t.id, comentario, audiencia);
+      if (r.ok) recargarFeed();
+      else setAvisoError(r.error ?? 'No se pudo compartir. Inténtalo de nuevo.');
     });
   };
+
+  // El post a PREVISUALIZAR en el modal: si el objetivo es un reshare, mostramos su original
+  // (la raíz); si no, el propio objetivo. `null` → el embed cae a "no disponible".
+  const originalAPrevisualizar =
+    compartiendo?.tipo === 'compartido' ? compartiendo.original : compartiendo ?? null;
 
   // Reacción a un COMENTARIO (optimista): voltea `mia`/`total` al instante y luego recarga el
   // hilo para reconciliar el `top` exacto (que no se puede recalcular sin los conteos por tipo).
@@ -399,6 +419,15 @@ export function AteneoCliente({
 
       {composer && (
         <ComposerModal yo={yo} modoInicial={composer} misCasos={misCasos} onCerrar={() => setComposer(null)} onPublicar={onPublicar} />
+      )}
+
+      {compartiendo && (
+        <CompartirModal
+          yo={yo}
+          original={originalAPrevisualizar}
+          onCerrar={() => setCompartiendo(null)}
+          onCompartir={confirmarCompartir}
+        />
       )}
 
       {postAbierto && (

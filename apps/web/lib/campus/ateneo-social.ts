@@ -79,6 +79,7 @@ type FilaPost = {
   compartidos: number;
   created_at: Date;
   caso_origen_id: string | null;
+  post_compartido_id: string | null;
   n_comentarios: number;
   reac_total: number;
   mi_reaccion: string | null;
@@ -124,6 +125,28 @@ function aCasoVacio(titulo: string): CasoBitacora {
   return { id: '', titulo: titulo || 'Estudio', area: 'Ultrasonido', organo: '—', dominio: '—', piezas: 0, loops: 0, fecha: '', validado: false };
 }
 
+/**
+ * Lista de columnas de un post para el SELECT del feed (y de los ORIGINALES embebidos de un
+ * reshare · mig 0079). Fragmento ÚNICO compartido por `cargarLote` y la 2ª pasada de
+ * `ensamblarPosts` → una sola verdad de la forma `FilaPost` (sin drift). El contador
+ * `compartidos` es DERIVADO: COUNT de reshares que apuntan a este post (no la columna vestigial
+ * de 0032). `mi_reaccion` se parametriza con el `userId` del viewer.
+ */
+function columnasFilaPost(sql: Sql, userId: string) {
+  return sql`
+    p.id, p.tipo::text as tipo, p.autor_id,
+    lxp.nombre_de(p.autor_id) as autor,
+    (select rol::text from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_rol,
+    (select especialidad from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_esp,
+    (select sede from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_sede,
+    p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.enlace, p.cierra_en,
+    (select count(*)::int from lxp.posts_ateneo s where s.post_compartido_id = p.id) as compartidos,
+    p.created_at, p.caso_origen_id, p.post_compartido_id,
+    (select count(*)::int from lxp.comentarios_ateneo c where c.post_id = p.id) as n_comentarios,
+    (select count(*)::int from lxp.reacciones_ateneo r where r.post_id = p.id) as reac_total,
+    (select r.tipo::text from lxp.reacciones_ateneo r where r.post_id = p.id and r.usuario_id = ${userId}) as mi_reaccion`;
+}
+
 /** Colegas (conexiones aceptadas) del usuario — bajo la RLS del propio usuario. */
 async function colegasDe(sql: Sql, userId: string): Promise<string[]> {
   const filas = await sql<{ otro: string }[]>`
@@ -138,10 +161,29 @@ async function colegasDe(sql: Sql, userId: string): Promise<string[]> {
  * casos referenciados y encuestas). Toma `sql` (no abre transacción) para reusarse en el
  * primer lote (getAteneoSocial) y en los lotes siguientes (cargarFeed) sin anidar comoAlumno.
  */
-async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Promise<Post[]> {
+async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string, profundidad = 0): Promise<Post[]> {
   const ids = filas.map((f) => f.id);
   if (ids.length === 0) return [];
   const idsPostCaso = filas.filter((f) => f.tipo === 'caso' && !!f.caso_origen_id).map((f) => f.id);
+
+  // Reshares (mig 0079): resolvemos el ORIGINAL embebido de cada post con `post_compartido_id`,
+  // en una 2ª pasada BAJO LA MISMA RLS del viewer (mismo `sql`): si no puede ver el original, no
+  // hay fila → `original = null` → el front muestra "no disponible". Solo en profundidad 0: el
+  // embed NO resuelve su propio embed (sin cadenas en el render) y evita recursión infinita ante
+  // datos inconsistentes. Los originales son raíces (anti-cadena) → su `post_compartido_id` es
+  // null y la llamada recursiva no vuelve a entrar aquí.
+  const originalPorId = new Map<string, Post>();
+  if (profundidad === 0) {
+    const compIds = [...new Set(filas.map((f) => f.post_compartido_id).filter((x): x is string => !!x))];
+    if (compIds.length) {
+      const origFilas = await sql<FilaPost[]>`
+        select ${columnasFilaPost(sql, userId)}
+        from lxp.posts_ateneo p
+        where p.id = any(${compIds})`;
+      const origPosts = await ensamblarPosts(sql, origFilas, userId, profundidad + 1);
+      for (const p of origPosts) originalPorId.set(p.id, p);
+    }
+  }
 
   // Media (imagen/video): las refs `media/imagenes/*` guardadas se firman a URLs de lectura
   // (públicas, vida corta) para el grid de PostCard. Los GIF (hotlink Giphy) se EXCLUYEN: son
@@ -273,6 +315,12 @@ async function ensamblarPosts(sql: Sql, filas: FilaPost[], userId: string): Prom
       // Snapshot OG guardado al publicar; se sirve TAL CUAL (no se re-fetchea → sin SSRF en lectura).
       enlace: f.enlace && typeof f.enlace === 'object' ? (f.enlace as EnlacePreview) : null,
     };
+    // Reshare (mig 0079): se detecta por `post_compartido_id`, ANTES del tipo (el reshare se
+    // persiste como tipo='texto' con el comentario en `cuerpo`). `original` ya viene resuelto
+    // bajo la RLS del viewer; null → "no disponible" (borrado o sin acceso).
+    if (f.post_compartido_id) {
+      return { ...base, tipo: 'compartido', texto: f.cuerpo ?? '', original: originalPorId.get(f.post_compartido_id) ?? null };
+    }
     if (f.tipo === 'caso') {
       const caso = f.caso_origen_id ? aCaso(f.id, f.titulo) : null;
       return { ...base, tipo: 'caso', titulo: f.titulo, texto: f.cuerpo ?? '', caso: caso ?? aCasoVacio(f.titulo) };
@@ -336,16 +384,7 @@ async function cargarLote(
   }
   const hayCursor = cursor !== null;
   const filas = await sql<FilaPost[]>`
-    select p.id, p.tipo::text as tipo, p.autor_id,
-           lxp.nombre_de(p.autor_id) as autor,
-           (select rol::text from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_rol,
-           (select especialidad from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_esp,
-           (select sede from lxp.perfiles pf where pf.user_id = p.autor_id) as autor_sede,
-           p.titulo, p.vineta, p.cuerpo, p.temas, p.media, p.enlace, p.cierra_en, p.compartidos, p.created_at,
-           p.caso_origen_id,
-           (select count(*)::int from lxp.comentarios_ateneo c where c.post_id = p.id) as n_comentarios,
-           (select count(*)::int from lxp.reacciones_ateneo r where r.post_id = p.id) as reac_total,
-           (select r.tipo::text from lxp.reacciones_ateneo r where r.post_id = p.id and r.usuario_id = ${userId}) as mi_reaccion
+    select ${columnasFilaPost(sql, userId)}
     from lxp.posts_ateneo p
     where (${autores === null} or p.autor_id = any(${autores ?? []}))
       and (${!hayCursor} or (p.created_at, p.id) < (${cursor?.createdAt ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))

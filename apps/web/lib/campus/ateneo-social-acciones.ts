@@ -7,7 +7,7 @@ import { firmarLecturaImagenes } from '@/lib/media/firmar-imagenes.server';
 import { avataresDe, cargarFeedAteneo, type CursorFeed, type FeedAteneo, type LoteFeed } from './ateneo-social';
 import { getCasoBitacora } from './bitacora-datos';
 import type { ResultadoAccion } from './resultado';
-import type { BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
+import type { Audiencia, BorradorPost } from '@/app/(campus)/ateneo/_components/Composer';
 import { textoPlanoComentario, uuidsMencionados } from '@/app/(campus)/ateneo/_components/tipos';
 import type { BloquePedagogicoCasoData, CasoBitacora, Comentario, EnlacePreview, GifItem, ItemAporte, ListaPerfilData, MencionCandidato, PerfilColegaData, Persona, PerfilResumen, TipoReaccion } from '@/app/(campus)/ateneo/_components/tipos';
 
@@ -390,15 +390,40 @@ export async function votarEncuesta(postId: string, opcionId: string): Promise<R
   return { ok: true };
 }
 
-/** Comparte un post (contador). Best-effort: persiste para el autor; siempre no bloquea. */
-export async function compartirAteneo(postId: string): Promise<ResultadoAccion> {
+/**
+ * Comparte un post (repost estilo FB · mig 0079): crea un POST NUEVO del usuario que EMBEBE el
+ * original + `comentario` propio opcional, con la `audiencia` que ELIGE quien comparte
+ * (independiente del original). El objetivo se lee BAJO la RLS del viewer: si no lo ve, no hay
+ * fila → no comparte. ANTI-CADENA: si el objetivo ya es un reshare, apunta a su raíz
+ * (`coalesce(post_compartido_id, id)`) → nunca se encadenan reshares de reshares. El contador
+ * es DERIVADO (COUNT en el feed), no un entero mutado. INSERT plano (sin RETURNING/ON CONFLICT):
+ * solo evalúa WITH CHECK (autor = yo · lección 0074); la RLS es el segundo candado.
+ */
+export async function compartirAteneo(
+  postId: string,
+  comentario?: string,
+  audiencia?: Audiencia,
+): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  const vis = audiencia === 'colegas' ? 'colegas' : audiencia === 'grupo' ? 'grupo' : 'inscritos';
+  const cuerpo = (comentario ?? '').trim();
   try {
     await comoAlumno(alumno.userId, async (sql) => {
-      await sql`update lxp.posts_ateneo set compartidos = compartidos + 1 where id = ${postId}`;
+      // El objetivo debe ser VISIBLE para el viewer (RLS). Anti-cadena: apuntamos a la raíz.
+      const obj = (await sql<{ raiz: string }[]>`
+        select coalesce(post_compartido_id, id) as raiz
+        from lxp.posts_ateneo where id = ${postId}`)[0];
+      if (!obj) throw new Error('no-visible');
+      // No compartir el propio reshare recursivamente a sí mismo (coalesce ya lo evita, pero
+      // defendemos contra compartir la raíz que es el mismo id del objetivo trivial).
+      await sql`insert into lxp.posts_ateneo (autor_id, tipo, titulo, cuerpo, post_compartido_id, estado, visibilidad)
+        values (${alumno.userId}, 'texto', ${tituloDesde(cuerpo, 'Compartió una publicación')},
+                ${cuerpo || null}, ${obj.raiz}, 'aprobado', ${vis})`;
     });
-  } catch {
-    /* RLS: solo el autor puede incrementar su contador · el resto es no-op (§ stub) */
+  } catch (e) {
+    console.error('[compartirAteneo] fallo:', e);
+    return { ok: false, error: 'No se pudo compartir la publicación.' };
   }
   revalidatePath('/ateneo');
   return { ok: true };
