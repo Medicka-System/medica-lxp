@@ -61,6 +61,7 @@ export async function getProgramas(userId: string): Promise<ProgramaResumen[]> {
         select programa_id, count(*) as grupos
         from lxp.grupos group by programa_id
       ) g on g.programa_id = p.id
+      where p.cora_programa_id is null   -- SOLO nativos LXP; el espejo CORA se lista aparte
       order by p.updated_at desc`;
 
     return rows.map((r) => ({
@@ -73,6 +74,90 @@ export async function getProgramas(userId: string): Promise<ProgramaResumen[]> {
       version: r.version,
       actualizado: r.updated_at,
     }));
+  });
+}
+
+// ── Origen CORA (espejo read-only · PUENTE 1) ───────────────────────────────────
+/** Un grupo de CORA de un programa (read-only, vía `lxp.cora_grupos_de_programa` · 0083). */
+export type GrupoCoraResumen = {
+  coraGrupoId: string;
+  nombre: string;
+  /** Modalidad CRUDA de CORA (online | presencial | hibrida). */
+  modalidad: string | null;
+  fechaInicio: Date | null;
+  fechaFin: Date | null;
+  alumnos: number;
+};
+
+/**
+ * Un programa de CORA en el Studio: SIEMPRE listado desde el catálogo (sin crear ni
+ * vincular a mano). `lxpProgramaId` ≠ null cuando el diseñador ya abrió su shell de
+ * autoría (provisión idempotente por `cora_programa_id` · acción `abrirProgramaCora`).
+ */
+export type ProgramaCoraResumen = {
+  coraProgramaId: string;
+  identificador: string;
+  nombre: string;
+  lxpProgramaId: string | null;
+  modulos: number;
+  publicado: boolean;
+  grupos: GrupoCoraResumen[];
+  alumnos: number;
+};
+
+/**
+ * Lista TODOS los programas de CORA (vía `lxp.cora_programas_catalogo` · 0082) con sus
+ * grupos ya vinculados + conteo de alumnos (`lxp.cora_grupos_de_programa` · 0083) y, si
+ * existe, el shell LXP de autoría ligado por `cora_programa_id`. Todo read-only; el
+ * diseñador no crea ni selecciona nada. Fail-soft: si la función de grupos aún no está
+ * (p. ej. 0083 sin aplicar), el programa se lista igual, sin grupos (no rompe la vista).
+ */
+export async function getProgramasCora(userId: string): Promise<ProgramaCoraResumen[]> {
+  return comoStaff(userId, async (sql) => {
+    const cat = await sql<{ id: string; identificador: string; nombre_programa: string }[]>`
+      select id, identificador, nombre_programa from lxp.cora_programas_catalogo()`;
+    if (cat.length === 0) return [];
+
+    // Shells LXP ya ligados (los que el diseñador abrió para autoría) + nº de módulos.
+    const shells = await sql<{ id: string; cora_programa_id: string; publicado: boolean; modulos: number }[]>`
+      select p.id, p.cora_programa_id, p.publicado,
+             coalesce((select count(*) from lxp.modulos m where m.programa_id = p.id), 0)::int as modulos
+      from lxp.programas p
+      where p.cora_programa_id = any(${cat.map((c) => c.id)}::uuid[])`;
+    const shellPorCora = new Map(shells.map((s) => [s.cora_programa_id, s]));
+
+    const out: ProgramaCoraResumen[] = [];
+    for (const c of cat) {
+      let grupos: GrupoCoraResumen[] = [];
+      try {
+        const filas = await sql<
+          { cora_grupo_id: string; nombre: string; modalidad: string | null; fecha_inicio: Date | null; fecha_fin: Date | null; alumnos: number }[]
+        >`select cora_grupo_id, nombre, modalidad, fecha_inicio, fecha_fin, alumnos
+          from lxp.cora_grupos_de_programa(${c.id})`;
+        grupos = filas.map((g) => ({
+          coraGrupoId: g.cora_grupo_id,
+          nombre: g.nombre,
+          modalidad: g.modalidad,
+          fechaInicio: g.fecha_inicio,
+          fechaFin: g.fecha_fin,
+          alumnos: g.alumnos,
+        }));
+      } catch {
+        grupos = []; // fail-soft: la función de grupos (0083) aún no está aplicada
+      }
+      const shell = shellPorCora.get(c.id);
+      out.push({
+        coraProgramaId: c.id,
+        identificador: c.identificador,
+        nombre: c.nombre_programa,
+        lxpProgramaId: shell?.id ?? null,
+        modulos: shell?.modulos ?? 0,
+        publicado: shell?.publicado ?? false,
+        grupos,
+        alumnos: grupos.reduce((s, g) => s + g.alumnos, 0),
+      });
+    }
+    return out;
   });
 }
 

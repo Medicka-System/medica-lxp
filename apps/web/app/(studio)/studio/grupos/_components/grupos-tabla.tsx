@@ -12,13 +12,14 @@
  * Personalizado. El rojo nunca aparece (personalizar no es un error).
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { ImgDerivada } from '@/components/img-derivada';
 import { useRouter } from 'next/navigation';
 import {
   Link2,
   Lock,
   MoreHorizontal,
+  Plus,
   Search,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { Select } from '@/components/ui/select';
 import { fechaCorta } from '@/lib/format';
 import type { EstadoGrupo, GrupoResumen } from '@/lib/studio/datos';
+import { crearGrupo } from '@/lib/studio/acciones';
 
 const ESTADO: Record<EstadoGrupo, { texto: string; clase: string }> = {
   curso: { texto: 'En curso', clase: 'bg-accent text-accent-foreground' },
@@ -59,11 +61,21 @@ function rango(inicio: Date | null, fin: Date | null): string {
   return `${inicio ? fechaCorta(inicio) : '—'} – ${fin ? fechaCorta(fin) : '—'}`;
 }
 
-export function GruposTabla({ grupos }: { grupos: GrupoResumen[] }) {
+export function GruposTabla({
+  grupos,
+  programasNativos,
+}: {
+  grupos: GrupoResumen[];
+  /** Programas NATIVOS del LXP (sin CORA): únicos sobre los que se crea un grupo nativo. */
+  programasNativos: { id: string; nombre: string }[];
+}) {
   const router = useRouter();
   const [busca, setBusca] = useState('');
   const [programa, setPrograma] = useState('Todos');
   const [estado, setEstado] = useState<'todos' | EstadoGrupo>('todos');
+  // Grupo NATIVO del LXP: se crea sobre un programa nativo (no CORA). Independiente de CORA.
+  const [nativoSel, setNativoSel] = useState(programasNativos[0]?.id ?? '');
+  const [creando, iniciarCreacion] = useTransition();
 
   const conteos = useMemo(
     () => ({
@@ -99,8 +111,37 @@ export function GruposTabla({ grupos }: { grupos: GrupoResumen[] }) {
           <h1 className="text-[22px] font-extrabold leading-tight tracking-[-0.02em]">Grupos</h1>
           <p className={`mt-1 text-[13px] ${softText}`}>
             Cada grupo es una instancia de un programa: hereda su temario y guarda solo lo suyo.
-            Los grupos nacen en CORA y se reflejan solos aquí.
+            Los de CORA se reflejan solos; los nativos del LXP se crean aquí.
           </p>
+        </div>
+
+        {/* Crear grupo NATIVO del LXP (sobre un programa nativo · independiente de CORA). */}
+        <div className="flex items-center gap-2">
+          {programasNativos.length > 0 ? (
+            <>
+              <label className="flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3">
+                <span className={`${kicker} tracking-[0.1em] text-muted-foreground`}>Programa nativo</span>
+                <Select
+                  aria-label="Programa nativo para el grupo"
+                  value={nativoSel}
+                  onChange={setNativoSel}
+                  className="flex items-center gap-2 bg-transparent pr-1 text-[13px] font-semibold text-foreground outline-none"
+                  options={programasNativos.map((p) => ({ value: p.id, label: p.nombre }))}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => nativoSel && iniciarCreacion(() => crearGrupo(nativoSel))}
+                disabled={creando || !nativoSel}
+                className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-5 text-[14px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}
+              >
+                <Plus aria-hidden className="h-[17px] w-[17px]" strokeWidth={2.2} />
+                {creando ? 'Creando…' : 'Nuevo grupo'}
+              </button>
+            </>
+          ) : (
+            <span className={`text-[12px] ${softText}`}>Crea un programa LXP nativo para poder abrir un grupo propio.</span>
+          )}
         </div>
       </div>
 

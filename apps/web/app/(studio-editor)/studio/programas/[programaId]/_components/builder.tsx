@@ -58,7 +58,6 @@ import {
   renombrarPrograma,
 } from '@/lib/studio/acciones';
 import { EditorDeLeccion, VISUAL_TIPO } from './editores-leccion';
-import { VinculoCora } from './vinculo-cora';
 import {
   obtenerHistorial,
   obtenerVersionSnapshot,
@@ -141,7 +140,7 @@ function TextoEditable({
 export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
-  const { id, nombre, estado, version, gruposActivos, totales, modulos, coraProgramaId, coraProgramaSlug } =
+  const { id, nombre, estado, version, gruposActivos, totales, modulos } =
     programa;
 
   const moduloInicial = modulos.find((m) => m.lecciones.length > 0) ?? modulos[0];
@@ -501,13 +500,6 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
               </span>
             </span>
           </div>
-
-          {/* Vínculo a CORA (PUENTE 1): liga este programa a su programa de CORA. */}
-          <VinculoCora
-            programaId={id}
-            coraProgramaId={coraProgramaId}
-            coraProgramaSlug={coraProgramaSlug}
-          />
         </aside>
       </div>
 

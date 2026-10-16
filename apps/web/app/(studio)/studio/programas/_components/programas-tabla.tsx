@@ -64,12 +64,12 @@ export function ProgramasTabla({ programas }: { programas: ProgramaResumen[] }) 
   const horasTotales = programas.reduce((s, p) => s + p.horas, 0);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-5 px-8 pb-10 pt-7">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3.5">
         <div>
-          <h1 className="text-[22px] font-extrabold leading-tight tracking-[-0.02em]">Programas</h1>
+          <h2 className="text-[18px] font-extrabold leading-tight tracking-[-0.02em]">Programas nativos del LXP</h2>
           <p className={`mt-1 text-[13px] ${softText}`}>
-            La plantilla viva de cada temario. Los grupos derivan de aquí.
+            Creados a mano en el LXP, sin vínculo con CORA. La plantilla viva de cada temario.
           </p>
         </div>
         <button
