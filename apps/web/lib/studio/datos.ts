@@ -1,5 +1,6 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
+import type { Sql } from '@/lib/db.server';
 import { firmarLecturaImagenes, firmarLecturaImagen, firmarDerivados, firmarDerivado } from '@/lib/media/firmar-imagenes.server';
 import { firmarLecturaArchivo } from '@/lib/media/firmar-archivos.server';
 import { firmarReproduccionVideo } from '@/lib/media/firmar-video.server';
@@ -77,87 +78,100 @@ export async function getProgramas(userId: string): Promise<ProgramaResumen[]> {
   });
 }
 
-// ── Origen CORA (espejo read-only · PUENTE 1) ───────────────────────────────────
-/** Un grupo de CORA de un programa (read-only, vía `lxp.cora_grupos_de_programa` · 0083). */
-export type GrupoCoraResumen = {
-  coraGrupoId: string;
-  nombre: string;
-  /** Modalidad CRUDA de CORA (online | presencial | hibrida). */
-  modalidad: string | null;
-  fechaInicio: Date | null;
-  fechaFin: Date | null;
-  alumnos: number;
-};
+// ── Lista UNIFICADA de programas (nativos LXP + espejo CORA) · PUENTE 1 ──────────
+export type OrigenPrograma = 'lxp' | 'cora';
+export type EstadoContenido = 'publicado' | 'borrador' | 'sin-contenido';
 
 /**
- * Un programa de CORA en el Studio: SIEMPRE listado desde el catálogo (sin crear ni
- * vincular a mano). `lxpProgramaId` ≠ null cuando el diseñador ya abrió su shell de
- * autoría (provisión idempotente por `cora_programa_id` · acción `abrirProgramaCora`).
+ * Una fila de la lista ÚNICA de programas del Studio: nativos del LXP y espejo de CORA,
+ * SIN grupos anidados (los grupos viven en la vista de Grupos). `origen` da el chip
+ * CORA/LXP; `lxpProgramaId` es el shell editable (nativo: su id; CORA: el shell si ya se
+ * abrió para autoría, si no null → "Construir contenido" con `abrirProgramaCora`).
  */
-export type ProgramaCoraResumen = {
-  coraProgramaId: string;
-  identificador: string;
+export type ProgramaListaItem = {
+  clave: string;
+  origen: OrigenPrograma;
   nombre: string;
-  lxpProgramaId: string | null;
+  slug: string | null;
+  estado: EstadoContenido;
   modulos: number;
-  publicado: boolean;
-  grupos: GrupoCoraResumen[];
-  alumnos: number;
+  horas: number;
+  version: number | null;
+  actualizado: Date | null;
+  lxpProgramaId: string | null;
+  coraProgramaId: string | null;
 };
 
+/** Suma de horas + nº de módulos por programa (subconsulta reutilizable). */
+const HORAS_MODULOS = (sql: Sql) => sql`
+  left join (select programa_id, sum(horas) as horas, count(*) as modulos
+             from lxp.modulos group by programa_id) m on m.programa_id = p.id`;
+
 /**
- * Lista TODOS los programas de CORA (vía `lxp.cora_programas_catalogo` · 0082) con sus
- * grupos ya vinculados + conteo de alumnos (`lxp.cora_grupos_de_programa` · 0083) y, si
- * existe, el shell LXP de autoría ligado por `cora_programa_id`. Todo read-only; el
- * diseñador no crea ni selecciona nada. Fail-soft: si la función de grupos aún no está
- * (p. ej. 0083 sin aplicar), el programa se lista igual, sin grupos (no rompe la vista).
+ * Lista ÚNICA de programas: NATIVOS del LXP (cora_programa_id IS NULL) + ESPEJO de CORA
+ * (todos los de `lxp.cora_programas_catalogo` · 0082). CORA primero. Sin grupos (esta vista
+ * no los anida). Cada CORA trae su shell LXP si ya existe (estado de contenido). Fail-soft:
+ * si el catálogo CORA no está disponible, se listan solo los nativos.
  */
-export async function getProgramasCora(userId: string): Promise<ProgramaCoraResumen[]> {
+export async function getProgramasLista(userId: string): Promise<ProgramaListaItem[]> {
   return comoStaff(userId, async (sql) => {
-    const cat = await sql<{ id: string; identificador: string; nombre_programa: string }[]>`
-      select id, identificador, nombre_programa from lxp.cora_programas_catalogo()`;
-    if (cat.length === 0) return [];
+    const nativos = await sql<
+      { id: string; nombre: string; publicado: boolean; version: number; updated_at: Date; horas: number; modulos: number }[]
+    >`
+      select p.id, p.nombre, p.publicado, p.version, p.updated_at,
+             coalesce(m.horas, 0)::float8 as horas, coalesce(m.modulos, 0)::int as modulos
+      from lxp.programas p ${HORAS_MODULOS(sql)}
+      where p.cora_programa_id is null
+      order by p.updated_at desc`;
+    const itemsNativos: ProgramaListaItem[] = nativos.map((r) => ({
+      clave: r.id,
+      origen: 'lxp',
+      nombre: r.nombre,
+      slug: null,
+      estado: r.publicado ? 'publicado' : 'borrador',
+      modulos: r.modulos,
+      horas: Math.round(r.horas),
+      version: r.version,
+      actualizado: r.updated_at,
+      lxpProgramaId: r.id,
+      coraProgramaId: null,
+    }));
 
-    // Shells LXP ya ligados (los que el diseñador abrió para autoría) + nº de módulos.
-    const shells = await sql<{ id: string; cora_programa_id: string; publicado: boolean; modulos: number }[]>`
-      select p.id, p.cora_programa_id, p.publicado,
-             coalesce((select count(*) from lxp.modulos m where m.programa_id = p.id), 0)::int as modulos
-      from lxp.programas p
-      where p.cora_programa_id = any(${cat.map((c) => c.id)}::uuid[])`;
-    const shellPorCora = new Map(shells.map((s) => [s.cora_programa_id, s]));
-
-    const out: ProgramaCoraResumen[] = [];
-    for (const c of cat) {
-      let grupos: GrupoCoraResumen[] = [];
-      try {
-        const filas = await sql<
-          { cora_grupo_id: string; nombre: string; modalidad: string | null; fecha_inicio: Date | null; fecha_fin: Date | null; alumnos: number }[]
-        >`select cora_grupo_id, nombre, modalidad, fecha_inicio, fecha_fin, alumnos
-          from lxp.cora_grupos_de_programa(${c.id})`;
-        grupos = filas.map((g) => ({
-          coraGrupoId: g.cora_grupo_id,
-          nombre: g.nombre,
-          modalidad: g.modalidad,
-          fechaInicio: g.fecha_inicio,
-          fechaFin: g.fecha_fin,
-          alumnos: g.alumnos,
-        }));
-      } catch {
-        grupos = []; // fail-soft: la función de grupos (0083) aún no está aplicada
+    let itemsCora: ProgramaListaItem[] = [];
+    try {
+      const cat = await sql<{ id: string; identificador: string; nombre_programa: string }[]>`
+        select id, identificador, nombre_programa from lxp.cora_programas_catalogo()`;
+      if (cat.length) {
+        const shells = await sql<
+          { id: string; cora_programa_id: string; publicado: boolean; version: number; updated_at: Date; horas: number; modulos: number }[]
+        >`
+          select p.id, p.cora_programa_id, p.publicado, p.version, p.updated_at,
+                 coalesce(m.horas, 0)::float8 as horas, coalesce(m.modulos, 0)::int as modulos
+          from lxp.programas p ${HORAS_MODULOS(sql)}
+          where p.cora_programa_id = any(${cat.map((c) => c.id)}::uuid[])`;
+        const shellPorCora = new Map(shells.map((s) => [s.cora_programa_id, s]));
+        itemsCora = cat.map((c) => {
+          const sh = shellPorCora.get(c.id);
+          return {
+            clave: sh?.id ?? `cora:${c.id}`,
+            origen: 'cora' as const,
+            nombre: c.nombre_programa,
+            slug: c.identificador,
+            estado: (sh ? (sh.publicado ? 'publicado' : 'borrador') : 'sin-contenido') as EstadoContenido,
+            modulos: sh?.modulos ?? 0,
+            horas: sh ? Math.round(sh.horas) : 0,
+            version: sh?.version ?? null,
+            actualizado: sh?.updated_at ?? null,
+            lxpProgramaId: sh?.id ?? null,
+            coraProgramaId: c.id,
+          };
+        });
       }
-      const shell = shellPorCora.get(c.id);
-      out.push({
-        coraProgramaId: c.id,
-        identificador: c.identificador,
-        nombre: c.nombre_programa,
-        lxpProgramaId: shell?.id ?? null,
-        modulos: shell?.modulos ?? 0,
-        publicado: shell?.publicado ?? false,
-        grupos,
-        alumnos: grupos.reduce((s, g) => s + g.alumnos, 0),
-      });
+    } catch {
+      itemsCora = []; // fail-soft: catálogo CORA no disponible → solo nativos
     }
-    return out;
+
+    return [...itemsCora, ...itemsNativos];
   });
 }
 
@@ -383,6 +397,7 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
           coalesce((select count(*) from lxp.grupo_overrides o where o.grupo_id = g.id), 0)::int as overrides
         from lxp.grupos g
         join lxp.programas p on p.id = g.programa_id
+        where g.cora_grupo_id is null   -- SOLO nativos LXP; los de CORA se listan vía cora_grupos_staff
         order by g.created_at desc`,
       // Roster de CORA por grupo (una sola query · puente SECDEF, gated a staff · §10).
       sql<{ cora_grupo_id: string; alumnos: number }[]>`
@@ -409,6 +424,49 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
       portadaUrl: r.imagen_portada ? (portadas[r.imagen_portada]?.url ?? null) : null,
       portadaSrcset: r.imagen_portada ? portadas[r.imagen_portada]?.srcset : undefined,
     }));
+  });
+}
+
+// ── Grupos ESPEJO de CORA (read-only · mig 0084) ───────────────────────────────
+/** Un grupo de CORA para la vista de Grupos del Studio (roster aparte, lazy). */
+export type GrupoCoraStaff = {
+  coraGrupoId: string;
+  coraProgramaId: string;
+  programaNombre: string;
+  nombre: string;
+  /** Modalidad CRUDA de CORA (online | presencial | hibrida). */
+  modalidad: string | null;
+  fechaInicio: Date | null;
+  fechaFin: Date | null;
+  alumnos: number;
+};
+
+/**
+ * TODOS los grupos de CORA visibles al staff (vía `lxp.cora_grupos_staff` · 0084), con su
+ * programa, modalidad, fechas (grupos.fecha_inicio/fin · autoritativas) y conteo de alumnos.
+ * El ROSTER por grupo se trae aparte (lazy · `getRosterGrupoCora`). Fail-soft: si 0084 no
+ * está aplicada, devuelve [] (la vista cae a solo los grupos nativos).
+ */
+export async function getGruposCora(userId: string): Promise<GrupoCoraStaff[]> {
+  return comoStaff(userId, async (sql) => {
+    try {
+      const filas = await sql<
+        { cora_grupo_id: string; cora_programa_id: string; programa_nombre: string; nombre: string; modalidad: string | null; fecha_inicio: Date | null; fecha_fin: Date | null; alumnos: number }[]
+      >`select cora_grupo_id, cora_programa_id, programa_nombre, nombre, modalidad, fecha_inicio, fecha_fin, alumnos
+        from lxp.cora_grupos_staff()`;
+      return filas.map((g) => ({
+        coraGrupoId: g.cora_grupo_id,
+        coraProgramaId: g.cora_programa_id,
+        programaNombre: g.programa_nombre,
+        nombre: g.nombre,
+        modalidad: g.modalidad,
+        fechaInicio: g.fecha_inicio,
+        fechaFin: g.fecha_fin,
+        alumnos: g.alumnos,
+      }));
+    } catch {
+      return []; // fail-soft: 0084 aún no aplicada
+    }
   });
 }
 

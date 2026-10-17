@@ -291,6 +291,23 @@ function refrescarGrupo(grupoId?: string) {
   if (grupoId) revalidatePath(`/studio/grupos/${grupoId}`);
 }
 
+/** Un alumno del roster de un grupo de CORA (read-only · §10). */
+export type AlumnoRoster = { nombre: string; matricula: string | null };
+
+/**
+ * Roster (listado de alumnos) de un grupo de CORA, LAZY desde la vista de Grupos. Lee vía
+ * `lxp.cora_alumnos_de_grupo` (0037 · SECURITY DEFINER / es_staff / read-only sobre public).
+ * El web ya gatea con requireAutoria; es el segundo candado. CORA es solo lectura (§10).
+ */
+export async function getRosterGrupoCora(coraGrupoId: string): Promise<AlumnoRoster[]> {
+  const { userId } = await requireAutoria();
+  return comoStaff(userId, async (sql) => {
+    const filas = await sql<{ nombre: string; matricula: string | null }[]>`
+      select nombre, matricula from lxp.cora_alumnos_de_grupo(${coraGrupoId}) order by nombre`;
+    return filas.map((f) => ({ nombre: f.nombre, matricula: f.matricula }));
+  });
+}
+
 /**
  * Crea un grupo NATIVO del LXP (sin `cora_grupo_id`): una instancia PROPIA del LXP sobre
  * un programa NATIVO, independiente de CORA. Convive con los grupos de CORA, que nacen allá

@@ -1,20 +1,21 @@
 import { getSesionStaff } from '@/lib/studio/session';
-import { getGrupos, getProgramas } from '@/lib/studio/datos';
+import { getGrupos, getGruposCora, getProgramas } from '@/lib/studio/datos';
 import { GruposTabla } from './_components/grupos-tabla';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Studio · Grupos (lista). Lee los grupos con RLS. Conviven dos orígenes: los de CORA
- * (nacen allá y se reflejan solos · PUENTE 1 · mig 0082) y los NATIVOS del LXP (creados
- * a mano sobre un programa nativo). Para crear un grupo nativo se pasan los programas nativos.
+ * Studio · Grupos (lista). Conviven dos orígenes: el ESPEJO de CORA (todos los grupos de
+ * CORA visibles al staff, con conteo + roster · mig 0084) y los NATIVOS del LXP (creados a
+ * mano sobre un programa nativo). El roster de cada grupo CORA se carga lazy en la tabla.
  */
 export default async function GruposPage() {
   const staff = await getSesionStaff();
-  const [grupos, programas] = await Promise.all([
-    getGrupos(staff.userId),
-    getProgramas(staff.userId), // nativos (getProgramas filtra cora_programa_id is null)
+  const [grupos, gruposCora, programas] = await Promise.all([
+    getGrupos(staff.userId), // nativos (getGrupos filtra cora_grupo_id is null)
+    getGruposCora(staff.userId), // espejo de CORA (read-only · mig 0084)
+    getProgramas(staff.userId), // programas nativos para crear grupo nativo
   ]);
   const programasNativos = programas.map((p) => ({ id: p.id, nombre: p.nombre }));
-  return <GruposTabla grupos={grupos} programasNativos={programasNativos} />;
+  return <GruposTabla grupos={grupos} gruposCora={gruposCora} programasNativos={programasNativos} />;
 }
