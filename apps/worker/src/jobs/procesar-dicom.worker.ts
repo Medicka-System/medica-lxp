@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import AdmZip from 'adm-zip';
 import {
+  parsearRespuestaRedactor,
   QUEUE_PROCESAR_DICOM,
   type DestinoAnonimizado,
   type DestinoThumb,
@@ -442,25 +443,15 @@ export class ProcesarDicomWorker extends TrabajadorBase {
       headers: { 'content-type': contentType },
       body: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
     });
-    if (!resp.ok) {
-      throw new Error(`El servicio redactor-dicom respondió ${resp.status}.`);
-    }
-    const redacciones = Number(resp.headers.get('x-redacciones') ?? '0');
-    const revisionManual = resp.headers.get('x-revision-manual') === '1';
-    // CUARENTENA: cuerpo vacío, no hay multipart que parsear (fail-closed · §10).
-    if (revisionManual) {
-      return { buffer: Buffer.alloc(0), redacciones, revisionManual: true, thumb: null };
-    }
-    // ÉXITO: parsear el multipart (parte `bin` obligatoria, `thumb` opcional).
-    const form = await resp.formData();
-    const bin = form.get('bin');
-    if (!(bin instanceof Blob)) {
-      throw new Error('El redactor no devolvió la parte `bin` del multipart.');
-    }
-    const redactado = Buffer.from(await bin.arrayBuffer());
-    const parteThumb = form.get('thumb');
-    const thumb = parteThumb instanceof Blob ? Buffer.from(await parteThumb.arrayBuffer()) : null;
-    return { buffer: redactado, redacciones, revisionManual: false, thumb };
+    // Parser ÚNICO del contrato redactor↔consumidor (multipart + headers §10). Antes este
+    // parseo vivía inline aquí Y, mal, en el api de imágenes de reporte → drift del multipart.
+    const r = await parsearRespuestaRedactor(resp);
+    return {
+      buffer: Buffer.from(r.bin),
+      redacciones: r.redacciones,
+      revisionManual: r.revisionManual,
+      thumb: r.thumb ? Buffer.from(r.thumb) : null,
+    };
   }
 
   /** Marca el estado del pipeline en la tabla dueña (bitácora o banco curado). */
