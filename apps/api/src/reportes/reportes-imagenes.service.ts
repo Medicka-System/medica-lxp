@@ -77,7 +77,14 @@ export class ReportesImagenesService {
     return { urls };
   }
 
-  /** POST al servicio Presidio: tapa SOLO la caja del nombre; ramifica por content-type (§10). */
+  /**
+   * POST al servicio Presidio: tapa SOLO la caja del nombre; ramifica por content-type (§10).
+   *
+   * El redactor responde MULTIPART (parte `bin` = binario redactado · parte `thumb` opcional, que
+   * aquí NO se usa). Se parsea con `resp.formData()` — IDÉNTICO a `procesar-dicom.worker.ts`; antes
+   * se leía el cuerpo con `arrayBuffer()` y se guardaba el SOBRE multipart entero como imagen →
+   * binario corrupto (JPG roto / DICOM negro). Fail-closed (§10): nunca se guarda basura silenciosa.
+   */
   private async redactar(buffer: Buffer, contentType: string): Promise<{ buffer: Buffer; revisionManual: boolean }> {
     const base = process.env.REDACTOR_URL ?? 'http://localhost:8002';
     const resp = await fetch(`${base}/redact`, {
@@ -86,8 +93,25 @@ export class ReportesImagenesService {
       body: buffer,
     });
     if (!resp.ok) throw new BadRequestException(`El servicio redactor respondió ${resp.status}.`);
-    const red = Buffer.from(await resp.arrayBuffer());
-    return { buffer: red, revisionManual: resp.headers.get('x-revision-manual') === '1' };
+    // CUARENTENA (fail-closed · §10): el redactor responde 200 con CUERPO VACÍO y
+    // `X-Revision-Manual: 1` cuando no pudo garantizar la redacción (nombre dudoso, no
+    // decodificable, verificación fallida). No hay multipart que parsear y NUNCA se guarda una
+    // imagen posiblemente con PII → se trata como error (este flujo es síncrono, sin estado de
+    // cuarentena propio como el worker).
+    if (resp.headers.get('x-revision-manual') === '1') {
+      throw new BadRequestException(
+        'La imagen quedó en revisión manual de PII (§10): no se pudo garantizar la redacción del nombre. No se guardó.',
+      );
+    }
+    // ÉXITO: parsear el multipart (parte `bin` obligatoria; `thumb` se ignora aquí).
+    const form = await resp.formData();
+    const bin = form.get('bin');
+    // GUARD: parte `bin` ausente o vacía → lanza y NO guarda (nunca basura silenciosa · §10).
+    if (!(bin instanceof Blob) || bin.size === 0) {
+      throw new BadRequestException('El redactor no devolvió la parte `bin` del multipart (no se guardó).');
+    }
+    const red = Buffer.from(await bin.arrayBuffer());
+    return { buffer: red, revisionManual: false };
   }
 
   private async leerBinario(url: string): Promise<ArrayBuffer> {
