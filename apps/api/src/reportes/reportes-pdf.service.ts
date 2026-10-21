@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import { DbService } from '../db/db.service';
 import { StorageService } from '../dicom/storage.service';
+import { hidratarGalerias } from './reporte-imagenes.repositorio';
 import { LOGO_MEDICA_PNG_BASE64 } from './logo-medica';
 
 /**
@@ -300,7 +301,9 @@ export class ReportesPdfService {
     // Parse defensivo (tolera filas viejas doble-codificadas · ver `comoObj`).
     const estructura: Estructura = comoObj<Estructura>(r.estructura) ?? { secciones: [] };
     const contenido = comoObj<Exclude<Contenido, null>>(r.contenido);
-    const valores = contenido?.valores ?? {};
+    // La galería es FUENTE DE VERDAD en `lxp.reporte_imagenes` (mig 0085): se HIDRATA aquí (solo
+    // imágenes `listo`) a la MISMA forma `{ref,ext,pie}[]` que leía el JSON → el PDF no cambia.
+    const valores = await hidratarGalerias(sql, reporteId, contenido?.valores ?? {}, true);
     const impresion = contenido?.impresion ?? '';
     const paciente = comoObj<Record<string, unknown>>(r.datos_paciente) ?? {};
     const folio = typeof contenido?.folio === 'string' ? contenido.folio : 'RPT-0000';

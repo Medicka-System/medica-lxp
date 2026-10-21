@@ -66,6 +66,16 @@ export class StorageService {
     return `reportes/imagenes/${reporteId}/${id}.${e}`;
   }
 
+  /** Clave del THUMB (JPEG del frame YA redactado · §10) de una imagen de galería de reporte. */
+  claveReporteThumb(reporteId: string, id: string): string {
+    return `reportes/imagenes/${reporteId}/${id}/thumb.jpg`;
+  }
+
+  /** Clave de un DERIVADO webp `{ancho}` de una imagen de galería de reporte (JPG/PNG). */
+  claveReporteDerivado(reporteId: string, id: string, ancho: number): string {
+    return `reportes/imagenes/${reporteId}/${id}/${ancho}.webp`;
+  }
+
   /** Clave de una imagen de CONTENIDO de teoría (educativa, sin PII); se lee con URL firmada. */
   claveImagenContenido(id: string, ext: string): string {
     const e = /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';

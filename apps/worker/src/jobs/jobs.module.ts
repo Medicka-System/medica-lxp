@@ -12,6 +12,7 @@ import { IngestaGrabacionZoomWorker } from './ingesta-grabacion-zoom.worker';
 import { RenderTtsWorker } from './render-tts.worker';
 import { NotificacionesWorker } from './notificaciones.worker';
 import { GenerarDerivadosImagenWorker } from './generar-derivados-imagen.worker';
+import { ProcesarImagenReporteWorker } from './procesar-imagen-reporte.worker';
 
 /** Consumidores BullMQ del dominio (§8, jobs 2-12 + course builder + entrega). */
 @Module({
@@ -29,6 +30,7 @@ import { GenerarDerivadosImagenWorker } from './generar-derivados-imagen.worker'
     RenderTtsWorker,
     NotificacionesWorker,
     GenerarDerivadosImagenWorker,
+    ProcesarImagenReporteWorker,
   ],
 })
 export class JobsModule {}

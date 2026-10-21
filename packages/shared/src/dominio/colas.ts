@@ -16,6 +16,7 @@ export const QUEUE_INGESTA_GRABACION_ZOOM = 'ingesta-grabacion-zoom' as const;
 export const QUEUE_RENDER_TTS = 'render-tts' as const;
 export const QUEUE_NOTIFICACIONES = 'notificaciones' as const;
 export const QUEUE_GENERAR_DERIVADOS_IMAGEN = 'generar-derivados-imagen' as const;
+export const QUEUE_PROCESAR_IMAGEN_REPORTE = 'procesar-imagen-reporte' as const;
 
 /** Job por alumno (recalcular competencia, detectar hitos, otorgar badges…). */
 export interface AlumnoJob {
@@ -155,6 +156,44 @@ export interface GenerarDerivadosImagenJob {
   urlLectura: string;
   /** Un destino por ancho a generar. */
   destinos: DestinoDerivado[];
+}
+
+/** Destino firmado de un derivado webp de una imagen de GALERÍA de reporte. */
+export interface DestinoDerivadoReporte {
+  ancho: number;
+  /** Clave destino del derivado (`reportes/imagenes/{reporteId}/{id}/{ancho}.webp`). */
+  ref: string;
+  /** URL firmada de ESCRITURA (interna). */
+  urlSubida: string;
+}
+
+/**
+ * Job `procesar-imagen-reporte` (§6.5/§10 · unificación del uploader de Reportes). El `api`
+ * firma TODO por adelantado (único firmante · §3) y encola; el `worker` THIN orquesta los
+ * building blocks EXISTENTES: redacta la PII quemada vía el redactor (parser compartido · §10),
+ * para DICOM normaliza TAGS (`anonimizarDicomBinario`) + TS, genera el THUMB del frame YA
+ * REDACTADO y los DERIVADOS webp (solo JPG/PNG). Actualiza la fila `lxp.reporte_imagenes`
+ * (idempotente por `imagenId`): recibido → procesando → listo | cuarentena | error. El binario
+ * crudo NUNCA se publica (fail-closed §10): si el redactor marca revisión manual → `cuarentena`.
+ */
+export interface ProcesarImagenReporteJob {
+  /** Fila `lxp.reporte_imagenes` a procesar (la escribe el worker · idempotente). */
+  imagenId: string;
+  reporteId: string;
+  /** `dcm` | `jpg` | `png`. */
+  ext: string;
+  /** URL firmada de LECTURA del crudo (con PII; interna). */
+  urlLecturaCrudo: string;
+  /** URL firmada de BORRADO del crudo (se elimina tras redactar). */
+  urlBorradoCrudo: string;
+  /** Clave + URL de ESCRITURA del binario REDACTADO final (interna). */
+  refFinal: string;
+  urlSubidaFinal: string;
+  /** Clave + URL de ESCRITURA del THUMB (JPEG del frame YA redactado · §10). */
+  refThumb: string;
+  urlSubidaThumb: string;
+  /** Destinos de derivados webp (solo JPG/PNG); vacío para `.dcm`. */
+  derivados: DestinoDerivadoReporte[];
 }
 
 /**

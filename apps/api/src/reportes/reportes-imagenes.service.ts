@@ -1,37 +1,54 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import {
+  ANCHOS_DERIVADO,
+  QUEUE_PROCESAR_IMAGEN_REPORTE,
+  type DestinoDerivadoReporte,
+  type ProcesarImagenReporteJob,
+} from '@campus/shared';
+import { DbService } from '../db/db.service';
+import { ColasProducer } from '../colas/colas-producer';
 import { StorageService } from '../dicom/storage.service';
+import {
+  editarPie,
+  insertarImagen,
+  quitar,
+  reordenar,
+  siguienteOrden,
+} from './reporte-imagenes.repositorio';
 
 /**
- * Imágenes de la GALERÍA de un reporte clínico (§6.5). El médico sube VARIAS imágenes
- * (JPG/PNG, .dcm si aplica) directo a object storage; este servicio orquesta el flujo de
- * dominio (§2 — NO es proxy de CRUD): firma la subida del crudo, TAPA la PII quemada con
- * el redactor Presidio (§10, igual que el visor) y deja la imagen redactada en su clave
- * final. El binario del crudo entra un instante al `api` solo para redactarlo (como el
- * worker de DICOM); la imagen final vive en storage y se lee con URL firmada.
+ * Galería de imágenes del reporte clínico (§6.5 · unificación del uploader). El `api` es SOLO
+ * firmante + orquestador (§2 — ya NO redacta inline): firma la subida del crudo, ENCOLA el job
+ * async `procesar-imagen-reporte` (el worker redacta vía el parser compartido §10, genera thumb
+ * y derivados, y escribe el estado en `lxp.reporte_imagenes`), y firma la lectura. El binario va
+ * del navegador directo a object storage; nunca por el `api`. Propiedad gateada en el web (RLS).
  */
 
 const EXT_OK = new Set(['jpg', 'jpeg', 'png', 'dcm']);
 
-function contentTypeDe(ext: string): string {
-  if (ext === 'png') return 'image/png';
-  if (ext === 'dcm') return 'application/dicom';
-  return 'image/jpeg';
-}
-
 function normalizarId(v: string): string {
   return (v || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+}
+function normalizarExt(ext: string): string {
+  const e = (ext || '').toLowerCase();
+  if (e === 'jpeg') return 'jpg';
+  return EXT_OK.has(e) ? e : 'jpg';
 }
 
 @Injectable()
 export class ReportesImagenesService {
-  constructor(private readonly storage: StorageService) {}
+  constructor(
+    private readonly storage: StorageService,
+    private readonly db: DbService,
+    private readonly colas: ColasProducer,
+  ) {}
 
   /** Paso 1: firma la subida del CRUDO. El navegador sube el original directo a storage. */
   firmarSubida(reporteId: string, ext: string): { id: string; ext: string; refCrudo: string; urlSubida: string } {
     const rid = normalizarId(reporteId);
     if (!rid) throw new BadRequestException('reporteId inválido.');
-    const e = EXT_OK.has(ext) ? ext : 'jpg';
+    const e = normalizarExt(ext);
     const id = randomUUID();
     const refCrudo = this.storage.claveReporteCrudo(rid, id, e);
     // PÚBLICA: el navegador sube el crudo directo a storage.
@@ -39,93 +56,97 @@ export class ReportesImagenesService {
   }
 
   /**
-   * Paso 2: trae el crudo, TAPA la PII quemada (Presidio · OCR+NER, on-prem · §10), sube la
-   * imagen redactada a su clave final y borra el crudo. Si el redactor falla, LANZA → nada
-   * se persiste sin redactar. Devuelve la ref final + si el estudio exige revisión manual.
+   * Paso 2 (ASYNC): crea la fila `recibido`, firma TODO lo que el worker necesita (crudo
+   * lectura/borrado, destino final, thumb, derivados webp para JPG/PNG) y ENCOLA el job. El
+   * trabajo pesado (redacción Presidio §10 + thumb + derivados) corre en el worker, no aquí.
+   * Devuelve la fila creada para que la UI la muestre y sondee su estado.
    */
-  async procesar(
+  async encolar(
     reporteId: string,
+    campoId: string,
     id: string,
     ext: string,
-  ): Promise<{ ref: string; ext: string; revisionManual: boolean; urlLectura: string }> {
+  ): Promise<{ imagenId: string; campoId: string; ref: string; ext: string; estado: 'recibido'; orden: number }> {
     const rid = normalizarId(reporteId);
     const iid = normalizarId(id);
-    if (!rid || !iid) throw new BadRequestException('reporteId/id inválido.');
-    const e = EXT_OK.has(ext) ? ext : 'jpg';
+    const cid = (campoId || '').slice(0, 128);
+    if (!rid || !iid || !cid) throw new BadRequestException('reporteId/campoId/id inválido.');
+    const e = normalizarExt(ext);
+
     const refCrudo = this.storage.claveReporteCrudo(rid, iid, e);
     const refFinal = this.storage.claveReporteImagen(rid, iid, e);
+    const refThumb = this.storage.claveReporteThumb(rid, iid);
 
-    // INTERNAS: el propio `api` (server-side, dentro de Docker) lee el crudo, sube el
-    // redactado y borra el crudo → endpoint interno (minio:9000), default.
-    const crudo = await this.leerBinario(this.storage.firmarLectura(refCrudo));
-    const { buffer, revisionManual } = await this.redactar(Buffer.from(crudo), contentTypeDe(e));
-    await this.subirBinario(this.storage.firmarSubida(refFinal), buffer, contentTypeDe(e));
-    await this.borrar(this.storage.firmarBorrado(refCrudo));
-    // PÚBLICA: la URL de lectura se le devuelve al navegador para mostrar la imagen.
-    return { ref: refFinal, ext: e, revisionManual, urlLectura: this.storage.firmarLectura(refFinal, undefined, true) };
+    const orden = await siguienteOrden(this.db.sql, rid, cid);
+    const imagenId = await insertarImagen(this.db.sql, { reporteId: rid, campoId: cid, ref: refFinal, ext: e, orden });
+
+    // Derivados webp SOLO para imágenes ráster (JPG/PNG); un `.dcm` no se redimensiona (usa thumb).
+    const derivados: DestinoDerivadoReporte[] =
+      e === 'dcm'
+        ? []
+        : ANCHOS_DERIVADO.contenido.map((ancho) => {
+            const ref = this.storage.claveReporteDerivado(rid, iid, ancho);
+            return { ancho, ref, urlSubida: this.storage.firmarSubida(ref) };
+          });
+
+    // URLs INTERNAS (worker dentro de Docker): lectura/borrado del crudo + escritura final/thumb.
+    const job: ProcesarImagenReporteJob = {
+      imagenId,
+      reporteId: rid,
+      ext: e,
+      urlLecturaCrudo: this.storage.firmarLectura(refCrudo),
+      urlBorradoCrudo: this.storage.firmarBorrado(refCrudo),
+      refFinal,
+      urlSubidaFinal: this.storage.firmarSubida(refFinal),
+      refThumb,
+      urlSubidaThumb: this.storage.firmarSubida(refThumb),
+      derivados,
+    };
+    await this.colas.encolar(QUEUE_PROCESAR_IMAGEN_REPORTE, job);
+
+    return { imagenId, campoId: cid, ref: refFinal, ext: e, estado: 'recibido', orden };
   }
 
-  /** Firma la lectura de varias imágenes de la galería (solo claves de imagen de reporte). */
+  /** Firma la lectura PÚBLICA de refs de galería de reporte (imagen final / thumb / derivados). */
   firmarLectura(refs: string[]): { urls: Record<string, string> } {
     const urls: Record<string, string> = {};
     for (const ref of refs ?? []) {
       if (typeof ref === 'string' && ref.startsWith('reportes/imagenes/')) {
-        // PÚBLICA: la galería del reporte se muestra en el navegador.
         urls[ref] = this.storage.firmarLectura(ref, undefined, true);
       }
     }
     return { urls };
   }
 
-  /**
-   * POST al servicio Presidio: tapa SOLO la caja del nombre; ramifica por content-type (§10).
-   *
-   * El redactor responde MULTIPART (parte `bin` = binario redactado · parte `thumb` opcional, que
-   * aquí NO se usa). Se parsea con `resp.formData()` — IDÉNTICO a `procesar-dicom.worker.ts`; antes
-   * se leía el cuerpo con `arrayBuffer()` y se guardaba el SOBRE multipart entero como imagen →
-   * binario corrupto (JPG roto / DICOM negro). Fail-closed (§10): nunca se guarda basura silenciosa.
-   */
-  private async redactar(buffer: Buffer, contentType: string): Promise<{ buffer: Buffer; revisionManual: boolean }> {
-    const base = process.env.REDACTOR_URL ?? 'http://localhost:8002';
-    const resp = await fetch(`${base}/redact`, {
-      method: 'POST',
-      headers: { 'content-type': contentType },
-      body: buffer,
-    });
-    if (!resp.ok) throw new BadRequestException(`El servicio redactor respondió ${resp.status}.`);
-    // CUARENTENA (fail-closed · §10): el redactor responde 200 con CUERPO VACÍO y
-    // `X-Revision-Manual: 1` cuando no pudo garantizar la redacción (nombre dudoso, no
-    // decodificable, verificación fallida). No hay multipart que parsear y NUNCA se guarda una
-    // imagen posiblemente con PII → se trata como error (este flujo es síncrono, sin estado de
-    // cuarentena propio como el worker).
-    if (resp.headers.get('x-revision-manual') === '1') {
-      throw new BadRequestException(
-        'La imagen quedó en revisión manual de PII (§10): no se pudo garantizar la redacción del nombre. No se guardó.',
+  /** Reordena una galería (orden = posición en `ids`). */
+  async reordenar(reporteId: string, campoId: string, ids: string[]): Promise<{ ok: true }> {
+    const rid = normalizarId(reporteId);
+    if (!rid) throw new BadRequestException('reporteId inválido.');
+    await reordenar(this.db.sql, rid, (campoId || '').slice(0, 128), Array.isArray(ids) ? ids : []);
+    return { ok: true };
+  }
+
+  /** Edita el pie de una imagen. */
+  async editarPie(reporteId: string, imagenId: string, pie: string): Promise<{ ok: true }> {
+    const rid = normalizarId(reporteId);
+    if (!rid) throw new BadRequestException('reporteId inválido.');
+    await editarPie(this.db.sql, rid, normalizarId(imagenId), typeof pie === 'string' ? pie.slice(0, 500) : '');
+    return { ok: true };
+  }
+
+  /** Quita una imagen (fila + binarios en storage: final, thumb, derivados). Idempotente. */
+  async quitar(reporteId: string, imagenId: string): Promise<{ ok: true }> {
+    const rid = normalizarId(reporteId);
+    if (!rid) throw new BadRequestException('reporteId inválido.');
+    const fila = await quitar(this.db.sql, rid, normalizarId(imagenId));
+    if (fila) {
+      const refs = [fila.ref, fila.thumb_ref, ...Object.values(fila.derivados ?? {})].filter(
+        (r): r is string => typeof r === 'string' && r.length > 0,
+      );
+      await Promise.all(
+        refs.map((ref) => fetch(this.storage.firmarBorrado(ref), { method: 'DELETE' }).catch(() => undefined)),
       );
     }
-    // ÉXITO: parsear el multipart (parte `bin` obligatoria; `thumb` se ignora aquí).
-    const form = await resp.formData();
-    const bin = form.get('bin');
-    // GUARD: parte `bin` ausente o vacía → lanza y NO guarda (nunca basura silenciosa · §10).
-    if (!(bin instanceof Blob) || bin.size === 0) {
-      throw new BadRequestException('El redactor no devolvió la parte `bin` del multipart (no se guardó).');
-    }
-    const red = Buffer.from(await bin.arrayBuffer());
-    return { buffer: red, revisionManual: false };
-  }
-
-  private async leerBinario(url: string): Promise<ArrayBuffer> {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new BadRequestException(`No se pudo leer el crudo (${resp.status}).`);
-    return resp.arrayBuffer();
-  }
-
-  private async subirBinario(url: string, buffer: Buffer, contentType: string): Promise<void> {
-    const resp = await fetch(url, { method: 'PUT', headers: { 'content-type': contentType }, body: buffer });
-    if (!resp.ok) throw new BadRequestException(`No se pudo subir la imagen (${resp.status}).`);
-  }
-
-  private async borrar(url: string): Promise<void> {
-    await fetch(url, { method: 'DELETE' }).catch(() => undefined);
+    return { ok: true };
   }
 }

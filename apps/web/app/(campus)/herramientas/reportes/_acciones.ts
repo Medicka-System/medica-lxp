@@ -94,14 +94,38 @@ export async function crearReporte(plantillaId: string): Promise<ResultadoCrear>
   }
 }
 
+/** ¿El valor tiene forma de galería de imágenes (`{ref}[]` o `{imagenes:[...]}`)? */
+function esGaleria(v: unknown): boolean {
+  const arr = Array.isArray(v)
+    ? v
+    : v && typeof v === 'object' && Array.isArray((v as { imagenes?: unknown }).imagenes)
+      ? (v as { imagenes: unknown[] }).imagenes
+      : null;
+  return !!arr && arr.length > 0 && arr.every((x) => !!x && typeof x === 'object' && typeof (x as { ref?: unknown }).ref === 'string');
+}
+
+/**
+ * Las galerías son FUENTE DE VERDAD en `lxp.reporte_imagenes` (mig 0085). Al guardar el reporte,
+ * los campos galería del JSON se reducen a un MARCADOR `{ galeria: true }` — el JSON deja de ser
+ * almacén de imágenes (evita duplicar/driftar refs). Los lectores hidratan desde la tabla.
+ */
+function marcarGalerias(contenido: ContenidoReporte): ContenidoReporte {
+  const valores = (contenido as { valores?: Record<string, unknown> }).valores;
+  if (!valores || typeof valores !== 'object') return contenido;
+  const limpio: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(valores)) limpio[k] = esGaleria(v) ? { galeria: true } : v;
+  return { ...contenido, valores: limpio };
+}
+
 /** Guarda el borrador: datos de paciente + cuerpo del reporte (valores jsonb). */
 export async function guardarBorrador(
   id: string,
   datosPaciente: DatosPaciente,
-  contenido: ContenidoReporte,
+  contenidoEntrada: ContenidoReporte,
 ): Promise<ResultadoAccion> {
   const alumno = await getSesionAlumno();
   if (!alumno.accesoActivo) return { ok: false, error: 'Tu acceso está en pausa.' };
+  const contenido = marcarGalerias(contenidoEntrada);
   try {
     await comoAlumno(alumno.userId, async (sql) => {
       // jsonb vía `sql.json` (objeto), no `JSON.stringify(x)::jsonb` — ver crearReporte.

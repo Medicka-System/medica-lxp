@@ -1192,7 +1192,7 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
       // (2) Imagen del MÉDICO: SUBE UNA imagen (JPG/PNG/.dcm) — MISMO flujo que la galería (uploader
       // + anonimización Presidio al subir + firma de lectura), LIMITADO A 1 (estudios de precisión).
       return modo === 'llenar' && reporteId ? (
-        <GaleriaReporte reporteId={reporteId} max={1} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
+        <GaleriaReporte reporteId={reporteId} campoId={campo.id} max={1} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
       ) : (
         <div className="mt-1.5 grid h-[160px] place-items-center rounded-[11px] border-[1.5px] border-dashed border-[color:var(--info-border)] bg-[color:var(--info-surface)] text-center">
           <span className="text-[12px] font-semibold text-[color:var(--info-foreground)]">
@@ -1249,9 +1249,9 @@ export const REGISTRO_UI: Record<TipoCampo, DefUICampo> = {
     ),
   },
   galeria: {
-    render: ({ modo, reporteId, valor, soloLectura, cambia }) =>
+    render: ({ campo, modo, reporteId, valor, soloLectura, cambia }) =>
       modo === 'llenar' && reporteId ? (
-        <GaleriaReporte reporteId={reporteId} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
+        <GaleriaReporte reporteId={reporteId} campoId={campo.id} valor={valor} soloLectura={soloLectura} onCambio={(imgs: ImagenGaleria[]) => cambia(imgs)} />
       ) : (
         <GaleriaPlaceholder />
       ),

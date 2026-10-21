@@ -1,16 +1,18 @@
 'use client';
 
 /**
- * `GaleriaReporte` — bloque de galería de un reporte clínico (§6.5). El médico SUBE varias
- * imágenes directo al reporte (JPG/PNG, .dcm), se acomodan en un GRID de 2 columnas (como el
- * reporte en Word), se REORDENAN arrastrando y cada una lleva un pie opcional.
+ * `GaleriaReporte` — galería de un reporte clínico (§6.5), FUENTE DE VERDAD = `lxp.reporte_imagenes`
+ * (mig 0085). El médico SUBE varias imágenes (JPG/PNG, .dcm); el flujo es ASÍNCRONO (unificado con
+ * Bitácora): subir → firmar → PUT a storage → ENCOLAR → el worker redacta la PII quemada (§10),
+ * genera thumb (frame YA redactado) y derivados webp. La UI SONDEA el estado por fila:
+ *   recibido/procesando → "Anonimizando…" · listo → thumb + srcset · cuarentena/error → aviso.
  *
- * Flujo (§2/§10): firma la subida en `apps/api` → el navegador PUT el original a object
- * storage → el `api` TAPA la PII quemada (Presidio) y deja la imagen redactada → se lee con
- * URL firmada. El valor persiste en `contenido.valores[campoId]` como lista ordenada.
+ * El `<img>` sirve `srcset` de derivados (JPG/PNG) con el original como fallback; el `.dcm` usa su
+ * thumb server-side (nunca se rasteriza en cliente para la miniatura · §10). Reordenar/pie/quitar
+ * van por el `api` (service_role) — el cliente no escribe estado/ref directamente.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -23,10 +25,21 @@ import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@d
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, ImageOff, ImagePlus, Loader2, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { focusRing } from '@/components/tokens';
-import { leerGaleria, type ImagenGaleria } from '@/lib/reportes/estructura';
-import { firmarLecturaImagenes, firmarSubidaImagen, procesarImagen } from '@/lib/reportes/imagenes-acciones';
+import type { ImagenGaleria } from '@/lib/reportes/estructura';
+import {
+  encolarImagenReporte,
+  firmarSubidaImagen,
+  listarGaleriaReporte,
+  quitarImagenReporte,
+  editarPieImagenReporte,
+  reordenarGaleriaReporte,
+  type EstadoImagen,
+  type ImagenReporteVista,
+} from '@/lib/reportes/imagenes-acciones';
 
 const EXT_OK = ['jpg', 'jpeg', 'png', 'dcm'];
+/** `sizes` del srcset: la galería se pinta a ~ancho de columna/detalle. */
+const SIZES = '(max-width: 640px) 100vw, 360px';
 
 function extDe(file: File): string {
   const t = file.type.toLowerCase();
@@ -40,79 +53,66 @@ function contentTypeDe(ext: string): string {
   return ext === 'png' ? 'image/png' : ext === 'dcm' ? 'application/dicom' : 'image/jpeg';
 }
 
+const PENDIENTE = new Set<EstadoImagen>(['recibido', 'procesando']);
+
 export function GaleriaReporte({
   reporteId,
-  valor,
+  campoId,
   onCambio,
   soloLectura = false,
   max,
 }: {
   reporteId: string;
-  valor: unknown;
+  /** Campo galería dentro de la plantilla (ancla las filas en `lxp.reporte_imagenes`). */
+  campoId: string;
+  /** `valor` (marcador) ya no se usa como almacén; la galería se lee de la tabla. */
+  valor?: unknown;
   onCambio: (imagenes: ImagenGaleria[]) => void;
-  /** Reporte FINALIZADO: muestra las imágenes pero sin subir/borrar/reordenar/editar pie. */
   soloLectura?: boolean;
-  /** Máximo de imágenes (undefined = sin límite). El componente IMAGEN del médico lo usa con `max=1`. */
   max?: number;
 }) {
-  const imagenes = leerGaleria(valor);
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  // Miniaturas rasterizadas de los .dcm (BUG 1): un .dcm no se muestra como <img>; se pinta
-  // con Cornerstone (wadouri) a un PNG. Los JPG/PNG siguen mostrándose con su URL firmada.
-  const [rasters, setRasters] = useState<Record<string, string>>({});
+  const [imagenes, setImagenes] = useState<ImagenReporteVista[]>([]);
   const [subiendo, setSubiendo] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [revisar, setRevisar] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const refsKey = imagenes.map((i) => i.ref).join(',');
+  // Notifica al padre las imágenes LISTAS (refs reales) → conteo + rasterizado DICOM del PDF.
+  const onCambioRef = useRef(onCambio);
+  onCambioRef.current = onCambio;
+  const notificar = useCallback((lista: ImagenReporteVista[]) => {
+    const listas: ImagenGaleria[] = lista
+      .filter((i) => i.estado === 'listo')
+      .map((i) => ({ ref: i.ref, ext: i.ext, ...(i.pie ? { pie: i.pie } : {}) }));
+    onCambioRef.current(listas);
+  }, []);
 
-  // Firma la lectura de las refs que aún no tienen URL (para mostrarlas).
-  useEffect(() => {
-    const refs = refsKey ? refsKey.split(',') : [];
-    if (refs.length === 0) return;
-    let vivo = true;
-    (async () => {
-      const r = await firmarLecturaImagenes(reporteId, refs);
-      if (vivo && r.ok) setUrls((u) => ({ ...u, ...r.datos.urls }));
-    })();
-    return () => {
-      vivo = false;
-    };
-  }, [refsKey, reporteId]);
+  const cargar = useCallback(async () => {
+    const r = await listarGaleriaReporte(reporteId, campoId);
+    if (r.ok) {
+      setImagenes(r.datos);
+      notificar(r.datos);
+      return r.datos;
+    }
+    return null;
+  }, [reporteId, campoId, notificar]);
 
-  // Rasteriza a miniatura los .dcm cuya URL firmada ya llegó (BUG 1). La key cambia cuando
-  // aparece un .dcm nuevo con URL, disparando solo entonces el render de Cornerstone.
-  const dcmPendientesKey = imagenes
-    .filter((i) => i.ext === 'dcm' && urls[i.ref] && !rasters[i.ref])
-    .map((i) => i.ref)
-    .join(',');
+  // Carga inicial + SONDEO mientras alguna imagen esté en proceso (fases como Bitácora).
   useEffect(() => {
-    const pend = dcmPendientesKey ? dcmPendientesKey.split(',') : [];
-    if (pend.length === 0) return;
     let vivo = true;
-    (async () => {
-      // Dinámico: mantiene el WASM de Cornerstone FUERA del bundle del Studio (esta pieza la
-      // comparte `campo-reporte`); solo se carga al rasterizar un .dcm en el editor del campus.
-      const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
-      const pngs = await renderMiniaturas(pend.map((ref) => `wadouri:${urls[ref]}`));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      const datos = await cargar();
       if (!vivo) return;
-      const add: Record<string, string> = {};
-      pend.forEach((ref, i) => {
-        const u = pngs[i];
-        if (u) add[ref] = u;
-      });
-      if (Object.keys(add).length) setRasters((r) => ({ ...r, ...add }));
-    })();
+      if (datos && datos.some((i) => PENDIENTE.has(i.estado))) {
+        timer = setTimeout(tick, 2000);
+      }
+    };
+    void tick();
     return () => {
       vivo = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [dcmPendientesKey]);
-
-  // Acumulador local sembrado del valor comprometido: evita perder imágenes al subir
-  // varias a la vez (el estado de React va desfasado entre awaits del loop).
-  const valorRef = useRef(valor);
-  valorRef.current = valor;
+  }, [cargar]);
 
   async function subir(files: FileList | File[]) {
     setError(null);
@@ -121,9 +121,7 @@ export function GaleriaReporte({
       setError('Formatos aceptados: JPG, PNG o .dcm.');
       return;
     }
-    let acumulado = leerGaleria(valorRef.current);
-    // Límite opcional (componente Imagen del médico: máx 1). Solo se suben las que caben.
-    const espacio = typeof max === 'number' ? Math.max(0, max - acumulado.length) : lista.length;
+    const espacio = typeof max === 'number' ? Math.max(0, max - imagenes.length) : lista.length;
     const aSubir = lista.slice(0, espacio);
     if (aSubir.length === 0) {
       setError(`Máximo ${max} imagen${max === 1 ? '' : 'es'}.`);
@@ -147,42 +145,50 @@ export function GaleriaReporte({
           setError('No se pudo subir la imagen a storage.');
           continue;
         }
-        const proc = await procesarImagen(reporteId, firma.datos.id, ext);
-        if (!proc.ok) {
-          setError(proc.error);
+        const enc = await encolarImagenReporte(reporteId, campoId, firma.datos.id, firma.datos.ext);
+        if (!enc.ok) {
+          setError(enc.error);
           continue;
         }
-        if (proc.datos.revisionManual) setRevisar(true);
-        acumulado = [...acumulado, { ref: proc.datos.ref, ext: proc.datos.ext, pie: '' }];
-        onCambio(acumulado);
       } catch {
         setError('Error al subir la imagen.');
       } finally {
         setSubiendo((s) => s - 1);
       }
     }
+    await cargar(); // arranca el sondeo (habrá filas en proceso)
   }
 
-  function setPie(ref: string, pie: string) {
-    onCambio(imagenes.map((i) => (i.ref === ref ? { ...i, pie } : i)));
+  async function setPie(id: string, pie: string) {
+    setImagenes((prev) => prev.map((i) => (i.id === id ? { ...i, pie } : i)));
+    await editarPieImagenReporte(reporteId, id, pie);
   }
-  function quitar(ref: string) {
-    onCambio(imagenes.filter((i) => i.ref !== ref));
+  async function quitar(id: string) {
+    setImagenes((prev) => {
+      const next = prev.filter((i) => i.id !== id);
+      notificar(next);
+      return next;
+    });
+    await quitarImagenReporte(reporteId, id);
   }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  function onDragEnd(e: DragEndEvent) {
+  async function onDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const oldI = imagenes.findIndex((i) => i.ref === active.id);
-    const newI = imagenes.findIndex((i) => i.ref === over.id);
+    const oldI = imagenes.findIndex((i) => i.id === active.id);
+    const newI = imagenes.findIndex((i) => i.id === over.id);
     if (oldI < 0 || newI < 0) return;
-    onCambio(arrayMove(imagenes, oldI, newI));
+    const next = arrayMove(imagenes, oldI, newI);
+    setImagenes(next);
+    notificar(next);
+    await reordenarGaleriaReporte(reporteId, campoId, next.map((i) => i.id));
   }
+
+  const hayCuarentena = imagenes.some((i) => i.estado === 'cuarentena');
 
   return (
     <div className="mt-1.5">
-      {/* zona de subida (oculta en read-only y al alcanzar el máximo — p. ej. imagen única del médico) */}
       {!soloLectura && (max === undefined || imagenes.length < max) && (
         <div
           role="button"
@@ -204,7 +210,7 @@ export function GaleriaReporte({
             )}
             {subiendo > 0 ? `Subiendo ${subiendo} imagen(es)…` : 'Arrastra tus imágenes aquí o haz click para elegir'}
           </span>
-          <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm</span>
+          <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm · se anonimizan al procesarse</span>
           <input
             ref={inputRef}
             type="file"
@@ -224,40 +230,31 @@ export function GaleriaReporte({
           {error}
         </p>
       )}
-      {revisar && (
+      {hayCuarentena && (
         <p className="mt-2 flex items-center gap-1.5 rounded-[9px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-1.5 text-[11.5px] text-[color:var(--warning-foreground)]">
           <TriangleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-          Alguna imagen quedó marcada para revisión manual de PII (§10): verifica que no quede texto con datos del paciente.
+          Alguna imagen quedó en revisión manual de PII (§10): no se publicó. Vuelve a subirla o quítala.
         </p>
       )}
 
-      {/* grid 2 columnas: reordenable en edición, plano (sin DnD/controles) en read-only */}
       {imagenes.length > 0 &&
         (soloLectura ? (
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {imagenes.map((img, i) => (
-              <ItemGaleriaSoloLectura
-                key={img.ref}
-                img={img}
-                indice={i + 1}
-                url={img.ext === 'dcm' ? rasters[img.ref] : urls[img.ref]}
-              />
+              <ItemGaleria key={img.id} img={img} indice={i + 1} soloLectura />
             ))}
           </div>
         ) : (
-          // id estable → dnd-kit siembra DndDescribedBy/aria-describedby determinista (SSR = CSR);
-          // sin esto el contador interno difiere y provoca hydration mismatch.
-          <DndContext id={`galeria-${reporteId}`} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={imagenes.map((i) => i.ref)} strategy={rectSortingStrategy}>
+          <DndContext id={`galeria-${reporteId}-${campoId}`} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={imagenes.map((i) => i.id)} strategy={rectSortingStrategy}>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {imagenes.map((img, i) => (
                   <ItemGaleria
-                    key={img.ref}
+                    key={img.id}
                     img={img}
                     indice={i + 1}
-                    url={img.ext === 'dcm' ? rasters[img.ref] : urls[img.ref]}
-                    onPie={(pie) => setPie(img.ref, pie)}
-                    onQuitar={() => quitar(img.ref)}
+                    onPie={(pie) => setPie(img.id, pie)}
+                    onQuitar={() => quitar(img.id)}
                   />
                 ))}
               </div>
@@ -268,98 +265,109 @@ export function GaleriaReporte({
   );
 }
 
-/** Ítem de galería READ-ONLY (reporte finalizado): imagen + pie, sin arrastrar/borrar/editar. */
-function ItemGaleriaSoloLectura({
-  img,
-  indice,
-  url,
-}: {
-  img: ImagenGaleria;
-  indice: number;
-  url?: string;
-}) {
-  return (
-    <figure className="overflow-hidden rounded-[11px] border border-border bg-card">
-      <div className="relative">
-        {url ? (
-          // eslint-disable-next-line
-          <img src={url} alt={img.pie || `Imagen ${indice}`} className="h-[190px] w-full bg-muted object-contain" />
-        ) : (
-          <div className="grid h-[190px] w-full place-items-center bg-muted text-muted-foreground">
-            <ImageOff className="h-6 w-6" strokeWidth={1.5} />
-          </div>
-        )}
-        <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--sidebar)] text-[11px] font-bold text-white">
-          {indice}
+/** Cuerpo visual de una imagen según su estado (listo / en proceso / cuarentena / error). */
+function Lienzo({ img, indice }: { img: ImagenReporteVista; indice: number }) {
+  if (img.estado === 'listo') {
+    const src = img.url ?? img.thumbUrl;
+    if (src) {
+      return (
+        // eslint-disable-next-line
+        <img
+          src={src}
+          {...(img.srcset ? { srcSet: img.srcset, sizes: SIZES } : {})}
+          alt={img.pie || `Imagen ${indice}`}
+          className="h-[190px] w-full bg-muted object-contain"
+        />
+      );
+    }
+    return (
+      <div className="grid h-[190px] w-full place-items-center bg-muted text-muted-foreground">
+        <ImageOff className="h-6 w-6" strokeWidth={1.5} />
+      </div>
+    );
+  }
+  if (img.estado === 'cuarentena' || img.estado === 'error') {
+    const esCuar = img.estado === 'cuarentena';
+    return (
+      <div className="grid h-[190px] w-full place-items-center gap-1 bg-[color:var(--warning-surface)] px-4 text-center text-[color:var(--warning-foreground)]">
+        <TriangleAlert className="mx-auto h-6 w-6" strokeWidth={1.6} />
+        <span className="text-[11.5px] font-semibold">
+          {esCuar ? 'En revisión de PII (§10) · no publicada' : 'No se pudo procesar'}
         </span>
       </div>
-      {img.pie ? (
-        <figcaption className="border-t border-border p-2 text-[12px] text-foreground">{img.pie}</figcaption>
-      ) : null}
-    </figure>
+    );
+  }
+  // recibido | procesando
+  return (
+    <div className="grid h-[190px] w-full place-items-center gap-1.5 bg-muted text-muted-foreground">
+      <Loader2 className="mx-auto h-6 w-6 animate-spin text-secondary" strokeWidth={1.9} />
+      <span className="text-[11.5px] font-semibold">Anonimizando…</span>
+    </div>
   );
 }
 
 function ItemGaleria({
   img,
   indice,
-  url,
   onPie,
   onQuitar,
+  soloLectura = false,
 }: {
-  img: ImagenGaleria;
+  img: ImagenReporteVista;
   indice: number;
-  url?: string;
-  onPie: (pie: string) => void;
-  onQuitar: () => void;
+  onPie?: (pie: string) => void;
+  onQuitar?: () => void;
+  soloLectura?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: img.ref });
+  const sortable = useSortable({ id: img.id, disabled: soloLectura });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
   const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined };
 
   return (
     <figure
-      ref={setNodeRef}
-      style={style}
+      ref={soloLectura ? undefined : setNodeRef}
+      style={soloLectura ? undefined : style}
       className={`overflow-hidden rounded-[11px] border border-border bg-card ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
     >
       <div className="relative">
-        {url ? (
-          // eslint-disable-next-line
-          <img src={url} alt={img.pie || `Imagen ${indice}`} className="h-[190px] w-full bg-muted object-contain" />
-        ) : (
-          <div className="grid h-[190px] w-full place-items-center bg-muted text-muted-foreground">
-            <ImageOff className="h-6 w-6" strokeWidth={1.5} />
-          </div>
-        )}
+        <Lienzo img={img} indice={indice} />
         <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--sidebar)] text-[11px] font-bold text-white">
           {indice}
         </span>
-        <button
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label="Reordenar (arrastrar)"
-          className={`absolute right-2 top-2 grid h-7 w-7 cursor-grab place-items-center rounded-[8px] bg-card/90 text-muted-foreground shadow-rest hover:text-foreground ${focusRing}`}
-        >
-          <GripVertical aria-hidden className="h-4 w-4" strokeWidth={1.9} />
-        </button>
-        <button
-          type="button"
-          onClick={onQuitar}
-          aria-label="Quitar imagen"
-          className={`absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-card/90 text-muted-foreground shadow-rest transition-colors hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)] ${focusRing}`}
-        >
-          <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-        </button>
+        {!soloLectura && (
+          <>
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              aria-label="Reordenar (arrastrar)"
+              className={`absolute right-2 top-2 grid h-7 w-7 cursor-grab place-items-center rounded-[8px] bg-card/90 text-muted-foreground shadow-rest hover:text-foreground ${focusRing}`}
+            >
+              <GripVertical aria-hidden className="h-4 w-4" strokeWidth={1.9} />
+            </button>
+            <button
+              type="button"
+              onClick={onQuitar}
+              aria-label="Quitar imagen"
+              className={`absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-card/90 text-muted-foreground shadow-rest transition-colors hover:bg-[color:var(--warning-surface)] hover:text-[color:var(--warning-foreground)] ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </>
+        )}
       </div>
-      <figcaption className="border-t border-border p-2">
-        <input
-          value={img.pie ?? ''}
-          onChange={(e) => onPie(e.target.value)}
-          placeholder="Pie de la imagen (ej. Corte longitudinal riñón derecho)"
-          className="w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
-        />
-      </figcaption>
+      {soloLectura ? (
+        img.pie ? <figcaption className="border-t border-border p-2 text-[12px] text-foreground">{img.pie}</figcaption> : null
+      ) : (
+        <figcaption className="border-t border-border p-2">
+          <input
+            defaultValue={img.pie ?? ''}
+            onBlur={(e) => onPie?.(e.target.value)}
+            placeholder="Pie de la imagen (ej. Corte longitudinal riñón derecho)"
+            className="w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </figcaption>
+      )}
     </figure>
   );
 }

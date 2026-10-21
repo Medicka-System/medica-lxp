@@ -9,6 +9,7 @@ import {
 import { DbService } from '../db/db.service';
 import { ColasProducer } from '../colas/colas-producer';
 import { StorageService } from '../dicom/storage.service';
+import { hidratarGalerias } from './reporte-imagenes.repositorio';
 
 /**
  * PUENTE reporte → caso educativo (§6/§10). DOMINIO (§2 — NO en web): al confirmar el
@@ -419,7 +420,10 @@ export class ReportesCasoService {
     }
 
     const estructura: Estructura = r.estructura ?? {};
-    const valores = r.contenido?.valores ?? {};
+    // La galería es FUENTE DE VERDAD en `lxp.reporte_imagenes` (mig 0085): se HIDRATA (solo
+    // imágenes `listo`, nunca en cuarentena · §10) a la forma `{ref,ext,pie}[]` → `imagenesDe`
+    // las lee igual que del JSON y el caso educativo recibe las imágenes ya redactadas.
+    const valores = await hidratarGalerias(sql, reporteId, r.contenido?.valores ?? {}, true);
     const impresion = r.contenido?.impresion ?? '';
     const datosPaciente = r.datos_paciente ?? {};
 

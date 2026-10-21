@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import sharp from 'sharp';
 import {
-  CALIDAD_DERIVADO_IMAGEN,
   QUEUE_GENERAR_DERIVADOS_IMAGEN,
   type GenerarDerivadosImagenJob,
 } from '@campus/shared';
 import { TrabajadorBase } from './trabajador-base';
+import { generarDerivadoWebp } from './derivados-sharp';
 
 /**
  * `generar-derivados-imagen` (Fase 2 entrega): genera variantes webp responsivas de una imagen
@@ -31,11 +30,7 @@ export class GenerarDerivadosImagenWorker extends TrabajadorBase {
     let generados = 0;
     for (const d of destinos) {
       try {
-        const webp = await sharp(original)
-          .rotate() // respeta la orientación EXIF antes de redimensionar
-          .resize({ width: d.ancho, withoutEnlargement: true }) // NO agranda si el original es menor
-          .webp({ quality: CALIDAD_DERIVADO_IMAGEN })
-          .toBuffer();
+        const webp = await generarDerivadoWebp(original, d.ancho);
         await this.subirBinario(d.urlSubida, webp, 'image/webp');
         generados++;
       } catch (e) {
