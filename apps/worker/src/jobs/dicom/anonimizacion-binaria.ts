@@ -214,7 +214,24 @@ export function anonimizarDicomBinario(entrada: ArrayBuffer): ResultadoAnonimiza
 
   // 4) Reescribir el `.dcm` con los tags limpios (el pixel-data se redacta luego en el
   //    servicio Presidio, con este buffer). Conserva meta y pixel-data.
-  const dict = new DicomDict(leido.meta);
+  //
+  //    File-meta ROBUSTO (§10): al leer con `ignoreErrors`, dcmjs a veces puebla `leido.meta`
+  //    con tags ESPURIOS fuera del grupo 0002 (p. ej. 0000/000F de una lectura desalineada);
+  //    reescribir ese meta corrompe el grupo → pydicom pierde el TransferSyntaxUID (0002,0010)
+  //    y asume Implicit VR, y el redactor fail-closa en el PARSEO (antes de correr el gate de
+  //    PII). Reconstruimos el meta SOLO con el grupo 0002 del original y GARANTIZAMOS el
+  //    (0002,0010) leído TAL CUAL del archivo fuente — nunca inventado. No se recomprime: el
+  //    TS original (típicamente Explicit VR LE) queda consistente con el pixel-data conservado.
+  const metaLimpio: Record<string, unknown> = {};
+  for (const [tag, valor] of Object.entries(leido.meta ?? {})) {
+    if (/^0002/i.test(tag)) metaLimpio[tag] = valor;
+  }
+  const tsOriginal = (leido.meta as Record<string, unknown> | undefined)?.['00020010'];
+  if (!tsOriginal) {
+    throw new Error('DICOM sin TransferSyntaxUID (0002,0010) en file-meta: no se puede reescribir sin recodificar (§10).');
+  }
+  metaLimpio['00020010'] = tsOriginal; // preservación EXPLÍCITA del TS original
+  const dict = new DicomDict(metaLimpio);
   dict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
   const buffer = Buffer.from(dict.write());
 
