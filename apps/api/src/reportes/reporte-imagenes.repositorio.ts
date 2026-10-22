@@ -27,14 +27,16 @@ export async function siguienteOrden(sql: Sql, reporteId: string, campoId: strin
   return row?.n ?? 0;
 }
 
-/** Inserta una fila `recibido` para una imagen en subida. Devuelve su id. */
+/** Inserta una fila para una imagen. `estado` default `recibido` (JPG/PNG en proceso); el
+ *  `.dcm` del reporte entra `listo` directo (se guarda tal cual, sin trabajo de servidor). */
 export async function insertarImagen(
   sql: Sql,
-  v: { reporteId: string; campoId: string; ref: string; ext: string; orden: number },
+  v: { reporteId: string; campoId: string; ref: string; ext: string; orden: number; estado?: 'recibido' | 'listo' },
 ): Promise<string> {
+  const estado = v.estado ?? 'recibido';
   const [row] = await sql<{ id: string }[]>`
     insert into lxp.reporte_imagenes (reporte_id, campo_id, ref, ext, estado, orden)
-    values (${v.reporteId}, ${v.campoId}, ${v.ref}, ${v.ext}, 'recibido', ${v.orden})
+    values (${v.reporteId}, ${v.campoId}, ${v.ref}, ${v.ext}, ${estado}::lxp.estado_imagen_reporte, ${v.orden})
     returning id`;
   return row!.id;
 }

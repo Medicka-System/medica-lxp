@@ -18,11 +18,13 @@ import {
 } from './reporte-imagenes.repositorio';
 
 /**
- * Galería de imágenes del reporte clínico (§6.5 · unificación del uploader). El `api` es SOLO
- * firmante + orquestador (§2 — ya NO redacta inline): firma la subida del crudo, ENCOLA el job
- * async `procesar-imagen-reporte` (el worker redacta vía el parser compartido §10, genera thumb
- * y derivados, y escribe el estado en `lxp.reporte_imagenes`), y firma la lectura. El binario va
- * del navegador directo a object storage; nunca por el `api`. Propiedad gateada en el web (RLS).
+ * Galería de imágenes del reporte clínico (§6.5). Un REPORTE es el entregable del PACIENTE:
+ * conserva su PII — aquí NO se anonimiza (§10 es solo del camino educativo Bitácora/Ateneo, en
+ * el handoff reporte→caso). El `api` es SOLO firmante + orquestador (§2): firma la subida del
+ * ORIGINAL directo a su clave final, y para JPG/PNG ENCOLA un job que genera thumb + derivados
+ * webp con sharp (del original). El `.dcm` se guarda tal cual y queda `listo` sin encolar (su
+ * miniatura la rasteriza el cliente). El binario va del navegador directo a storage; nunca por
+ * el `api`. Propiedad gateada en el web (RLS).
  */
 
 const EXT_OK = new Set(['jpg', 'jpeg', 'png', 'dcm']);
@@ -44,66 +46,65 @@ export class ReportesImagenesService {
     private readonly colas: ColasProducer,
   ) {}
 
-  /** Paso 1: firma la subida del CRUDO. El navegador sube el original directo a storage. */
-  firmarSubida(reporteId: string, ext: string): { id: string; ext: string; refCrudo: string; urlSubida: string } {
+  /**
+   * Paso 1: firma la subida del ORIGINAL directo a su clave FINAL (el reporte conserva PII · §6.5;
+   * NO hay crudo ni redacción). El navegador sube el archivo íntegro a storage.
+   */
+  firmarSubida(reporteId: string, ext: string): { id: string; ext: string; ref: string; urlSubida: string } {
     const rid = normalizarId(reporteId);
     if (!rid) throw new BadRequestException('reporteId inválido.');
     const e = normalizarExt(ext);
     const id = randomUUID();
-    const refCrudo = this.storage.claveReporteCrudo(rid, id, e);
-    // PÚBLICA: el navegador sube el crudo directo a storage.
-    return { id, ext: e, refCrudo, urlSubida: this.storage.firmarSubida(refCrudo, undefined, true) };
+    const ref = this.storage.claveReporteImagen(rid, id, e);
+    // PÚBLICA: el navegador sube el ORIGINAL directo a su clave final.
+    return { id, ext: e, ref, urlSubida: this.storage.firmarSubida(ref, undefined, true) };
   }
 
   /**
-   * Paso 2 (ASYNC): crea la fila `recibido`, firma TODO lo que el worker necesita (crudo
-   * lectura/borrado, destino final, thumb, derivados webp para JPG/PNG) y ENCOLA el job. El
-   * trabajo pesado (redacción Presidio §10 + thumb + derivados) corre en el worker, no aquí.
-   * Devuelve la fila creada para que la UI la muestre y sondee su estado.
+   * Paso 2: registra la imagen y, SOLO para JPG/PNG, encola el job que genera thumb + derivados
+   * webp con sharp (del original ya subido). El `.dcm` se guarda tal cual y queda `listo` de
+   * una vez (sin encolar): su miniatura la rasteriza el cliente con Cornerstone desde el frame.
+   * NO se anonimiza (un reporte conserva PII · §10 solo en el handoff reporte→caso).
    */
   async encolar(
     reporteId: string,
     campoId: string,
     id: string,
     ext: string,
-  ): Promise<{ imagenId: string; campoId: string; ref: string; ext: string; estado: 'recibido'; orden: number }> {
+  ): Promise<{ imagenId: string; campoId: string; ref: string; ext: string; estado: 'recibido' | 'listo'; orden: number }> {
     const rid = normalizarId(reporteId);
     const iid = normalizarId(id);
     const cid = (campoId || '').slice(0, 128);
     if (!rid || !iid || !cid) throw new BadRequestException('reporteId/campoId/id inválido.');
     const e = normalizarExt(ext);
 
-    const refCrudo = this.storage.claveReporteCrudo(rid, iid, e);
     const refFinal = this.storage.claveReporteImagen(rid, iid, e);
-    const refThumb = this.storage.claveReporteThumb(rid, iid);
-
     const orden = await siguienteOrden(this.db.sql, rid, cid);
+
+    // DICOM: el original ya está en storage (el navegador lo subió); nada que procesar en el
+    // servidor (el cliente rasteriza la miniatura). Queda `listo` directo.
+    if (e === 'dcm') {
+      const imagenId = await insertarImagen(this.db.sql, { reporteId: rid, campoId: cid, ref: refFinal, ext: e, orden, estado: 'listo' });
+      return { imagenId, campoId: cid, ref: refFinal, ext: e, estado: 'listo', orden };
+    }
+
+    // JPG/PNG: fila `recibido` + encola thumb (sharp) + derivados webp del ORIGINAL.
+    const refThumb = this.storage.claveReporteThumb(rid, iid);
     const imagenId = await insertarImagen(this.db.sql, { reporteId: rid, campoId: cid, ref: refFinal, ext: e, orden });
-
-    // Derivados webp SOLO para imágenes ráster (JPG/PNG); un `.dcm` no se redimensiona (usa thumb).
-    const derivados: DestinoDerivadoReporte[] =
-      e === 'dcm'
-        ? []
-        : ANCHOS_DERIVADO.contenido.map((ancho) => {
-            const ref = this.storage.claveReporteDerivado(rid, iid, ancho);
-            return { ancho, ref, urlSubida: this.storage.firmarSubida(ref) };
-          });
-
-    // URLs INTERNAS (worker dentro de Docker): lectura/borrado del crudo + escritura final/thumb.
+    const derivados: DestinoDerivadoReporte[] = ANCHOS_DERIVADO.contenido.map((ancho) => {
+      const ref = this.storage.claveReporteDerivado(rid, iid, ancho);
+      return { ancho, ref, urlSubida: this.storage.firmarSubida(ref) };
+    });
     const job: ProcesarImagenReporteJob = {
       imagenId,
       reporteId: rid,
       ext: e,
-      urlLecturaCrudo: this.storage.firmarLectura(refCrudo),
-      urlBorradoCrudo: this.storage.firmarBorrado(refCrudo),
-      refFinal,
-      urlSubidaFinal: this.storage.firmarSubida(refFinal),
+      urlLecturaOriginal: this.storage.firmarLectura(refFinal), // interna (worker en Docker)
       refThumb,
       urlSubidaThumb: this.storage.firmarSubida(refThumb),
       derivados,
     };
     await this.colas.encolar(QUEUE_PROCESAR_IMAGEN_REPORTE, job);
-
     return { imagenId, campoId: cid, ref: refFinal, ext: e, estado: 'recibido', orden };
   }
 

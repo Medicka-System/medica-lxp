@@ -168,31 +168,26 @@ export interface DestinoDerivadoReporte {
 }
 
 /**
- * Job `procesar-imagen-reporte` (§6.5/§10 · unificación del uploader de Reportes). El `api`
- * firma TODO por adelantado (único firmante · §3) y encola; el `worker` THIN orquesta los
- * building blocks EXISTENTES: redacta la PII quemada vía el redactor (parser compartido · §10),
- * para DICOM normaliza TAGS (`anonimizarDicomBinario`) + TS, genera el THUMB del frame YA
- * REDACTADO y los DERIVADOS webp (solo JPG/PNG). Actualiza la fila `lxp.reporte_imagenes`
- * (idempotente por `imagenId`): recibido → procesando → listo | cuarentena | error. El binario
- * crudo NUNCA se publica (fail-closed §10): si el redactor marca revisión manual → `cuarentena`.
+ * Job `procesar-imagen-reporte` (§6.5 · galería del reporte clínico). Un REPORTE es el
+ * entregable clínico del PACIENTE: conserva su PII — NO se anonimiza (la anonimización §10 es
+ * solo del camino educativo Bitácora/Ateneo, y ocurre en el handoff reporte→caso, no aquí). El
+ * navegador sube el ORIGINAL directo a su clave final; este job (solo JPG/PNG) genera el THUMB y
+ * los DERIVADOS webp con `sharp` DEL ORIGINAL. Actualiza `lxp.reporte_imagenes` (idempotente por
+ * `imagenId`): recibido → procesando → listo | error. El `.dcm` se guarda tal cual y NO encola
+ * (su miniatura la rasteriza el cliente con Cornerstone desde el frame directo).
  */
 export interface ProcesarImagenReporteJob {
   /** Fila `lxp.reporte_imagenes` a procesar (la escribe el worker · idempotente). */
   imagenId: string;
   reporteId: string;
-  /** `dcm` | `jpg` | `png`. */
+  /** `jpg` | `png` (el `.dcm` no encola). */
   ext: string;
-  /** URL firmada de LECTURA del crudo (con PII; interna). */
-  urlLecturaCrudo: string;
-  /** URL firmada de BORRADO del crudo (se elimina tras redactar). */
-  urlBorradoCrudo: string;
-  /** Clave + URL de ESCRITURA del binario REDACTADO final (interna). */
-  refFinal: string;
-  urlSubidaFinal: string;
-  /** Clave + URL de ESCRITURA del THUMB (JPEG del frame YA redactado · §10). */
+  /** URL firmada de LECTURA del ORIGINAL ya subido (con PII; interna). */
+  urlLecturaOriginal: string;
+  /** Clave + URL de ESCRITURA del THUMB (JPEG derivado del original con sharp). */
   refThumb: string;
   urlSubidaThumb: string;
-  /** Destinos de derivados webp (solo JPG/PNG); vacío para `.dcm`. */
+  /** Destinos de derivados webp responsivos. */
   derivados: DestinoDerivadoReporte[];
 }
 

@@ -72,6 +72,10 @@ export function GaleriaReporte({
   max?: number;
 }) {
   const [imagenes, setImagenes] = useState<ImagenReporteVista[]>([]);
+  // Miniaturas rasterizadas de los `.dcm` LISTOS: un `.dcm` no se muestra como <img>; se pinta
+  // con Cornerstone (wadouri) a un data-URL. El reporte guarda el `.dcm` ÍNTEGRO (con PII · §6.5),
+  // así que el frame directo rasteriza bien (sin anonimizar, sin negro). JPG/PNG usan su thumb.
+  const [rasters, setRasters] = useState<Record<string, string>>({});
   const [subiendo, setSubiendo] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +117,34 @@ export function GaleriaReporte({
       if (timer) clearTimeout(timer);
     };
   }, [cargar]);
+
+  // Rasteriza a miniatura los `.dcm` LISTOS con URL firmada que aún no tengan raster. Carga
+  // Cornerstone de forma DINÁMICA (su WASM fuera del bundle salvo que haya un `.dcm` que pintar).
+  const dcmPendientes = imagenes
+    .filter((i) => i.ext === 'dcm' && i.estado === 'listo' && i.url && !rasters[i.id])
+    .map((i) => `${i.id}|${i.url}`)
+    .join(',');
+  useEffect(() => {
+    const pend = dcmPendientes ? dcmPendientes.split(',') : [];
+    if (pend.length === 0) return;
+    let vivo = true;
+    (async () => {
+      const { renderMiniaturas } = await import('@/components/dicom/engine/motor-cornerstone');
+      const ids = pend.map((p) => p.split('|')[0]!);
+      const urls = pend.map((p) => p.slice(p.indexOf('|') + 1));
+      const pngs = await renderMiniaturas(urls.map((u) => `wadouri:${u}`));
+      if (!vivo) return;
+      const add: Record<string, string> = {};
+      ids.forEach((id, i) => {
+        const u = pngs[i];
+        if (u) add[id] = u;
+      });
+      if (Object.keys(add).length) setRasters((r) => ({ ...r, ...add }));
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [dcmPendientes]);
 
   async function subir(files: FileList | File[]) {
     setError(null);
@@ -185,8 +217,6 @@ export function GaleriaReporte({
     await reordenarGaleriaReporte(reporteId, campoId, next.map((i) => i.id));
   }
 
-  const hayCuarentena = imagenes.some((i) => i.estado === 'cuarentena');
-
   return (
     <div className="mt-1.5">
       {!soloLectura && (max === undefined || imagenes.length < max) && (
@@ -210,7 +240,7 @@ export function GaleriaReporte({
             )}
             {subiendo > 0 ? `Subiendo ${subiendo} imagen(es)…` : 'Arrastra tus imágenes aquí o haz click para elegir'}
           </span>
-          <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm · se anonimizan al procesarse</span>
+          <span className="mt-1 text-[11px] text-muted-foreground">Varias a la vez · JPG, PNG o .dcm · documento clínico (con datos del paciente)</span>
           <input
             ref={inputRef}
             type="file"
@@ -230,18 +260,11 @@ export function GaleriaReporte({
           {error}
         </p>
       )}
-      {hayCuarentena && (
-        <p className="mt-2 flex items-center gap-1.5 rounded-[9px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-1.5 text-[11.5px] text-[color:var(--warning-foreground)]">
-          <TriangleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-          Alguna imagen quedó en revisión manual de PII (§10): no se publicó. Vuelve a subirla o quítala.
-        </p>
-      )}
-
       {imagenes.length > 0 &&
         (soloLectura ? (
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {imagenes.map((img, i) => (
-              <ItemGaleria key={img.id} img={img} indice={i + 1} soloLectura />
+              <ItemGaleria key={img.id} img={img} indice={i + 1} raster={rasters[img.id]} soloLectura />
             ))}
           </div>
         ) : (
@@ -253,6 +276,7 @@ export function GaleriaReporte({
                     key={img.id}
                     img={img}
                     indice={i + 1}
+                    raster={rasters[img.id]}
                     onPie={(pie) => setPie(img.id, pie)}
                     onQuitar={() => quitar(img.id)}
                   />
@@ -265,16 +289,27 @@ export function GaleriaReporte({
   );
 }
 
-/** Cuerpo visual de una imagen según su estado (listo / en proceso / cuarentena / error). */
-function Lienzo({ img, indice }: { img: ImagenReporteVista; indice: number }) {
+/** Cuerpo visual de una imagen según su estado (listo / en proceso / error). */
+function Lienzo({ img, indice, raster }: { img: ImagenReporteVista; indice: number; raster?: string }) {
   if (img.estado === 'listo') {
-    const src = img.url ?? img.thumbUrl;
+    // `.dcm`: miniatura rasterizada en cliente (Cornerstone) del frame directo; mientras llega,
+    // un loader. JPG/PNG: su thumb/original con `srcset` de derivados.
+    const esDcm = img.ext === 'dcm';
+    const src = esDcm ? raster : (img.thumbUrl ?? img.url);
+    if (esDcm && !src) {
+      return (
+        <div className="grid h-[190px] w-full place-items-center gap-1.5 bg-muted text-muted-foreground">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin text-secondary" strokeWidth={1.9} />
+          <span className="text-[11.5px] font-semibold">Cargando estudio…</span>
+        </div>
+      );
+    }
     if (src) {
       return (
         // eslint-disable-next-line
         <img
           src={src}
-          {...(img.srcset ? { srcSet: img.srcset, sizes: SIZES } : {})}
+          {...(!esDcm && img.srcset ? { srcSet: img.srcset, sizes: SIZES } : {})}
           alt={img.pie || `Imagen ${indice}`}
           className="h-[190px] w-full bg-muted object-contain"
         />
@@ -286,14 +321,11 @@ function Lienzo({ img, indice }: { img: ImagenReporteVista; indice: number }) {
       </div>
     );
   }
-  if (img.estado === 'cuarentena' || img.estado === 'error') {
-    const esCuar = img.estado === 'cuarentena';
+  if (img.estado === 'error') {
     return (
       <div className="grid h-[190px] w-full place-items-center gap-1 bg-[color:var(--warning-surface)] px-4 text-center text-[color:var(--warning-foreground)]">
         <TriangleAlert className="mx-auto h-6 w-6" strokeWidth={1.6} />
-        <span className="text-[11.5px] font-semibold">
-          {esCuar ? 'En revisión de PII (§10) · no publicada' : 'No se pudo procesar'}
-        </span>
+        <span className="text-[11.5px] font-semibold">No se pudo procesar</span>
       </div>
     );
   }
@@ -301,7 +333,7 @@ function Lienzo({ img, indice }: { img: ImagenReporteVista; indice: number }) {
   return (
     <div className="grid h-[190px] w-full place-items-center gap-1.5 bg-muted text-muted-foreground">
       <Loader2 className="mx-auto h-6 w-6 animate-spin text-secondary" strokeWidth={1.9} />
-      <span className="text-[11.5px] font-semibold">Anonimizando…</span>
+      <span className="text-[11.5px] font-semibold">Procesando…</span>
     </div>
   );
 }
@@ -309,12 +341,14 @@ function Lienzo({ img, indice }: { img: ImagenReporteVista; indice: number }) {
 function ItemGaleria({
   img,
   indice,
+  raster,
   onPie,
   onQuitar,
   soloLectura = false,
 }: {
   img: ImagenReporteVista;
   indice: number;
+  raster?: string;
   onPie?: (pie: string) => void;
   onQuitar?: () => void;
   soloLectura?: boolean;
@@ -330,7 +364,7 @@ function ItemGaleria({
       className={`overflow-hidden rounded-[11px] border border-border bg-card ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
     >
       <div className="relative">
-        <Lienzo img={img} indice={indice} />
+        <Lienzo img={img} indice={indice} raster={raster} />
         <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--sidebar)] text-[11px] font-bold text-white">
           {indice}
         </span>
