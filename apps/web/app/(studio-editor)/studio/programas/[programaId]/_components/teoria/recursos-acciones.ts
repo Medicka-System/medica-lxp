@@ -14,6 +14,7 @@
  */
 
 import { requireAutoria } from '@/lib/studio/session';
+import { resolverFuenteDeRecurso } from '@/lib/studio/acciones';
 import { getCasos, getRecursos, type BibliotecaContenido } from '@/lib/studio/datos';
 import type { CasoResumen } from '@/lib/studio/casos-contrato';
 
@@ -27,4 +28,17 @@ export async function buscarRecursosBiblioteca(): Promise<BibliotecaContenido> {
 export async function buscarCasosBanco(): Promise<CasoResumen[]> {
   const { userId } = await requireAutoria();
   return getCasos(userId);
+}
+
+/**
+ * Resuelve la FUENTE de un recurso de la Biblioteca (recursoId → `{ campo, valor }`), para
+ * la pestaña "Elegir de biblioteca" de la captura. Client-callable: resuelve el `userId` de
+ * la sesión de autoría y delega en el resolvedor compartido. `null` si el recurso no tiene
+ * archivo (storage_key vacío) o su tipo no mapea a una fuente.
+ */
+export async function resolverFuenteRecursoAutor(
+  recursoId: string,
+): Promise<{ campo: string; valor: string } | null> {
+  const { userId } = await requireAutoria();
+  return resolverFuenteDeRecurso(userId, recursoId);
 }

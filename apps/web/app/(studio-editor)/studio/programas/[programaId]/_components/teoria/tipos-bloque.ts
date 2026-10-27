@@ -63,8 +63,12 @@ export type ConfigImagen = {
   pie: string;
 };
 
-/** Galería: varias imágenes con su alt; el visor las muestra en rejilla. */
-export type ConfigGaleria = { imagenes: { src: string; alt: string }[] };
+/**
+ * Galería: varias imágenes con su alt; el visor las muestra en rejilla. Cada ítem tiene
+ * fuente `{ ref | src }` (subida directa a storage → `ref`, o enlace directo → `src`),
+ * igual que el bloque de imagen.
+ */
+export type ConfigGaleria = { imagenes: { src?: string; ref?: string; alt: string }[] };
 
 /**
  * Video embebido — usa el MISMO contrato de fuente que la lección de video
@@ -87,8 +91,8 @@ export type ConfigHtml = { html: string };
 /** Enlace externo como tarjeta. */
 export type ConfigLink = { url: string; titulo: string; descripcion: string };
 
-/** PDF embebido: fuente + título. */
-export type ConfigPdf = { src: string; titulo: string; recursoId?: string };
+/** PDF embebido: fuente `{ ref | src }` (subida directa → `ref`, o enlace → `src`) + título. */
+export type ConfigPdf = { src?: string; ref?: string; titulo: string; recursoId?: string };
 
 /** Caso DICOM del Banco: referencia + catalogación cacheada (para pintar sin re-leer). */
 export type ConfigCaso = {

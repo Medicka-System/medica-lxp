@@ -149,6 +149,30 @@ export async function firmarLecturaImagenContenido(
 }
 
 /**
+ * Firma la LECTURA de DOCUMENTOS de contenido (`media/archivos/*` — PDF/Word/PPT) para el
+ * PREVIEW del constructor (§5C). Espejo de `firmarLecturaImagenContenido` contra el endpoint
+ * ya existente `POST /media/archivos/firmar-lectura`; el `api` es el único firmante (§2).
+ */
+export async function firmarLecturaArchivoContenido(
+  refs: string[],
+): Promise<ResultadoVideo<{ urls: Record<string, string> }>> {
+  await requireAutoria();
+  try {
+    const res = await fetch(`${apiBase()}/media/archivos/firmar-lectura`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refs }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo firmar la lectura (HTTP ${res.status}).` };
+    return { ok: true, datos: (await res.json()) as { urls: Record<string, string> } };
+  } catch (e) {
+    console.error('[firmarLecturaArchivoContenido] fallo:', e);
+    return { ok: false, error: 'No se pudo firmar la lectura de documentos (apps/api).' };
+  }
+}
+
+/**
  * Firma la LECTURA de imágenes de REFERENCIA de una plantilla de reporte (§6.5). A diferencia del
  * resto de este puente NO exige rol de autoría: la imagen de referencia es CONTENIDO de la plantilla
  * (diagramas fijos), sin PII (§10 solo aplica a paciente), y debe verse tanto en el Studio

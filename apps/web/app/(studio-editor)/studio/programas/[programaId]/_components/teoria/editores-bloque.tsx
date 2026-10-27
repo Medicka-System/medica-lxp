@@ -16,10 +16,8 @@
  * `components/bloques/contratos.ts`): aquí el diseñador puede pegar una URL directa.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
-  CheckCircle2,
-  Image as ImageIcon,
   Link as LinkIcon,
   Link2,
   Loader2,
@@ -30,17 +28,14 @@ import {
   Upload,
 } from 'lucide-react';
 import { EditorRico } from '@/components/editor-rico/editor-rico';
+import { CapturaRecurso } from './captura-recurso';
 import { EditorVideoAutoria } from '@/components/bloques/video/editor-video-autoria';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import type { FuenteVideoConfig, PaqueteContenido } from '@/components/bloques/contratos';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
-import {
-  firmarLecturaImagenContenido,
-  firmarSubidaImagenContenido,
-  ingestarPaquete,
-} from '@/lib/studio/media-acciones';
+import { ingestarPaquete } from '@/lib/studio/media-acciones';
 
 /**
  * Prefijo del H5P server (§7 · api). El editor/player de H5P corren en el navegador y
@@ -182,312 +177,69 @@ function EditorTexto({ config, onCambio }: { config: ConfigTexto; onCambio: (c: 
   );
 }
 
-/* ── Imagen (SUBIR directo · contenido educativo sin PII · o ENLACE) ── */
-function extDe(nombre: string): string {
-  const m = /\.([a-zA-Z0-9]+)$/.exec(nombre);
-  const e = (m?.[1] ?? 'jpg').toLowerCase();
-  return e === 'jpeg' ? 'jpg' : e;
-}
+/* ── Imagen (SUBIR directo · contenido educativo sin PII · o ENLACE) — captura unificada ── */
 
 function EditorImagen({ config, onCambio }: { config: ConfigImagen; onCambio: (c: Record<string, unknown>) => void }) {
-  const [modoFuente, setModoFuente] = useState<'subir' | 'enlace'>(config.ref ? 'subir' : 'enlace');
-  const [enlace, setEnlace] = useState(config.src ?? '');
-  const [subiendo, setSubiendo] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [reemplazando, setReemplazando] = useState(false);
-  // Preview de la imagen SUBIDA: URL firmada de vida corta (la ref no es pública).
-  const [previewRef, setPreviewRef] = useState<string | null>(null);
-
-  const tieneImagen = !!config.ref || !!config.src;
-  const mostrarPicker = !tieneImagen || reemplazando;
-
-  useEffect(() => {
-    let vivo = true;
-    if (!config.ref) {
-      setPreviewRef(null);
-      return;
-    }
-    firmarLecturaImagenContenido([config.ref]).then((r) => {
-      if (!vivo) return;
-      setPreviewRef(r.ok ? (r.datos.urls[config.ref!] ?? null) : null);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [config.ref]);
-
-  async function subir(file: File) {
-    setError(null);
-    setSubiendo(true);
-    try {
-      const ext = extDe(file.name);
-      const sol = await firmarSubidaImagenContenido(ext);
-      if (!sol.ok) {
-        setError(sol.error);
-        return;
-      }
-      const put = await fetch(sol.datos.urlSubida, {
-        method: 'PUT',
-        headers: { 'content-type': file.type || 'image/jpeg' },
-        body: file,
-      }).catch(() => null);
-      if (!put || !put.ok) {
-        setError('No se pudo subir la imagen al almacenamiento (URL firmada). Reintenta.');
-        return;
-      }
-      // Subida DIRECTA: es contenido educativo (sin PII), no pasa por el redactor (§10).
-      setPreviewRef(sol.datos.urlLectura);
-      onCambio({ ...config, ref: sol.datos.ref, src: '' });
-      setReemplazando(false);
-    } finally {
-      setSubiendo(false);
-    }
-  }
-
-  function vincularEnlace() {
-    setError(null);
-    const u = enlace.trim();
-    if (!/^https?:\/\/\S+/i.test(u)) {
-      setError('Pega una URL válida (http/https) de la imagen.');
-      return;
-    }
-    onCambio({ ...config, src: u, ref: undefined });
-    setReemplazando(false);
-  }
-
-  function quitar() {
-    setEnlace('');
-    setPreviewRef(null);
-    onCambio({ ...config, src: '', ref: undefined });
-    setReemplazando(false);
-  }
-
-  const urlPreview = config.ref ? previewRef : config.src || null;
-
+  // Captura unificada (subir/enlace); el RENDER (figure+img) y los campos alt/pie son el
+  // envoltorio propio del bloque de imagen. El contrato de fuente es `{ ref | src }`.
   return (
-    <div className="grid gap-3">
-      {error && (
-        <div
-          role="alert"
-          className="rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
-        >
-          {error}
+    <CapturaRecurso
+      familia="imagen"
+      valor={{ ref: config.ref, src: config.src }}
+      onCambio={(f) => onCambio({ ...config, ref: f.ref, src: f.src ?? '' })}
+      renderPreview={(url) => (
+        <figure className="overflow-hidden rounded-[10px] border border-border bg-muted">
+          {/* <img> a propósito: URL arbitraria (externa) o firmada, no asset local de next/image. */}
+          <img src={url} alt={config.alt ?? ''} className="max-h-[320px] w-full object-contain" />
+          {config.pie && <figcaption className={`px-3 py-2 text-[12px] ${softText}`}>{config.pie}</figcaption>}
+        </figure>
+      )}
+      extras={
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo etiqueta="Texto alternativo (alt)" valor={config.alt ?? ''} onCambio={(alt) => onCambio({ ...config, alt })} />
+          <Campo etiqueta="Pie de imagen" valor={config.pie ?? ''} onCambio={(pie) => onCambio({ ...config, pie })} />
         </div>
-      )}
-
-      {tieneImagen && !reemplazando && (
-        <>
-          {urlPreview ? (
-            <figure className="overflow-hidden rounded-[10px] border border-border bg-muted">
-              {/* <img> a propósito: URL arbitraria (externa) o firmada, no asset local de next/image. */}
-              <img src={urlPreview} alt={config.alt ?? ''} className="max-h-[320px] w-full object-contain" />
-              {config.pie && <figcaption className={`px-3 py-2 text-[12px] ${softText}`}>{config.pie}</figcaption>}
-            </figure>
-          ) : (
-            <VacioMedia icono={Loader2} texto="Cargando la vista previa de la imagen…" />
-          )}
-
-          <div className="flex flex-wrap items-center gap-2.5 rounded-[10px] border border-border bg-card p-3">
-            <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-accent text-accent-foreground">
-              {config.ref ? <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.9} /> : <Link2 className="h-[18px] w-[18px]" strokeWidth={1.75} />}
-            </span>
-            <p className="min-w-0 flex-1 text-[12.5px] font-semibold">
-              {config.ref ? 'Imagen subida' : 'Imagen por enlace'}
-              {!config.ref && config.src && <span className={`ml-1 font-normal ${softText}`}>· {config.src}</span>}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setReemplazando(true);
-                setModoFuente(config.ref ? 'subir' : 'enlace');
-              }}
-              className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent ${focusRing}`}
-            >
-              <Pencil aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Reemplazar
-            </button>
-            <button
-              type="button"
-              onClick={quitar}
-              className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-[color:var(--track)] hover:text-destructive ${focusRing}`}
-            >
-              <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-              Quitar
-            </button>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Campo etiqueta="Texto alternativo (alt)" valor={config.alt ?? ''} onCambio={(alt) => onCambio({ ...config, alt })} />
-            <Campo etiqueta="Pie de imagen" valor={config.pie ?? ''} onCambio={(pie) => onCambio({ ...config, pie })} />
-          </div>
-        </>
-      )}
-
-      {mostrarPicker && (
-        <FuenteImagen
-          modo={modoFuente}
-          onModo={setModoFuente}
-          subiendo={subiendo}
-          enlace={enlace}
-          onEnlace={setEnlace}
-          onArchivo={subir}
-          onVincular={vincularEnlace}
-          reemplazando={reemplazando}
-          onCancelar={() => {
-            setReemplazando(false);
-            setError(null);
-          }}
-        />
-      )}
-    </div>
+      }
+    />
   );
 }
 
-/* ── Fuente de imagen (subir | enlace) ── */
-function FuenteImagen({
-  modo,
-  onModo,
-  subiendo,
-  enlace,
-  onEnlace,
-  onArchivo,
-  onVincular,
-  reemplazando,
-  onCancelar,
-}: {
-  modo: 'subir' | 'enlace';
-  onModo: (m: 'subir' | 'enlace') => void;
-  subiendo: boolean;
-  enlace: string;
-  onEnlace: (v: string) => void;
-  onArchivo: (file: File) => void;
-  onVincular: () => void;
-  reemplazando: boolean;
-  onCancelar: () => void;
-}) {
-  return (
-    <div className="rounded-[11px] border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
-          {(
-            [
-              ['subir', 'Subir archivo', Upload],
-              ['enlace', 'Pegar enlace', Link2],
-            ] as const
-          ).map(([id, etiqueta, Icono]) => {
-            const on = modo === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onModo(id)}
-                aria-pressed={on}
-                className={`inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12px] font-bold transition-colors ${focusRing} ${
-                  on ? 'bg-card text-foreground shadow-rest' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Icono aria-hidden className="h-3.5 w-3.5" strokeWidth={1.9} />
-                {etiqueta}
-              </button>
-            );
-          })}
-        </div>
-        {reemplazando && (
-          <button
-            type="button"
-            onClick={onCancelar}
-            className={`ml-auto rounded-[8px] border border-border bg-card px-2.5 py-1 text-[11.5px] font-semibold text-muted-foreground transition-colors hover:bg-accent ${focusRing}`}
-          >
-            Cancelar
-          </button>
-        )}
-      </div>
 
-      {modo === 'subir' ? (
-        <label
-          className={`mt-3 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed border-[color:var(--track)] bg-muted px-6 py-7 text-center transition-colors hover:border-primary hover:bg-accent ${
-            subiendo ? 'pointer-events-none opacity-60' : ''
-          } ${focusRing}`}
-        >
-          <input
-            type="file"
-            accept="image/png,image/jpeg"
-            className="sr-only"
-            disabled={subiendo}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onArchivo(f);
-              e.target.value = '';
-            }}
-          />
-          <span aria-hidden className="grid h-11 w-11 place-items-center rounded-full bg-accent text-accent-foreground">
-            {subiendo ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={1.75} /> : <Upload className="h-5 w-5" strokeWidth={1.6} />}
-          </span>
-          <span className="text-[13px] font-bold">
-            {subiendo ? 'Subiendo…' : 'Elige una imagen (JPG o PNG)'}
-          </span>
-          <span className={`max-w-[42ch] text-[11.5px] leading-relaxed ${softText}`}>
-            {subiendo
-              ? 'Se sube directo al almacenamiento; no cierres esta pantalla.'
-              : 'Imagen de contenido educativo (diagrama, esquema, ilustración). Se sube directo al almacenamiento.'}
-          </span>
-        </label>
-      ) : (
-        <div className="mt-3">
-          <div className="flex flex-wrap gap-2">
-            <input
-              type="url"
-              value={enlace}
-              onChange={(e) => onEnlace(e.target.value)}
-              placeholder="https://…/imagen.jpg"
-              className={`h-10 min-w-[220px] flex-1 rounded-[9px] border border-border bg-card px-3 text-[13px] text-foreground placeholder:text-muted-foreground ${focusRing}`}
-            />
-            <button
-              type="button"
-              onClick={onVincular}
-              disabled={!enlace.trim()}
-              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-[9px] bg-primary px-4 text-[12.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            >
-              <Link2 aria-hidden className="h-4 w-4" strokeWidth={2} />
-              Usar enlace
-            </button>
-          </div>
-          <p className={`mt-2 text-[11.5px] leading-relaxed ${softText}`}>
-            El enlace se usa tal cual (imagen ya pública) o sube el archivo directo al almacenamiento.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Galería ── */
+/* ── Galería (N× CapturaRecurso familia imagen · subir o enlace por ítem) ── */
 function EditorGaleria({ config, onCambio }: { config: ConfigGaleria; onCambio: (c: Record<string, unknown>) => void }) {
   const imagenes = config.imagenes ?? [];
   const set = (imgs: ConfigGaleria['imagenes']) => onCambio({ imagenes: imgs });
   return (
     <div className="grid gap-3">
       {imagenes.map((img, i) => (
-        <div key={i} className="grid gap-2 rounded-[10px] border border-border bg-muted p-3 sm:grid-cols-[1fr_1fr_auto]">
-          <Campo
-            etiqueta={`Imagen ${i + 1} · URL`}
-            tipo="url"
-            valor={img.src}
-            onCambio={(src) => set(imagenes.map((x, j) => (j === i ? { ...x, src } : x)))}
+        <div key={i} className="rounded-[10px] border border-border bg-muted p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Imagen {i + 1}</span>
+            <button
+              type="button"
+              onClick={() => set(imagenes.filter((_, j) => j !== i))}
+              aria-label={`Quitar imagen ${i + 1}`}
+              className={`grid h-9 w-9 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:text-destructive ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          <CapturaRecurso
+            familia="imagen"
+            valor={{ ref: img.ref, src: img.src }}
+            onCambio={(f) => set(imagenes.map((x, j) => (j === i ? { ...x, ref: f.ref, src: f.src ?? '' } : x)))}
+            renderPreview={(url) => (
+              // <img> a propósito: URL arbitraria (externa / firmada), no asset local de next/image.
+              <img src={url} alt={img.alt} className="aspect-video w-full rounded-[9px] border border-border object-cover" />
+            )}
+            extras={
+              <Campo
+                etiqueta="Texto alternativo (alt)"
+                valor={img.alt}
+                onCambio={(alt) => set(imagenes.map((x, j) => (j === i ? { ...x, alt } : x)))}
+              />
+            }
           />
-          <Campo
-            etiqueta="Alt"
-            valor={img.alt}
-            onCambio={(alt) => set(imagenes.map((x, j) => (j === i ? { ...x, alt } : x)))}
-          />
-          <button
-            type="button"
-            onClick={() => set(imagenes.filter((_, j) => j !== i))}
-            aria-label={`Quitar imagen ${i + 1}`}
-            className={`mt-[22px] grid h-9 w-9 place-items-center self-start rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:text-destructive ${focusRing}`}
-          >
-            <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-          </button>
         </div>
       ))}
       <button
@@ -498,14 +250,6 @@ function EditorGaleria({ config, onCambio }: { config: ConfigGaleria; onCambio: 
         <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.4} />
         Agregar imagen
       </button>
-      {imagenes.some((x) => x.src) && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {imagenes.filter((x) => x.src).map((img, i) => (
-            // <img> a propósito: URL arbitraria del diseñador, no asset local de next/image.
-            <img key={i} src={img.src} alt={img.alt} className="aspect-video w-full rounded-[9px] border border-border object-cover" />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -612,37 +356,28 @@ function EditorLink({ config, onCambio }: { config: ConfigLink; onCambio: (c: Re
 
 /* ── PDF ── */
 function EditorPdf({ config, onCambio }: { config: ConfigPdf; onCambio: (c: Record<string, unknown>) => void }) {
+  // Captura unificada (subir PDF a storage → `ref`, o enlace → `src`); el render es el
+  // visor `<object>` embebido (envoltorio propio del bloque). Título como campo del bloque.
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Campo
-          etiqueta="URL del PDF"
-          tipo="url"
-          valor={config.src ?? ''}
-          onCambio={(src) => onCambio({ ...config, src })}
-          placeholder="URL firmada (object storage)"
-        />
-        <Campo etiqueta="Título" valor={config.titulo ?? ''} onCambio={(titulo) => onCambio({ ...config, titulo })} />
-      </div>
-      {config.src ? (
-        <object data={config.src} type="application/pdf" className="h-[420px] w-full rounded-[10px] border border-border bg-muted">
+    <CapturaRecurso
+      familia="archivo"
+      valor={{ ref: config.ref, src: config.src }}
+      onCambio={(f) => onCambio({ ...config, ref: f.ref, src: f.src ?? '' })}
+      renderPreview={(url) => (
+        <object data={url} type="application/pdf" className="h-[420px] w-full rounded-[10px] border border-border bg-muted">
           <div className="grid h-full place-items-center p-6 text-center">
             <p className={`text-[12.5px] ${softText}`}>
               Tu navegador no puede incrustar este PDF.{' '}
-              <a href={config.src} target="_blank" rel="noopener noreferrer" className="font-semibold text-secondary underline">
+              <a href={url} target="_blank" rel="noopener noreferrer" className="font-semibold text-secondary underline">
                 Abrir en una pestaña
               </a>
               .
             </p>
           </div>
         </object>
-      ) : (
-        <AvisoContrato>
-          Pega la URL del PDF (o insértalo desde la Biblioteca de Contenido). El servicio de media firma la URL —{' '}
-          <span className="font-bold">pendiente de API</span>.
-        </AvisoContrato>
       )}
-    </div>
+      extras={<Campo etiqueta="Título" valor={config.titulo ?? ''} onCambio={(titulo) => onCambio({ ...config, titulo })} />}
+    />
   );
 }
 
@@ -926,12 +661,3 @@ function EditorXapi({
   );
 }
 
-/* ── Estado vacío para media sin URL ── */
-function VacioMedia({ icono: Icono, texto }: { icono: typeof ImageIcon; texto: string }) {
-  return (
-    <div className="grid place-items-center gap-2 rounded-[10px] border border-dashed border-border bg-muted py-8 text-center">
-      <Icono aria-hidden className="h-6 w-6 text-muted-foreground" strokeWidth={1.5} />
-      <p className={`max-w-[36ch] text-[12px] ${softText}`}>{texto}</p>
-    </div>
-  );
-}
