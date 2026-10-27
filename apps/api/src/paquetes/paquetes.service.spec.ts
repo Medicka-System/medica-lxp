@@ -21,10 +21,19 @@ function zipScorm(pathManifest = 'imsmanifest.xml'): Buffer {
 }
 
 function crear() {
-  const storage = { firmarSubida: jest.fn().mockReturnValue('https://storage.local/put') };
+  const storage = {
+    firmarSubida: jest.fn().mockReturnValue('https://storage.local/put'),
+    firmarLectura: jest.fn().mockReturnValue('https://storage.local/get-zip'),
+    clavePaqueteExtraido: jest.fn((id: string, name: string) => `media/paquetes-extraidos/${id}/${name}`),
+    urlPublicaEntryPoint: jest.fn((id: string, entry: string) => `https://cdn.local/bucket/media/paquetes-extraidos/${id}/${entry}`),
+    listarPrefijo: jest.fn(async () => [] as string[]),
+    basePaqueteExtraido: jest.fn((id: string) => `media/paquetes-extraidos/${id}/`),
+    borrarPrefijo: jest.fn(async () => 0),
+  };
   const db = { sql: {} };
-  const svc = new PaquetesService(db as never, storage as never);
-  return { svc, storage };
+  const colas = { encolar: jest.fn().mockResolvedValue('job-1') };
+  const svc = new PaquetesService(db as never, storage as never, colas as never);
+  return { svc, storage, colas };
 }
 
 describe('PaquetesService (ingesta SCORM/xAPI · §7)', () => {
@@ -39,7 +48,7 @@ describe('PaquetesService (ingesta SCORM/xAPI · §7)', () => {
       recurso_ref: 'media/paquetes/cid/paquete.zip',
       orden: 0,
     });
-    const { svc, storage } = crear();
+    const { svc, storage, colas } = crear();
     const fetchMock = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue({ ok: true, text: async () => '' } as never);
@@ -47,6 +56,11 @@ describe('PaquetesService (ingesta SCORM/xAPI · §7)', () => {
     const r = await svc.ingestar(zipScorm(), { leccionId: 'lec' });
 
     expect(storage.firmarSubida).toHaveBeenCalledWith(expect.stringMatching(/^media\/paquetes\/.+\/paquete\.zip$/));
+    // Encola la extracción asíncrona al prefijo público (worker · Pieza 1).
+    expect(colas.encolar).toHaveBeenCalledWith(
+      'extraer-paquete',
+      expect.objectContaining({ contenidoId: expect.any(String) }),
+    );
     expect(fetchMock).toHaveBeenCalledWith('https://storage.local/put', expect.objectContaining({ method: 'PUT' }));
     expect(insertar).toHaveBeenCalledWith(
       expect.anything(),
@@ -99,5 +113,58 @@ describe('PaquetesService (ingesta SCORM/xAPI · §7)', () => {
   it('rechaza un buffer que no es zip', async () => {
     const { svc } = crear();
     await expect(svc.ingestar(Buffer.from('no soy un zip'), { leccionId: 'l' })).rejects.toThrow();
+  });
+
+  it('firmarExtraccion sin entryNames: solo firma el GET del .zip', () => {
+    const { svc, storage } = crear();
+    const r = svc.firmarExtraccion('cid', []);
+    expect(storage.firmarLectura).toHaveBeenCalledWith('media/paquetes/cid/paquete.zip');
+    expect(r.urlLecturaZip).toBe('https://storage.local/get-zip');
+    expect(r.subidas).toEqual([]);
+  });
+
+  it('firmarExtraccion con entryNames: firma un PUT por archivo bajo el prefijo público', () => {
+    const { svc, storage } = crear();
+    const r = svc.firmarExtraccion('cid', ['index.html', 'assets/app.js']);
+    expect(storage.clavePaqueteExtraido).toHaveBeenCalledWith('cid', 'index.html');
+    expect(storage.clavePaqueteExtraido).toHaveBeenCalledWith('cid', 'assets/app.js');
+    expect(r.subidas).toEqual([
+      { entryName: 'index.html', url: 'https://storage.local/put' },
+      { entryName: 'assets/app.js', url: 'https://storage.local/put' },
+    ]);
+  });
+
+  it('resolverLanzador: listo=true cuando el entryPoint YA existe en storage', async () => {
+    const { svc, storage } = crear();
+    storage.listarPrefijo.mockResolvedValue(['media/paquetes-extraidos/cid/index.html']);
+    const r = await svc.resolverLanzador('cid', 'index.html');
+    expect(storage.urlPublicaEntryPoint).toHaveBeenCalledWith('cid', 'index.html');
+    expect(r.lanzadorUrl).toBe('https://cdn.local/bucket/media/paquetes-extraidos/cid/index.html');
+    expect(r.listo).toBe(true);
+  });
+
+  it('resolverLanzador: listo=false mientras el worker aún no deposita el entryPoint', async () => {
+    const { svc, storage } = crear();
+    storage.listarPrefijo.mockResolvedValue([]); // extracción aún no termina
+    const r = await svc.resolverLanzador('cid', 'index.html');
+    expect(r.listo).toBe(false);
+    expect(r.lanzadorUrl).toContain('/media/paquetes-extraidos/cid/index.html');
+  });
+
+  it('solicitarBorrado: encola el job borrar-paquete (no borra en el request)', async () => {
+    const { svc, colas, storage } = crear();
+    const r = await svc.solicitarBorrado('cid');
+    expect(colas.encolar).toHaveBeenCalledWith('borrar-paquete', { contenidoId: 'cid' });
+    expect(storage.borrarPrefijo).not.toHaveBeenCalled();
+    expect(r).toEqual({ encolado: true });
+  });
+
+  it('purgarPaquete: borra AMBOS prefijos (zip privado + árbol extraído)', async () => {
+    const { svc, storage } = crear();
+    storage.borrarPrefijo.mockResolvedValueOnce(1).mockResolvedValueOnce(4);
+    const r = await svc.purgarPaquete('cid');
+    expect(storage.borrarPrefijo).toHaveBeenCalledWith('media/paquetes/cid/');
+    expect(storage.borrarPrefijo).toHaveBeenCalledWith('media/paquetes-extraidos/cid/');
+    expect(r).toEqual({ zip: 1, extraido: 4 });
   });
 });

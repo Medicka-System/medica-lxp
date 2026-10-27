@@ -104,14 +104,24 @@ export function LeccionInteractiva({
     );
   }
 
-  // tipo === 'xapi'
+  // tipo === 'xapi' / scorm (paquete empaquetado)
+  // El lanzador público del entryPoint descomprimido lo resolvió `getLeccion` contra el
+  // `api` (Pieza 1 · §7). `listo` se deriva de STORAGE (la extracción del worker terminó);
+  // paquete ingerido pero aún no listo → "procesando"; sin paquete → "sin_subir".
+  const listo = leccion.config.paqueteListo === true && typeof leccion.config.lanzadorUrl === 'string';
+  const estadoPaquete = listo ? 'listo' : leccion.config.paqueteRef ? 'procesando' : 'sin_subir';
   return (
     <div className="space-y-3">
       <BloquePaquete
         modo="ver"
         titulo={leccion.config.titulo ?? leccion.nombre}
         contexto={contexto}
-        paquete={{ tipo: tipoPaquete(leccion.config), titulo: leccion.config.titulo ?? leccion.nombre }}
+        paquete={{
+          tipo: tipoPaquete(leccion.config),
+          titulo: leccion.config.titulo ?? leccion.nombre,
+          estado: estadoPaquete,
+          lanzadorUrl: listo ? leccion.config.lanzadorUrl : null,
+        }}
       />
       {aviso && <MensajeAviso texto={aviso} />}
     </div>

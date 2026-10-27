@@ -175,6 +175,10 @@ export type ConfigLeccion = {
   tipo?: string;
   titulo?: string;
   entryPoint?: string | null;
+  /** Lanzador PÚBLICO del paquete descomprimido (iframe), resuelto por el `api` (Pieza 1). */
+  lanzadorUrl?: string | null;
+  /** La extracción del worker ya depositó el entryPoint en storage (estado derivado de storage). */
+  paqueteListo?: boolean;
 };
 
 /** Todo lo que la pantalla de lección necesita. */

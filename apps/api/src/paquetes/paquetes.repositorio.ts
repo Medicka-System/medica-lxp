@@ -16,6 +16,8 @@ export interface ContenidoPaqueteNuevo {
   tipo: TipoPaquete;
   titulo: string;
   recursoRef: string;
+  /** Archivo de arranque del paquete (href del manifiesto) — para servir el lanzador. */
+  entryPoint: string | null;
   orden: number;
 }
 
@@ -37,11 +39,15 @@ export async function insertarContenidoPaquete(
   d: ContenidoPaqueteNuevo,
 ): Promise<ContenidoFila> {
   // ── Modelo NUEVO: puntero del paquete en lecciones.config ──
+  // `entryPoint` + el `contenidoId` del paquete habilitan resolver el lanzador público
+  // (Pieza 1 §7): la URL del iframe = prefijo público del entryPoint descomprimido.
   await sql`
     update lxp.lecciones
     set config = coalesce(config, '{}'::jsonb)
                  || jsonb_build_object(
                       'paqueteRef', ${d.recursoRef}::text,
+                      'contenidoId', ${d.id}::text,
+                      'entryPoint', ${d.entryPoint}::text,
                       'tipo', ${d.tipo}::text,
                       'titulo', ${d.titulo}::text)
     where id = ${d.leccionId}`;

@@ -3,13 +3,21 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import AdmZip from 'adm-zip';
 import { DbService } from '../db/db.service';
 import { StorageService } from '../dicom/storage.service';
-import { clavePaquete } from '../media/claves';
+import { ColasProducer } from '../colas/colas-producer';
+import { basePaquete, clavePaquete } from '../media/claves';
 import {
   analizarManifiesto,
   type ManifiestosCandidatos,
   type ResultadoManifiesto,
 } from './manifiesto';
 import { insertarContenidoPaquete } from './paquetes.repositorio';
+import {
+  QUEUE_BORRAR_PAQUETE,
+  QUEUE_EXTRAER_PAQUETE,
+  type BorrarPaqueteJob,
+  type ExtraerPaqueteJob,
+  type FirmarExtraccionResultado,
+} from './extraccion.contrato';
 
 export interface IngestaResultado {
   contenidoId: string;
@@ -35,6 +43,7 @@ export class PaquetesService {
   constructor(
     private readonly db: DbService,
     private readonly storage: StorageService,
+    private readonly colas: ColasProducer,
   ) {}
 
   async ingestar(
@@ -63,6 +72,15 @@ export class PaquetesService {
     const contenidoId = randomUUID();
     const recursoRef = clavePaquete(contenidoId);
     await this.subirPaquete(recursoRef, archivo);
+
+    // Extracción ASÍNCRONA al prefijo público (worker `extraer-paquete` · Pieza 1 §7):
+    // descomprime el .zip y sirve sus archivos con rutas relativas para el iframe del
+    // lector. No bloquea la ingesta; el binario no vuelve a pasar por el `api` (§3). Se
+    // encola en AMBOS modos (lección y Biblioteca): la clave de salida se deriva del
+    // `contenidoId`, no depende de la fila que el web crea después.
+    const job: ExtraerPaqueteJob = { contenidoId };
+    await this.colas.encolar(QUEUE_EXTRAER_PAQUETE, job);
+
     const titulo = datos.titulo?.trim() || info.titulo;
 
     // Modo Biblioteca (§5C): sin lección → solo validar + guardar. El web crea el
@@ -78,6 +96,7 @@ export class PaquetesService {
       tipo: info.tipo,
       titulo,
       recursoRef,
+      entryPoint: info.entryPoint,
       orden: datos.orden ?? 0,
     });
 
@@ -110,6 +129,63 @@ export class PaquetesService {
       }
     }
     return out;
+  }
+
+  /**
+   * Resuelve el LANZADOR público del paquete descomprimido para el iframe del lector
+   * (Pieza 1 §7). `lanzadorUrl` = URL pública (sin firma) del `entryPoint` bajo el prefijo
+   * anonymous-download; `listo` = el archivo de arranque YA existe en storage (la extracción
+   * del worker terminó). El estado "listo" se deriva de STORAGE, no de un flag en BD (sin
+   * carrera entre la ingesta y la fila que el web crea después).
+   */
+  async resolverLanzador(
+    contenidoId: string,
+    entryPoint: string,
+  ): Promise<{ lanzadorUrl: string; listo: boolean }> {
+    const lanzadorUrl = this.storage.urlPublicaEntryPoint(contenidoId, entryPoint);
+    const entryKey = this.storage.clavePaqueteExtraido(contenidoId, entryPoint);
+    const claves = await this.storage.listarPrefijo(entryKey);
+    return { lanzadorUrl, listo: claves.includes(entryKey) };
+  }
+
+  /**
+   * ENCOLA el borrado del paquete (job `borrar-paquete`): no bloquea la eliminación del
+   * recurso en el web y reintenta si el storage falla. El web lo pide cuando un recurso
+   * SCORM/xAPI se elimina (usos===0) o se reemplaza (queda el binario viejo huérfano).
+   */
+  async solicitarBorrado(contenidoId: string): Promise<{ encolado: boolean }> {
+    const job: BorrarPaqueteJob = { contenidoId };
+    await this.colas.encolar(QUEUE_BORRAR_PAQUETE, job);
+    return { encolado: true };
+  }
+
+  /**
+   * PURGA de storage ambos prefijos del paquete: el `.zip` privado (`media/paquetes/{id}/`)
+   * y el árbol extraído público (`media/paquetes-extraidos/{id}/`). Lo ejecuta el worker
+   * (el `api` es la autoridad de storage · §3); idempotente (prefijo vacío → 0). Devuelve
+   * cuántas claves borró de cada prefijo.
+   */
+  async purgarPaquete(contenidoId: string): Promise<{ zip: number; extraido: number }> {
+    const zip = await this.storage.borrarPrefijo(basePaquete(contenidoId));
+    const extraido = await this.storage.borrarPrefijo(this.storage.basePaqueteExtraido(contenidoId));
+    this.logger.log(`Paquete ${contenidoId} purgado: ${zip} del .zip + ${extraido} del extraído.`);
+    return { zip, extraido };
+  }
+
+  /**
+   * Firma las URLs de la EXTRACCIÓN para el worker (patrón worker→servicio, como
+   * `firmar-anonimizados` del DICOM · §3/§10): el `api` es el ÚNICO firmante. Devuelve
+   * SIEMPRE el GET interno del .zip; si llegan `entryNames`, además un PUT interno por
+   * archivo del paquete descomprimido, bajo el prefijo público (`clavePaqueteExtraido`).
+   * `publico=false`: el worker opera contra el endpoint interno de Docker.
+   */
+  firmarExtraccion(contenidoId: string, entryNames: string[]): FirmarExtraccionResultado {
+    const urlLecturaZip = this.storage.firmarLectura(clavePaquete(contenidoId));
+    const subidas = entryNames.map((entryName) => ({
+      entryName,
+      url: this.storage.firmarSubida(this.storage.clavePaqueteExtraido(contenidoId, entryName)),
+    }));
+    return { urlLecturaZip, subidas };
   }
 
   /** Sube el .zip a object storage con URL firmada (PUT). El binario no pasa por Postgres. */

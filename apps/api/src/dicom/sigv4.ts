@@ -101,3 +101,74 @@ export function presignS3(o: PresignOpts): string {
 
   return `${o.endpoint}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
+
+export interface PresignListOpts {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  accessKey: string;
+  secretKey: string;
+  expiraSeg: number;
+  ahora: Date;
+  /** Paginación: token de la página anterior (ListObjectsV2 `NextContinuationToken`). */
+  continuationToken?: string;
+}
+
+/**
+ * Presign de un **ListObjectsV2** (GET `/{bucket}?list-type=2&prefix=…`) — para enumerar
+ * todas las claves bajo un prefijo (p. ej. borrar un paquete extraído sin dejar huérfanos).
+ * Mismo esquema SigV4 por query que `presignS3`, pero a nivel de BUCKET con los parámetros
+ * de listado firmados dentro de la query canónica. Path-style MinIO.
+ */
+export function presignListV2(o: PresignListOpts): string {
+  if (!o.accessKey || !o.secretKey) {
+    throw new Error('Object storage sin credenciales: configura STORAGE_* (§3).');
+  }
+  const url = new URL(o.endpoint);
+  const host = url.host;
+  const { amzDate, dateStamp } = marcas(o.ahora);
+  const scope = `${dateStamp}/${o.region}/s3/aws4_request`;
+  const canonicalUri = `/${o.bucket}`;
+
+  const params: Record<string, string> = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${o.accessKey}/${scope}`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(o.expiraSeg),
+    'X-Amz-SignedHeaders': 'host',
+    'list-type': '2',
+    prefix: o.prefix,
+    ...(o.continuationToken ? { 'continuation-token': o.continuationToken } : {}),
+  };
+  const canonicalQuery = Object.keys(params)
+    .sort()
+    .map((k) => `${rfc3986(k)}=${rfc3986(params[k] as string)}`)
+    .join('&');
+
+  const canonicalRequest = [
+    'GET',
+    canonicalUri,
+    canonicalQuery,
+    `host:${host}\n`,
+    'host',
+    'UNSIGNED-PAYLOAD',
+  ].join('\n');
+
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join('\n');
+
+  const kDate = hmac(`AWS4${o.secretKey}`, dateStamp);
+  const kRegion = hmac(kDate, o.region);
+  const kService = hmac(kRegion, 's3');
+  const kSigning = hmac(kService, 'aws4_request');
+  const signature = createHmac('sha256', kSigning)
+    .update(stringToSign, 'utf8')
+    .digest('hex');
+
+  return `${o.endpoint}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}

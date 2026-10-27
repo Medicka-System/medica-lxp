@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { presignS3, type MetodoS3 } from './sigv4';
+import { presignS3, presignListV2, type MetodoS3 } from './sigv4';
 
 /** Vida por defecto de una URL firmada (holgada para cubrir reintentos del worker). */
 const EXPIRA_SEG = 3600;
@@ -148,4 +148,104 @@ export class StorageService {
   firmarBorrado(key: string, ahora = new Date(), publico = false): string {
     return this.firmar('DELETE', key, ahora, publico);
   }
+
+  // ── Paquetes SCORM/xAPI descomprimidos (§7 · Pieza 1) ─────────────────────────────
+  /**
+   * Clave de UN archivo del paquete DESCOMPRIMIDO, preservando su ruta relativa interna
+   * (`entryName`) para que `index.html` encuentre sus assets. Vive bajo el prefijo PÚBLICO
+   * `media/paquetes-extraidos/{id}/…` (policy anonymous-download · servible estático al
+   * navegador sin firma, para que los relativos resuelvan). El `.zip` sigue en el prefijo
+   * PRIVADO `media/paquetes/{id}/` (firmado). `id` = contenidoId del paquete.
+   */
+  clavePaqueteExtraido(contenidoId: string, entryName: string): string {
+    const limpio = entryName.replace(/^\/+/, '').replace(/\.\.(\/|$)/g, ''); // sin path traversal
+    return `media/paquetes-extraidos/${contenidoId}/${limpio}`;
+  }
+
+  /** Prefijo del paquete extraído (para listar/borrar todo el árbol). Con `/` final. */
+  basePaqueteExtraido(contenidoId: string): string {
+    return `media/paquetes-extraidos/${contenidoId}/`;
+  }
+
+  /**
+   * URL PÚBLICA (sin firma) del `entryPoint` del paquete extraído, para el iframe del lector.
+   * Usa el endpoint que ve el NAVEGADOR; el prefijo es anonymous-download (los assets
+   * relativos del paquete resuelven a URLs hermanas públicas). Aislamiento: origen de storage
+   * ≠ origen de la app (§10) + sandbox del iframe; sin credenciales en la URL del contenido.
+   *
+   * PROD (R2, documentado · no se construye ahora): endurecer el prefijo con CDN +
+   * signed-cookie a nivel de prefijo (gating por sesión sin firmar cada asset), en vez de
+   * anonymous-download. La clave `uuid` inadivinable es el único gate en local.
+   */
+  urlPublicaEntryPoint(contenidoId: string, entryPoint: string): string {
+    const rel = entryPoint.replace(/^\/+/, '');
+    const key = this.clavePaqueteExtraido(contenidoId, rel);
+    // Clave ya codificada por segmentos igual que en presignS3 (misma política RFC 3986).
+    const path = key.split('/').map((s) => encodeURIComponent(s)).join('/');
+    return `${this.endpointPublico}/${this.bucket}/${path}`;
+  }
+
+  /**
+   * Lista TODAS las claves bajo un prefijo (ListObjectsV2 paginado · SigV4). Server-side en
+   * el `api` (es el firmante · §3); no mueve binario, solo claves. Sigue el `continuation-token`
+   * hasta agotar. Vacío si el prefijo no existe.
+   */
+  async listarPrefijo(prefix: string, publico = false): Promise<string[]> {
+    const endpoint = publico ? this.endpointPublico : this.endpoint;
+    const claves: string[] = [];
+    let token: string | undefined;
+    do {
+      const url = presignListV2({
+        endpoint,
+        region: this.region,
+        bucket: this.bucket,
+        prefix,
+        accessKey: this.accessKey,
+        secretKey: this.secretKey,
+        expiraSeg: EXPIRA_SEG,
+        ahora: new Date(),
+        continuationToken: token,
+      });
+      const res = await fetch(url, { method: 'GET' });
+      if (!res.ok) {
+        const cuerpo = await res.text().catch(() => '');
+        throw new Error(`ListObjectsV2 falló ${res.status}: ${cuerpo.slice(0, 200)}`);
+      }
+      const xml = await res.text();
+      for (const m of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
+        claves.push(decodeXml(m[1] as string));
+      }
+      const trunc = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+      token = trunc ? xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1] : undefined;
+    } while (token);
+    return claves;
+  }
+
+  /**
+   * Borra TODO el árbol bajo un prefijo (lista + DELETE por clave · SigV4). Idempotente
+   * (prefijo vacío → 0). Server-side en el `api`. Devuelve cuántas claves borró.
+   */
+  async borrarPrefijo(prefix: string, publico = false): Promise<number> {
+    const claves = await this.listarPrefijo(prefix, publico);
+    for (const key of claves) {
+      const url = this.firmarBorrado(key, new Date(), publico);
+      const res = await fetch(url, { method: 'DELETE' });
+      // 204/200 = borrado; 404 = ya no estaba (idempotente).
+      if (!res.ok && res.status !== 404) {
+        const cuerpo = await res.text().catch(() => '');
+        throw new Error(`DELETE ${key} falló ${res.status}: ${cuerpo.slice(0, 160)}`);
+      }
+    }
+    return claves.length;
+  }
+}
+
+/** Decodifica entidades XML básicas de las claves de ListObjectsV2. */
+function decodeXml(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }

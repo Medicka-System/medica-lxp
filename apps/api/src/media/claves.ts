@@ -20,6 +20,11 @@ export function clavePaquete(contenidoId: string): string {
   return `media/paquetes/${contenidoId}/paquete.zip`;
 }
 
+/** Prefijo (con `/` final) del .zip privado del paquete — para borrar todo su árbol. */
+export function basePaquete(contenidoId: string): string {
+  return `media/paquetes/${contenidoId}/`;
+}
+
 /** Audio sintetizado por TTS (course builder). El binario vive en object storage. */
 export function claveAudioTts(audioId: string, formato: string): string {
   return `media/tts/${audioId}/audio.${formato}`;

@@ -28,6 +28,31 @@ function apiBase(): string {
 
 type MetaRecurso = Record<string, string | number | boolean | undefined>;
 
+/** Solo los paquetes viven bajo `media/paquetes/{contenidoId}/paquete.zip`. */
+const PATRON_PAQUETE = /(?:^|\/)paquetes\/([^/]+)\/paquete\.zip$/;
+
+/** contenidoId del paquete a partir de su `storage_key`, o null si el recurso no es paquete. */
+function contenidoIdDePaquete(storageKey: string | null): string | null {
+  const m = storageKey?.match(PATRON_PAQUETE);
+  return m ? m[1]! : null;
+}
+
+/**
+ * Pide al `api` que ENCOLE el borrado de storage del paquete (zip + árbol extraído) cuando
+ * su recurso se elimina o se reemplaza (Pieza 1 · §7). Best-effort: la fila ya se tocó en
+ * BD; si el api no responde, el binario queda huérfano (se registra) pero no rompe la acción.
+ */
+async function encolarBorradoPaquete(contenidoId: string): Promise<void> {
+  try {
+    await fetch(`${apiBase()}/paquetes/${encodeURIComponent(contenidoId)}/borrar`, {
+      method: 'POST',
+      cache: 'no-store',
+    });
+  } catch (e) {
+    console.error('[encolarBorradoPaquete] no se pudo encolar el borrado del paquete:', e);
+  }
+}
+
 /* ───────────────────────── Firmar subidas (dominio · api) ───────────────────────── */
 
 export type SubidaFirmada = { id: string; ext: string; ref: string; urlSubida: string; urlLectura: string };
@@ -194,7 +219,12 @@ export async function reemplazarArchivoRecurso(
 ): Promise<ResultadoAccion<{ version: number }>> {
   const { userId } = await requireAutoria();
   try {
-    const version = await comoStaff(userId, async (sql) => {
+    const { version, paqueteViejo } = await comoStaff(userId, async (sql) => {
+      // Clave del paquete ANTERIOR (si lo era): al reemplazar queda huérfano en storage.
+      const viejo = contenidoIdDePaquete(
+        (await sql<{ storage_key: string | null }[]>`
+          select storage_key from lxp.recursos where id = ${id}`)[0]?.storage_key ?? null,
+      );
       const rows = await sql<{ version: number }[]>`
         update lxp.recursos
         set storage_key = ${nuevo.storageKey},
@@ -204,8 +234,11 @@ export async function reemplazarArchivoRecurso(
         where id = ${id}
         returning version`;
       if (rows.length === 0) throw new Error('recurso inexistente o sin permiso');
-      return rows[0]!.version;
+      const nuevoId = contenidoIdDePaquete(nuevo.storageKey);
+      return { version: rows[0]!.version, paqueteViejo: viejo && viejo !== nuevoId ? viejo : null };
     });
+    // Purga el binario del paquete superseded (no se reusa; el nuevo ya está ingerido).
+    if (paqueteViejo) await encolarBorradoPaquete(paqueteViejo);
     revalidatePath('/studio/contenido');
     revalidatePath(`/studio/contenido/${id}`);
     return { ok: true, datos: { version } };
@@ -227,6 +260,10 @@ export async function eliminarRecurso(
   const { userId } = await requireAutoria();
   try {
     const resultado = await comoStaff(userId, async (sql) => {
+      const clavePaquete = contenidoIdDePaquete(
+        (await sql<{ storage_key: string | null }[]>`
+          select storage_key from lxp.recursos where id = ${id}`)[0]?.storage_key ?? null,
+      );
       const usos = Number(
         (
           await sql<{ n: number }[]>`
@@ -234,12 +271,16 @@ export async function eliminarRecurso(
             from lxp.bloques b where b.config->>'recursoId' = ${id}`
         )[0]?.n ?? 0,
       );
-      if (usos > 0 && !opts?.forzar) return { eliminado: false, usos };
+      if (usos > 0 && !opts?.forzar) return { eliminado: false, usos, paquete: null };
       await sql`delete from lxp.recursos where id = ${id}`;
-      return { eliminado: true, usos };
+      return { eliminado: true, usos, paquete: clavePaquete };
     });
-    if (resultado.eliminado) revalidatePath('/studio/contenido');
-    return { ok: true, datos: resultado };
+    if (resultado.eliminado) {
+      revalidatePath('/studio/contenido');
+      // Recurso SCORM/xAPI eliminado (usos===0) → purga su storage (zip + extraído).
+      if (resultado.paquete) await encolarBorradoPaquete(resultado.paquete);
+    }
+    return { ok: true, datos: { eliminado: resultado.eliminado, usos: resultado.usos } };
   } catch (e) {
     console.error('[eliminarRecurso] fallo:', e);
     return { ok: false, error: 'No se pudo eliminar el recurso.' };
