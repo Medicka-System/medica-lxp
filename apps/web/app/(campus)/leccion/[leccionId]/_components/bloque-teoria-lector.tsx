@@ -21,7 +21,7 @@ import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import type { CueTranscripcion, HitoVideo, PaqueteContenido } from '@/components/bloques/contratos';
 import type { BloqueTeoriaVista } from '@/lib/campus/leccion-contrato';
 import { firmarReproduccionAlumno } from '@/lib/campus/leccion-video-acciones';
-import { firmarLecturaImagenAlumno } from '@/lib/campus/leccion-media-acciones';
+import { firmarLecturaImagenAlumno, firmarLecturaArchivoAlumno } from '@/lib/campus/leccion-media-acciones';
 
 /** Lectura defensiva de un string del config crudo. */
 function str(v: unknown): string {
@@ -57,17 +57,13 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
       return <ImagenBloqueLector c={c} />;
 
     case 'galeria': {
-      const imgs = (Array.isArray(c.imagenes) ? c.imagenes : []) as { src?: unknown; alt?: unknown }[];
-      const conSrc = imgs.filter((x) => str(x?.src));
-      return conSrc.length ? (
+      const imgs = (Array.isArray(c.imagenes) ? c.imagenes : []) as { src?: unknown; ref?: unknown; alt?: unknown }[];
+      // Cada ítem tiene fuente {src|ref}: enlace directo, o subida que se firma (como el bloque imagen).
+      const conFuente = imgs.filter((x) => str(x?.src) || str(x?.ref));
+      return conFuente.length ? (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-          {conSrc.map((img, i) => (
-            <img
-              key={i}
-              src={str(img.src)}
-              alt={str(img.alt)}
-              className="aspect-video w-full rounded-[10px] border border-border object-cover"
-            />
+          {conFuente.map((img, i) => (
+            <GaleriaItemImg key={i} src={str(img.src)} refKey={str(img.ref)} alt={str(img.alt)} />
           ))}
         </div>
       ) : null;
@@ -100,23 +96,7 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
       ) : null;
 
     case 'pdf':
-      return str(c.src) ? (
-        <object
-          data={str(c.src)}
-          type="application/pdf"
-          className="h-[520px] w-full rounded-[12px] border border-border bg-muted"
-        >
-          <div className="grid h-full place-items-center p-6 text-center">
-            <p className="text-[12.5px] text-muted-foreground">
-              Tu navegador no puede incrustar este PDF.{' '}
-              <a href={str(c.src)} target="_blank" rel="noopener noreferrer" className="font-semibold text-secondary underline">
-                Abrir en una pestaña
-              </a>
-              .
-            </p>
-          </div>
-        </object>
-      ) : null;
+      return <PdfBloqueLector src={str(c.src)} refKey={str(c.ref)} />;
 
     case 'caso':
       // El visor DICOM real (Cornerstone3D) monta el estudio anonimizado del caso; en la
@@ -220,6 +200,73 @@ function ImagenBloqueLector({ c }: { c: Record<string, unknown> }) {
       <img src={url} alt={alt} className="max-h-[480px] w-full object-contain" />
       {pie && <figcaption className="px-3.5 py-2 text-[12px] text-muted-foreground">{pie}</figcaption>}
     </figure>
+  );
+}
+
+/**
+ * Ítem de GALERÍA del alumno — enlace directo (`src`) o firma la lectura de la imagen SUBIDA
+ * (`ref` → `media/imagenes/…`), mismo patrón que el bloque de imagen. Render en rejilla.
+ */
+function GaleriaItemImg({ src, refKey, alt }: { src: string; refKey: string; alt: string }) {
+  const [url, setUrl] = useState<string | null>(src || null);
+  useEffect(() => {
+    let vivo = true;
+    if (src) {
+      setUrl(src);
+      return;
+    }
+    if (!refKey) {
+      setUrl(null);
+      return;
+    }
+    firmarLecturaImagenAlumno(refKey).then((r) => {
+      if (vivo) setUrl(r.ok ? r.url : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [src, refKey]);
+  if (!url) return null;
+  // <img> a propósito: URL arbitraria (externa / firmada), no asset local de next/image.
+  return <img src={url} alt={alt} className="aspect-video w-full rounded-[10px] border border-border object-cover" />;
+}
+
+/**
+ * Bloque de PDF del alumno — enlace directo (`src`) tal cual, o firma la lectura del PDF
+ * SUBIDO (`ref` → `media/archivos/…`) con vida corta (§2), mismo patrón que imagen/video.
+ */
+function PdfBloqueLector({ src, refKey }: { src: string; refKey: string }) {
+  const [url, setUrl] = useState<string | null>(src || null);
+  useEffect(() => {
+    let vivo = true;
+    if (src) {
+      setUrl(src);
+      return;
+    }
+    if (!refKey) {
+      setUrl(null);
+      return;
+    }
+    firmarLecturaArchivoAlumno(refKey).then((r) => {
+      if (vivo) setUrl(r.ok ? r.url : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [src, refKey]);
+  if (!url) return null;
+  return (
+    <object data={url} type="application/pdf" className="h-[520px] w-full rounded-[12px] border border-border bg-muted">
+      <div className="grid h-full place-items-center p-6 text-center">
+        <p className="text-[12.5px] text-muted-foreground">
+          Tu navegador no puede incrustar este PDF.{' '}
+          <a href={url} target="_blank" rel="noopener noreferrer" className="font-semibold text-secondary underline">
+            Abrir en una pestaña
+          </a>
+          .
+        </p>
+      </div>
+    </object>
   );
 }
 

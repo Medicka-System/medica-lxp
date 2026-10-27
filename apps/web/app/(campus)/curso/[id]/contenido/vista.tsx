@@ -82,7 +82,11 @@ function TarjetaModulo({ m, onAbrir }: { m: Modulo; onAbrir: (leccionId: string)
           {m.estado === 'actual' && <Chip tono="ok">En curso</Chip>}
           {m.estado === 'en-curso' && <Chip tono="neutro">En curso</Chip>}
           {m.estado === 'por-empezar' && <Chip tono="neutro">Por empezar</Chip>}
-          {bloqueado && <Chip tono="neutro" icono={<Lock className="h-[11px] w-[11px]" strokeWidth={2.2} />}>Bloqueado</Chip>}
+          {bloqueado && (
+            <Chip tono="neutro" icono={<Lock className="h-[11px] w-[11px]" strokeWidth={2.2} />}>
+              {m.fechaApertura ? `Se abre el ${m.fechaApertura}` : 'Bloqueado'}
+            </Chip>
+          )}
           {actual && (
             <span className="ml-auto inline-flex items-center gap-1 text-[12px] font-bold text-secondary">
               Continuar

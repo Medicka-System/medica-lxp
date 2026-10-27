@@ -43,3 +43,34 @@ export async function firmarLecturaImagenAlumno(ref: string): Promise<ResultadoU
     return { ok: false, error: 'No se pudo obtener la imagen (servicio de media).' };
   }
 }
+
+/**
+ * Firma la lectura de UN documento de contenido (PDF/Word/PPT · `media/archivos/…`) para el
+ * lector del alumno. Espejo de `firmarLecturaImagenAlumno` contra el endpoint ya existente
+ * `POST /media/archivos/firmar-lectura`; gateado por la sesión del alumno + `acceso_activo`.
+ * El enlace directo (src) no pasa por aquí; esto solo resuelve las subidas (ref).
+ */
+export async function firmarLecturaArchivoAlumno(ref: string): Promise<ResultadoUrlImagen> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) {
+    return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
+  }
+  if (typeof ref !== 'string' || !ref.startsWith('media/archivos/')) {
+    return { ok: false, error: 'Referencia de documento inválida.' };
+  }
+  try {
+    const res = await fetch(`${apiBase()}/media/archivos/firmar-lectura`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refs: [ref] }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `No se pudo firmar el documento (HTTP ${res.status}).` };
+    const datos = (await res.json()) as { urls: Record<string, string> };
+    const url = datos.urls?.[ref];
+    return url ? { ok: true, url } : { ok: false, error: 'El documento no está disponible.' };
+  } catch (e) {
+    console.error('[firmarLecturaArchivoAlumno] fallo:', e);
+    return { ok: false, error: 'No se pudo obtener el documento (servicio de media).' };
+  }
+}
