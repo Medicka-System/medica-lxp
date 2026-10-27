@@ -37,3 +37,6 @@ apps/web/public/sw.js
 apps/web/public/workbox-*.js
 apps/web/public/sw.js.map
 apps/web/public/fallback-*.js
+
+# DB backups / dumps (datos, no fuente). NUNCA versionar dumps con PII de producción.
+infra/backups/
