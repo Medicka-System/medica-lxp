@@ -1,0 +1,49 @@
+/* Panel "Historial" (drawer derecho) — animación CSS-nativa, mismo patrón que
+   components/ui/overlay.module.css: ENTRADA por @starting-style, SALIDA sostenida por
+   `transition-behavior: allow-discrete` (el elemento sigue montado mientras `display`
+   pasa a none, así la salida alcanza a correr). Consume los tokens OFICIALES de
+   globals.css (--dur-base, --ease-entrada/salida); cero duraciones/curvas hardcodeadas.
+   Reduced-motion: lo recorta la red global de globals.css (transition-duration ~0) →
+   con movimiento reducido el panel aparece/desaparece al instante, sin deslizar. */
+
+/* Backdrop: fade-in / fade-out. */
+.backdrop {
+  opacity: 0;
+  display: none;
+  transition:
+    opacity var(--dur-base) var(--ease-salida),
+    display var(--dur-base) allow-discrete;
+}
+.backdrop[data-open='true'] {
+  opacity: 1;
+  display: block;
+  transition:
+    opacity var(--dur-base) var(--ease-entrada),
+    display var(--dur-base) allow-discrete;
+}
+
+/* Panel: entra deslizando desde el borde derecho (translateX 100% → 0). `flex-col` y
+   demás layout viven en Tailwind; aquí solo se controla display + transform + transición. */
+.panel {
+  transform: translateX(100%);
+  display: none;
+  transition:
+    transform var(--dur-base) var(--ease-salida),
+    display var(--dur-base) allow-discrete;
+}
+.panel[data-open='true'] {
+  transform: translateX(0);
+  display: flex;
+  transition:
+    transform var(--dur-base) var(--ease-entrada),
+    display var(--dur-base) allow-discrete;
+}
+
+@starting-style {
+  .backdrop[data-open='true'] {
+    opacity: 0;
+  }
+  .panel[data-open='true'] {
+    transform: translateX(100%);
+  }
+}

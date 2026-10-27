@@ -362,6 +362,12 @@ export type GrupoResumen = {
   /** URL firmada de la portada del grupo (null → placeholder). */
   portadaUrl: string | null;
   portadaSrcset?: { w: number; url: string }[];
+  /**
+   * `true` = grupo nativo del LXP (sin `cora_grupo_id`); `false` = reflejo de CORA. La UI
+   * es universal (no muestra el origen), pero el borrado solo aplica a nativos (§10 · CORA
+   * es dueño de los reflejados). Additivo; no lo usa el detalle (que usa GrupoDetalle).
+   */
+  esNativo: boolean;
 };
 
 /** Estado del grupo a partir de sus fechas (asíncrono = siempre en curso). */
@@ -397,7 +403,9 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
           coalesce((select count(*) from lxp.grupo_overrides o where o.grupo_id = g.id), 0)::int as overrides
         from lxp.grupos g
         join lxp.programas p on p.id = g.programa_id
-        where g.cora_grupo_id is null   -- SOLO nativos LXP; los de CORA se listan vía cora_grupos_staff
+        -- Lista UNIVERSAL: nativos LXP + grupos CORA reflejados (mig 0082/0086). Una sola
+        -- población; el origen es plomería interna, invisible en la UI. Alumnos de un grupo
+        -- reflejado vienen de CORA (cora_grupo_id); un nativo no tiene inscritos CORA (→ 0).
         order by g.created_at desc`,
       // Roster de CORA por grupo (una sola query · puente SECDEF, gated a staff · §10).
       sql<{ cora_grupo_id: string; alumnos: number }[]>`
@@ -423,50 +431,8 @@ export async function getGrupos(userId: string): Promise<GrupoResumen[]> {
       estado: estadoDeGrupo(r.fecha_inicio, r.fecha_fin, hoy),
       portadaUrl: r.imagen_portada ? (portadas[r.imagen_portada]?.url ?? null) : null,
       portadaSrcset: r.imagen_portada ? portadas[r.imagen_portada]?.srcset : undefined,
+      esNativo: r.cora_grupo_id === null,
     }));
-  });
-}
-
-// ── Grupos ESPEJO de CORA (read-only · mig 0084) ───────────────────────────────
-/** Un grupo de CORA para la vista de Grupos del Studio (roster aparte, lazy). */
-export type GrupoCoraStaff = {
-  coraGrupoId: string;
-  coraProgramaId: string;
-  programaNombre: string;
-  nombre: string;
-  /** Modalidad CRUDA de CORA (online | presencial | hibrida). */
-  modalidad: string | null;
-  fechaInicio: Date | null;
-  fechaFin: Date | null;
-  alumnos: number;
-};
-
-/**
- * TODOS los grupos de CORA visibles al staff (vía `lxp.cora_grupos_staff` · 0084), con su
- * programa, modalidad, fechas (grupos.fecha_inicio/fin · autoritativas) y conteo de alumnos.
- * El ROSTER por grupo se trae aparte (lazy · `getRosterGrupoCora`). Fail-soft: si 0084 no
- * está aplicada, devuelve [] (la vista cae a solo los grupos nativos).
- */
-export async function getGruposCora(userId: string): Promise<GrupoCoraStaff[]> {
-  return comoStaff(userId, async (sql) => {
-    try {
-      const filas = await sql<
-        { cora_grupo_id: string; cora_programa_id: string; programa_nombre: string; nombre: string; modalidad: string | null; fecha_inicio: Date | null; fecha_fin: Date | null; alumnos: number }[]
-      >`select cora_grupo_id, cora_programa_id, programa_nombre, nombre, modalidad, fecha_inicio, fecha_fin, alumnos
-        from lxp.cora_grupos_staff()`;
-      return filas.map((g) => ({
-        coraGrupoId: g.cora_grupo_id,
-        coraProgramaId: g.cora_programa_id,
-        programaNombre: g.programa_nombre,
-        nombre: g.nombre,
-        modalidad: g.modalidad,
-        fechaInicio: g.fecha_inicio,
-        fechaFin: g.fecha_fin,
-        alumnos: g.alumnos,
-      }));
-    } catch {
-      return []; // fail-soft: 0084 aún no aplicada
-    }
   });
 }
 
@@ -487,6 +453,8 @@ export type NodoModuloGrupo = {
   titulo: string;
   horas: number;
   personalizado: boolean;
+  /** Fecha de apertura del módulo en este grupo (liberación · mig 0087). null = abierto. */
+  fechaApertura: Date | null;
   lecciones: NodoLeccionGrupo[];
 };
 
@@ -495,6 +463,27 @@ export type OverrideCrudo = {
   entidad: string;
   entidadId: string;
   creadoEn: Date;
+};
+
+/**
+ * Aviso de re-sincronización de un override (#6 · computado en el web, Path A). Se detecta
+ * comparando la versión del programa vigente al aplicar el override (`aplicadoSobreVersion`)
+ * contra la versión ACTUAL, o si la entidad ya no existe en la plantilla (huérfano). Trae lo
+ * necesario para la banda ámbar y el "ver diferencia": ubicación legible + valor actual del
+ * programa vs la personalización del grupo (del patch). Sin historial de versiones (§decisión 2).
+ */
+export type AvisoResyncUI = {
+  entidad: string;
+  entidadId: string;
+  motivo: 'desfasado' | 'huerfano';
+  aplicadoSobreVersion: number;
+  versionActual: number;
+  /** Ubicación legible del nodo, p. ej. "Módulo 04" o "Módulo 04 · Lección 3". */
+  donde: string;
+  /** Título ACTUAL del nodo en el programa (null si huérfano: ya no existe). */
+  tituloActual: string | null;
+  /** La personalización cruda del grupo (patch del override) para el diff lado a lado. */
+  patch: Record<string, unknown>;
 };
 
 export type GrupoDetalle = {
@@ -509,6 +498,8 @@ export type GrupoDetalle = {
   totales: { modulos: number; horas: number; lecciones: number };
   temario: NodoModuloGrupo[];
   overrides: OverrideCrudo[];
+  /** Overrides que necesitan re-sincronización (#6 · desfasado/huérfano). Vacío = nada que decidir. */
+  resync: AvisoResyncUI[];
   /** Ref de storage de la portada del grupo (para saber si hay una). */
   imagenPortadaRef: string | null;
   /** URL firmada de la portada (preview en el editor · null si no hay). */
@@ -558,18 +549,78 @@ export async function getGrupoDetalle(
       : [];
 
     const overrides = await sql<
-      { id: string; entidad: string; entidad_id: string; created_at: Date }[]
+      {
+        id: string;
+        entidad: string;
+        entidad_id: string;
+        created_at: Date;
+        patch: Record<string, unknown>;
+        aplicado_sobre_version: number;
+      }[]
     >`
-      select id, entidad, entidad_id, created_at
+      select id, entidad, entidad_id, created_at, patch, aplicado_sobre_version
       from lxp.grupo_overrides where grupo_id = ${grupoId} order by created_at`;
     // Set de entidades personalizadas (marca cruda: existe un override → personalizado).
     const personalizados = new Set(overrides.map((o) => o.entidad_id));
+
+    // Calendario de liberación (fecha de apertura por módulo · mig 0087). Map moduloId→fecha.
+    const calFilas = await sql<{ modulo_id: string; fecha_apertura: Date }[]>`
+      select modulo_id, fecha_apertura from lxp.grupo_calendario where grupo_id = ${grupoId}`;
+    const aperturaPorModulo = new Map(calFilas.map((c) => [c.modulo_id, c.fecha_apertura]));
 
     const leccionesPorModulo = new Map<string, NodoLeccionGrupo[]>();
     for (const l of lecciones) {
       const arr = leccionesPorModulo.get(l.modulo_id) ?? [];
       arr.push({ id: l.id, titulo: l.nombre, personalizado: personalizados.has(l.id) });
       leccionesPorModulo.set(l.modulo_id, arr);
+    }
+
+    // ── Re-sincronización (#6 · Path A, en memoria): un override está DESFASADO si se aplicó
+    // sobre una versión anterior a la actual del programa, o HUÉRFANO si su nodo ya no existe
+    // en la plantilla. Mismo criterio que detectarResync (shared); aquí se computa con los
+    // datos ya cargados (versión + temario), sin query extra ni tocar shared. ──
+    const claveMod = new Map(modulos.map((m, i) => [m.id, { clave: String(i + 1).padStart(2, '0'), titulo: m.nombre }]));
+    const moduloDeLeccion = new Map(lecciones.map((l) => [l.id, l.modulo_id]));
+    const tituloLeccion = new Map(lecciones.map((l) => [l.id, l.nombre]));
+    const resync: AvisoResyncUI[] = [];
+    for (const o of overrides) {
+      const existe =
+        o.entidad === 'modulo'
+          ? claveMod.has(o.entidad_id)
+          : o.entidad === 'leccion'
+            ? tituloLeccion.has(o.entidad_id)
+            : true; // otras entidades: no se evalúan como huérfanas aquí
+      const huerfano = !existe;
+      const desfasado = existe && o.aplicado_sobre_version < g.programa_version;
+      if (!huerfano && !desfasado) continue;
+
+      // Ubicación legible + título actual del nodo (null si huérfano).
+      let donde = o.entidad;
+      let tituloActual: string | null = null;
+      if (o.entidad === 'modulo') {
+        const m = claveMod.get(o.entidad_id);
+        donde = m ? `Módulo ${m.clave}` : 'Módulo (eliminado)';
+        tituloActual = m?.titulo ?? null;
+      } else if (o.entidad === 'leccion') {
+        const modId = moduloDeLeccion.get(o.entidad_id);
+        const m = modId ? claveMod.get(modId) : undefined;
+        const t = tituloLeccion.get(o.entidad_id) ?? null;
+        donde = m ? `Módulo ${m.clave} · Lección` : 'Lección (eliminada)';
+        tituloActual = t;
+      } else if (o.entidad === 'bloque' || o.entidad === 'leccion_config') {
+        // Reemplazo de FUENTE (4b): se rotula "Recurso reemplazado" (no el id ni la ref · §decisión 4).
+        donde = 'Recurso reemplazado';
+      }
+      resync.push({
+        entidad: o.entidad,
+        entidadId: o.entidad_id,
+        motivo: huerfano ? 'huerfano' : 'desfasado',
+        aplicadoSobreVersion: o.aplicado_sobre_version,
+        versionActual: g.programa_version,
+        donde,
+        tituloActual,
+        patch: o.patch ?? {},
+      });
     }
 
     const hoy = new Date();
@@ -600,6 +651,7 @@ export async function getGrupoDetalle(
         titulo: m.nombre,
         horas: Math.round(m.horas),
         personalizado: personalizados.has(m.id),
+        fechaApertura: aperturaPorModulo.get(m.id) ?? null,
         lecciones: leccionesPorModulo.get(m.id) ?? [],
       })),
       overrides: overrides.map((o) => ({
@@ -608,6 +660,7 @@ export async function getGrupoDetalle(
         entidadId: o.entidad_id,
         creadoEn: o.created_at,
       })),
+      resync,
       imagenPortadaRef: g.imagen_portada,
       portadaUrl: _gp?.url ?? null,
       portadaSrcset: _gp?.srcset,

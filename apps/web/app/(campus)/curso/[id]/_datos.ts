@@ -1,6 +1,8 @@
 import 'server-only';
 import { comoAlumno } from '@/lib/db.server';
 import { grupoDelAlumnoEnPrograma } from '@/lib/campus/inscripcion';
+import { resolverCursoAlumno } from '@/lib/campus/herencia-alumno.server';
+import { fechaCortaDia } from '@/lib/format';
 import { comoTareaConfig } from '@/lib/studio/tarea-contrato';
 import { avataresDe } from '@/lib/campus/ateneo-social';
 import { iniciales } from '@/components/avatar';
@@ -66,57 +68,76 @@ export type ContenidoCurso = { avancePct: number; completos: number; modulos: Mo
 
 export async function getContenido(userId: string, programaId: string): Promise<ContenidoCurso> {
   return comoAlumno(userId, async (sql) => {
-    const mods = await sql<
-      { id: string; nombre: string; orden: number; horas: number; lecciones: number; contenidos: number; leccion_id: string | null }[]
-    >`
-      select m.id, m.nombre, m.orden, m.horas::float8 as horas,
-        (select count(*) from lxp.lecciones l where l.modulo_id = m.id)::int as lecciones,
-        (select count(*) from lxp.contenidos co
-           join lxp.lecciones l on l.id = co.leccion_id where l.modulo_id = m.id)::int as contenidos,
-        (select l.id from lxp.lecciones l where l.modulo_id = m.id order by l.orden, l.id limit 1) as leccion_id
-      from lxp.modulos m
-      join lxp.programas pr on pr.id = m.programa_id
-      where m.programa_id = ${programaId} and pr.publicado
-      order by m.orden, m.nombre`;
+    // Vista RESUELTA de herencia del grupo del alumno: módulos/lecciones/contenidos
+    // OCULTOS por su grupo NO entran (ni al árbol ni al avance · §6). Sin overrides =
+    // igual que la plantilla cruda.
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
+    if (!resuelto) return { avancePct: 0, completos: 0, modulos: [] };
 
-    const hechosPorMod = new Map(
+    // Contenidos completados por el alumno (se intersectan con los VISIBLES).
+    const completados = new Set(
       (
-        await sql<{ modulo_id: string; hechos: number }[]>`
-          select l.modulo_id, count(*) filter (where rp.completado)::int as hechos
+        await sql<{ contenido_id: string }[]>`
+          select rp.contenido_id
           from lxp.reproduccion_progreso rp
           join lxp.contenidos co on co.id = rp.contenido_id
           join lxp.lecciones l on l.id = co.leccion_id
           join lxp.modulos m on m.id = l.modulo_id
-          where rp.alumno_id = ${userId} and m.programa_id = ${programaId}
-          group by l.modulo_id`
-      ).map((r) => [r.modulo_id, r.hechos]),
+          where rp.alumno_id = ${userId} and m.programa_id = ${programaId} and rp.completado`
+      ).map((r) => r.contenido_id),
     );
 
     let totalContenidos = 0;
     let totalHechos = 0;
     let primeraIncompleta = -1;
-    const modulos: Modulo[] = mods.map((m, i) => {
-      const total = m.contenidos;
-      const hechos = Math.min(hechosPorMod.get(m.id) ?? 0, total);
+    const modulos: Modulo[] = [];
+    // Solo módulos VISIBLES; numeración secuencial sobre lo que el alumno ve.
+    for (const m of resuelto.vista.modulos) {
+      if (m.herencia.oculto) continue;
+      const vlecc = m.lecciones.filter((l) => !l.herencia.oculto);
+      const vcont = vlecc.flatMap((l) => l.contenidos.filter((c) => !c.herencia.oculto));
+      const total = vcont.length;
+      const hechos = vcont.filter((c) => completados.has(c.id)).length;
+      const i = modulos.length;
+      // BLOQUEADO por fecha (solo síncrono · §6): se VE pero NO cuenta en el avance (su
+      // contenido aún no está disponible → no entra al denominador) ni puede ser "actual".
+      const bloqueado = resuelto.modulosBloqueados.has(m.id);
+      if (bloqueado) {
+        const apertura = resuelto.aperturaPorModulo.get(m.id);
+        modulos.push({
+          id: m.id,
+          numero: i + 1,
+          kicker: `Módulo ${i + 1}`,
+          titulo: m.nombre,
+          meta: `${m.horas} h · ${vlecc.length} ${vlecc.length === 1 ? 'lección' : 'lecciones'}`,
+          hechos: 0,
+          total,
+          estado: 'bloqueado',
+          luz: LUCES[i % LUCES.length]!,
+          leccionId: vlecc[0]?.id ?? null,
+          fechaApertura: apertura ? fechaCortaDia(apertura) : undefined,
+        } satisfies Modulo);
+        continue;
+      }
       totalContenidos += total;
       totalHechos += hechos;
       const completado = total > 0 && hechos >= total;
       if (!completado && primeraIncompleta === -1) primeraIncompleta = i;
       const estado = completado ? 'completado' : hechos > 0 ? 'en-curso' : 'por-empezar';
-      return {
+      modulos.push({
         id: m.id,
         numero: i + 1,
         kicker: `Módulo ${i + 1}`,
         titulo: m.nombre,
-        meta: `${m.horas} h · ${m.lecciones} ${m.lecciones === 1 ? 'lección' : 'lecciones'}`,
+        meta: `${m.horas} h · ${vlecc.length} ${vlecc.length === 1 ? 'lección' : 'lecciones'}`,
         hechos,
         total,
         estado,
         luz: LUCES[i % LUCES.length]!,
-        leccionId: m.leccion_id,
-      } satisfies Modulo;
-    });
-    // El primer módulo no completado es "el actual" (borde teal + Continuar).
+        leccionId: vlecc[0]?.id ?? null,
+      } satisfies Modulo);
+    }
+    // El primer módulo no completado (y NO bloqueado) es "el actual" (borde teal + Continuar).
     if (primeraIncompleta >= 0 && modulos[primeraIncompleta]!.estado !== 'completado') {
       modulos[primeraIncompleta] = { ...modulos[primeraIncompleta]!, estado: 'actual' };
     }
@@ -141,6 +162,9 @@ type FilaTarea = {
 
 export async function getTareas(userId: string, programaId: string): Promise<Tarea[]> {
   return comoAlumno(userId, async (sql) => {
+    // Lecciones VISIBLES del grupo (una tarea en lección oculta no aparece · §6).
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
+    if (!resuelto) return [];
     const filas = await sql<FilaTarea[]>`
       select l.id, l.nombre, m.nombre as modulo, l.config,
              e.estado::text as entrega_estado, e.nota::float8 as nota, e.feedback, e.contenido
@@ -151,7 +175,9 @@ export async function getTareas(userId: string, programaId: string): Promise<Tar
       where m.programa_id = ${programaId} and pr.publicado and l.tipo = 'tarea'
       order by m.orden, l.orden, l.created_at`;
 
-    return filas.map((f): Tarea => {
+    return filas
+      .filter((f) => resuelto.leccionesVisibles.has(f.id))
+      .map((f): Tarea => {
       const cfg = comoTareaConfig(f.config);
       const entregada = f.entrega_estado === 'enviada' || f.entrega_estado === 'calificada' || f.entrega_estado === 'devuelta';
       const calificada = f.entrega_estado === 'calificada' && f.nota != null;
@@ -188,7 +214,8 @@ export type HistorialCurso = {
 
 export async function getHistorial(userId: string, programaId: string, leccionId?: string): Promise<HistorialCurso> {
   return comoAlumno(userId, async (sql) => {
-    const filas = await sql<
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
+    const todas = await sql<
       {
         leccion_id: string;
         nombre: string;
@@ -209,6 +236,8 @@ export async function getHistorial(userId: string, programaId: string, leccionId
       join lxp.entregas e on e.leccion_id = l.id and e.id_alumno = ${userId}
       where m.programa_id = ${programaId} and pr.publicado and l.tipo = 'tarea'
       order by m.orden, l.orden`;
+    // Oculto por el grupo ⇒ fuera del historial (§6).
+    const filas = resuelto ? todas.filter((f) => resuelto.leccionesVisibles.has(f.leccion_id)) : todas;
 
     const opciones = filas.map((f) => ({ value: f.leccion_id, label: `${f.modulo} · ${f.nombre}` }));
     const sel = filas.find((f) => f.leccion_id === leccionId) ?? filas[0] ?? null;
@@ -250,16 +279,19 @@ type FilaMsg = {
 export async function getForos(userId: string, programaId: string, grupoId: string | null): Promise<ForoParticipado[]> {
   if (!grupoId) return [];
   return comoAlumno(userId, async (sql) => {
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
     // Actividades tipo foro del programa donde el alumno tiene al menos un mensaje (su grupo).
-    const foros = await sql<{ actividad_id: string }[]>`
-      select distinct fm.actividad_id
+    const foros = await sql<{ actividad_id: string; leccion_id: string }[]>`
+      select distinct fm.actividad_id, l.id as leccion_id
       from lxp.foro_mensajes fm
       join lxp.actividades a on a.id = fm.actividad_id
       join lxp.lecciones l on l.id = a.leccion_id
       join lxp.modulos m on m.id = l.modulo_id
       where fm.autor_id = ${userId} and fm.grupo_id = ${grupoId} and m.programa_id = ${programaId}`;
-    if (foros.length === 0) return [];
-    const ids = foros.map((f) => f.actividad_id);
+    // Foro en lección oculta por el grupo ⇒ no aparece (§6).
+    const visibles = resuelto ? foros.filter((f) => resuelto.leccionesVisibles.has(f.leccion_id)) : foros;
+    if (visibles.length === 0) return [];
+    const ids = visibles.map((f) => f.actividad_id);
 
     const msgs = await sql<FilaMsg[]>`
       select fm.actividad_id, l.nombre as leccion, m.nombre as modulo,
@@ -321,8 +353,9 @@ export async function getForos(userId: string, programaId: string, grupoId: stri
 /* ───────── Calificaciones · tareas calificadas + casos validados ───────── */
 export async function getCalificaciones(userId: string, programaId: string): Promise<Calificacion[]> {
   return comoAlumno(userId, async (sql) => {
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
     // Tareas calificadas (entregas con nota asentada por el docente).
-    const tareas = await sql<
+    const tareasTodas = await sql<
       { leccion_id: string; nombre: string; modulo: string; config: Record<string, unknown> | null; nota: number; feedback: string | null }[]
     >`
       select l.id as leccion_id, l.nombre, m.nombre as modulo, l.config,
@@ -333,6 +366,8 @@ export async function getCalificaciones(userId: string, programaId: string): Pro
       where e.id_alumno = ${userId} and m.programa_id = ${programaId}
         and e.estado = 'calificada' and e.nota is not null
       order by m.orden, l.orden`;
+    // Tarea en lección oculta por el grupo ⇒ no cuenta en calificaciones (§6).
+    const tareas = resuelto ? tareasTodas.filter((t) => resuelto.leccionesVisibles.has(t.leccion_id)) : tareasTodas;
 
     // Casos de bitácora validados (aprobados) — cuentan horas, resultado "validado".
     const casos = await sql<

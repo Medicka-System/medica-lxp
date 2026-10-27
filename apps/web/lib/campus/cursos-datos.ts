@@ -3,6 +3,7 @@ import type postgres from 'postgres';
 import { comoAlumno } from '@/lib/db.server';
 import { firmarDerivados } from '@/lib/media/firmar-imagenes.server';
 import { gruposDelAlumno, programasDelAlumno } from './inscripcion';
+import { resolverCursoAlumno } from './herencia-alumno.server';
 import type {
   CursoResumen,
   CursoPendiente,
@@ -52,91 +53,86 @@ async function programasPublicados(
     order by pr.nombre`;
 }
 
-/** Contenidos completados por programa (reproduccion_progreso del alumno). */
-async function completadosPorPrograma(
-  sql: Sql,
-  userId: string,
-): Promise<Map<string, number>> {
-  const rows = await sql<{ programa_id: string; completados: number }[]>`
-    select m.programa_id, count(*) filter (where rp.completado)::int as completados
-    from lxp.reproduccion_progreso rp
-    join lxp.contenidos co on co.id = rp.contenido_id
-    join lxp.lecciones l on l.id = co.leccion_id
-    join lxp.modulos m on m.id = l.modulo_id
-    where rp.alumno_id = ${userId}
-    group by m.programa_id`;
-  return new Map(rows.map((r) => [r.programa_id, r.completados]));
-}
-
-/** Primera lección de cada programa (para "Continuar"), por orden de módulo/lección. */
-async function primeraLeccionPorPrograma(
-  sql: Sql,
-): Promise<Map<string, { leccionId: string; nombre: string }>> {
-  const rows = await sql<
-    { programa_id: string; leccion_id: string; nombre: string }[]
-  >`
-    select distinct on (m.programa_id)
-      m.programa_id, l.id as leccion_id, l.nombre
-    from lxp.modulos m
-    join lxp.lecciones l on l.modulo_id = m.id
-    join lxp.programas pr on pr.id = m.programa_id
-    where pr.publicado
-    order by m.programa_id, m.orden, l.orden`;
-  return new Map(
-    rows.map((r) => [r.programa_id, { leccionId: r.leccion_id, nombre: r.nombre }]),
-  );
-}
-
 /**
  * Mis cursos: programas en los que el alumno está INSCRITO (vía su grupo · inscripción
  * CORA, §10). SIN fallback de catálogo — el alumno ve SOLO sus cursos reales (PUENTE 1).
  *
  * Primero corre `lxp.reflejar_grupos_cora()` (idempotente): materializa en `lxp.grupos`
- * los grupos CORA del alumno cuyo programa el diseñador ya ligó. Reemplaza el
- * materializado manual. Los grupos cuyo programa aún no está ligado NO se reflejan aquí;
- * se listan como "contenido pendiente" en `getCursosPendientes`.
+ * los grupos CORA del alumno cuyo programa el diseñador ya ligó. Los grupos cuyo programa
+ * aún no está ligado NO se reflejan aquí; se listan como "contenido pendiente".
+ *
+ * Conteos, horas y avance sobre la vista RESUELTA de herencia del grupo (§6): un módulo/
+ * lección/contenido OCULTO por el grupo no cuenta. Sin overrides ⇒ igual que la plantilla.
  */
 export async function getMisCursos(userId: string): Promise<CursoResumen[]> {
   return comoAlumno(userId, async (sql) => {
     // Reflejo automático de la inscripción CORA → lxp.grupos (antes de leer cohortes).
     await sql`select lxp.reflejar_grupos_cora()`;
-    const [programas, grupos, completados, primeras] = await Promise.all([
-      programasPublicados(sql),
-      gruposDelAlumno(sql, userId),
-      completadosPorPrograma(sql, userId),
-      primeraLeccionPorPrograma(sql),
-    ]);
+    const grupos = await gruposDelAlumno(sql, userId);
+    if (grupos.length === 0) return [];
 
-    // Grupo (cohorte) del alumno por programa + set de programas inscritos.
-    const grupoPorPrograma = new Map(
-      grupos.map((g) => [g.programaId, { id: g.grupoId, nombre: g.grupoNombre, imagenPortada: g.imagenPortada }]),
+    // Contenidos completados del alumno (cualquier programa); se intersectan con lo visible.
+    const completados = new Set(
+      (
+        await sql<{ contenido_id: string }[]>`
+          select contenido_id from lxp.reproduccion_progreso
+          where alumno_id = ${userId} and completado and contenido_id is not null`
+      ).map((r) => r.contenido_id),
     );
-    const inscritos = new Set(grupoPorPrograma.keys());
-    // Firma las portadas de las cohortes del alumno en un solo lote (ref → url).
     const portadas = await firmarDerivados(grupos.map((g) => g.imagenPortada), 'portada');
 
-    // SOLO los programas en los que el alumno tiene un grupo reflejado (sin fallback).
-    const mios = programas.filter((p) => inscritos.has(p.id));
+    const cursos: CursoResumen[] = [];
+    const vistos = new Set<string>(); // dedup por programa (un curso por programa)
+    for (const g of grupos) {
+      if (vistos.has(g.programaId)) continue;
+      const resuelto = await resolverCursoAlumno(sql, userId, g.programaId);
+      if (!resuelto) continue; // programa no publicado → no es un curso del alumno
+      vistos.add(g.programaId);
 
-    return mios.map((p): CursoResumen => {
-      const hechos = completados.get(p.id) ?? 0;
-      const g = grupoPorPrograma.get(p.id) ?? null;
-      return {
-        programaId: p.id,
-        nombre: p.nombre,
-        grupo: g ? { id: g.id, nombre: g.nombre } : null,
-        portadaUrl: g?.imagenPortada ? (portadas[g.imagenPortada]?.url ?? null) : null,
-        portadaSrcset: g?.imagenPortada ? portadas[g.imagenPortada]?.srcset : undefined,
-        descripcion: p.descripcion,
-        modulos: p.modulos,
-        lecciones: p.lecciones,
-        contenidos: p.contenidos,
-        horas: p.horas,
+      let modulos = 0;
+      let lecciones = 0;
+      let contenidos = 0;
+      let horas = 0;
+      let hechos = 0;
+      let continuar: { leccionId: string; nombre: string } | null = null;
+      for (const m of resuelto.vista.modulos) {
+        if (m.herencia.oculto) continue;
+        modulos++;
+        horas += m.horas;
+        // Un módulo BLOQUEADO por fecha describe el alcance del curso (cuenta en módulos/
+        // lecciones/horas) pero su contenido aún no está disponible: NO entra al avance ni
+        // es destino de "Continuar" (§6 · avance sobre lo liberado).
+        const bloqueado = resuelto.modulosBloqueados.has(m.id);
+        for (const l of m.lecciones) {
+          if (l.herencia.oculto) continue;
+          lecciones++;
+          if (!continuar && !bloqueado) continuar = { leccionId: l.id, nombre: l.nombre };
+          if (bloqueado) continue;
+          for (const c of l.contenidos) {
+            if (c.herencia.oculto) continue;
+            contenidos++;
+            if (completados.has(c.id)) hechos++;
+          }
+        }
+      }
+
+      cursos.push({
+        programaId: g.programaId,
+        nombre: resuelto.vista.programa.nombre,
+        grupo: { id: g.grupoId, nombre: g.grupoNombre },
+        portadaUrl: g.imagenPortada ? (portadas[g.imagenPortada]?.url ?? null) : null,
+        portadaSrcset: g.imagenPortada ? portadas[g.imagenPortada]?.srcset : undefined,
+        descripcion: resuelto.vista.programa.descripcion,
+        modulos,
+        lecciones,
+        contenidos,
+        horas,
         completados: hechos,
-        avancePct: p.contenidos > 0 ? Math.round((100 * hechos) / p.contenidos) : 0,
-        continuar: primeras.get(p.id) ?? null,
-      };
-    });
+        avancePct: contenidos > 0 ? Math.round((100 * hechos) / contenidos) : 0,
+        continuar,
+      });
+    }
+    return cursos;
   });
 }
 

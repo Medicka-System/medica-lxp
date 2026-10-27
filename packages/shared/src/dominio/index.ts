@@ -11,3 +11,4 @@ export * from './notificaciones';
 export * from './casos';
 export * from './media';
 export * from './redactor';
+export * from './herencia';

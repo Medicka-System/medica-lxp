@@ -1,6 +1,7 @@
 import 'server-only';
 import type { ResultadoAutoeval } from '@campus/shared';
 import { comoAlumno } from '@/lib/db.server';
+import { resolverCursoAlumno } from '@/lib/campus/herencia-alumno.server';
 import { comoTipoLeccion } from '@/lib/studio/leccion-tipos';
 import { normalizarImagen } from '@/lib/studio/autoeval-contrato';
 import { comoTipoBloqueTeoria } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
@@ -27,6 +28,30 @@ const TIPOS_REACTIVO: readonly TipoReactivoAlumno[] = [
   'verdadero_falso',
   'abierta',
 ];
+
+/** Base del `api` (server-side). En docker la red interna es http://api:8000. */
+function apiBase(): string {
+  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+}
+
+/**
+ * Pregunta al `api` por el lanzador público del paquete descomprimido (Pieza 1 · §7).
+ * El `api` es la autoridad de storage (convención del prefijo + existencia); el web solo
+ * consume. Best-effort: ante cualquier fallo devuelve null y el lector se degrada.
+ */
+async function resolverLanzadorPaquete(
+  contenidoId: string,
+  entryPoint: string,
+): Promise<{ lanzadorUrl: string; listo: boolean } | null> {
+  try {
+    const url = `${apiBase()}/paquetes/${encodeURIComponent(contenidoId)}/lanzador?entry=${encodeURIComponent(entryPoint)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()) as { lanzadorUrl: string; listo: boolean };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Proyecta el `config` de una lección autoevaluación (modelo nuevo · mig 0023) a la
@@ -138,6 +163,14 @@ export async function getLeccion(
     const leccion = cab[0];
     if (!leccion) return null;
 
+    // Herencia del grupo: una lección OCULTA para su grupo no es accesible (ni por URL
+    // directa) y la navegación solo salta entre lecciones VISIBLES (§6). Igual con el
+    // gating por fecha: una lección de un módulo BLOQUEADO (fecha futura, solo síncrono)
+    // no se abre ni tecleando la URL — bloqueo real, no solo visual.
+    const resuelto = await resolverCursoAlumno(sql, userId, leccion.programa_id);
+    if (resuelto && !resuelto.leccionesVisibles.has(leccion.id)) return null;
+    if (resuelto && resuelto.leccionesBloqueadas.has(leccion.id)) return null;
+
     const contenidos = await sql<
       {
         id: string;
@@ -158,12 +191,17 @@ export async function getLeccion(
       order by co.orden, co.created_at`;
 
     // Secuencia de lecciones del programa (orden módulo → lección) para vecinos.
-    const secuencia = await sql<{ id: string; nombre: string }[]>`
+    const secuenciaCruda = await sql<{ id: string; nombre: string }[]>`
       select l.id, l.nombre
       from lxp.lecciones l
       join lxp.modulos m on m.id = l.modulo_id
       where m.programa_id = ${leccion.programa_id}
       order by m.orden, l.orden, l.created_at`;
+    // Vecinos solo entre lecciones visibles Y NO bloqueadas por fecha (sin overrides/
+    // calendario = todas). No se navega hacia un módulo aún no liberado.
+    const secuencia = resuelto
+      ? secuenciaCruda.filter((s) => resuelto.leccionesVisibles.has(s.id) && !resuelto.leccionesBloqueadas.has(s.id))
+      : secuenciaCruda;
 
     const idx = secuencia.findIndex((s) => s.id === leccionId);
     const anterior: LeccionVecina | null = idx > 0 ? secuencia[idx - 1]! : null;
@@ -183,9 +221,28 @@ export async function getLeccion(
     // config; la fila `lxp.contenidos` compat (que la ingesta crea) es solo el ancla
     // de progreso (su uuid lo exige POST /players/progreso → LRS).
     const tipo = comoTipoLeccion(leccion.tipo);
-    const config = (leccion.config ?? {}) as ConfigLeccion;
+    // Reemplazo de FUENTE por grupo (Paso 4b): si el grupo del alumno overrideó la fuente de
+    // ESTA lección (video · entidad 'leccion_config'), se overlaya sobre config (fuente ya
+    // resuelta). Sin override → igual que el programa. Overrides ya vienen en `resuelto`.
+    const overrideConfig = resuelto?.overridesFuente.leccionConfig.get(leccion.id);
+    const config = { ...((leccion.config ?? {}) as ConfigLeccion), ...(overrideConfig ?? {}) } as ConfigLeccion;
     const interactivo = esLeccionInteractiva(tipo);
     const compat = interactivo ? contenidos.find((c) => c.tipo === tipo) ?? null : null;
+
+    // Lanzador del paquete SCORM/xAPI (Pieza 1 · §7): el `api` resuelve la URL PÚBLICA del
+    // entryPoint descomprimido + si la extracción del worker ya terminó (`listo` derivado de
+    // STORAGE, sin flag en BD). Best-effort: si el api no responde, el lector se degrada a
+    // "procesando" con dignidad (§2). Solo para paquetes (tienen `paqueteRef` + `entryPoint`).
+    if (config.paqueteRef && config.entryPoint) {
+      const idPaquete = config.contenidoId ?? compat?.id ?? null;
+      if (idPaquete) {
+        const lanzador = await resolverLanzadorPaquete(idPaquete, config.entryPoint);
+        if (lanzador) {
+          config.lanzadorUrl = lanzador.lanzadorUrl;
+          config.paqueteListo = lanzador.listo;
+        }
+      }
+    }
 
     // Progreso ANCLADO A LA LECCIÓN (modelo nuevo · mig 0028): el candado de completado
     // para los tipos sin fila en contenidos (teoría/video/…). Persiste al recargar.
@@ -268,7 +325,13 @@ export async function getLeccion(
         order by orden, created_at`;
       bloquesTeoria = filas.flatMap((f) => {
         const tb = comoTipoBloqueTeoria(f.tipo_bloque);
-        return tb ? [{ id: f.id, tipoBloque: tb, config: f.config ?? {} }] : [];
+        if (!tb) return [];
+        // Reemplazo de FUENTE por grupo (Paso 4b): si este bloque fue overrideado por el
+        // grupo (entidad 'bloque'), se overlaya la fuente resuelta sobre su config. Sin
+        // override → config del programa. Los overrides ya vienen en `resuelto`.
+        const over = resuelto?.overridesFuente.bloque.get(f.id);
+        const config = over ? { ...(f.config ?? {}), ...over } : (f.config ?? {});
+        return [{ id: f.id, tipoBloque: tb, config }];
       });
     }
 
@@ -322,6 +385,9 @@ export async function getContenidoCurso(
       select nombre from lxp.programas where id = ${programaId} and publicado limit 1`;
     if (!prog[0]) return null;
 
+    // Herencia del grupo: el menú no muestra módulos/lecciones ocultos (§6).
+    const resuelto = await resolverCursoAlumno(sql, userId, programaId);
+
     const mods = await sql<{ id: string; nombre: string }[]>`
       select id, nombre from lxp.modulos
       where programa_id = ${programaId}
@@ -362,8 +428,17 @@ export async function getContenidoCurso(
       where m.programa_id = ${programaId}
       order by m.orden, l.orden, l.created_at`;
 
-    const modulos: ModuloMenu[] = mods.map((m) => {
-      const lecciones: LeccionMenu[] = lecs
+    // Fuera del menú del lector: módulos/lecciones ocultos y los BLOQUEADOS por fecha
+    // (no son navegables — el alumno los ve bloqueados en la grilla del curso, no aquí).
+    const modsVis = resuelto
+      ? mods.filter((m) => resuelto.modulosVisibles.has(m.id) && !resuelto.modulosBloqueados.has(m.id))
+      : mods;
+    const lecsVis = resuelto
+      ? lecs.filter((l) => resuelto.leccionesVisibles.has(l.id) && !resuelto.leccionesBloqueadas.has(l.id))
+      : lecs;
+
+    const modulos: ModuloMenu[] = modsVis.map((m) => {
+      const lecciones: LeccionMenu[] = lecsVis
         .filter((l) => l.modulo_id === m.id)
         .map((l) => ({
           id: l.id,
@@ -383,8 +458,8 @@ export async function getContenidoCurso(
     return {
       programa: prog[0].nombre,
       modulos,
-      total: lecs.length,
-      hechas: lecs.filter((l) => l.completada).length,
+      total: lecsVis.length,
+      hechas: lecsVis.filter((l) => l.completada).length,
     };
   });
 }

@@ -18,8 +18,13 @@ function apiBase(): string {
   return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 }
 
-/** Entidades del temario que el modal personaliza (subset de EntidadOverride del api). */
-export type EntidadOverrideUI = 'modulo' | 'leccion';
+/**
+ * Entidades del temario que el modal personaliza (subset de EntidadOverride del api).
+ * `bloque`/`leccion_config` son el reemplazo de FUENTE de recurso por grupo (Paso 4b):
+ * el patch lleva la fuente YA RESUELTA (ref/src/videotecaId/imagenes), que el dominio
+ * valida contra su whitelist y el alumno overlaya en getLeccion.
+ */
+export type EntidadOverrideUI = 'modulo' | 'leccion' | 'bloque' | 'leccion_config';
 
 export type ResultadoOverride = { ok: true } | { ok: false; error: string };
 

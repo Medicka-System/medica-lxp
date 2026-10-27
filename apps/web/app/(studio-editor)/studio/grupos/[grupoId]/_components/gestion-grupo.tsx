@@ -19,8 +19,9 @@
  *    a un stub que lo indica; no se inventa la lógica de dominio.
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { ImgDerivada } from '@/components/img-derivada';
+import estilosPanel from './panel-historial.module.css';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -30,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   EyeOff,
+  History,
   Image as ImageIcon,
   Info,
   Link2,
@@ -47,6 +49,7 @@ import {
 import { mono, kicker, softText, focusRing, focusRingDark } from '@/lib/studio/estilos';
 import type {
   AlumnoDeGrupo,
+  AvisoResyncUI,
   EstadoGrupo,
   GrupoDetalle,
   NodoLeccionGrupo,
@@ -54,9 +57,11 @@ import type {
 } from '@/lib/studio/datos';
 import type { TipoOverride } from '@/lib/studio/herencia-contrato';
 import { Select } from '@/components/ui/select';
-import { actualizarGrupo } from '@/lib/studio/acciones';
+import { actualizarGrupo, fijarFechaApertura, limpiarFechaApertura } from '@/lib/studio/acciones';
 import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
+import { fechaCortaDia } from '@/lib/format';
 import { aplicarOverride, revertirOverride, type EntidadOverrideUI } from '@/lib/studio/herencia-acciones';
+import { ReemplazarRecurso } from './reemplazar-recurso';
 
 const ESTADO: Record<EstadoGrupo, { texto: string; clase: string }> = {
   curso: { texto: 'En curso', clase: 'bg-accent text-accent-foreground' },
@@ -95,6 +100,9 @@ const ETIQUETA_ENTIDAD: Record<string, string> = {
   modulo: 'Módulo',
   leccion: 'Lección',
   contenido: 'Contenido',
+  // Reemplazo de FUENTE por grupo (4b): se muestran como "Recurso reemplazado" en el Historial.
+  bloque: 'Recurso',
+  leccion_config: 'Recurso',
 };
 
 export function GestionGrupo({
@@ -132,6 +140,24 @@ export function GestionGrupo({
     modulo: string;
     nodo: { entidad: EntidadOverrideUI; entidadId: string; titulo: string; personalizado: boolean };
   } | null>(null);
+
+  // Re-sincronización (#6): modal de diferencia + override en curso de re-sincronizar.
+  const [verDiff, setVerDiff] = useState<AvisoResyncUI | null>(null);
+  const [resyncando, setResyncando] = useState<string | null>(null);
+  // Panel lateral "Historial" (conflictos + personalizaciones), oculto por defecto.
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+
+  function resincronizar(r: AvisoResyncUI) {
+    const clave = `${r.entidad}:${r.entidadId}`;
+    setResyncando(clave);
+    iniciar(async () => {
+      // Re-sincronizar = DESCARTAR el override → el nodo vuelve a heredar (DELETE ya existente).
+      await revertirOverride(grupo.id, r.entidad as EntidadOverrideUI, r.entidadId);
+      setResyncando(null);
+      setVerDiff((d) => (d && `${d.entidad}:${d.entidadId}` === clave ? null : d));
+      router.refresh();
+    });
+  }
 
   const cambiado =
     nombre !== grupo.nombre ||
@@ -206,6 +232,12 @@ export function GestionGrupo({
 
   const docenteNombre = docentes.find((d) => d.userId === docenteId)?.nombre;
 
+  // Claves (entidad:id) de los overrides en conflicto, para el chip ámbar del índice (#6).
+  const resyncKeys = useMemo(
+    () => new Set(grupo.resync.map((r) => `${r.entidad}:${r.entidadId}`)),
+    [grupo.resync],
+  );
+
   return (
     <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
@@ -274,6 +306,25 @@ export function GestionGrupo({
           <Lock aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
           <span className={mono}>{alumnos.length}</span> alumnos · CORA
         </span>
+        <button
+          type="button"
+          onClick={() => setHistorialAbierto(true)}
+          aria-haspopup="dialog"
+          aria-expanded={historialAbierto}
+          className={`relative inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[12px] font-semibold transition-colors ${focusRing} ${
+            grupo.resync.length > 0
+              ? 'border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)] hover:brightness-95'
+              : 'border-border bg-card text-foreground hover:bg-muted'
+          }`}
+        >
+          <History aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Historial
+          {grupo.resync.length > 0 && (
+            <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[color:var(--warning-foreground)] px-1 text-[10px] font-bold text-white">
+              {grupo.resync.length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -408,16 +459,18 @@ export function GestionGrupo({
           </p>
 
           <p className={`${kicker} mt-6 text-muted-foreground`}>Calendario de liberación</p>
-          <div className="mt-2.5 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 py-2.5">
-            <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
-            <p className="text-[11.5px] leading-relaxed text-[color:var(--info-foreground)]">
-              La liberación por módulo (fecha de apertura de cada módulo en este grupo) aún{' '}
-              <span className="font-bold">no existe</span>: el dominio de herencia (
-              <span className={mono}>validarPatch</span>) todavía no admite un campo de fecha
-              (whitelist: nombre/descripción/orden/horas/oculto) y el esquema solo guarda inicio/fin
-              del grupo. Falta el override tipo <span className={mono}>fecha</span> punta a punta.
-            </p>
-          </div>
+          {modalidad === 'sincrono' ? (
+            <CalendarioLiberacion grupoId={grupo.id} modulos={grupo.temario} onCambio={() => router.refresh()} />
+          ) : (
+            <div className="mt-2.5 flex items-start gap-2.5 rounded-[11px] border border-border bg-muted px-3 py-2.5">
+              <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <p className={`text-[11.5px] leading-relaxed ${softText}`}>
+                Sin fechas: en modalidad <span className="font-bold">asíncrona</span> todos los módulos
+                están disponibles desde la inscripción. La liberación por fecha aplica solo a grupos
+                síncronos.
+              </p>
+            </div>
+          )}
         </aside>
 
         {/* ════════ Contenido: heredado vs personalizado ════════ */}
@@ -441,16 +494,8 @@ export function GestionGrupo({
             </span>
           </div>
 
-          {/* nota de resync (la detección real es del dominio) */}
-          <div className="mt-3.5 flex items-start gap-3 rounded-xl border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] p-3.5">
-            <RefreshCw aria-hidden className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={2} />
-            <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
-              Cuando el programa base cambie en un nodo que este grupo personalizó, aquí aparecerá el
-              aviso de <span className="font-bold">re-sincronización</span> (ver la diferencia /
-              re-sincronizar). Esa detección la resuelve el dominio (apps/api) —{' '}
-              <span className="font-bold">pendiente de API</span>.
-            </p>
-          </div>
+          {/* Los conflictos de re-sincronización viven ahora en el panel lateral "Historial"
+              (botón en la franja de contexto). El centro queda solo con el temario. */}
 
           {/* temario */}
           <ul className="mt-4 flex flex-col gap-2.5">
@@ -541,32 +586,7 @@ export function GestionGrupo({
             </ul>
           )}
 
-          <p className={`${kicker} mt-6 text-muted-foreground`}>Personalizaciones de este grupo</p>
-          {grupo.overrides.length === 0 ? (
-            <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>
-              Este grupo sigue el programa base sin cambios. Personaliza un nodo del temario para
-              apartarlo de las correcciones futuras.
-            </p>
-          ) : (
-            <ul className="mt-3 flex flex-col gap-2">
-              {grupo.overrides.map((o) => (
-                <li
-                  key={o.id}
-                  className="flex gap-2.5 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 py-2.5"
-                >
-                  <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[color:var(--info)]" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[12.5px] font-bold leading-snug text-[color:var(--info-foreground)]">
-                      {ETIQUETA_ENTIDAD[o.entidad] ?? o.entidad} personalizado
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11.5px] text-[color:var(--info-foreground)]">
-                      {tituloDeNodo.get(o.entidadId) ?? o.entidadId}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* "Personalizaciones de este grupo" se movió al panel lateral "Historial". */}
         </aside>
       </div>
 
@@ -577,10 +597,384 @@ export function GestionGrupo({
           modulo={hoja.modulo}
           nodo={hoja.nodo}
           grupoNombre={grupo.nombre}
+          modalidad={modalidad}
+          fechaAperturaActual={
+            hoja.nodo.entidad === 'modulo'
+              ? isoFecha(grupo.temario.find((m) => m.id === hoja.nodo.entidadId)?.fechaApertura ?? null)
+              : ''
+          }
           onCerrar={() => setHoja(null)}
           onGuardado={() => router.refresh()}
         />
       )}
+
+      {/* ───── Panel lateral "Historial": conflictos + personalizaciones (drawer) ─────
+          Montado SIEMPRE (controlado por `abierto`) para que anime también la SALIDA
+          (contrato del overlay CSS-nativo · @starting-style + allow-discrete). */}
+      <PanelHistorial
+        abierto={historialAbierto}
+        resync={grupo.resync}
+        overrides={grupo.overrides}
+        resyncKeys={resyncKeys}
+        tituloDeNodo={tituloDeNodo}
+        resyncando={resyncando}
+        onVerDiff={setVerDiff}
+        onResincronizar={resincronizar}
+        onCerrar={() => setHistorialAbierto(false)}
+      />
+
+      {/* ───── Diferencia: programa actual vs personalización del grupo (#6) ───── */}
+      {verDiff && (
+        <DialogoDiferencia
+          aviso={verDiff}
+          reSincronizando={resyncando === `${verDiff.entidad}:${verDiff.entidadId}`}
+          onReSincronizar={() => resincronizar(verDiff)}
+          onCerrar={() => setVerDiff(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Panel lateral "Historial" (drawer derecho) ───────────────────────── */
+
+/**
+ * Off-canvas desde el borde derecho con dos secciones: "Conflictos" (resync · solo si hay) y
+ * "Personalizaciones del grupo" (índice de overrides con sus chips). Mueve aquí, sin cambiar su
+ * lógica, lo que antes vivía en la banda central y la columna derecha. Cierra con Esc / clic fuera
+ * / botón X; foco inicial al cerrar; `aria-modal`.
+ */
+function PanelHistorial({
+  abierto,
+  resync,
+  overrides,
+  resyncKeys,
+  tituloDeNodo,
+  resyncando,
+  onVerDiff,
+  onResincronizar,
+  onCerrar,
+}: {
+  abierto: boolean;
+  resync: AvisoResyncUI[];
+  overrides: GrupoDetalle['overrides'];
+  resyncKeys: Set<string>;
+  tituloDeNodo: Map<string, string>;
+  resyncando: string | null;
+  onVerDiff: (r: AvisoResyncUI) => void;
+  onResincronizar: (r: AvisoResyncUI) => void;
+  onCerrar: () => void;
+}) {
+  const cerrarRef = useRef<HTMLButtonElement>(null);
+  // Esc cierra (solo mientras está abierto; el panel vive montado para animar la salida).
+  useEffect(() => {
+    if (!abierto) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [abierto, onCerrar]);
+  // Foco al botón de cerrar al abrir (el panel está siempre montado → no uso autoFocus).
+  useEffect(() => {
+    if (abierto) cerrarRef.current?.focus();
+  }, [abierto]);
+
+  return (
+    // Capa de posicionamiento SIEMPRE montada; sin puntero cuando está cerrada (deja pasar
+    // los clics a la página). Los hijos interactivos restauran pointer-events.
+    <div className="pointer-events-none fixed inset-0 z-40">
+      {/* overlay tenue (clic fuera cierra) · fade-in/out */}
+      <button
+        type="button"
+        aria-label="Cerrar historial"
+        data-open={abierto}
+        onClick={onCerrar}
+        className={`${estilosPanel.backdrop} pointer-events-auto absolute inset-0 cursor-default`}
+        style={{ background: 'rgba(15,45,82,.32)' }}
+      />
+      {/* panel · entra deslizando desde la derecha */}
+      <aside
+        data-open={abierto}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Historial del grupo"
+        className={`${estilosPanel.panel} pointer-events-auto absolute right-0 top-0 h-full w-[380px] max-w-[92vw] flex-col border-l border-border bg-card shadow-2xl`}
+      >
+        <header className="flex h-[56px] shrink-0 items-center gap-2.5 border-b border-border px-5">
+          <History aria-hidden className="h-[18px] w-[18px] shrink-0 text-secondary" strokeWidth={1.75} />
+          <span className="text-[15px] font-extrabold tracking-[-0.01em]">Historial</span>
+          {resync.length > 0 && (
+            <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-[color:var(--warning-foreground)] px-1.5 text-[10.5px] font-bold text-white">
+              {resync.length}
+            </span>
+          )}
+          <button
+            ref={cerrarRef}
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className={`ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {/* ── Sección: Conflictos (solo si hay) ── */}
+          {resync.length > 0 && (
+            <section>
+              <p className={`${kicker} text-[color:var(--warning-foreground)]`}>Conflictos</p>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-[color:var(--warning-foreground)]">
+                El programa base cambió en {resync.length === 1 ? 'un nodo que este grupo personalizó' : `${resync.length} nodos que este grupo personalizó`}.
+                Revisa la diferencia y decide si re-sincronizas (descarta la excepción y el nodo vuelve a heredar la versión actual).
+              </p>
+              <ul className="mt-3 flex flex-col gap-2">
+                {resync.map((r) => (
+                  <li
+                    key={`${r.entidad}:${r.entidadId}`}
+                    className="flex flex-col gap-2.5 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-2.5"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[12.5px] font-bold leading-snug text-[color:var(--warning-foreground)]">
+                        {r.donde}
+                        {r.tituloActual ? ` · ${r.tituloActual}` : ''}
+                      </span>
+                      <span className={`${mono} mt-0.5 block text-[11px] text-[color:var(--warning-foreground)]`}>
+                        {r.motivo === 'huerfano'
+                          ? 'el nodo ya no existe en el programa'
+                          : `personalizado sobre v${r.aplicadoSobreVersion} · programa en v${r.versionActual}`}
+                      </span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      {r.motivo !== 'huerfano' && (
+                        <button
+                          type="button"
+                          onClick={() => onVerDiff(r)}
+                          className={`h-9 shrink-0 whitespace-nowrap rounded-[9px] border border-[color:var(--warning-border)] bg-card px-3 text-[12px] font-semibold text-[color:var(--warning-foreground)] transition-colors hover:brightness-95 ${focusRing}`}
+                        >
+                          Ver la diferencia
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onResincronizar(r)}
+                        disabled={resyncando === `${r.entidad}:${r.entidadId}`}
+                        className={`inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] bg-sidebar px-3 text-[12px] font-bold text-sidebar-foreground transition-colors hover:bg-secondary disabled:opacity-60 ${focusRingDark}`}
+                      >
+                        {resyncando === `${r.entidad}:${r.entidadId}` ? (
+                          <Loader2 aria-hidden className="h-[14px] w-[14px] animate-spin" strokeWidth={2} />
+                        ) : (
+                          <RefreshCw aria-hidden className="h-[14px] w-[14px]" strokeWidth={2} />
+                        )}
+                        Re-sincronizar
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* ── Sección: Personalizaciones del grupo ── */}
+          <section className={resync.length > 0 ? 'mt-6' : ''}>
+            <p className={`${kicker} text-muted-foreground`}>Personalizaciones del grupo</p>
+            {overrides.length === 0 ? (
+              <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>
+                Este grupo sigue el programa base sin cambios. Personaliza un nodo del temario para
+                apartarlo de las correcciones futuras.
+              </p>
+            ) : (
+              <ul className="mt-3 flex flex-col gap-2">
+                {overrides.map((o) => {
+                  const enConflicto = resyncKeys.has(`${o.entidad}:${o.entidadId}`);
+                  return (
+                    <li
+                      key={o.id}
+                      className="flex gap-2.5 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 py-2.5"
+                    >
+                      <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[color:var(--info)]" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12.5px] font-bold leading-snug text-[color:var(--info-foreground)]">
+                          {o.entidad === 'bloque' || o.entidad === 'leccion_config'
+                            ? 'Recurso reemplazado'
+                            : `${ETIQUETA_ENTIDAD[o.entidad] ?? o.entidad} personalizado`}
+                        </span>
+                        {/* Ubicación legible si la conocemos (módulo/lección); un bloque no está en el índice → se omite. */}
+                        {tituloDeNodo.get(o.entidadId) && (
+                          <span className="mt-0.5 block truncate text-[11.5px] text-[color:var(--info-foreground)]">
+                            {tituloDeNodo.get(o.entidadId)}
+                          </span>
+                        )}
+                        {enConflicto && (
+                          <span className="mt-1.5 inline-flex h-5 items-center gap-1 rounded-full border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-1.5 text-[10px] font-bold text-[color:var(--warning-foreground)]">
+                            <RefreshCw aria-hidden className="h-2.5 w-2.5" strokeWidth={2.2} />
+                            El programa cambió
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+/* ───────────────────────── Diferencia: programa actual vs grupo (#6) ───────────────────────── */
+
+/** Etiqueta legible de un campo del patch (lo que el grupo personalizó). */
+const ETIQUETA_CAMPO: Record<string, string> = {
+  nombre: 'Título',
+  descripcion: 'Descripción',
+  orden: 'Orden',
+  horas: 'Horas',
+  oculto: 'Visibilidad',
+};
+
+function valorLegible(clave: string, valor: unknown): string {
+  if (clave === 'oculto') return valor ? 'Oculto en este grupo' : 'Visible';
+  if (valor === null || valor === undefined || valor === '') return '—';
+  return String(valor);
+}
+
+function DialogoDiferencia({
+  aviso,
+  reSincronizando,
+  onReSincronizar,
+  onCerrar,
+}: {
+  aviso: AvisoResyncUI;
+  reSincronizando: boolean;
+  onReSincronizar: () => void;
+  onCerrar: () => void;
+}) {
+  // Campos personalizados = claves del patch. Para cada uno: valor del programa ACTUAL vs el
+  // del grupo. "nombre" usa el título actual del nodo; el resto no tiene espejo directo en el
+  // detalle → se muestra "(valor vigente del programa)" como referencia honesta (sin historial).
+  const campos = Object.keys(aviso.patch);
+  // Reemplazo de FUENTE (4b): no se muestra la ref cruda ni campo-a-campo; solo "Recurso
+  // reemplazado" vs "recurso del programa" (§decisión 4).
+  const esFuente = aviso.entidad === 'bloque' || aviso.entidad === 'leccion_config';
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Ver la diferencia"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="w-full max-w-[640px] overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 px-6 pb-4 pt-6">
+          <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]">
+            <RefreshCw className="h-5 w-5" strokeWidth={2} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} text-[color:var(--warning-foreground)]`}>El programa cambió aquí</p>
+            <h2 className="mt-1.5 text-[18px] font-extrabold leading-snug tracking-[-0.015em]">
+              {aviso.donde}
+              {aviso.tituloActual ? ` · ${aviso.tituloActual}` : ''}
+            </h2>
+            <p className={`${mono} mt-0.5 text-[11.5px] text-muted-foreground`}>
+              personalizado sobre v{aviso.aplicadoSobreVersion} · programa en v{aviso.versionActual}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <div className="px-6">
+          <div className="grid grid-cols-2 gap-3">
+            {/* Programa ACTUAL */}
+            <div className="rounded-[11px] border border-border bg-muted p-3.5">
+              <p className={`${kicker} text-muted-foreground`}>Programa actual</p>
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                Lo que trae hoy el programa base (v{aviso.versionActual}).
+              </p>
+              {esFuente ? (
+                <p className="mt-2.5 text-[13px] font-medium text-foreground">El recurso del programa.</p>
+              ) : (
+                <ul className="mt-2.5 flex flex-col gap-2">
+                  {campos.map((c) => (
+                    <li key={c}>
+                      <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        {ETIQUETA_CAMPO[c] ?? c}
+                      </span>
+                      <span className="mt-0.5 block text-[13px] font-medium text-foreground">
+                        {c === 'nombre'
+                          ? aviso.tituloActual ?? '—'
+                          : c === 'oculto'
+                            ? 'Visible'
+                            : '(valor vigente del programa)'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* Personalización del GRUPO */}
+            <div className="rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] p-3.5">
+              <p className={`${kicker} text-[color:var(--info-foreground)]`}>Personalización del grupo</p>
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-[color:var(--info-foreground)]">
+                Lo que este grupo fijó y mantiene.
+              </p>
+              {esFuente ? (
+                <p className="mt-2.5 text-[13px] font-bold text-[color:var(--info-foreground)]">Recurso reemplazado.</p>
+              ) : (
+                <ul className="mt-2.5 flex flex-col gap-2">
+                  {campos.map((c) => (
+                    <li key={c}>
+                      <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[color:var(--info-foreground)]">
+                        {ETIQUETA_CAMPO[c] ?? c}
+                      </span>
+                      <span className="mt-0.5 block text-[13px] font-bold text-[color:var(--info-foreground)]">
+                        {valorLegible(c, aviso.patch[c])}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-start gap-3 rounded-[11px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3.5 py-3">
+            <RefreshCw aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--warning-foreground)]" strokeWidth={2} />
+            <p className="text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
+              Re-sincronizar <span className="font-bold">descarta la personalización</span> de este
+              nodo: el grupo vuelve a heredar lo que trae el programa actual. No se puede deshacer.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
+          <button
+            type="button"
+            onClick={onCerrar}
+            className={`h-11 whitespace-nowrap rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+          >
+            Cerrar
+          </button>
+          <button
+            type="button"
+            onClick={onReSincronizar}
+            disabled={reSincronizando}
+            className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] bg-sidebar px-5 text-[13.5px] font-bold text-sidebar-foreground transition-colors hover:bg-secondary disabled:opacity-60 ${focusRingDark}`}
+          >
+            {reSincronizando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <RefreshCw aria-hidden className="h-4 w-4" strokeWidth={2} />}
+            Re-sincronizar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -684,8 +1078,11 @@ function LeccionNodo({
 
 /* ───────────────────────── Hoja: personalizar (mutación = dominio) ───────────────────────── */
 
+/** Selección del modal: overrides del dominio + 'heredar' + 'recurso' (reemplazo de fuente · 4b). */
+type SeleccionModal = TipoOverride | 'heredar' | 'recurso';
+
 type OpcionOverride = {
-  k: TipoOverride | 'heredar';
+  k: SeleccionModal;
   icono: typeof Link2;
   t: string;
   d: string;
@@ -695,14 +1092,14 @@ type OpcionOverride = {
 
 const OPCIONES: OpcionOverride[] = [
   { k: 'heredar', icono: Link2, t: 'Mantener heredada', d: 'Sigue el programa base. Es el estado recomendado.' },
-  { k: 'reemplaza', icono: Repeat2, t: 'Cambiar el título en este grupo', d: 'Renombra este nodo solo para este grupo; el resto sigue heredado.' },
+  { k: 'recurso', icono: Repeat2, t: 'Reemplazar un recurso', d: 'Cambia el video, imagen, PDF o galería de esta lección solo para este grupo; el resto sigue heredado.' },
+  { k: 'reemplaza', icono: Pencil, t: 'Cambiar el título en este grupo', d: 'Renombra este nodo solo para este grupo; el resto sigue heredado.' },
   { k: 'oculta', icono: EyeOff, t: 'Ocultar en este grupo', d: 'El alumno no la verá ni contará en su avance. Nada se borra del programa.' },
   {
     k: 'fecha',
     icono: Calendar,
     t: 'Mover su fecha',
-    d: 'Fecha de apertura propia del grupo. Aún no disponible: el dominio no admite override de fecha.',
-    pendiente: true,
+    d: 'Fecha de apertura propia del grupo. Antes de ese día el alumno ve el módulo bloqueado.',
   },
 ];
 
@@ -711,6 +1108,8 @@ function HojaPersonalizar({
   modulo,
   nodo,
   grupoNombre,
+  modalidad,
+  fechaAperturaActual,
   onCerrar,
   onGuardado,
 }: {
@@ -718,16 +1117,29 @@ function HojaPersonalizar({
   modulo: string;
   nodo: { entidad: EntidadOverrideUI; entidadId: string; titulo: string; personalizado: boolean };
   grupoNombre: string;
+  modalidad: 'sincrono' | 'asincrono';
+  /** Fecha de apertura actual del módulo (ISO) para precargar el selector; '' si no tiene. */
+  fechaAperturaActual: string;
   onCerrar: () => void;
   onGuardado: () => void;
 }) {
-  const [seleccion, setSeleccion] = useState<TipoOverride | 'heredar'>(nodo.personalizado ? 'reemplaza' : 'heredar');
+  const [seleccion, setSeleccion] = useState<SeleccionModal>('heredar');
   const [nuevoTitulo, setNuevoTitulo] = useState('');
+  const [fechaSel, setFechaSel] = useState(fechaAperturaActual);
   const [error, setError] = useState<string | null>(null);
   const [guardando, iniciar] = useTransition();
 
+  // Opciones según el nodo: "Mover su fecha" solo en MÓDULOS síncronos (calendario · mig 0087);
+  // "Reemplazar un recurso" solo en LECCIONES (ahí viven los recursos · 4b). Las que no aplican
+  // se omiten (mock §4).
+  const permiteFecha = nodo.entidad === 'modulo' && modalidad === 'sincrono';
+  const opciones = OPCIONES.filter(
+    (o) => (o.k !== 'fecha' || permiteFecha) && (o.k !== 'recurso' || nodo.entidad === 'leccion'),
+  );
+
+  // 'recurso' se guarda desde su propio panel (no por el botón genérico).
   const invalido =
-    seleccion === 'fecha' || (seleccion === 'reemplaza' && !nuevoTitulo.trim());
+    (seleccion === 'fecha' && !fechaSel.trim()) || (seleccion === 'reemplaza' && !nuevoTitulo.trim());
 
   function guardar() {
     setError(null);
@@ -744,8 +1156,15 @@ function HojaPersonalizar({
           return;
         }
         r = await aplicarOverride(grupoId, { entidad: nodo.entidad, entidadId: nodo.entidadId, patch: { nombre: nom } });
+      } else if (seleccion === 'fecha') {
+        // Calendario de liberación (mig 0087), no override: upsert la fecha de apertura del módulo.
+        if (!fechaSel.trim()) {
+          setError('Elige la fecha de apertura.');
+          return;
+        }
+        r = await fijarFechaApertura(grupoId, nodo.entidadId, fechaSel);
       } else {
-        return; // 'fecha' es pendiente: el botón está deshabilitado
+        return;
       }
       if (!r.ok) {
         setError(r.error ?? 'No se pudo guardar la personalización.');
@@ -790,7 +1209,7 @@ function HojaPersonalizar({
           </p>
 
           <div className="mt-4 flex flex-col gap-2">
-            {OPCIONES.map(({ k, icono: Icono, t, d, pendiente }) => {
+            {opciones.map(({ k, icono: Icono, t, d, pendiente }) => {
               const on = k === seleccion;
               return (
                 <label
@@ -832,6 +1251,20 @@ function HojaPersonalizar({
                         className={`mt-2.5 h-9 w-full rounded-[9px] border border-border bg-card px-3 text-[13px] text-foreground outline-none focus:border-secondary ${focusRing}`}
                       />
                     )}
+                    {on && k === 'fecha' && (
+                      <span className="mt-2.5 flex h-9 w-full items-center gap-2 rounded-[9px] border border-border bg-card px-3">
+                        <Calendar aria-hidden className="h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                        <input
+                          type="date"
+                          value={fechaSel}
+                          onChange={(e) => setFechaSel(e.target.value)}
+                          className={`${mono} w-full bg-transparent text-[13px] text-foreground outline-none`}
+                        />
+                      </span>
+                    )}
+                    {on && k === 'recurso' && (
+                      <ReemplazarRecurso grupoId={grupoId} leccionId={nodo.entidadId} onCambio={onGuardado} />
+                    )}
                   </span>
                 </label>
               );
@@ -847,9 +1280,9 @@ function HojaPersonalizar({
           <div className="mt-4 flex items-start gap-3 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 py-3">
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
             <p className="text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
-              Al guardar, el dominio (apps/api) valida el patch (<span className={mono}>validarPatch</span>) y
-              sella la versión del programa en ese nodo. <span className="font-bold">Mover su fecha</span> aún
-              no está disponible (el dominio no admite override de fecha todavía).
+              Solo se guarda la excepción, no una copia. Si el programa cambia aquí, te avisaremos para
+              que decidas si re-sincronizas. <span className="font-bold">Mover su fecha</span> fija la
+              apertura del módulo en este grupo (calendario de liberación).
             </p>
           </div>
         </div>
@@ -865,17 +1298,121 @@ function HojaPersonalizar({
           >
             Cerrar
           </button>
-          <button
-            type="button"
-            onClick={guardar}
-            disabled={invalido || guardando}
-            className={`inline-flex h-11 shrink-0 items-center gap-2 rounded-[10px] bg-primary px-5 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-          >
-            {guardando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />}
-            Guardar
-          </button>
+          {/* 'recurso' tiene su propio "Guardar reemplazo" por recurso (panel self-persist). */}
+          {seleccion !== 'recurso' && (
+            <button
+              type="button"
+              onClick={guardar}
+              disabled={invalido || guardando}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 rounded-[10px] bg-primary px-5 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+            >
+              {guardando ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />}
+              Guardar
+            </button>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ───────────────────────── Calendario de liberación (19b · mig 0087) ───────────────────────── */
+
+/** Día UTC (yyyymmdd) para comparar `date` sin desfase (igual criterio que el consumidor). */
+function diaUTCNum(d: Date): number {
+  return d.getUTCFullYear() * 10000 + d.getUTCMonth() * 100 + d.getUTCDate();
+}
+
+/**
+ * Lista de módulos con su fecha de apertura por grupo (solo síncrono · mock 19b). Una fila
+ * por módulo: punto de estado (abierto/programado), "NN · título", date-picker inline y
+ * botón de limpiar. Escribe vía las server actions `fijarFechaApertura`/`limpiarFechaApertura`
+ * (upsert/delete en lxp.grupo_calendario). Sin fecha = abierto (candado de seguridad).
+ */
+function CalendarioLiberacion({
+  grupoId,
+  modulos,
+  onCambio,
+}: {
+  grupoId: string;
+  modulos: NodoModuloGrupo[];
+  onCambio: () => void;
+}) {
+  const [guardando, iniciar] = useTransition();
+  const hoy = diaUTCNum(new Date());
+
+  function fijar(moduloId: string, fecha: string) {
+    if (!fecha) return;
+    iniciar(async () => {
+      await fijarFechaApertura(grupoId, moduloId, fecha);
+      onCambio();
+    });
+  }
+  function limpiar(moduloId: string) {
+    iniciar(async () => {
+      await limpiarFechaApertura(grupoId, moduloId);
+      onCambio();
+    });
+  }
+
+  if (modulos.length === 0) {
+    return (
+      <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>
+        El programa base aún no tiene módulos que liberar.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <p className={`mt-2.5 text-[12px] leading-relaxed ${softText}`}>
+        Fija la fecha de apertura de cada módulo para este grupo. Antes de esa fecha el alumno lo ve
+        bloqueado. Sin fecha = abierto desde el inicio.
+      </p>
+      <ul className="mt-3 flex flex-col gap-0.5">
+        {modulos.map((m) => {
+          const programado = m.fechaApertura !== null && diaUTCNum(new Date(m.fechaApertura)) > hoy;
+          const iso = m.fechaApertura ? new Date(m.fechaApertura).toISOString().slice(0, 10) : '';
+          return (
+            <li key={m.id} className="flex items-center gap-2.5 rounded-[9px] px-2.5 py-2.5 hover:bg-muted">
+              <span
+                aria-hidden
+                className={`h-[7px] w-[7px] shrink-0 rounded-full ${programado ? 'bg-[color:var(--info)]' : 'bg-primary'}`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-semibold leading-snug">
+                  {m.clave} · {m.titulo}
+                </span>
+                <span className={`mt-0.5 block text-[10.5px] ${programado ? 'text-[color:var(--info-foreground)]' : 'text-muted-foreground'}`}>
+                  {m.fechaApertura ? (programado ? `se abre el ${fechaCortaDia(new Date(m.fechaApertura))}` : 'abierto') : 'abierto por defecto'}
+                </span>
+              </span>
+              <span className="flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5">
+                <Calendar aria-hidden className="h-[14px] w-[14px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                <input
+                  type="date"
+                  value={iso}
+                  disabled={guardando}
+                  onChange={(e) => fijar(m.id, e.target.value)}
+                  aria-label={`Fecha de apertura de ${m.clave} · ${m.titulo}`}
+                  className={`${mono} w-[118px] bg-transparent text-[12px] text-foreground outline-none`}
+                />
+              </span>
+              {m.fechaApertura && (
+                <button
+                  type="button"
+                  onClick={() => limpiar(m.id)}
+                  disabled={guardando}
+                  aria-label={`Quitar fecha de ${m.clave}`}
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+                >
+                  {guardando ? <Loader2 aria-hidden className="h-[14px] w-[14px] animate-spin" strokeWidth={1.75} /> : <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

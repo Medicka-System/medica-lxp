@@ -152,6 +152,8 @@ export type Modulo = {
   portadaUrl?: string;
   /** Primera lección del módulo (por orden) → deep-link al lector /leccion/[id]. null si el módulo no tiene lecciones. */
   leccionId?: string | null;
+  /** Fecha de apertura (solo si está BLOQUEADO por calendario · §6): aviso "se abre el [fecha]". */
+  fechaApertura?: string;
 };
 
 export type EstadoEntrega = 'enviada' | 'pendiente' | 'no-disponible';

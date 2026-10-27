@@ -291,41 +291,135 @@ function refrescarGrupo(grupoId?: string) {
   if (grupoId) revalidatePath(`/studio/grupos/${grupoId}`);
 }
 
-/** Un alumno del roster de un grupo de CORA (read-only · §10). */
-export type AlumnoRoster = { nombre: string; matricula: string | null };
-
-/**
- * Roster (listado de alumnos) de un grupo de CORA, LAZY desde la vista de Grupos. Lee vía
- * `lxp.cora_alumnos_de_grupo` (0037 · SECURITY DEFINER / es_staff / read-only sobre public).
- * El web ya gatea con requireAutoria; es el segundo candado. CORA es solo lectura (§10).
- */
-export async function getRosterGrupoCora(coraGrupoId: string): Promise<AlumnoRoster[]> {
-  const { userId } = await requireAutoria();
-  return comoStaff(userId, async (sql) => {
-    const filas = await sql<{ nombre: string; matricula: string | null }[]>`
-      select nombre, matricula from lxp.cora_alumnos_de_grupo(${coraGrupoId}) order by nombre`;
-    return filas.map((f) => ({ nombre: f.nombre, matricula: f.matricula }));
-  });
-}
+/** Datos iniciales del grupo nuevo (modal "Nuevo grupo" · §5). Todo opcional salvo el programa. */
+export type DatosNuevoGrupo = {
+  nombre?: string;
+  modalidad?: 'sincrono' | 'asincrono';
+  fechaInicio?: string | null;
+  fechaFin?: string | null;
+  docenteId?: string | null;
+  /** Ref de storage de la portada (media/imagenes/…), ya subida por el cliente. */
+  imagenPortada?: string | null;
+};
 
 /**
  * Crea un grupo NATIVO del LXP (sin `cora_grupo_id`): una instancia PROPIA del LXP sobre
  * un programa NATIVO, independiente de CORA. Convive con los grupos de CORA, que nacen allá
- * y se reflejan solos (`lxp.reflejar_grupos_cora` · mig 0082). Un grupo nativo no lo resuelve
- * `cora_grupos_de` (no es de CORA): su membresía/alumnos los gestiona el LXP. CRUD bajo RLS
+ * y se reflejan solos (`lxp.reflejar_grupos_cora` · 0082 / `..._staff` · 0086). Un grupo
+ * nativo no lo resuelve `cora_grupos_de`: su membresía/alumnos los gestiona el LXP. Nace
+ * Estándar (0 overrides) apuntando a la versión publicada actual del programa. CRUD bajo RLS
  * `es_autoria`. Abre el editor del grupo recién creado.
  */
-export async function crearGrupo(programaId: string): Promise<void> {
+export async function crearGrupo(programaId: string, datos?: DatosNuevoGrupo): Promise<void> {
   const { userId } = await requireAutoria();
+  const nombre = datos?.nombre?.trim() || 'Grupo sin título';
+  const modalidad = datos?.modalidad ?? 'sincrono';
+  // Fechas solo tienen sentido en síncrono; en asíncrono se descartan (§5).
+  const ini = modalidad === 'sincrono' ? datos?.fechaInicio || null : null;
+  const fin = modalidad === 'sincrono' ? datos?.fechaFin || null : null;
+  const portada = datos?.imagenPortada || null;
   const id = await comoStaff(userId, async (sql) => {
     const rows = await sql<{ id: string }[]>`
-      insert into lxp.grupos (programa_id, nombre, modalidad)
-      values (${programaId}, 'Grupo sin título', 'sincrono'::lxp.modalidad)
+      insert into lxp.grupos (programa_id, nombre, modalidad, fecha_inicio, fecha_fin, docente_id, imagen_portada)
+      values (
+        ${programaId}, ${nombre}, ${modalidad}::lxp.modalidad,
+        ${ini}, ${fin}, ${datos?.docenteId || null}, ${portada}
+      )
       returning id`;
     return rows[0]!.id;
   });
+  // Derivados responsivos de la portada (BEST-EFFORT, igual que actualizarGrupo).
+  if (portada && portada.startsWith('media/imagenes/')) {
+    const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    try {
+      await fetch(`${base}/media/imagenes/derivar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ refs: [portada], tipo: 'portada' }),
+      });
+    } catch (e) {
+      console.error('[crearGrupo] derivar portada (no fatal):', e);
+    }
+  }
   refrescarGrupo(id);
   redirect(`/studio/grupos/${id}`);
+}
+
+/**
+ * Borra un grupo NATIVO del LXP y sus overrides. SOLO nativos: un grupo reflejado de CORA
+ * (`cora_grupo_id` no nulo) NO se borra desde el LXP — CORA es dueño (§10) y, además, borrar
+ * el cascarón solo lo haría reaparecer en el próximo reflejo. CRUD bajo RLS `es_autoria`.
+ */
+export async function borrarGrupo(grupoId: string): Promise<{ ok: boolean; error?: string }> {
+  const { userId } = await requireAutoria();
+  const resultado = await comoStaff(userId, async (sql) => {
+    const rows = await sql<{ cora_grupo_id: string | null }[]>`
+      select cora_grupo_id from lxp.grupos where id = ${grupoId} limit 1`;
+    if (!rows[0]) return { ok: false as const, error: 'El grupo ya no existe.' };
+    if (rows[0].cora_grupo_id) {
+      return { ok: false as const, error: 'Este grupo viene de CORA; no se puede borrar desde el LXP.' };
+    }
+    await sql`delete from lxp.grupo_overrides where grupo_id = ${grupoId}`;
+    afirmarFilas(await sql`delete from lxp.grupos where id = ${grupoId}`, 'borrar grupo');
+    return { ok: true as const };
+  });
+  if (resultado.ok) refrescarGrupo();
+  return resultado;
+}
+
+// ── Calendario de liberación (fecha de apertura por módulo×grupo · mig 0087) ───────
+/**
+ * Fija/edita la fecha de APERTURA de un módulo para un grupo (liberación · §6). Upsert
+ * en `lxp.grupo_calendario` (PK grupo_id+modulo_id). Es la misma mecánica para "poner el
+ * calendario" y "mover la fecha" (modal Personalizar). CRUD web→Supabase bajo RLS
+ * `es_autoria` (Regla de Oro §2). `fecha` en formato ISO `YYYY-MM-DD`.
+ */
+export async function fijarFechaApertura(
+  grupoId: string,
+  moduloId: string,
+  fecha: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { userId } = await requireAutoria();
+  const limpia = fecha.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(limpia)) {
+    return { ok: false, error: 'Fecha inválida (usa el selector de fecha).' };
+  }
+  try {
+    await comoStaff(userId, async (sql) => {
+      afirmarFilas(
+        await sql`
+          insert into lxp.grupo_calendario (grupo_id, modulo_id, fecha_apertura)
+          values (${grupoId}, ${moduloId}, ${limpia}::date)
+          on conflict (grupo_id, modulo_id)
+          do update set fecha_apertura = excluded.fecha_apertura, updated_at = now()`,
+        'calendario: fijar fecha',
+      );
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo guardar la fecha. Inténtalo de nuevo.' };
+  }
+  refrescarGrupo(grupoId);
+  return { ok: true };
+}
+
+/**
+ * Quita la fecha de apertura de un módulo para un grupo → el módulo vuelve a ABIERTO por
+ * defecto (candado de seguridad: sin fila = liberado). Idempotente (0 filas = ya no había).
+ */
+export async function limpiarFechaApertura(
+  grupoId: string,
+  moduloId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { userId } = await requireAutoria();
+  try {
+    await comoStaff(userId, async (sql) => {
+      await sql`delete from lxp.grupo_calendario where grupo_id = ${grupoId} and modulo_id = ${moduloId}`;
+    });
+  } catch {
+    return { ok: false, error: 'No se pudo quitar la fecha. Inténtalo de nuevo.' };
+  }
+  refrescarGrupo(grupoId);
+  return { ok: true };
 }
 
 /** Edita los datos que el grupo SÍ posee: nombre, modalidad, fechas, docente. */
@@ -728,6 +822,150 @@ async function intercambiar(
   await sql.unsafe(`update ${tabla} set orden = $1 where id = $2`, [a.orden, b.id]);
 }
 
+// ── Resolvedor de FUENTE de un recurso de biblioteca (recursoId → campo reproducible) ──
+/**
+ * Mapea el `tipo` de un `lxp.recursos` al CAMPO de `config` que el lector del alumno lee
+ * como fuente reproducible. El SelectorRecurso deja la fuente vacía + `recursoId`; aquí se
+ * resuelve AL GUARDAR (una sola vez) leyendo `lxp.recursos.storage_key`, para que el bloque
+ * quede autocontenido como los editores config-based (sin trabajo por carga del alumno · §2).
+ *
+ *   video → videotecaId   (el lector firma la reproducción)
+ *   h5p   → contentId     (H5P server)
+ *   xapi  → contenidoId   (paquete ingerido · BloquePaquete)
+ *   pdf/word/ppt → ref    (subida `media/archivos/…` · el lector firma su lectura)
+ *   imagen → ref          (subida `media/imagenes/…` · el lector firma su lectura)
+ *
+ * `scorm` → null: es tipo de lección (no bloque de teoría insertable aquí).
+ * `storage_key` es la ref de object storage; se coloca en el campo que el lector firma
+ * (`ref`) o consume directo (videotecaId/contentId/contenidoId según el reproductor).
+ */
+const CAMPO_FUENTE_POR_TIPO: Record<string, string | null> = {
+  video: 'videotecaId',
+  h5p: 'contentId',
+  xapi: 'contenidoId',
+  pdf: 'ref',
+  word: 'ref',
+  ppt: 'ref',
+  imagen: 'ref',
+  scorm: null,
+};
+
+/**
+ * Resuelve la fuente reproducible de un recurso de la Biblioteca: devuelve el campo de
+ * `config` y el valor (su `storage_key`), o `null` si el recurso no existe, no tiene
+ * `storage_key` aún (p. ej. video transcodificando) o su tipo no mapea a una fuente de
+ * bloque. REUSABLE: lo consume el course builder (al insertar) y el reemplazo-por-grupo.
+ * Lectura simple web→Supabase bajo RLS (`comoStaff`); `recursos_read` permite a autoría.
+ */
+export async function resolverFuenteDeRecurso(
+  userId: string,
+  recursoId: string,
+): Promise<{ campo: string; valor: string } | null> {
+  return comoStaff(userId, async (sql) => {
+    const filas = await sql<{ tipo: string; storage_key: string | null }[]>`
+      select tipo::text as tipo, storage_key from lxp.recursos where id = ${recursoId} limit 1`;
+    const r = filas[0];
+    if (!r || !r.storage_key) return null;
+    const campo = CAMPO_FUENTE_POR_TIPO[r.tipo] ?? null;
+    if (!campo) return null;
+    return { campo, valor: r.storage_key };
+  });
+}
+
+// ── Recursos REEMPLAZABLES de una lección (para el modal "Reemplazar un recurso" · 4b) ──
+/** Familia de captura de un recurso reemplazable (dirige qué componente de captura abre). */
+export type FamiliaRecurso = 'imagen' | 'archivo' | 'galeria' | 'video' | 'h5p';
+
+export type RecursoReemplazable = {
+  /** Entidad del override a persistir. */
+  entidad: 'bloque' | 'leccion_config';
+  /** Id del nodo: bloque (teoría) o lección (video-lección). */
+  entidadId: string;
+  familia: FamiliaRecurso;
+  /** Etiqueta legible del recurso ("Imagen", "PDF", "Galería", "Video de la lección"). */
+  label: string;
+  /** El grupo ya reemplazó este recurso (hay override). */
+  yaReemplazado: boolean;
+};
+
+/** tipo_bloque de teoría → familia de captura (fuente simple · 4b + h5p · 4c; xapi/scorm fuera). */
+const FAMILIA_POR_BLOQUE: Record<string, FamiliaRecurso | null> = {
+  imagen: 'imagen',
+  pdf: 'archivo',
+  galeria: 'galeria',
+  video: 'video',
+  h5p: 'h5p',
+};
+
+const LABEL_FAMILIA: Record<FamiliaRecurso, string> = {
+  imagen: 'Imagen',
+  archivo: 'PDF / documento',
+  galeria: 'Galería',
+  video: 'Video',
+  h5p: 'Interactivo H5P',
+};
+
+/**
+ * Lista los recursos de una lección que un grupo puede REEMPLAZAR (4b), marcando los que
+ * ya tienen override en este grupo. Teoría → sus bloques de media (imagen/pdf/galería/video);
+ * lección de video → su video (entidad `leccion_config`). h5p/xapi quedan fuera (4c). Lectura
+ * web→Supabase bajo RLS (`comoStaff` · es_autoria es el segundo candado).
+ */
+export async function listarRecursosReemplazables(
+  grupoId: string,
+  leccionId: string,
+): Promise<RecursoReemplazable[]> {
+  const { userId } = await requireAutoria();
+  return comoStaff(userId, async (sql) => {
+    const lec = (
+      await sql<{ tipo: string }[]>`select tipo::text as tipo from lxp.lecciones where id = ${leccionId} limit 1`
+    )[0];
+    if (!lec) return [];
+
+    // Overrides de fuente que YA tiene este grupo (para marcar yaReemplazado).
+    const overs = await sql<{ entidad: string; entidad_id: string }[]>`
+      select entidad, entidad_id from lxp.grupo_overrides
+      where grupo_id = ${grupoId} and entidad in ('bloque', 'leccion_config')`;
+    const conOverride = new Set(overs.map((o) => `${o.entidad}:${o.entidad_id}`));
+
+    const out: RecursoReemplazable[] = [];
+
+    if (lec.tipo === 'teoria') {
+      const bloques = await sql<{ id: string; tipo_bloque: string }[]>`
+        select id, tipo_bloque from lxp.bloques where leccion_id = ${leccionId} order by orden, created_at`;
+      for (const b of bloques) {
+        const familia = FAMILIA_POR_BLOQUE[b.tipo_bloque] ?? null;
+        if (!familia) continue; // texto/html/link/caso/h5p/xapi: sin reemplazo de fuente aquí
+        out.push({
+          entidad: 'bloque',
+          entidadId: b.id,
+          familia,
+          label: LABEL_FAMILIA[familia],
+          yaReemplazado: conOverride.has(`bloque:${b.id}`),
+        });
+      }
+    } else if (lec.tipo === 'video') {
+      out.push({
+        entidad: 'leccion_config',
+        entidadId: leccionId,
+        familia: 'video',
+        label: 'Video de la lección',
+        yaReemplazado: conOverride.has(`leccion_config:${leccionId}`),
+      });
+    } else if (lec.tipo === 'h5p') {
+      // Lección H5P: re-apuntar su contentId a otro H5P ya autorado (solo biblioteca · 4c).
+      out.push({
+        entidad: 'leccion_config',
+        entidadId: leccionId,
+        familia: 'h5p',
+        label: 'Interactivo H5P de la lección',
+        yaReemplazado: conOverride.has(`leccion_config:${leccionId}`),
+      });
+    }
+    return out;
+  });
+}
+
 // ── Bloques de TEORÍA (lxp.bloques · §5C · mig 0023) ────────────────────────────
 /**
  * El contenido de una lección tipo `teoria` vive en `lxp.bloques` (filas ordenables ·
@@ -738,6 +976,10 @@ async function intercambiar(
  * CRUD directo web→Supabase bajo RLS `lxp.es_autoria()` (Regla de Oro §2 · NO NestJS),
  * igual que el resto del builder. El contrato del editor está en
  * `docs/constructor-lecciones-contrato.md` (§3).
+ *
+ * Si el `config` trae `recursoId` (vino del SelectorRecurso con la fuente vacía), se
+ * RESUELVE la fuente aquí (una vez, al guardar) y se puebla el campo reproducible — así el
+ * bloque queda autocontenido y el lector del alumno lo reproduce sin resolver `recursoId`.
  */
 export async function crearBloqueTeoria(
   programaId: string,
@@ -748,11 +990,23 @@ export async function crearBloqueTeoria(
   const { userId } = await requireAutoria();
   const limpio = tipoBloque.trim();
   if (!limpio) return;
+
+  // Fuente del recurso: si vino del SelectorRecurso (config.recursoId) y el campo de
+  // fuente está vacío, se resuelve y se puebla AL GUARDAR (no se pisa una fuente ya puesta).
+  let configFinal = config;
+  const recursoId = typeof config.recursoId === 'string' ? config.recursoId : '';
+  if (recursoId) {
+    const fuente = await resolverFuenteDeRecurso(userId, recursoId);
+    if (fuente && !config[fuente.campo]) {
+      configFinal = { ...config, [fuente.campo]: fuente.valor };
+    }
+  }
+
   await comoStaff(userId, async (sql) => {
     await sql`
       insert into lxp.bloques (leccion_id, tipo_bloque, config, orden)
       values (
-        ${leccionId}, ${limpio}, ${sql.json(config as Parameters<typeof sql.json>[0])},
+        ${leccionId}, ${limpio}, ${sql.json(configFinal as Parameters<typeof sql.json>[0])},
         coalesce((select max(orden) + 1 from lxp.bloques where leccion_id = ${leccionId}), 0)
       )`;
   });
