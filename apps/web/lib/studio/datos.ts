@@ -108,70 +108,48 @@ const HORAS_MODULOS = (sql: Sql) => sql`
              from lxp.modulos group by programa_id) m on m.programa_id = p.id`;
 
 /**
- * Lista ÚNICA de programas: NATIVOS del LXP (cora_programa_id IS NULL) + ESPEJO de CORA
- * (todos los de `lxp.cora_programas_catalogo` · 0082). CORA primero. Sin grupos (esta vista
- * no los anida). Cada CORA trae su shell LXP si ya existe (estado de contenido). Fail-soft:
- * si el catálogo CORA no está disponible, se listan solo los nativos.
+ * Lista ÚNICA de programas = TODO `lxp.programas`, partido por origen: NATIVOS del LXP
+ * (cora_programa_id IS NULL) + ESPEJO de CORA (cora_programa_id IS NOT NULL). Tras el reflejo
+ * (`reflejar_programas_cora_staff` · mig 0089, al tope de la page) `lxp.programas` ES el
+ * universo completo: los 15 programas CORA quedan materializados como shell (activos E
+ * inactivos — el catálogo activo-only de 0082 ya NO filtra aquí). CORA primero, luego nativos.
+ * Un shell recién reflejado sale `borrador` con 0 módulos (su contenido lo construye el
+ * diseñador). El `nombre`/`slug` son el snapshot del reflejo (patrón idéntico al de grupos).
  */
 export async function getProgramasLista(userId: string): Promise<ProgramaListaItem[]> {
   return comoStaff(userId, async (sql) => {
-    const nativos = await sql<
-      { id: string; nombre: string; publicado: boolean; version: number; updated_at: Date; horas: number; modulos: number }[]
+    const filas = await sql<
+      {
+        id: string;
+        nombre: string;
+        publicado: boolean;
+        version: number;
+        updated_at: Date;
+        cora_programa_id: string | null;
+        cora_programa_slug: string | null;
+        horas: number;
+        modulos: number;
+      }[]
     >`
       select p.id, p.nombre, p.publicado, p.version, p.updated_at,
+             p.cora_programa_id, p.cora_programa_slug,
              coalesce(m.horas, 0)::float8 as horas, coalesce(m.modulos, 0)::int as modulos
       from lxp.programas p ${HORAS_MODULOS(sql)}
-      where p.cora_programa_id is null
-      order by p.updated_at desc`;
-    const itemsNativos: ProgramaListaItem[] = nativos.map((r) => ({
+      order by (p.cora_programa_id is null), p.nombre`;
+
+    return filas.map((r) => ({
       clave: r.id,
-      origen: 'lxp',
+      origen: (r.cora_programa_id ? 'cora' : 'lxp') as OrigenPrograma,
       nombre: r.nombre,
-      slug: null,
-      estado: r.publicado ? 'publicado' : 'borrador',
+      slug: r.cora_programa_slug,
+      estado: (r.publicado ? 'publicado' : 'borrador') as EstadoContenido,
       modulos: r.modulos,
       horas: Math.round(r.horas),
       version: r.version,
       actualizado: r.updated_at,
       lxpProgramaId: r.id,
-      coraProgramaId: null,
+      coraProgramaId: r.cora_programa_id,
     }));
-
-    let itemsCora: ProgramaListaItem[] = [];
-    try {
-      const cat = await sql<{ id: string; identificador: string; nombre_programa: string }[]>`
-        select id, identificador, nombre_programa from lxp.cora_programas_catalogo()`;
-      if (cat.length) {
-        const shells = await sql<
-          { id: string; cora_programa_id: string; publicado: boolean; version: number; updated_at: Date; horas: number; modulos: number }[]
-        >`
-          select p.id, p.cora_programa_id, p.publicado, p.version, p.updated_at,
-                 coalesce(m.horas, 0)::float8 as horas, coalesce(m.modulos, 0)::int as modulos
-          from lxp.programas p ${HORAS_MODULOS(sql)}
-          where p.cora_programa_id = any(${cat.map((c) => c.id)}::uuid[])`;
-        const shellPorCora = new Map(shells.map((s) => [s.cora_programa_id, s]));
-        itemsCora = cat.map((c) => {
-          const sh = shellPorCora.get(c.id);
-          return {
-            clave: sh?.id ?? `cora:${c.id}`,
-            origen: 'cora' as const,
-            nombre: c.nombre_programa,
-            slug: c.identificador,
-            estado: (sh ? (sh.publicado ? 'publicado' : 'borrador') : 'sin-contenido') as EstadoContenido,
-            modulos: sh?.modulos ?? 0,
-            horas: sh ? Math.round(sh.horas) : 0,
-            version: sh?.version ?? null,
-            actualizado: sh?.updated_at ?? null,
-            lxpProgramaId: sh?.id ?? null,
-            coraProgramaId: c.id,
-          };
-        });
-      }
-    } catch {
-      itemsCora = []; // fail-soft: catálogo CORA no disponible → solo nativos
-    }
-
-    return [...itemsCora, ...itemsNativos];
   });
 }
 
