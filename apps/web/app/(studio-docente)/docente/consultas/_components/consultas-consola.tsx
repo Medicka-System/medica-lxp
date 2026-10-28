@@ -137,7 +137,7 @@ export function ConsultasConsola({
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-60px)] w-full max-w-[1400px] gap-3.5 px-5 pb-5 pt-5">
+    <div className="mx-auto flex h-[calc(100dvh-var(--studio-header))] w-full max-w-[1400px] gap-3.5 px-5 pb-5 pt-5">
       <ListaConsultas
         sinResponder={data.sinResponder}
         grupos={data.grupos}

@@ -126,7 +126,7 @@ export function PanelEco({ resumen }: { resumen: string }) {
       >
         <div className="min-h-0 overflow-hidden">
           <div
-            className={`flex max-h-[calc(100vh-120px)] w-[352px] flex-col transition-opacity ${trans} ${
+            className={`flex max-h-[calc(100dvh-var(--studio-header)-60px)] w-[352px] flex-col transition-opacity ${trans} ${
               abierto ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}
           >

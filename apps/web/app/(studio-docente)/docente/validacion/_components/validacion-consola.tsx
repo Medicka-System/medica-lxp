@@ -545,7 +545,7 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
   const urgeActivo = !!casoActivo && casoActivo.horasEnCola >= 72 && casoActivo.estado === 'pendiente';
 
   return (
-    <div className="flex h-[calc(100dvh-60px)] min-h-0">
+    <div className="flex h-[calc(100dvh-var(--studio-header))] min-h-0">
       {/* ════════ 1 · BANDEJA: cola separada por confianza de Eco (§7A · spec) ════════ */}
       <aside className="flex w-[344px] shrink-0 flex-col overflow-hidden border-r border-border bg-card">
         {/* A · Cabecera (fija) */}

@@ -206,7 +206,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
-      <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <header className="relative z-20 flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
           href="/studio/programas"
           aria-label="Volver a Programas"
@@ -277,7 +277,7 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
       </header>
 
       {/* ───── Franja de contexto ───── */}
-      <div className="flex h-[52px] shrink-0 items-center gap-5 overflow-x-auto border-b border-border bg-card px-6">
+      <div className="flex h-[var(--studio-franja)] shrink-0 items-center gap-5 overflow-x-auto border-b border-border bg-card px-6">
         {(
           [
             ['Módulos', String(totales.modulos)],

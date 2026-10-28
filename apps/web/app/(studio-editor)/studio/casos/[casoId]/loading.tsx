@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function CargandoEditorCaso() {
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <div className="flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <div className="flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Skeleton className="h-[38px] w-[38px] rounded-[9px] bg-white/15" />
         <Skeleton className="h-5 w-64 rounded-md bg-white/15" />
         <Skeleton className="ml-auto h-[38px] w-44 rounded-[9px] bg-white/15" />

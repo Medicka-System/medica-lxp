@@ -95,6 +95,13 @@
   --tap: 44px;
   --tap-cta: 48px;
 
+  /* ── Altura del chrome del Studio (fuente ÚNICA · §5B) ──
+     Header navy del Studio y franja de contexto del lienzo. Las pantallas a viewport
+     fijo (builder, grupos, caso, validación, consultas, plantillas) descuentan de aquí
+     en vez de repetir 60/112/120 a mano — un solo lugar si cambia la altura. */
+  --studio-header: 60px;
+  --studio-franja: 52px;
+
   --content-max: 1240px;
 
   /* ── Escala global de la UI (perilla de zoom) ──

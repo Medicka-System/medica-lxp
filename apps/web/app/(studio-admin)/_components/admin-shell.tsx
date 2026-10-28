@@ -49,7 +49,7 @@ export function AdminShell({
 
   return (
     <div className="flex min-h-dvh flex-col bg-background font-sans text-foreground antialiased">
-      <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-2 bg-sidebar px-5">
+      <header className="relative z-20 flex h-[var(--studio-header)] shrink-0 items-center gap-2 bg-sidebar px-5">
         {/* marca + rótulo de rol */}
         <Link
           href="/admin/panel"
@@ -79,7 +79,7 @@ export function AdminShell({
                 key={s.id}
                 href={s.href}
                 aria-current={on ? 'page' : undefined}
-                className={`relative inline-flex h-[60px] items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] transition-colors ${focusRingDark} ${
+                className={`relative inline-flex h-[var(--studio-header)] items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] transition-colors ${focusRingDark} ${
                   on
                     ? 'font-bold text-sidebar-foreground hover:text-sidebar-foreground'
                     : 'font-medium text-white/70 hover:text-white'
@@ -104,7 +104,7 @@ export function AdminShell({
               disabled
               aria-disabled
               title="Disponible próximamente"
-              className="inline-flex h-[60px] cursor-not-allowed items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] font-medium text-white/35"
+              className="inline-flex h-[var(--studio-header)] cursor-not-allowed items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] font-medium text-white/35"
             >
               {s.etiqueta}
               {s.soloSuper && (

@@ -407,7 +407,7 @@ export function ConstructorPlantilla({ plantilla }: { plantilla: PlantillaConstr
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-60px)] flex-col bg-background">
+    <div className="flex h-[calc(100dvh-var(--studio-header))] flex-col bg-background">
       <BarraContexto
         nombre={nombre}
         tipoEstudio={tipoEstudio}

@@ -121,5 +121,12 @@ export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionPr
 /** Renderiza el editor registrado para el tipo de la lección (placeholder por defecto). */
 export function EditorDeLeccion(props: EditorLeccionProps) {
   const Editor = EDITORES_LECCION[props.tipo] ?? PlaceholderEditor;
-  return <Editor {...props} />;
+  // Encuadre COMÚN a los 7 tipos (§5A · máx 1240px centrado): el dispatcher cap+centra
+  // una sola vez, así video/h5p/xapi/autoeval/tarea/foro igualan a teoría (que ya no lo
+  // hace por su cuenta). Punto único: homologa el ancho sin tocar cada editor.
+  return (
+    <div className="mx-auto w-full max-w-[1240px]">
+      <Editor {...props} />
+    </div>
+  );
 }

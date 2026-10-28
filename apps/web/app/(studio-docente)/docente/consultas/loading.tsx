@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 /** Skeleton de Consultas: bandeja (izq) · hilo (centro) · Eco (der) — imita el layout real. */
 export default function CargandoConsultas() {
   return (
-    <div className="mx-auto flex h-[calc(100vh-60px)] w-full max-w-[1400px] gap-3.5 px-5 pb-5 pt-5">
+    <div className="mx-auto flex h-[calc(100dvh-var(--studio-header))] w-full max-w-[1400px] gap-3.5 px-5 pb-5 pt-5">
       <aside className="flex w-[330px] shrink-0 flex-col gap-3 rounded-[14px] border border-border bg-card p-3.5">
         <Skeleton className="h-6 w-28 rounded-md" />
         <Skeleton className="h-[38px] w-full rounded-[9px]" />

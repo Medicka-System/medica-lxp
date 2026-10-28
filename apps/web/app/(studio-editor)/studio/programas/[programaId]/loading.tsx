@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function CargandoBuilder() {
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <div className="flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <div className="flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Skeleton className="h-[38px] w-[38px] rounded-[9px] bg-white/15" />
         <Skeleton className="h-5 w-56 rounded-md bg-white/15" />
         <div className="ml-auto flex gap-2">
@@ -12,7 +12,7 @@ export default function CargandoBuilder() {
           <Skeleton className="h-[38px] w-24 rounded-[9px] bg-white/15" />
         </div>
       </div>
-      <Skeleton className="h-[52px] w-full rounded-none" />
+      <Skeleton className="h-[var(--studio-franja)] w-full rounded-none" />
       <div className="flex min-h-0 flex-1">
         <div className="w-[324px] shrink-0 space-y-2 border-r border-border bg-card p-3">
           {Array.from({ length: 6 }).map((_, i) => (

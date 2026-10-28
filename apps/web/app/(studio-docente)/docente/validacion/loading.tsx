@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 /** Skeleton de Validación: bandeja (izq) + detalle con visor (centro) + rail Eco. */
 export default function CargandoValidacion() {
   return (
-    <div className="flex h-[calc(100dvh-60px)] min-h-0">
+    <div className="flex h-[calc(100dvh-var(--studio-header))] min-h-0">
       <aside className="flex w-[340px] shrink-0 flex-col gap-3 border-r border-border bg-card p-4">
         <Skeleton className="h-6 w-32 rounded-md" />
         <Skeleton className="h-9 w-full rounded-[9px]" />

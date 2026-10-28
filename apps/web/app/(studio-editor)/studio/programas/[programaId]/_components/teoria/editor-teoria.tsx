@@ -156,9 +156,9 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
   }
 
   return (
-    // Ancho acotado al contenedor de la plataforma (§5A · máx 1240px centrado): los
-    // bloques NO se estiran con la ventana, quedan a la medida del resto del campus.
-    <div className="mx-auto grid w-full max-w-[1240px] gap-4">
+    // El cap/centrado (§5A · máx 1240px) lo aplica ahora el dispatcher `EditorDeLeccion`
+    // para los 7 tipos por igual — aquí solo la rejilla de bloques a todo el ancho dado.
+    <div className="grid w-full gap-4">
       <div className="flex items-center gap-2.5">
         <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-accent text-accent-foreground">
           <Layers className="h-[18px] w-[18px]" strokeWidth={1.75} />

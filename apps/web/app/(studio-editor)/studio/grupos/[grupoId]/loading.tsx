@@ -4,12 +4,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function CargandoGrupo() {
   return (
     <div className="flex h-dvh flex-col bg-background">
-      <div className="flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <div className="flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Skeleton className="h-[38px] w-[38px] rounded-[9px] bg-white/15" />
         <Skeleton className="h-5 w-64 rounded-md bg-white/15" />
         <Skeleton className="ml-auto h-[38px] w-36 rounded-[9px] bg-white/15" />
       </div>
-      <Skeleton className="h-[52px] w-full rounded-none" />
+      <Skeleton className="h-[var(--studio-franja)] w-full rounded-none" />
       <div className="flex min-h-0 flex-1">
         <div className="w-[328px] shrink-0 space-y-3 border-r border-border bg-card p-5">
           {Array.from({ length: 5 }).map((_, i) => (

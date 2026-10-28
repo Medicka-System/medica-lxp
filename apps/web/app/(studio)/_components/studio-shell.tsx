@@ -59,7 +59,7 @@ export function StudioShell({
 
   return (
     <div className="min-h-dvh bg-background font-sans text-foreground antialiased">
-      <header className="relative z-20 flex h-[60px] items-center gap-2 bg-sidebar px-5">
+      <header className="relative z-20 flex h-[var(--studio-header)] items-center gap-2 bg-sidebar px-5">
         {/* marca */}
         <Link
           href="/studio/programas"
@@ -90,7 +90,7 @@ export function StudioShell({
                 key={s.id}
                 href={s.href}
                 aria-current={on ? 'page' : undefined}
-                className={`relative flex h-[60px] items-center px-3.5 text-[13.5px] transition-colors ${focusRingDark} ${
+                className={`relative flex h-[var(--studio-header)] items-center px-3.5 text-[13.5px] transition-colors ${focusRingDark} ${
                   on
                     ? 'font-bold text-sidebar-foreground hover:text-sidebar-foreground'
                     : 'font-medium text-white/70 hover:text-white'
@@ -113,7 +113,7 @@ export function StudioShell({
               onClick={() => setMenu((v) => !v)}
               aria-expanded={menu}
               aria-haspopup="menu"
-              className={`inline-flex h-[60px] items-center gap-1.5 px-3.5 text-[13.5px] transition-colors ${focusRingDark} ${
+              className={`inline-flex h-[var(--studio-header)] items-center gap-1.5 px-3.5 text-[13.5px] transition-colors ${focusRingDark} ${
                 menu || enHerramientas
                   ? 'bg-white/10 font-semibold text-sidebar-foreground'
                   : 'font-medium text-white/70 hover:text-white'

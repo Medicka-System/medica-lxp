@@ -197,7 +197,7 @@ export function EditorCaso({
   return (
     <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
-      <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <header className="relative z-20 flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
           href={rutaBase}
           aria-label="Volver a Casos"
@@ -259,7 +259,7 @@ export function EditorCaso({
       <div className="flex min-h-0 flex-1">
         {/* ════════ Visor DICOM real / uploader (§4.7 multi-serie) ════════ */}
         <div className="flex min-w-0 flex-1 flex-col bg-sidebar">
-          <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
+          <div className="flex h-[var(--studio-franja)] shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
             <span className={`${kicker} text-white/55`}>Visor DICOM</span>
             <span className="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-white/[0.1] px-2.5 text-[11px] font-semibold text-white/70">
               Cornerstone3D

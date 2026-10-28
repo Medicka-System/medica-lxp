@@ -46,7 +46,7 @@ export function VistaPreviaPlantilla({
   const impresion = estructura.impresionDefecto ?? '';
 
   return (
-    <div className="min-h-[calc(100vh-60px)] bg-background">
+    <div className="min-h-[calc(100dvh-var(--studio-header))] bg-background">
       {/* barra de la vista previa */}
       <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-card px-5">
         <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
