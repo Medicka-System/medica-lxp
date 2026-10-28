@@ -22,4 +22,11 @@ export type {
   AvisoResync,
   ResumenHerencia,
   VistaEfectiva,
+  // Contenido propio del grupo (Opción 1A · merge aditivo · Etapa 2):
+  Origen,
+  BloqueResuelto,
+  ModuloPropio,
+  LeccionPropia,
+  BloquePropio,
+  ContenidoPropioGrupo,
 } from '@campus/shared';

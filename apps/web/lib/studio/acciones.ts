@@ -481,7 +481,7 @@ export async function crearModulo(programaId: string): Promise<void> {
       insert into lxp.modulos (programa_id, nombre, orden, horas)
       values (
         ${programaId}, 'Módulo sin título',
-        coalesce((select max(orden) + 1 from lxp.modulos where programa_id = ${programaId}), 0),
+        coalesce((select max(orden) + 1 from lxp.modulos where programa_id = ${programaId} and grupo_id is null), 0),
         0
       )`;
   });
@@ -529,10 +529,105 @@ export async function crearLeccion(
       insert into lxp.lecciones (modulo_id, nombre, tipo, orden)
       values (
         ${moduloId}, 'Lección sin título', ${t}::lxp.leccion_tipo,
-        coalesce((select max(orden) + 1 from lxp.lecciones where modulo_id = ${moduloId}), 0)
+        coalesce((select max(orden) + 1 from lxp.lecciones where modulo_id = ${moduloId} and grupo_id is null), 0)
       )`;
   });
   refrescar(programaId);
+}
+
+// ── Contenido PROPIO del grupo (Opción 1A · Etapa 4B) ─────────────────────────────
+// Escribe filas REALES con `grupo_id` = el grupo → se fusionan en el temario (motor) y
+// reusan toda la maquinaria (progreso/SCORM/autoeval). El guard `grupo_id = ${grupoId}`
+// garantiza que estas acciones SOLO tocan lo PROPIO (lo heredado se gestiona con overrides).
+// `despuesDe` (id de una entidad hermana heredada) fija la posición; null = al inicio.
+
+/** Crea un MÓDULO propio del grupo (agregado al temario, solo para este grupo). */
+export async function crearModuloGrupo(grupoId: string, despuesDe: string | null = null): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    const g = (await sql<{ programa_id: string }[]>`select programa_id from lxp.grupos where id = ${grupoId}`)[0];
+    if (!g) throw new Error('grupo inexistente');
+    await sql`
+      insert into lxp.modulos (programa_id, grupo_id, nombre, orden, horas, despues_de)
+      values (
+        ${g.programa_id}, ${grupoId}, 'Módulo del grupo',
+        coalesce((select max(orden) + 1 from lxp.modulos where grupo_id = ${grupoId}), 0), 0, ${despuesDe}
+      )`;
+  });
+  refrescarGrupo(grupoId);
+}
+
+/** Crea una LECCIÓN propia del grupo bajo un módulo (heredado o propio) + su tipo. */
+export async function crearLeccionGrupo(
+  grupoId: string,
+  moduloId: string,
+  tipo: TipoLeccion = 'teoria',
+  despuesDe: string | null = null,
+): Promise<void> {
+  const { userId } = await requireAutoria();
+  const t = comoTipoLeccion(tipo);
+  await comoStaff(userId, async (sql) => {
+    await sql`
+      insert into lxp.lecciones (modulo_id, grupo_id, nombre, tipo, orden, despues_de)
+      values (
+        ${moduloId}, ${grupoId}, 'Lección del grupo', ${t}::lxp.leccion_tipo,
+        coalesce((select max(orden) + 1 from lxp.lecciones where grupo_id = ${grupoId} and modulo_id = ${moduloId}), 0),
+        ${despuesDe}
+      )`;
+  });
+  refrescarGrupo(grupoId);
+}
+
+/** Renombra un módulo PROPIO del grupo (solo filas con grupo_id = este grupo). */
+export async function renombrarModuloGrupo(grupoId: string, moduloId: string, nombre: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  const limpio = nombre.trim();
+  if (!limpio) return;
+  await comoStaff(userId, async (sql) => {
+    afirmarFilas(
+      await sql`update lxp.modulos set nombre = ${limpio} where id = ${moduloId} and grupo_id = ${grupoId}`,
+      'renombrar módulo propio',
+    );
+  });
+  refrescarGrupo(grupoId);
+}
+
+/** Renombra una lección PROPIA del grupo. */
+export async function renombrarLeccionGrupo(grupoId: string, leccionId: string, nombre: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  const limpio = nombre.trim();
+  if (!limpio) return;
+  await comoStaff(userId, async (sql) => {
+    afirmarFilas(
+      await sql`update lxp.lecciones set nombre = ${limpio} where id = ${leccionId} and grupo_id = ${grupoId}`,
+      'renombrar lección propia',
+    );
+  });
+  refrescarGrupo(grupoId);
+}
+
+/** Elimina un módulo PROPIO (cascade: sus lecciones/contenido propio). Nunca heredado. */
+export async function eliminarModuloGrupo(grupoId: string, moduloId: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    afirmarFilas(
+      await sql`delete from lxp.modulos where id = ${moduloId} and grupo_id = ${grupoId}`,
+      'eliminar módulo propio',
+    );
+  });
+  refrescarGrupo(grupoId);
+}
+
+/** Elimina una lección PROPIA del grupo. Nunca heredada. */
+export async function eliminarLeccionGrupo(grupoId: string, leccionId: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    afirmarFilas(
+      await sql`delete from lxp.lecciones where id = ${leccionId} and grupo_id = ${grupoId}`,
+      'eliminar lección propia',
+    );
+  });
+  refrescarGrupo(grupoId);
 }
 
 /**
@@ -656,8 +751,9 @@ export async function guardarConfigForo(
       )[0]!.n;
       actividadId = (
         await sql<{ id: string }[]>`
-          insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden)
-          values (${leccionId}, 'foro'::lxp.actividad_tipo, ${titulo}, ${instruccionesPlano}, ${orden})
+          insert into lxp.actividades (leccion_id, tipo, titulo, instrucciones, orden, grupo_id)
+          values (${leccionId}, 'foro'::lxp.actividad_tipo, ${titulo}, ${instruccionesPlano}, ${orden},
+                  (select grupo_id from lxp.lecciones where id = ${leccionId}))
           returning id`
       )[0]!.id;
     }
@@ -694,12 +790,14 @@ export async function crearBloque(
 
     if (comoContenido) {
       await sql`
-        insert into lxp.contenidos (leccion_id, tipo, titulo, orden)
-        values (${leccionId}, ${comoContenido}::lxp.contenido_tipo, 'Bloque sin título', ${orden})`;
+        insert into lxp.contenidos (leccion_id, tipo, titulo, orden, grupo_id)
+        values (${leccionId}, ${comoContenido}::lxp.contenido_tipo, 'Bloque sin título', ${orden},
+                (select grupo_id from lxp.lecciones where id = ${leccionId}))`;
     } else if (comoActividad) {
       await sql`
-        insert into lxp.actividades (leccion_id, tipo, titulo, orden)
-        values (${leccionId}, ${comoActividad}::lxp.actividad_tipo, 'Bloque sin título', ${orden})`;
+        insert into lxp.actividades (leccion_id, tipo, titulo, orden, grupo_id)
+        values (${leccionId}, ${comoActividad}::lxp.actividad_tipo, 'Bloque sin título', ${orden},
+                (select grupo_id from lxp.lecciones where id = ${leccionId}))`;
     }
   });
   refrescar(programaId);
@@ -749,7 +847,7 @@ export async function moverModulo(
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
     const orden = await sql<{ id: string; orden: number }[]>`
-      select id, orden from lxp.modulos where programa_id = ${programaId} order by orden, created_at`;
+      select id, orden from lxp.modulos where programa_id = ${programaId} and grupo_id is null order by orden, created_at`;
     await intercambiar(sql, 'lxp.modulos', orden, moduloId, dir);
   });
   refrescar(programaId);
@@ -764,7 +862,7 @@ export async function moverLeccion(
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {
     const orden = await sql<{ id: string; orden: number }[]>`
-      select id, orden from lxp.lecciones where modulo_id = ${moduloId} order by orden, created_at`;
+      select id, orden from lxp.lecciones where modulo_id = ${moduloId} and grupo_id is null order by orden, created_at`;
     await intercambiar(sql, 'lxp.lecciones', orden, leccionId, dir);
   });
   refrescar(programaId);
@@ -932,7 +1030,7 @@ export async function listarRecursosReemplazables(
 
     if (lec.tipo === 'teoria') {
       const bloques = await sql<{ id: string; tipo_bloque: string }[]>`
-        select id, tipo_bloque from lxp.bloques where leccion_id = ${leccionId} order by orden, created_at`;
+        select id, tipo_bloque from lxp.bloques where leccion_id = ${leccionId} and grupo_id is null order by orden, created_at`;
       for (const b of bloques) {
         const familia = FAMILIA_POR_BLOQUE[b.tipo_bloque] ?? null;
         if (!familia) continue; // texto/html/link/caso/h5p/xapi: sin reemplazo de fuente aquí
@@ -1003,11 +1101,16 @@ export async function crearBloqueTeoria(
   }
 
   await comoStaff(userId, async (sql) => {
+    // Opción 1A: el bloque HEREDA el grupo_id de su lección (propio ⇒ grupo; heredada ⇒ null).
+    // Así el editor se monta igual para una lección propia sin pasar grupoId.
     await sql`
-      insert into lxp.bloques (leccion_id, tipo_bloque, config, orden)
+      insert into lxp.bloques (leccion_id, tipo_bloque, config, orden, grupo_id)
       values (
         ${leccionId}, ${limpio}, ${sql.json(configFinal as Parameters<typeof sql.json>[0])},
-        coalesce((select max(orden) + 1 from lxp.bloques where leccion_id = ${leccionId}), 0)
+        coalesce((select max(orden) + 1 from lxp.bloques
+                  where leccion_id = ${leccionId}
+                    and grupo_id is not distinct from (select grupo_id from lxp.lecciones where id = ${leccionId})), 0),
+        (select grupo_id from lxp.lecciones where id = ${leccionId})
       )`;
   });
   refrescar(programaId);
@@ -1047,13 +1150,19 @@ export async function reordenarBloquesTeoria(
   const { userId } = await requireAutoria();
   if (idsEnOrden.length === 0) return;
   await comoStaff(userId, async (sql) => {
+    // Opción 1A: reordena los bloques de la lección que comparten su grupo_id (propio ⇒
+    // los propios del grupo; heredada ⇒ los heredados). Derivado de la lección, sin grupoId.
     const propios = await sql<{ id: string }[]>`
-      select id from lxp.bloques where leccion_id = ${leccionId}`;
+      select id from lxp.bloques
+      where leccion_id = ${leccionId}
+        and grupo_id is not distinct from (select grupo_id from lxp.lecciones where id = ${leccionId})`;
     const validos = new Set(propios.map((r) => r.id));
     let orden = 0;
     for (const id of idsEnOrden) {
       if (!validos.has(id)) continue;
-      await sql`update lxp.bloques set orden = ${orden} where id = ${id} and leccion_id = ${leccionId}`;
+      await sql`update lxp.bloques set orden = ${orden}
+        where id = ${id} and leccion_id = ${leccionId}
+          and grupo_id is not distinct from (select grupo_id from lxp.lecciones where id = ${leccionId})`;
       orden += 1;
     }
   });

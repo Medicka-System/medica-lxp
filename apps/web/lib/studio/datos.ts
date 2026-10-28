@@ -55,8 +55,9 @@ export async function getProgramas(userId: string): Promise<ProgramaResumen[]> {
         coalesce(g.grupos, 0)::int   as grupos
       from lxp.programas p
       left join (
+        -- Stats del PROGRAMA = solo heredado (grupo_id IS NULL); lo propio del grupo no cuenta.
         select programa_id, sum(horas) as horas, count(*) as modulos
-        from lxp.modulos group by programa_id
+        from lxp.modulos where grupo_id is null group by programa_id
       ) m on m.programa_id = p.id
       left join (
         select programa_id, count(*) as grupos
@@ -105,7 +106,7 @@ export type ProgramaListaItem = {
 /** Suma de horas + nº de módulos por programa (subconsulta reutilizable). */
 const HORAS_MODULOS = (sql: Sql) => sql`
   left join (select programa_id, sum(horas) as horas, count(*) as modulos
-             from lxp.modulos group by programa_id) m on m.programa_id = p.id`;
+             from lxp.modulos where grupo_id is null group by programa_id) m on m.programa_id = p.id`;
 
 /**
  * Lista ÚNICA de programas = TODO `lxp.programas`, partido por origen: NATIVOS del LXP
@@ -226,7 +227,7 @@ export async function getProgramaBuilder(
       { id: string; nombre: string; orden: number; horas: number }[]
     >`
       select id, nombre, orden, horas::float8 as horas
-      from lxp.modulos where programa_id = ${programaId} order by orden, created_at`;
+      from lxp.modulos where programa_id = ${programaId} and grupo_id is null order by orden, created_at`;
 
     const moduloIds = modulos.map((m) => m.id);
     const lecciones = moduloIds.length
@@ -244,7 +245,7 @@ export async function getProgramaBuilder(
           select id, modulo_id, nombre, orden, horas::float8 as horas,
                  tipo::text as tipo, config
           from lxp.lecciones
-          where modulo_id in ${sql(moduloIds)} order by orden, created_at`
+          where modulo_id in ${sql(moduloIds)} and grupo_id is null order by orden, created_at`
       : [];
 
     const leccionIds = lecciones.map((l) => l.id);
@@ -261,7 +262,7 @@ export async function getProgramaBuilder(
           }[]
         >`
           select id, leccion_id, orden, tipo_bloque, config from lxp.bloques
-          where leccion_id in ${sql(leccionIds)} order by orden, created_at`
+          where leccion_id in ${sql(leccionIds)} and grupo_id is null order by orden, created_at`
       : [];
 
     const bloquesPorLeccion = new Map<string, BloqueTeoria[]>();
@@ -424,13 +425,21 @@ export async function getDocentes(userId: string): Promise<{ userId: string; nom
 }
 
 /** Un nodo del temario del grupo con su marca de herencia (cruda, desde grupo_overrides). */
-export type NodoLeccionGrupo = { id: string; titulo: string; personalizado: boolean };
+export type NodoLeccionGrupo = {
+  id: string;
+  titulo: string;
+  personalizado: boolean;
+  /** PROPIO del grupo (grupo_id · Opción 1A): editable/borrable, no heredado del programa. */
+  esPropio: boolean;
+};
 export type NodoModuloGrupo = {
   id: string;
   clave: string;
   titulo: string;
   horas: number;
   personalizado: boolean;
+  /** PROPIO del grupo (agregado aquí, no del programa). */
+  esPropio: boolean;
   /** Fecha de apertura del módulo en este grupo (liberación · mig 0087). null = abierto. */
   fechaApertura: Date | null;
   lecciones: NodoLeccionGrupo[];
@@ -485,6 +494,41 @@ export type GrupoDetalle = {
   portadaSrcset?: { w: number; url: string }[];
 };
 
+/**
+ * Fusiona entidades PROPIAS en una lista base HEREDADA (ya ordenada), por posición: cada
+ * propia va DESPUÉS de su ancla (`despuesDe`, un id de la base). Ancla NULL/inexistente →
+ * al inicio; entre propias con la misma ancla, por `orden`. Espeja `fusionarPosicion` del
+ * motor (@campus/shared) para el temario del Studio. No muta la base.
+ */
+function fusionarPos<T extends { id: string; orden: number; despuesDe: string | null }>(
+  base: T[],
+  propios: T[],
+): T[] {
+  if (propios.length === 0) return base;
+  const idsBase = new Set(base.map((b) => b.id));
+  const cmp = (a: T, b: T): number => a.orden - b.orden || a.id.localeCompare(b.id);
+  const alInicio: T[] = [];
+  const porAncla = new Map<string, T[]>();
+  for (const p of propios) {
+    if (p.despuesDe === null || !idsBase.has(p.despuesDe)) {
+      alInicio.push(p);
+    } else {
+      const arr = porAncla.get(p.despuesDe) ?? [];
+      arr.push(p);
+      porAncla.set(p.despuesDe, arr);
+    }
+  }
+  alInicio.sort(cmp);
+  for (const arr of porAncla.values()) arr.sort(cmp);
+  const out: T[] = [...alInicio];
+  for (const b of base) {
+    out.push(b);
+    const despues = porAncla.get(b.id);
+    if (despues) out.push(...despues);
+  }
+  return out;
+}
+
 export async function getGrupoDetalle(
   userId: string,
   grupoId: string,
@@ -516,15 +560,30 @@ export async function getGrupoDetalle(
     )[0];
     if (!g) return null;
 
+    // HEREDADO (grupo_id IS NULL): el temario del programa. El contenido PROPIO del grupo
+    // (grupo_id = grupoId) se incorpora + se marca en la Etapa 4B; aquí se filtra para NO
+    // mostrar lo propio de OTROS grupos (RLS deja al staff ver todo propio → el filtro es
+    // necesario a nivel query).
     const modulos = await sql<{ id: string; nombre: string; orden: number; horas: number }[]>`
       select id, nombre, orden, horas::float8 as horas
-      from lxp.modulos where programa_id = ${g.programa_id} order by orden, created_at`;
+      from lxp.modulos where programa_id = ${g.programa_id} and grupo_id is null order by orden, created_at`;
     const moduloIds = modulos.map((m) => m.id);
     const lecciones = moduloIds.length
       ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number }[]>`
           select id, modulo_id, nombre, orden from lxp.lecciones
-          where modulo_id in ${sql(moduloIds)} order by orden, created_at`
+          where modulo_id in ${sql(moduloIds)} and grupo_id is null order by orden, created_at`
       : [];
+
+    // Contenido PROPIO de ESTE grupo (grupo_id = grupoId · Opción 1A) — se fusiona en el
+    // temario por posición (`despues_de`) y se marca `esPropio` (editable/borrable).
+    const [propioMods, propioLecs] = await Promise.all([
+      sql<{ id: string; nombre: string; orden: number; horas: number; despues_de: string | null }[]>`
+        select id, nombre, orden, horas::float8 as horas, despues_de
+        from lxp.modulos where grupo_id = ${grupoId} order by orden, created_at`,
+      sql<{ id: string; modulo_id: string; nombre: string; orden: number; despues_de: string | null }[]>`
+        select id, modulo_id, nombre, orden, despues_de
+        from lxp.lecciones where grupo_id = ${grupoId} order by orden, created_at`,
+    ]);
 
     const overrides = await sql<
       {
@@ -546,12 +605,34 @@ export async function getGrupoDetalle(
       select modulo_id, fecha_apertura from lxp.grupo_calendario where grupo_id = ${grupoId}`;
     const aperturaPorModulo = new Map(calFilas.map((c) => [c.modulo_id, c.fecha_apertura]));
 
-    const leccionesPorModulo = new Map<string, NodoLeccionGrupo[]>();
+    // Lecciones por módulo = heredadas (grupo_id NULL) + propias de este grupo, FUSIONADAS
+    // por posición y marcadas `esPropio`. Una propia no es "personalización" (no override).
+    type LecDesc = { id: string; nombre: string; orden: number; despuesDe: string | null; esPropio: boolean };
+    const heredadasPorMod = new Map<string, LecDesc[]>();
     for (const l of lecciones) {
-      const arr = leccionesPorModulo.get(l.modulo_id) ?? [];
-      arr.push({ id: l.id, titulo: l.nombre, personalizado: personalizados.has(l.id) });
-      leccionesPorModulo.set(l.modulo_id, arr);
+      const arr = heredadasPorMod.get(l.modulo_id) ?? [];
+      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: null, esPropio: false });
+      heredadasPorMod.set(l.modulo_id, arr);
     }
+    const propiasPorMod = new Map<string, LecDesc[]>();
+    for (const l of propioLecs) {
+      const arr = propiasPorMod.get(l.modulo_id) ?? [];
+      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: l.despues_de, esPropio: true });
+      propiasPorMod.set(l.modulo_id, arr);
+    }
+    const leccionesDeModulo = (moduloId: string): NodoLeccionGrupo[] =>
+      fusionarPos(heredadasPorMod.get(moduloId) ?? [], propiasPorMod.get(moduloId) ?? []).map((l) => ({
+        id: l.id,
+        titulo: l.nombre,
+        personalizado: l.esPropio ? false : personalizados.has(l.id),
+        esPropio: l.esPropio,
+      }));
+
+    // Módulos del temario = heredados + propios, fusionados por posición.
+    const mergedMods = fusionarPos(
+      modulos.map((m) => ({ id: m.id, nombre: m.nombre, orden: m.orden, horas: m.horas, despuesDe: null as string | null, esPropio: false })),
+      propioMods.map((m) => ({ id: m.id, nombre: m.nombre, orden: m.orden, horas: m.horas, despuesDe: m.despues_de, esPropio: true })),
+    );
 
     // ── Re-sincronización (#6 · Path A, en memoria): un override está DESFASADO si se aplicó
     // sobre una versión anterior a la actual del programa, o HUÉRFANO si su nodo ya no existe
@@ -619,18 +700,19 @@ export async function getGrupoDetalle(
         publicado: g.programa_publicado,
       },
       totales: {
-        modulos: modulos.length,
-        horas: Math.round(modulos.reduce((s, m) => s + m.horas, 0)),
-        lecciones: lecciones.length,
+        modulos: mergedMods.length,
+        horas: Math.round(mergedMods.reduce((s, m) => s + m.horas, 0)),
+        lecciones: lecciones.length + propioLecs.length,
       },
-      temario: modulos.map((m, i) => ({
+      temario: mergedMods.map((m, i) => ({
         id: m.id,
         clave: String(i + 1).padStart(2, '0'),
         titulo: m.nombre,
         horas: Math.round(m.horas),
-        personalizado: personalizados.has(m.id),
+        personalizado: m.esPropio ? false : personalizados.has(m.id),
+        esPropio: m.esPropio,
         fechaApertura: aperturaPorModulo.get(m.id) ?? null,
-        lecciones: leccionesPorModulo.get(m.id) ?? [],
+        lecciones: leccionesDeModulo(m.id),
       })),
       overrides: overrides.map((o) => ({
         id: o.id,
@@ -642,6 +724,55 @@ export async function getGrupoDetalle(
       imagenPortadaRef: g.imagen_portada,
       portadaUrl: _gp?.url ?? null,
       portadaSrcset: _gp?.srcset,
+    };
+  });
+}
+
+// ── Editor de contenido de una LECCIÓN PROPIA del grupo (Opción 1A · Etapa 4C) ──────
+/** Datos para montar el course builder (EditorDeLeccion) sobre una lección PROPIA del grupo. */
+export type LeccionGrupoEditor = {
+  grupoId: string;
+  grupoNombre: string;
+  programaId: string;
+  leccionId: string;
+  tipo: TipoLeccion;
+  titulo: string;
+  config: Record<string, unknown>;
+  bloques: BloqueTeoria[];
+};
+
+/**
+ * Carga una lección PROPIA del grupo (grupo_id = grupoId) + sus bloques propios, para el
+ * editor de contenido del grupo. Devuelve null si la lección no es propia de este grupo
+ * (candado: no se edita contenido heredado desde aquí — eso vive en el programa).
+ */
+export async function getLeccionGrupoEditor(
+  userId: string,
+  grupoId: string,
+  leccionId: string,
+): Promise<LeccionGrupoEditor | null> {
+  return comoStaff(userId, async (sql) => {
+    const l = (
+      await sql<{ programa_id: string; nombre: string; tipo: string; config: Record<string, unknown> | null; grupo_nombre: string }[]>`
+        select m.programa_id, l.nombre, l.tipo::text as tipo, l.config, g.nombre as grupo_nombre
+        from lxp.lecciones l
+        join lxp.modulos m on m.id = l.modulo_id
+        join lxp.grupos g on g.id = ${grupoId}
+        where l.id = ${leccionId} and l.grupo_id = ${grupoId} limit 1`
+    )[0];
+    if (!l) return null;
+    const bloques = await sql<{ id: string; orden: number; tipo_bloque: string; config: Record<string, unknown> | null }[]>`
+      select id, orden, tipo_bloque, config from lxp.bloques
+      where leccion_id = ${leccionId} and grupo_id = ${grupoId} order by orden, created_at`;
+    return {
+      grupoId,
+      grupoNombre: l.grupo_nombre,
+      programaId: l.programa_id,
+      leccionId,
+      tipo: comoTipoLeccion(l.tipo),
+      titulo: l.nombre,
+      config: l.config ?? {},
+      bloques: bloques.map((b) => ({ id: b.id, orden: b.orden, tipoBloque: b.tipo_bloque, config: b.config ?? {} })),
     };
   });
 }
@@ -677,14 +808,16 @@ export async function getGrupoAlumnos(
       from lxp.cora_alumnos_de_grupo(${g.cora_grupo_id})`;
     if (roster.length === 0) return [];
 
-    // Total de lecciones del programa (denominador del avance).
+    // Total de lecciones = heredadas del programa (grupo_id IS NULL) + las PROPIAS de ESTE
+    // grupo (grupo_id = grupoId); así el avance del alumno de este grupo cuenta lo que ve.
     const total =
       (
         await sql<{ n: number }[]>`
           select count(*)::int as n
           from lxp.lecciones l
           join lxp.modulos m on m.id = l.modulo_id
-          where m.programa_id = ${g.programa_id}`
+          where m.programa_id = ${g.programa_id}
+            and (l.grupo_id is null or l.grupo_id = ${grupoId})`
       )[0]?.n ?? 0;
 
     // Lecciones completadas por alumno (staff lee todo · reproduccion_progreso_select).
@@ -695,6 +828,7 @@ export async function getGrupoAlumnos(
       join lxp.lecciones l on l.id = rp.leccion_id
       join lxp.modulos m on m.id = l.modulo_id
       where m.programa_id = ${g.programa_id}
+        and (l.grupo_id is null or l.grupo_id = ${grupoId})
         and rp.completado
         and rp.alumno_id in ${sql(ids)}
       group by rp.alumno_id`;

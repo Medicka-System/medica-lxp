@@ -53,11 +53,14 @@ export async function insertarContenidoPaquete(
     where id = ${d.leccionId}`;
 
   // ── Modelo VIEJO: fila lxp.contenidos (compat, aún vivo) ──
+  // Opción 1A: el anchor compat HEREDA el grupo_id de su lección (lección propia del grupo ⇒
+  // grupo; heredada ⇒ null). Así, si el paquete se sube a una lección PROPIA, su contenido no
+  // se filtra a otros grupos (RLS por fila) y cuenta para el avance de este grupo.
   const rows = await sql<ContenidoFila[]>`
-    insert into lxp.contenidos (id, leccion_id, tipo, titulo, recurso_ref, orden)
+    insert into lxp.contenidos (id, leccion_id, tipo, titulo, recurso_ref, orden, grupo_id)
     values (
       ${d.id}, ${d.leccionId}, ${d.tipo}::lxp.contenido_tipo, ${d.titulo},
-      ${d.recursoRef}, ${d.orden}
+      ${d.recursoRef}, ${d.orden}, (select grupo_id from lxp.lecciones where id = ${d.leccionId})
     )
     returning id, leccion_id, tipo::text as tipo, titulo, recurso_ref, orden`;
   return rows[0];

@@ -255,3 +255,117 @@ describe('existeEntidad', () => {
     expect(existeEntidad(p, 'programa', 'p1')).toBe(true);
   });
 });
+
+// ── Contenido PROPIO del grupo (Opción 1A · merge aditivo · Etapa 2) ──────────────
+describe('resolverHerencia · contenido propio del grupo (merge)', () => {
+  it('sin propias: comportamiento IDÉNTICO + todo marcado origen heredado', () => {
+    const v = resolverHerencia(plantilla(), []);
+    expect(v.modulos).toHaveLength(2);
+    expect(v.modulos[0]?.herencia.origen).toBe('heredado');
+    expect(v.modulos[0]?.lecciones[0]?.herencia.origen).toBe('heredado');
+    expect(v.resumen).toEqual({ modulos: 2, lecciones: 1, personalizaciones: 0, ocultos: 0 });
+  });
+
+  it('módulo propio: se fusiona DESPUÉS de su ancla, origen propio, cuenta en el resumen', () => {
+    const v = resolverHerencia(plantilla(), [], {
+      modulos: [
+        {
+          id: 'gm1',
+          nombre: 'Módulo del grupo',
+          descripcion: null,
+          orden: 1,
+          horas: 2,
+          despues_de: 'm1', // entre m1 y m2
+          lecciones: [],
+        },
+      ],
+    });
+    expect(v.modulos.map((m) => m.id)).toEqual(['m1', 'gm1', 'm2']);
+    const gm = v.modulos.find((m) => m.id === 'gm1');
+    expect(gm?.herencia.origen).toBe('propio');
+    expect(gm?.herencia.personalizado).toBe(false);
+    expect(v.resumen.modulos).toBe(3);
+  });
+
+  it('módulo propio con despues_de NULL va al INICIO', () => {
+    const v = resolverHerencia(plantilla(), [], {
+      modulos: [
+        { id: 'gm0', nombre: 'Intro del grupo', descripcion: null, orden: 1, horas: 1, despues_de: null, lecciones: [] },
+      ],
+    });
+    expect(v.modulos.map((m) => m.id)).toEqual(['gm0', 'm1', 'm2']);
+  });
+
+  it('lección propia bajo un módulo HEREDADO: posición por despues_de, cuenta en lecciones', () => {
+    const v = resolverHerencia(plantilla(), [], {
+      lecciones: [
+        {
+          id: 'gl1',
+          modulo_id: 'm1',
+          despues_de: 'l1', // después de la lección heredada l1
+          nombre: 'Lección del grupo',
+          descripcion: null,
+          orden: 1,
+          contenidos: [],
+          actividades: [],
+        },
+      ],
+    });
+    const m1 = v.modulos.find((m) => m.id === 'm1');
+    expect(m1?.lecciones.map((l) => l.id)).toEqual(['l1', 'gl1']);
+    const gl = m1?.lecciones.find((l) => l.id === 'gl1');
+    expect(gl?.herencia.origen).toBe('propio');
+    expect(v.resumen.lecciones).toBe(2); // 1 heredada + 1 propia
+  });
+
+  it('bloque propio bajo una lección HEREDADA: se fusiona en sus bloques con origen propio', () => {
+    const base = plantilla();
+    // la lección heredada l1 estrena bloques (teoría)
+    base.modulos[0]!.lecciones[0]!.bloques = [
+      { id: 'b1', orden: 1, tipo_bloque: 'texto', config: {} },
+    ];
+    const v = resolverHerencia(base, [], {
+      bloques: [
+        { id: 'gb1', leccion_id: 'l1', despues_de: 'b1', orden: 1, tipo_bloque: 'imagen', config: { ref: 'x' } },
+      ],
+    });
+    const l1 = v.modulos[0]?.lecciones.find((l) => l.id === 'l1');
+    expect(l1?.bloques?.map((b) => b.id)).toEqual(['b1', 'gb1']);
+    expect(l1?.bloques?.find((b) => b.id === 'b1')?.origen).toBe('heredado');
+    expect(l1?.bloques?.find((b) => b.id === 'gb1')?.origen).toBe('propio');
+  });
+
+  it('despues_de a un ancla INEXISTENTE (borrada) cae al inicio del ámbito', () => {
+    const v = resolverHerencia(plantilla(), [], {
+      modulos: [
+        { id: 'gmX', nombre: 'X', descripcion: null, orden: 1, horas: 1, despues_de: 'no-existe', lecciones: [] },
+      ],
+    });
+    expect(v.modulos.map((m) => m.id)).toEqual(['gmX', 'm1', 'm2']);
+  });
+
+  it('NO muta la plantilla al fusionar propias', () => {
+    const original = plantilla();
+    const snapshot = JSON.parse(JSON.stringify(original));
+    resolverHerencia(original, [], {
+      modulos: [{ id: 'gm', nombre: 'g', descripcion: null, orden: 1, horas: 1, despues_de: 'm1', lecciones: [] }],
+      lecciones: [{ id: 'gl', modulo_id: 'm1', despues_de: null, nombre: 'g', descripcion: null, orden: 1, contenidos: [], actividades: [] }],
+    });
+    expect(original).toEqual(snapshot);
+  });
+
+  it('overrides sobre lo heredado conviven con propias (no se mezclan)', () => {
+    const v = resolverHerencia(
+      plantilla(),
+      [{ entidad: 'modulo', entidad_id: 'm1', patch: { nombre: 'Fundamentos (A)' }, aplicado_sobre_version: 1 }],
+      { modulos: [{ id: 'gm', nombre: 'Propio', descripcion: null, orden: 1, horas: 1, despues_de: 'm1', lecciones: [] }] },
+    );
+    const m1 = v.modulos.find((m) => m.id === 'm1');
+    const gm = v.modulos.find((m) => m.id === 'gm');
+    expect(m1?.nombre).toBe('Fundamentos (A)'); // override aplicado al heredado
+    expect(m1?.herencia.origen).toBe('heredado');
+    expect(m1?.herencia.personalizado).toBe(true);
+    expect(gm?.herencia.origen).toBe('propio');
+    expect(gm?.herencia.personalizado).toBe(false); // lo propio no es "personalización"
+  });
+});

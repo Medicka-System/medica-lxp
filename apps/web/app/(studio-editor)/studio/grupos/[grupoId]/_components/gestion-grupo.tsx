@@ -38,6 +38,7 @@ import {
   Loader2,
   Lock,
   Pencil,
+  Plus,
   RefreshCw,
   Repeat2,
   Save,
@@ -56,8 +57,17 @@ import type {
   NodoModuloGrupo,
 } from '@/lib/studio/datos';
 import type { TipoOverride } from '@/lib/studio/herencia-contrato';
+import type { TipoLeccion } from '@/lib/studio/leccion-tipos';
 import { Select } from '@/components/ui/select';
-import { actualizarGrupo, fijarFechaApertura, limpiarFechaApertura } from '@/lib/studio/acciones';
+import {
+  actualizarGrupo,
+  fijarFechaApertura,
+  limpiarFechaApertura,
+  crearModuloGrupo,
+  crearLeccionGrupo,
+  eliminarModuloGrupo,
+  eliminarLeccionGrupo,
+} from '@/lib/studio/acciones';
 import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import { fechaCortaDia } from '@/lib/format';
 import { aplicarOverride, revertirOverride, type EntidadOverrideUI } from '@/lib/studio/herencia-acciones';
@@ -146,6 +156,24 @@ export function GestionGrupo({
   const [resyncando, setResyncando] = useState<string | null>(null);
   // Panel lateral "Historial" (conflictos + personalizaciones), oculto por defecto.
   const [historialAbierto, setHistorialAbierto] = useState(false);
+
+  // Contenido PROPIO del grupo (Opción 1A · Etapa 4B): agregar/eliminar estructura propia.
+  const [contenidoOcupado, iniciarContenido] = useTransition();
+  // Modal "Agregar contenido propio": elige TIPO (lección, 7 tipos) + POSICIÓN (despues_de).
+  const [agregar, setAgregar] = useState<{ modo: 'modulo' } | { modo: 'leccion'; moduloId: string } | null>(null);
+  const eliminarModuloPropio = (moduloId: string) =>
+    iniciarContenido(async () => {
+      await eliminarModuloGrupo(grupo.id, moduloId);
+      router.refresh();
+    });
+  const eliminarLeccionPropia = (leccionId: string) =>
+    iniciarContenido(async () => {
+      await eliminarLeccionGrupo(grupo.id, leccionId);
+      router.refresh();
+    });
+  // Autorar el contenido de una lección PROPIA → course builder completo (ruta de grupo · 4C).
+  const editarLeccionPropia = (leccionId: string) =>
+    router.push(`/studio/grupos/${grupo.id}/leccion/${leccionId}`);
 
   function resincronizar(r: AvisoResyncUI) {
     const clave = `${r.entidad}:${r.entidadId}`;
@@ -241,7 +269,7 @@ export function GestionGrupo({
   return (
     <div className="flex h-dvh flex-col bg-background font-sans text-foreground antialiased">
       {/* ───── Header contextual ───── */}
-      <header className="relative z-20 flex h-[60px] shrink-0 items-center gap-3 bg-sidebar px-5">
+      <header className="relative z-20 flex h-[var(--studio-header)] shrink-0 items-center gap-3 bg-sidebar px-5">
         <Link
           href="/studio/grupos"
           aria-label="Volver a Grupos"
@@ -277,7 +305,7 @@ export function GestionGrupo({
       </header>
 
       {/* ───── Franja: de dónde hereda ───── */}
-      <div className="flex h-[52px] shrink-0 items-center gap-5 overflow-x-auto border-b border-border bg-card px-6">
+      <div className="flex h-[var(--studio-franja)] shrink-0 items-center gap-5 overflow-x-auto border-b border-border bg-card px-6">
         <span className="flex items-baseline gap-1.5 whitespace-nowrap">
           <span className={`${kicker} text-muted-foreground`}>Programa base</span>
           <Link
@@ -474,7 +502,11 @@ export function GestionGrupo({
         </aside>
 
         {/* ════════ Contenido: heredado vs personalizado ════════ */}
+        {/* Etapa 5 (5A): el centro usa el MISMO ancho que el lienzo del course builder de
+            Programas (flex-1 sin max-width), para que el editor de contenido propio del grupo
+            tenga el mismo espacio. Se soltó el cap `max-w-[760px]` anterior. */}
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="w-full">
           <h2 className="text-[17px] font-extrabold tracking-[-0.015em]">Contenido del grupo</h2>
           <p className={`mt-1.5 text-[13px] leading-relaxed ${softText}`}>
             Todo viene del programa y se actualiza solo. Lo que este grupo personalizó se queda como
@@ -504,13 +536,28 @@ export function GestionGrupo({
                 key={m.id}
                 modulo={m}
                 abierto={abierto.includes(m.id)}
+                ocupado={contenidoOcupado}
                 onAlternar={() =>
                   setAbierto((a) => (a.includes(m.id) ? a.filter((x) => x !== m.id) : [...a, m.id]))
                 }
                 onPersonalizar={(nodo) => setHoja({ modulo: m.titulo, nodo })}
+                onAgregarLeccion={() => setAgregar({ modo: 'leccion', moduloId: m.id })}
+                onEliminarPropio={() => eliminarModuloPropio(m.id)}
+                onEliminarLeccionPropia={eliminarLeccionPropia}
+                onEditarLeccionPropia={editarLeccionPropia}
               />
             ))}
           </ul>
+
+          {/* Agregar contenido PROPIO del grupo (Opción 1A · solo este grupo) */}
+          <button
+            type="button"
+            onClick={() => setAgregar({ modo: 'modulo' })}
+            className={`mt-3 inline-flex h-10 items-center gap-2 rounded-[10px] border border-dashed border-[color:var(--track)] bg-card px-4 text-[13px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
+          >
+            <Plus aria-hidden className="h-4 w-4" strokeWidth={2.2} />
+            Agregar módulo del grupo
+          </button>
 
           {grupo.temario.length === 0 && (
             <div className="mt-4 rounded-xl border border-dashed border-[color:var(--track)] bg-card px-6 py-10 text-center">
@@ -525,6 +572,7 @@ export function GestionGrupo({
             El contenido no se copia: el grupo apunta al programa. Personalizar guarda solo la
             excepción, así que una corrección en el programa llega sola a todo lo heredado.
           </p>
+          </div>
         </div>
 
         {/* ════════ Consulta: alumnos (CORA) + overrides ════════ */}
@@ -632,6 +680,140 @@ export function GestionGrupo({
           onCerrar={() => setVerDiff(null)}
         />
       )}
+
+      {/* ───── Agregar contenido PROPIO del grupo: tipo (7) + posición (despues_de) ───── */}
+      {agregar && (
+        <ModalAgregarContenido
+          grupoId={grupo.id}
+          objetivo={agregar}
+          temario={grupo.temario}
+          ocupado={contenidoOcupado}
+          onCerrar={() => setAgregar(null)}
+          onEnviar={(fn) =>
+            iniciarContenido(async () => {
+              await fn();
+              setAgregar(null);
+              router.refresh();
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Modal: agregar contenido propio (tipo + posición) ───────────────────────── */
+
+const ETIQUETA_TIPO: Record<TipoLeccion, string> = {
+  teoria: 'Teoría',
+  video: 'Video',
+  autoevaluacion: 'Autoevaluación',
+  tarea: 'Tarea',
+  foro: 'Foro',
+  h5p: 'Interactivo H5P',
+  xapi: 'Paquete xAPI / SCORM',
+};
+
+function ModalAgregarContenido({
+  grupoId,
+  objetivo,
+  temario,
+  ocupado,
+  onCerrar,
+  onEnviar,
+}: {
+  grupoId: string;
+  objetivo: { modo: 'modulo' } | { modo: 'leccion'; moduloId: string };
+  temario: NodoModuloGrupo[];
+  ocupado: boolean;
+  onCerrar: () => void;
+  onEnviar: (fn: () => Promise<void>) => void;
+}) {
+  const esLeccion = objetivo.modo === 'leccion';
+  const moduloDestino = esLeccion ? temario.find((m) => m.id === objetivo.moduloId) : null;
+
+  const [tipo, setTipo] = useState<TipoLeccion>('teoria');
+  const [despuesDe, setDespuesDe] = useState<string>(''); // '' = al inicio
+
+  // Opciones de posición: "Al inicio" + "Después de <cada hermano>".
+  const hermanos = esLeccion
+    ? (moduloDestino?.lecciones ?? []).map((l, i) => ({ value: l.id, label: `Después de ${i + 1}. ${l.titulo}` }))
+    : temario.map((m) => ({ value: m.id, label: `Después de ${m.clave} · ${m.titulo}` }));
+  const opcionesPosicion = [
+    { value: '', label: esLeccion ? 'Al inicio del módulo' : 'Al inicio del temario' },
+    ...hermanos,
+  ];
+
+  function confirmar() {
+    const pos = despuesDe || null;
+    onEnviar(() =>
+      esLeccion
+        ? crearLeccionGrupo(grupoId, objetivo.moduloId, tipo, pos)
+        : crearModuloGrupo(grupoId, pos),
+    );
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={esLeccion ? 'Agregar lección del grupo' : 'Agregar módulo del grupo'}
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="w-full max-w-[460px] overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 px-6 pb-4 pt-6">
+          <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]">
+            <Plus className="h-5 w-5" strokeWidth={2} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[18px] font-extrabold leading-snug tracking-[-0.015em]">
+              {esLeccion ? 'Agregar lección del grupo' : 'Agregar módulo del grupo'}
+            </h2>
+            <p className={`mt-1 text-[12.5px] leading-relaxed ${softText}`}>
+              Contenido exclusivo de este grupo. {esLeccion && moduloDestino ? `En ${moduloDestino.clave} · ${moduloDestino.titulo}.` : ''}
+            </p>
+          </div>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted ${focusRing}`}>
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3 px-6 pb-2">
+          {esLeccion && (
+            <label className="block">
+              <span className="block text-[11.5px] font-semibold">Tipo de lección</span>
+              <Select
+                aria-label="Tipo de lección"
+                value={tipo}
+                onChange={(v) => setTipo(v as TipoLeccion)}
+                className={`mt-1.5 flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13.5px] font-medium text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+                options={(Object.keys(ETIQUETA_TIPO) as TipoLeccion[]).map((t) => ({ value: t, label: ETIQUETA_TIPO[t] }))}
+              />
+            </label>
+          )}
+          <label className="block">
+            <span className="block text-[11.5px] font-semibold">Posición</span>
+            <Select
+              aria-label="Posición"
+              value={despuesDe}
+              onChange={setDespuesDe}
+              className={`mt-1.5 flex h-10 w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 text-[13.5px] font-medium text-foreground outline-none transition-colors hover:border-secondary ${focusRing}`}
+              options={opcionesPosicion}
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
+          <button type="button" onClick={onCerrar} disabled={ocupado} className={`h-11 whitespace-nowrap rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${focusRing}`}>
+            Cancelar
+          </button>
+          <button type="button" onClick={confirmar} disabled={ocupado} className={`inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-5 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-60 ${focusRing}`}>
+            {ocupado ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Plus aria-hidden className="h-4 w-4" strokeWidth={2.2} />}
+            Agregar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -984,17 +1166,28 @@ function DialogoDiferencia({
 function ModuloNodo({
   modulo,
   abierto,
+  ocupado,
   onAlternar,
   onPersonalizar,
+  onAgregarLeccion,
+  onEliminarPropio,
+  onEliminarLeccionPropia,
+  onEditarLeccionPropia,
 }: {
   modulo: NodoModuloGrupo;
   abierto: boolean;
+  ocupado: boolean;
   onAlternar: () => void;
   onPersonalizar: (nodo: { entidad: EntidadOverrideUI; entidadId: string; titulo: string; personalizado: boolean }) => void;
+  onAgregarLeccion: () => void;
+  onEliminarPropio: () => void;
+  onEliminarLeccionPropia: (leccionId: string) => void;
+  onEditarLeccionPropia: (leccionId: string) => void;
 }) {
+  const resaltar = modulo.personalizado || modulo.esPropio;
   return (
-    <li className={`overflow-hidden rounded-xl border bg-card ${modulo.personalizado ? 'border-[color:var(--info-border)]' : 'border-border'}`}>
-      <div className={`flex items-center gap-3 px-4 py-3.5 ${modulo.personalizado ? 'bg-[color:var(--info-surface)]' : ''} ${abierto ? 'border-b border-border' : ''}`}>
+    <li className={`overflow-hidden rounded-xl border bg-card ${resaltar ? 'border-[color:var(--info-border)]' : 'border-border'}`}>
+      <div className={`flex items-center gap-3 px-4 py-3.5 ${resaltar ? 'bg-[color:var(--info-surface)]' : ''} ${abierto ? 'border-b border-border' : ''}`}>
         <button
           type="button"
           onClick={onAlternar}
@@ -1009,7 +1202,7 @@ function ModuloNodo({
           <span
             aria-hidden
             className={`${mono} grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] text-[11.5px] font-bold ${
-              modulo.personalizado ? 'bg-[color:var(--info)] text-white' : 'bg-muted text-muted-foreground'
+              resaltar ? 'bg-[color:var(--info)] text-white' : 'bg-muted text-muted-foreground'
             }`}
           >
             {modulo.clave}
@@ -1021,21 +1214,58 @@ function ModuloNodo({
             </span>
           </span>
         </button>
-        <Sello personalizado={modulo.personalizado} />
-        <button
-          type="button"
-          onClick={() => onPersonalizar({ entidad: 'modulo', entidadId: modulo.id, titulo: `${modulo.clave} · ${modulo.titulo}`, personalizado: modulo.personalizado })}
-          className={`h-[34px] shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
-        >
-          {modulo.personalizado ? 'Editar cambio' : 'Personalizar'}
-        </button>
+        {modulo.esPropio ? (
+          <>
+            <span className="inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
+              Propio del grupo
+            </span>
+            <button
+              type="button"
+              onClick={onEliminarPropio}
+              disabled={ocupado}
+              aria-label="Eliminar módulo del grupo"
+              className={`grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </>
+        ) : (
+          <>
+            <Sello personalizado={modulo.personalizado} />
+            <button
+              type="button"
+              onClick={() => onPersonalizar({ entidad: 'modulo', entidadId: modulo.id, titulo: `${modulo.clave} · ${modulo.titulo}`, personalizado: modulo.personalizado })}
+              className={`h-[34px] shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[12px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+            >
+              {modulo.personalizado ? 'Editar cambio' : 'Personalizar'}
+            </button>
+          </>
+        )}
       </div>
 
-      {abierto && modulo.lecciones.length > 0 && (
+      {abierto && (
         <ul className="px-2 pb-2.5 pt-1.5">
           {modulo.lecciones.map((l, i) => (
-            <LeccionNodo key={l.id} leccion={l} indice={i} onPersonalizar={() => onPersonalizar({ entidad: 'leccion', entidadId: l.id, titulo: l.titulo, personalizado: l.personalizado })} />
+            <LeccionNodo
+              key={l.id}
+              leccion={l}
+              indice={i}
+              ocupado={ocupado}
+              onPersonalizar={() => onPersonalizar({ entidad: 'leccion', entidadId: l.id, titulo: l.titulo, personalizado: l.personalizado })}
+              onEliminarPropia={() => onEliminarLeccionPropia(l.id)}
+              onEditarPropia={() => onEditarLeccionPropia(l.id)}
+            />
           ))}
+          <li className="px-1 pt-1.5">
+            <button
+              type="button"
+              onClick={onAgregarLeccion}
+              disabled={ocupado}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-dashed border-[color:var(--track)] bg-card px-3 text-[12px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent disabled:opacity-60 ${focusRing}`}
+            >
+              <Plus aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} /> Agregar lección del grupo
+            </button>
+          </li>
         </ul>
       )}
     </li>
@@ -1045,33 +1275,64 @@ function ModuloNodo({
 function LeccionNodo({
   leccion,
   indice,
+  ocupado,
   onPersonalizar,
+  onEliminarPropia,
+  onEditarPropia,
 }: {
   leccion: NodoLeccionGrupo;
   indice: number;
+  ocupado: boolean;
   onPersonalizar: () => void;
+  onEliminarPropia: () => void;
+  onEditarPropia: () => void;
 }) {
+  const resaltar = leccion.personalizado || leccion.esPropio;
   return (
     <li
       className={`flex items-center gap-2.5 rounded-[9px] px-3 py-2.5 ${
-        leccion.personalizado
-          ? 'bg-[color:var(--info-surface)] shadow-[inset_3px_0_0_var(--info)]'
-          : 'hover:bg-muted'
+        resaltar ? 'bg-[color:var(--info-surface)] shadow-[inset_3px_0_0_var(--info)]' : 'hover:bg-muted'
       }`}
     >
-      <span className={`min-w-0 flex-1 text-[13px] leading-relaxed ${leccion.personalizado ? 'font-semibold' : ''}`}>
+      <span className={`min-w-0 flex-1 text-[13px] leading-relaxed ${resaltar ? 'font-semibold' : ''}`}>
         {indice + 1}. {leccion.titulo}
       </span>
-      <Sello personalizado={leccion.personalizado} />
-      <button
-        type="button"
-        onClick={onPersonalizar}
-        className={`h-8 shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold transition-colors hover:bg-accent ${focusRing} ${
-          leccion.personalizado ? 'text-[color:var(--info-foreground)]' : 'text-secondary'
-        }`}
-      >
-        {leccion.personalizado ? 'Editar cambio' : 'Personalizar'}
-      </button>
+      {leccion.esPropio ? (
+        <>
+          <span className="inline-flex h-6 shrink-0 items-center rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
+            Propio
+          </span>
+          <button
+            type="button"
+            onClick={onEditarPropia}
+            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
+          >
+            <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} /> Editar contenido
+          </button>
+          <button
+            type="button"
+            onClick={onEliminarPropia}
+            disabled={ocupado}
+            aria-label="Eliminar lección del grupo"
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+          >
+            <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+          </button>
+        </>
+      ) : (
+        <>
+          <Sello personalizado={leccion.personalizado} />
+          <button
+            type="button"
+            onClick={onPersonalizar}
+            className={`h-8 shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold transition-colors hover:bg-accent ${focusRing} ${
+              leccion.personalizado ? 'text-[color:var(--info-foreground)]' : 'text-secondary'
+            }`}
+          >
+            {leccion.personalizado ? 'Editar cambio' : 'Personalizar'}
+          </button>
+        </>
+      )}
     </li>
   );
 }
@@ -1373,42 +1634,48 @@ function CalendarioLiberacion({
         {modulos.map((m) => {
           const programado = m.fechaApertura !== null && diaUTCNum(new Date(m.fechaApertura)) > hoy;
           const iso = m.fechaApertura ? new Date(m.fechaApertura).toISOString().slice(0, 10) : '';
+          // #3: una sola columna — nombre del módulo arriba, selector de fecha DEBAJO
+          // (apilado, con espacio cómodo), no lado a lado (la columna es estrecha).
           return (
-            <li key={m.id} className="flex items-center gap-2.5 rounded-[9px] px-2.5 py-2.5 hover:bg-muted">
-              <span
-                aria-hidden
-                className={`h-[7px] w-[7px] shrink-0 rounded-full ${programado ? 'bg-[color:var(--info)]' : 'bg-primary'}`}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-semibold leading-snug">
-                  {m.clave} · {m.titulo}
-                </span>
-                <span className={`mt-0.5 block text-[10.5px] ${programado ? 'text-[color:var(--info-foreground)]' : 'text-muted-foreground'}`}>
-                  {m.fechaApertura ? (programado ? `se abre el ${fechaCortaDia(new Date(m.fechaApertura))}` : 'abierto') : 'abierto por defecto'}
-                </span>
-              </span>
-              <span className="flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5">
-                <Calendar aria-hidden className="h-[14px] w-[14px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                <input
-                  type="date"
-                  value={iso}
-                  disabled={guardando}
-                  onChange={(e) => fijar(m.id, e.target.value)}
-                  aria-label={`Fecha de apertura de ${m.clave} · ${m.titulo}`}
-                  className={`${mono} w-[118px] bg-transparent text-[12px] text-foreground outline-none`}
+            <li key={m.id} className="flex flex-col gap-2 rounded-[9px] px-2.5 py-2.5 hover:bg-muted">
+              <span className="flex items-start gap-2.5">
+                <span
+                  aria-hidden
+                  className={`mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full ${programado ? 'bg-[color:var(--info)]' : 'bg-primary'}`}
                 />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-semibold leading-snug">
+                    {m.clave} · {m.titulo}
+                  </span>
+                  <span className={`mt-0.5 block text-[10.5px] ${programado ? 'text-[color:var(--info-foreground)]' : 'text-muted-foreground'}`}>
+                    {m.fechaApertura ? (programado ? `se abre el ${fechaCortaDia(new Date(m.fechaApertura))}` : 'abierto') : 'abierto por defecto'}
+                  </span>
+                </span>
               </span>
-              {m.fechaApertura && (
-                <button
-                  type="button"
-                  onClick={() => limpiar(m.id)}
-                  disabled={guardando}
-                  aria-label={`Quitar fecha de ${m.clave}`}
-                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
-                >
-                  {guardando ? <Loader2 aria-hidden className="h-[14px] w-[14px] animate-spin" strokeWidth={1.75} /> : <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />}
-                </button>
-              )}
+              <span className="flex items-center gap-1.5 pl-[17px]">
+                <span className="flex h-9 flex-1 items-center gap-2 rounded-[9px] border border-border bg-card px-2.5">
+                  <Calendar aria-hidden className="h-[14px] w-[14px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <input
+                    type="date"
+                    value={iso}
+                    disabled={guardando}
+                    onChange={(e) => fijar(m.id, e.target.value)}
+                    aria-label={`Fecha de apertura de ${m.clave} · ${m.titulo}`}
+                    className={`${mono} w-full bg-transparent text-[12px] text-foreground outline-none`}
+                  />
+                </span>
+                {m.fechaApertura && (
+                  <button
+                    type="button"
+                    onClick={() => limpiar(m.id)}
+                    disabled={guardando}
+                    aria-label={`Quitar fecha de ${m.clave}`}
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+                  >
+                    {guardando ? <Loader2 aria-hidden className="h-[14px] w-[14px] animate-spin" strokeWidth={1.75} /> : <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />}
+                  </button>
+                )}
+              </span>
             </li>
           );
         })}

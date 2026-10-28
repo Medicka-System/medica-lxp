@@ -101,27 +101,66 @@ export interface ProgramaTpl {
   modulos: ModuloTpl[];
 }
 
-// Vista efectiva (plantilla + overrides).
+// ── Contenido PROPIO del grupo (Opción 1A · aditivo sobre lo heredado) ──────────
+// Una entidad propia es una fila real (grupo_id) que el grupo AGREGA; se FUSIONA en el
+// árbol heredado en su posición (puntero `despues_de` a una entidad hermana heredada),
+// sin tocar la plantilla ni los overrides. NO tiene overrides (es directamente editable).
+
+/** De dónde sale el nodo en la vista resuelta. 'propio' = agregado por el grupo. */
+export type Origen = 'heredado' | 'propio';
+
+/** Módulo propio del grupo (subárbol completo: lecciones→contenidos/actividades/bloques). */
+export interface ModuloPropio extends ModuloTpl {
+  /** Va DESPUÉS de este módulo hermano (id heredado). NULL = al inicio del temario. */
+  despues_de: string | null;
+}
+/** Lección propia bajo un módulo existente (heredado o propio). */
+export interface LeccionPropia extends LeccionTpl {
+  /** Módulo al que se adjunta. */
+  modulo_id: string;
+  /** Va DESPUÉS de esta lección hermana (id). NULL = al inicio del módulo. */
+  despues_de: string | null;
+}
+/** Bloque de teoría propio bajo una lección existente (heredada o propia). */
+export interface BloquePropio extends BloqueTpl {
+  /** Lección a la que se adjunta. */
+  leccion_id: string;
+  /** Va DESPUÉS de este bloque hermano (id). NULL = al inicio de la lección. */
+  despues_de: string | null;
+}
+/** El contenido propio de UN grupo, por nivel de adjunción. */
+export interface ContenidoPropioGrupo {
+  modulos?: ModuloPropio[];
+  lecciones?: LeccionPropia[];
+  bloques?: BloquePropio[];
+}
+
+// Vista efectiva (plantilla + overrides + propias).
 
 /** Metadatos de herencia por nodo de la vista efectiva. */
 export interface MetaHerencia {
-  /** ¿Tiene un override aplicado sobre la plantilla? */
+  /** ¿Tiene un override aplicado sobre la plantilla? (siempre false en lo propio). */
   personalizado: boolean;
   /** ¿El grupo lo oculta? (marca de vista; la plantilla lo conserva). */
   oculto: boolean;
   /** Campos cuyo valor difiere de la plantilla por el override. */
   camposPersonalizados: string[];
+  /** 'heredado' (del programa) | 'propio' (agregado por el grupo). Solo informa al diseñador. */
+  origen: Origen;
 }
 
 export type ConHerencia<T> = T & { herencia: MetaHerencia };
 
 export type ContenidoResuelto = ConHerencia<ContenidoTpl>;
 export type ActividadResuelta = ConHerencia<ActividadTpl>;
+/** Bloque resuelto: passthrough + marca de origen (para que el diseñador distinga propio). */
+export type BloqueResuelto = BloqueTpl & { origen: Origen };
 export type LeccionResuelta = ConHerencia<
-  Omit<LeccionTpl, 'contenidos' | 'actividades'>
+  Omit<LeccionTpl, 'contenidos' | 'actividades' | 'bloques'>
 > & {
   contenidos: ContenidoResuelto[];
   actividades: ActividadResuelta[];
+  bloques?: BloqueResuelto[];
 };
 export type ModuloResuelto = ConHerencia<Omit<ModuloTpl, 'lecciones'>> & {
   lecciones: LeccionResuelta[];
@@ -237,7 +276,7 @@ function aplicar<T extends object>(
   if (!override) {
     return {
       nodo: { ...original },
-      meta: { personalizado: false, oculto: false, camposPersonalizados: [] },
+      meta: { personalizado: false, oculto: false, camposPersonalizados: [], origen: 'heredado' },
     };
   }
   const { limpio, oculto } = validarPatch(entidad, override.patch);
@@ -253,8 +292,52 @@ function aplicar<T extends object>(
   const personalizado = campos.length > 0 || oculto;
   return {
     nodo: nodo as T,
-    meta: { personalizado, oculto, camposPersonalizados: campos },
+    meta: { personalizado, oculto, camposPersonalizados: campos, origen: 'heredado' },
   };
+}
+
+/** Meta de un nodo PROPIO del grupo: sin override, marcado como 'propio'. */
+function metaPropia(): MetaHerencia {
+  return { personalizado: false, oculto: false, camposPersonalizados: [], origen: 'propio' };
+}
+
+/**
+ * Fusiona entidades PROPIAS en una lista base HEREDADA (ya ordenada), respetando la
+ * posición: cada propia va DESPUÉS de su ancla (`despues_de`, un id de la base). Ancla
+ * NULL o inexistente (borrada) → al inicio. Entre propias con el mismo ancla, por `orden`.
+ * NO muta la base; devuelve una lista nueva.
+ */
+interface Posicionable<N> {
+  id: string;
+  orden: number;
+  despues_de: string | null;
+  nodo: N;
+}
+function fusionarPosicion<N>(base: Posicionable<N>[], propios: Posicionable<N>[]): N[] {
+  if (propios.length === 0) return base.map((b) => b.nodo);
+  const idsBase = new Set(base.map((b) => b.id));
+  const cmp = (a: Posicionable<N>, b: Posicionable<N>): number =>
+    a.orden - b.orden || a.id.localeCompare(b.id);
+  const porAncla = new Map<string, Posicionable<N>[]>();
+  const alInicio: Posicionable<N>[] = [];
+  for (const p of propios) {
+    if (p.despues_de === null || !idsBase.has(p.despues_de)) {
+      alInicio.push(p);
+    } else {
+      const arr = porAncla.get(p.despues_de) ?? [];
+      arr.push(p);
+      porAncla.set(p.despues_de, arr);
+    }
+  }
+  alInicio.sort(cmp);
+  for (const arr of porAncla.values()) arr.sort(cmp);
+  const out: N[] = alInicio.map((p) => p.nodo);
+  for (const b of base) {
+    out.push(b.nodo);
+    const despues = porAncla.get(b.id);
+    if (despues) for (const p of despues) out.push(p.nodo);
+  }
+  return out;
 }
 
 /** Ordena por `orden` y desempata por `id` (estable e independiente del origen). */
@@ -270,57 +353,127 @@ function porOrden<T extends { orden: number; id: string }>(a: T, b: T): number {
 export function resolverHerencia(
   plantilla: ProgramaTpl,
   overrides: OverrideCrudo[],
+  propias: ContenidoPropioGrupo = {},
 ): VistaEfectiva {
   const idx = indexar(overrides);
-  let personalizaciones = 0;
-  let ocultos = 0;
-  let lecciones = 0;
+  const cont = { personalizaciones: 0, ocultos: 0, lecciones: 0 };
 
-  // Programa
+  // Propias indexadas por punto de adjunción.
+  const leccionesPorModulo = new Map<string, LeccionPropia[]>();
+  for (const l of propias.lecciones ?? []) {
+    const arr = leccionesPorModulo.get(l.modulo_id) ?? [];
+    arr.push(l);
+    leccionesPorModulo.set(l.modulo_id, arr);
+  }
+  const bloquesPorLeccion = new Map<string, BloquePropio[]>();
+  for (const b of propias.bloques ?? []) {
+    const arr = bloquesPorLeccion.get(b.leccion_id) ?? [];
+    arr.push(b);
+    bloquesPorLeccion.set(b.leccion_id, arr);
+  }
+
+  // Bloques de una lección: heredados (con origen) + propios fusionados por posición.
+  const resolverBloques = (l: Pick<LeccionTpl, 'id' | 'bloques'>, origen: Origen): BloqueResuelto[] => {
+    const base: Posicionable<BloqueResuelto>[] = (l.bloques ?? [])
+      .slice()
+      .sort(porOrden)
+      .map((b) => ({ id: b.id, orden: b.orden, despues_de: null, nodo: { ...b, origen } }));
+    const propios: Posicionable<BloqueResuelto>[] = (bloquesPorLeccion.get(l.id) ?? []).map((b) => ({
+      id: b.id,
+      orden: b.orden,
+      despues_de: b.despues_de,
+      nodo: { id: b.id, orden: b.orden, tipo_bloque: b.tipo_bloque, config: b.config, origen: 'propio' },
+    }));
+    return fusionarPosicion(base, propios);
+  };
+
+  // Resuelve una lección (heredada → aplica overrides; propia → sin override).
+  const resolverLeccion = (l: LeccionTpl, origen: Origen): LeccionResuelta => {
+    cont.lecciones++;
+    const rl =
+      origen === 'heredado'
+        ? aplicar('leccion', l, idx.get(`leccion:${l.id}`))
+        : { nodo: { ...l }, meta: metaPropia() };
+    if (rl.meta.personalizado) cont.personalizaciones++;
+    if (rl.meta.oculto) cont.ocultos++;
+
+    const contenidos: ContenidoResuelto[] = (l.contenidos ?? [])
+      .map((c) => {
+        const rc =
+          origen === 'heredado'
+            ? aplicar('contenido', c, idx.get(`contenido:${c.id}`))
+            : { nodo: { ...c }, meta: metaPropia() };
+        if (rc.meta.personalizado) cont.personalizaciones++;
+        if (rc.meta.oculto) cont.ocultos++;
+        return { ...rc.nodo, herencia: rc.meta };
+      })
+      .sort(porOrden);
+    const actividades: ActividadResuelta[] = (l.actividades ?? [])
+      .map((a) => {
+        const ra =
+          origen === 'heredado'
+            ? aplicar('actividad', a, idx.get(`actividad:${a.id}`))
+            : { nodo: { ...a }, meta: metaPropia() };
+        if (ra.meta.personalizado) cont.personalizaciones++;
+        if (ra.meta.oculto) cont.ocultos++;
+        return { ...ra.nodo, herencia: ra.meta };
+      })
+      .sort(porOrden);
+    const bloques = resolverBloques(l, origen);
+
+    // Quita contenidos/actividades/bloques (y los extras de una propia) de la base.
+    const { contenidos: _c, actividades: _a, bloques: _b, ...base } = rl.nodo as LeccionTpl & {
+      modulo_id?: string;
+      despues_de?: string | null;
+    };
+    delete (base as { modulo_id?: string }).modulo_id;
+    delete (base as { despues_de?: string | null }).despues_de;
+    return { ...base, contenidos, actividades, bloques, herencia: rl.meta };
+  };
+
+  // Resuelve un módulo (heredado → overrides; propio → sin override). Fusiona sus lecciones
+  // propias (adjuntas por modulo_id) entre las heredadas, por posición.
+  const resolverModulo = (m: ModuloTpl, origen: Origen): ModuloResuelto => {
+    const rm =
+      origen === 'heredado'
+        ? aplicar('modulo', m, idx.get(`modulo:${m.id}`))
+        : { nodo: { ...m }, meta: metaPropia() };
+    if (rm.meta.personalizado) cont.personalizaciones++;
+    if (rm.meta.oculto) cont.ocultos++;
+
+    const baseLecciones: Posicionable<LeccionResuelta>[] = m.lecciones
+      .map((l) => resolverLeccion(l, origen))
+      .sort(porOrden)
+      .map((lr) => ({ id: lr.id, orden: lr.orden, despues_de: null, nodo: lr }));
+    const propiasLec: Posicionable<LeccionResuelta>[] = (leccionesPorModulo.get(m.id) ?? []).map((lp) => ({
+      id: lp.id,
+      orden: lp.orden,
+      despues_de: lp.despues_de,
+      nodo: resolverLeccion(lp, 'propio'),
+    }));
+    const lecciones = fusionarPosicion(baseLecciones, propiasLec);
+
+    const { lecciones: _l, ...base } = rm.nodo as ModuloTpl & { despues_de?: string | null };
+    delete (base as { despues_de?: string | null }).despues_de;
+    return { ...base, lecciones, herencia: rm.meta };
+  };
+
+  // Programa (no personalizable estructuralmente; solo nombre/descripcion vía override).
   const prog = aplicar('programa', plantilla, idx.get(`programa:${plantilla.id}`));
-  if (prog.meta.personalizado) personalizaciones++;
+  if (prog.meta.personalizado) cont.personalizaciones++;
 
-  // Módulos → lecciones → contenidos/actividades
-  const modulos: ModuloResuelto[] = plantilla.modulos
-    .map((m: ModuloTpl): ModuloResuelto => {
-      const rm = aplicar('modulo', m, idx.get(`modulo:${m.id}`));
-      if (rm.meta.personalizado) personalizaciones++;
-      if (rm.meta.oculto) ocultos++;
-
-      const leccionesResueltas: LeccionResuelta[] = m.lecciones
-        .map((l: LeccionTpl): LeccionResuelta => {
-          lecciones++;
-          const rl = aplicar('leccion', l, idx.get(`leccion:${l.id}`));
-          if (rl.meta.personalizado) personalizaciones++;
-          if (rl.meta.oculto) ocultos++;
-
-          const contenidos: ContenidoResuelto[] = l.contenidos
-            .map((c: ContenidoTpl): ContenidoResuelto => {
-              const rc = aplicar('contenido', c, idx.get(`contenido:${c.id}`));
-              if (rc.meta.personalizado) personalizaciones++;
-              if (rc.meta.oculto) ocultos++;
-              return { ...rc.nodo, herencia: rc.meta };
-            })
-            .sort(porOrden);
-
-          const actividades: ActividadResuelta[] = l.actividades
-            .map((a: ActividadTpl): ActividadResuelta => {
-              const ra = aplicar('actividad', a, idx.get(`actividad:${a.id}`));
-              if (ra.meta.personalizado) personalizaciones++;
-              if (ra.meta.oculto) ocultos++;
-              return { ...ra.nodo, herencia: ra.meta };
-            })
-            .sort(porOrden);
-
-          const { contenidos: _c, actividades: _a, ...base } = rl.nodo;
-          return { ...base, contenidos, actividades, herencia: rl.meta };
-        })
-        .sort(porOrden);
-
-      const { lecciones: _l, ...base } = rm.nodo;
-      return { ...base, lecciones: leccionesResueltas, herencia: rm.meta };
-    })
-    .sort(porOrden);
+  // Módulos heredados (base) + módulos propios, fusionados por posición.
+  const baseModulos: Posicionable<ModuloResuelto>[] = plantilla.modulos
+    .map((m) => resolverModulo(m, 'heredado'))
+    .sort(porOrden)
+    .map((mr) => ({ id: mr.id, orden: mr.orden, despues_de: null, nodo: mr }));
+  const propiosModulos: Posicionable<ModuloResuelto>[] = (propias.modulos ?? []).map((mp) => ({
+    id: mp.id,
+    orden: mp.orden,
+    despues_de: mp.despues_de,
+    nodo: resolverModulo(mp, 'propio'),
+  }));
+  const modulos = fusionarPosicion(baseModulos, propiosModulos);
 
   return {
     programa: {
@@ -334,10 +487,10 @@ export function resolverHerencia(
     modulos,
     resync: detectarResync(plantilla, overrides),
     resumen: {
-      modulos: plantilla.modulos.length,
-      lecciones,
-      personalizaciones,
-      ocultos,
+      modulos: modulos.length,
+      lecciones: cont.lecciones,
+      personalizaciones: cont.personalizaciones,
+      ocultos: cont.ocultos,
     },
   };
 }

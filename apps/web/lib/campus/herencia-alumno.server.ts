@@ -3,8 +3,11 @@ import type postgres from 'postgres';
 import {
   resolverHerencia,
   type ActividadTpl,
+  type ContenidoPropioGrupo,
   type ContenidoTpl,
+  type LeccionPropia,
   type LeccionTpl,
+  type ModuloPropio,
   type ModuloTpl,
   type OverrideCrudo,
   type ProgramaTpl,
@@ -43,26 +46,29 @@ async function ensamblarPlantilla(sql: Sql, programaId: string): Promise<Program
   )[0];
   if (!prog) return null;
 
+  // HEREDADO del programa SOLO: `grupo_id IS NULL`. El contenido PROPIO del grupo (grupo_id
+  // set · Opción 1A) se carga aparte en `cargarPropias` y se FUSIONA en el motor — si se
+  // colara aquí, se contaría doble (como heredado Y como propio).
   const [modulos, lecciones, contenidos, actividades] = await Promise.all([
     sql<{ id: string; nombre: string; descripcion: string | null; orden: number; horas: number }[]>`
       select id, nombre, descripcion, orden, horas::float8 as horas
-      from lxp.modulos where programa_id = ${programaId} order by orden, id`,
+      from lxp.modulos where programa_id = ${programaId} and grupo_id is null order by orden, id`,
     sql<{ id: string; modulo_id: string; nombre: string; descripcion: string | null; orden: number; tipo: string }[]>`
       select l.id, l.modulo_id, l.nombre, l.descripcion, l.orden, l.tipo::text as tipo
       from lxp.lecciones l join lxp.modulos m on m.id = l.modulo_id
-      where m.programa_id = ${programaId} order by l.orden, l.id`,
+      where m.programa_id = ${programaId} and l.grupo_id is null order by l.orden, l.id`,
     sql<{ id: string; leccion_id: string; tipo: string; titulo: string; recurso_ref: string | null; orden: number }[]>`
       select c.id, c.leccion_id, c.tipo::text as tipo, c.titulo, c.recurso_ref, c.orden
       from lxp.contenidos c
       join lxp.lecciones l on l.id = c.leccion_id
       join lxp.modulos m on m.id = l.modulo_id
-      where m.programa_id = ${programaId} order by c.orden, c.id`,
+      where m.programa_id = ${programaId} and c.grupo_id is null order by c.orden, c.id`,
     sql<{ id: string; leccion_id: string; tipo: string; titulo: string; orden: number }[]>`
       select a.id, a.leccion_id, a.tipo::text as tipo, a.titulo, a.orden
       from lxp.actividades a
       join lxp.lecciones l on l.id = a.leccion_id
       join lxp.modulos m on m.id = l.modulo_id
-      where m.programa_id = ${programaId} order by a.orden, a.id`,
+      where m.programa_id = ${programaId} and a.grupo_id is null order by a.orden, a.id`,
   ]);
 
   const leccionRef = new Map<string, LeccionTpl>();
@@ -129,6 +135,90 @@ async function cargarOverrides(sql: Sql, grupoId: string): Promise<OverrideCrudo
     from lxp.grupo_overrides where grupo_id = ${grupoId}`;
 }
 
+/**
+ * Contenido PROPIO del grupo (Opción 1A · `grupo_id` = grupo). RLS: el alumno miembro lo
+ * lee (policy `*_grupo_aislado`), nadie de otro grupo. Lo forma como `ContenidoPropioGrupo`
+ * para el merge del motor: módulos propios con sus lecciones anidadas; lecciones propias
+ * bajo un módulo HEREDADO como standalone (con `modulo_id` + `despues_de`). Los bloques NO
+ * se hidratan aquí (igual que la plantilla: passthrough pesado) — su vista los baja getLeccion.
+ */
+async function cargarPropias(sql: Sql, grupoId: string): Promise<ContenidoPropioGrupo> {
+  const [mods, lecs, conts, acts] = await Promise.all([
+    sql<{ id: string; nombre: string; descripcion: string | null; orden: number; horas: number; despues_de: string | null }[]>`
+      select id, nombre, descripcion, orden, horas::float8 as horas, despues_de
+      from lxp.modulos where grupo_id = ${grupoId} order by orden, id`,
+    sql<{ id: string; modulo_id: string; nombre: string; descripcion: string | null; orden: number; tipo: string; despues_de: string | null }[]>`
+      select id, modulo_id, nombre, descripcion, orden, tipo::text as tipo, despues_de
+      from lxp.lecciones where grupo_id = ${grupoId} order by orden, id`,
+    sql<{ id: string; leccion_id: string; tipo: string; titulo: string; recurso_ref: string | null; orden: number }[]>`
+      select id, leccion_id, tipo::text as tipo, titulo, recurso_ref, orden
+      from lxp.contenidos where grupo_id = ${grupoId} order by orden, id`,
+    sql<{ id: string; leccion_id: string; tipo: string; titulo: string; orden: number }[]>`
+      select id, leccion_id, tipo::text as tipo, titulo, orden
+      from lxp.actividades where grupo_id = ${grupoId} order by orden, id`,
+  ]);
+  if (mods.length === 0 && lecs.length === 0) return {}; // nada propio → merge no-op
+
+  // Nodo LeccionTpl por lección propia, con sus contenidos/actividades anidados.
+  const leccionRef = new Map<string, LeccionTpl>();
+  for (const l of lecs) {
+    leccionRef.set(l.id, {
+      id: l.id,
+      nombre: l.nombre,
+      descripcion: l.descripcion,
+      orden: l.orden,
+      tipo: l.tipo,
+      contenidos: [],
+      actividades: [],
+    });
+  }
+  for (const c of conts) {
+    leccionRef.get(c.leccion_id)?.contenidos.push({
+      id: c.id,
+      tipo: c.tipo,
+      titulo: c.titulo,
+      recurso_ref: c.recurso_ref,
+      cuerpo: null,
+      orden: c.orden,
+    } satisfies ContenidoTpl);
+  }
+  for (const a of acts) {
+    leccionRef.get(a.leccion_id)?.actividades.push({
+      id: a.id,
+      tipo: a.tipo,
+      titulo: a.titulo,
+      instrucciones: null,
+      orden: a.orden,
+    } satisfies ActividadTpl);
+  }
+
+  // Partición: lecciones bajo un módulo PROPIO → anidadas; bajo uno HEREDADO → standalone.
+  const propioModIds = new Set(mods.map((m) => m.id));
+  const leccionesDeModulo = new Map<string, LeccionTpl[]>();
+  const leccionesStandalone: LeccionPropia[] = [];
+  for (const l of lecs) {
+    const nodo = leccionRef.get(l.id)!;
+    if (propioModIds.has(l.modulo_id)) {
+      const arr = leccionesDeModulo.get(l.modulo_id) ?? [];
+      arr.push(nodo);
+      leccionesDeModulo.set(l.modulo_id, arr);
+    } else {
+      leccionesStandalone.push({ ...nodo, modulo_id: l.modulo_id, despues_de: l.despues_de });
+    }
+  }
+  const modulos: ModuloPropio[] = mods.map((m) => ({
+    id: m.id,
+    nombre: m.nombre,
+    descripcion: m.descripcion,
+    orden: m.orden,
+    horas: m.horas,
+    despues_de: m.despues_de,
+    lecciones: leccionesDeModulo.get(m.id) ?? [],
+  }));
+
+  return { modulos, lecciones: leccionesStandalone };
+}
+
 /** Calendario de liberación del grupo (RLS read · mig 0087). Vacío = sin gating. */
 async function cargarCalendario(sql: Sql, grupoId: string): Promise<Map<string, Date>> {
   const filas = await sql<{ modulo_id: string; fecha_apertura: Date }[]>`
@@ -187,7 +277,10 @@ export async function resolverCursoAlumno(
   if (!plantilla) return null;
   const grupo = await grupoDelAlumnoEnPrograma(sql, userId, programaId);
   const overrides = grupo ? await cargarOverrides(sql, grupo.id) : [];
-  const vista = resolverHerencia(plantilla, overrides);
+  // Contenido propio del grupo (Opción 1A): se FUSIONA en el árbol heredado (motor · Etapa 2).
+  // El alumno lo ve mezclado y transparente; cuenta en el avance como una lección/contenido más.
+  const propias = grupo ? await cargarPropias(sql, grupo.id) : {};
+  const vista = resolverHerencia(plantilla, overrides, propias);
 
   // Reemplazo de fuente (Paso 4b): se arma de los overrides YA cargados (sin query extra).
   const fuenteBloque = new Map<string, Record<string, unknown>>();
