@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAutoria, requireCurador } from '@/lib/studio/session';
 import { afirmarFilas, comoStaff } from '@/lib/db.server';
-import type { TipoBloque, TipoHerramienta } from '@/lib/studio/datos';
+import type { TipoHerramienta } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
@@ -18,18 +18,6 @@ import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
  * borrador→revisión→publicado, historial) es DOMINIO (§2, Sprint 4.5): vive en
  * `apps/api` y el web la dispara desde `publicacion-acciones.ts`, no desde aquí.
  */
-
-/** video/teoría/H5P → tabla `contenidos`; tarea/autoevaluación/foro → `actividades`. */
-const BLOQUE_A_CONTENIDO: Partial<Record<TipoBloque, string>> = {
-  video: 'video',
-  teoria: 'texto',
-  h5p: 'h5p',
-};
-const BLOQUE_A_ACTIVIDAD: Partial<Record<TipoBloque, string>> = {
-  tarea: 'tarea',
-  autoevaluacion: 'autoevaluacion',
-  foro: 'foro',
-};
 
 function refrescar(programaId?: string) {
   revalidatePath('/studio/programas');
@@ -765,79 +753,6 @@ export async function guardarConfigForo(
   refrescar(programaId);
 }
 
-// ── Bloques (contenido | actividad) ────────────────────────────────────────────
-export async function crearBloque(
-  programaId: string,
-  leccionId: string,
-  tipo: TipoBloque,
-): Promise<void> {
-  const { userId } = await requireAutoria();
-  const comoContenido = BLOQUE_A_CONTENIDO[tipo];
-  const comoActividad = BLOQUE_A_ACTIVIDAD[tipo];
-  if (!comoContenido && !comoActividad) return;
-
-  await comoStaff(userId, async (sql) => {
-    // El orden es un espacio compartido por los bloques de la lección (contenidos +
-    // actividades), así que el siguiente orden mira ambas tablas.
-    const orden = (
-      await sql<{ n: number }[]>`
-        select coalesce(max(orden) + 1, 0)::int as n from (
-          select orden from lxp.contenidos where leccion_id = ${leccionId}
-          union all
-          select orden from lxp.actividades where leccion_id = ${leccionId}
-        ) t`
-    )[0]!.n;
-
-    if (comoContenido) {
-      await sql`
-        insert into lxp.contenidos (leccion_id, tipo, titulo, orden, grupo_id)
-        values (${leccionId}, ${comoContenido}::lxp.contenido_tipo, 'Bloque sin título', ${orden},
-                (select grupo_id from lxp.lecciones where id = ${leccionId}))`;
-    } else if (comoActividad) {
-      await sql`
-        insert into lxp.actividades (leccion_id, tipo, titulo, orden, grupo_id)
-        values (${leccionId}, ${comoActividad}::lxp.actividad_tipo, 'Bloque sin título', ${orden},
-                (select grupo_id from lxp.lecciones where id = ${leccionId}))`;
-    }
-  });
-  refrescar(programaId);
-}
-
-export async function renombrarBloque(
-  programaId: string,
-  fuente: 'contenido' | 'actividad',
-  bloqueId: string,
-  titulo: string,
-): Promise<void> {
-  const { userId } = await requireAutoria();
-  const limpio = titulo.trim();
-  if (!limpio) return;
-  await comoStaff(userId, async (sql) => {
-    if (fuente === 'contenido') {
-      await sql`update lxp.contenidos set titulo = ${limpio} where id = ${bloqueId}`;
-    } else {
-      await sql`update lxp.actividades set titulo = ${limpio} where id = ${bloqueId}`;
-    }
-  });
-  refrescar(programaId);
-}
-
-export async function eliminarBloque(
-  programaId: string,
-  fuente: 'contenido' | 'actividad',
-  bloqueId: string,
-): Promise<void> {
-  const { userId } = await requireAutoria();
-  await comoStaff(userId, async (sql) => {
-    if (fuente === 'contenido') {
-      await sql`delete from lxp.contenidos where id = ${bloqueId}`;
-    } else {
-      await sql`delete from lxp.actividades where id = ${bloqueId}`;
-    }
-  });
-  refrescar(programaId);
-}
-
 // ── Reordenar (intercambio con el vecino) ────────────────────────────────────
 export async function moverModulo(
   programaId: string,
@@ -864,35 +779,6 @@ export async function moverLeccion(
     const orden = await sql<{ id: string; orden: number }[]>`
       select id, orden from lxp.lecciones where modulo_id = ${moduloId} and grupo_id is null order by orden, created_at`;
     await intercambiar(sql, 'lxp.lecciones', orden, leccionId, dir);
-  });
-  refrescar(programaId);
-}
-
-export async function moverBloque(
-  programaId: string,
-  leccionId: string,
-  bloqueId: string,
-  dir: 'arriba' | 'abajo',
-): Promise<void> {
-  const { userId } = await requireAutoria();
-  await comoStaff(userId, async (sql) => {
-    // Los bloques viven en DOS tablas (contenidos + actividades) pero comparten un
-    // solo espacio de `orden` en la lección. Se unen, se ordenan y se intercambia
-    // el orden con el vecino, actualizando la tabla que corresponda a cada uno.
-    const filas = await sql<{ id: string; fuente: string; orden: number }[]>`
-      select id, 'contenido' as fuente, orden from lxp.contenidos where leccion_id = ${leccionId}
-      union all
-      select id, 'actividad' as fuente, orden from lxp.actividades where leccion_id = ${leccionId}
-      order by orden`;
-    const i = filas.findIndex((f) => f.id === bloqueId);
-    if (i < 0) return;
-    const j = dir === 'arriba' ? i - 1 : i + 1;
-    if (j < 0 || j >= filas.length) return;
-    const a = filas[i]!;
-    const b = filas[j]!;
-    const tabla = (f: string) => (f === 'contenido' ? 'lxp.contenidos' : 'lxp.actividades');
-    await sql.unsafe(`update ${tabla(a.fuente)} set orden = $1 where id = $2`, [b.orden, a.id]);
-    await sql.unsafe(`update ${tabla(b.fuente)} set orden = $1 where id = $2`, [a.orden, b.id]);
   });
   refrescar(programaId);
 }

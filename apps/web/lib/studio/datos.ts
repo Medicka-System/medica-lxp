@@ -155,14 +155,6 @@ export async function getProgramasLista(userId: string): Promise<ProgramaListaIt
 }
 
 // ── Builder de un programa (árbol completo) ────────────────────────────────────
-/**
- * Tipos de bloque del modelo VIEJO (contenidos/actividades). Se conserva solo para
- * las acciones legacy de `acciones.ts` que aún tocan esas tablas (el reader del
- * alumno las lee). El builder nuevo NO usa este tipo: cada lección tiene su `tipo`
- * (`TipoLeccion`) y su contenido vive en `bloques` (teoría) o `config` (§5C · mig 0023).
- */
-export type TipoBloque = 'video' | 'teoria' | 'h5p' | 'autoevaluacion' | 'tarea' | 'foro';
-
 /** Una lección MONO-TIPO (§5C · mig 0023): su `tipo` decide qué editor la abre. */
 export type Leccion = {
   id: string;
