@@ -675,12 +675,15 @@ export async function independizarLeccionGrupo(
     const nueva = (
       await sql<{ id: string }[]>`
         insert into lxp.lecciones
-          (modulo_id, grupo_id, nombre, descripcion, tipo, config, orden, horas, despues_de, reemplaza_a)
+          (modulo_id, grupo_id, nombre, descripcion, tipo, config, orden, horas, despues_de,
+           reemplaza_a, independizada_sobre_version)
         values (
           ${obj.modulo_id}, ${grupoId}, ${obj.nombre}, ${obj.descripcion},
           ${obj.tipo}::lxp.leccion_tipo,
           ${sql.json((obj.config ?? {}) as Parameters<typeof sql.json>[0])},
-          ${obj.orden}, ${obj.horas}, ${prev?.id ?? null}, ${leccionId}
+          ${obj.orden}, ${obj.horas}, ${prev?.id ?? null}, ${leccionId},
+          (select pr.version from lxp.programas pr
+             join lxp.modulos m on m.programa_id = pr.id where m.id = ${obj.modulo_id})
         ) returning id`
     )[0]!;
 
@@ -707,6 +710,38 @@ export async function cargarEditorLeccionGrupo(
 ): Promise<LeccionGrupoEditor | null> {
   const { userId } = await requireAutoria();
   return getLeccionGrupoEditor(userId, grupoId, leccionId);
+}
+
+/**
+ * Volver a heredar (Paso 3): descarta la COPIA propia (copy-on-write) de una lección y
+ * restaura la herencia del programa en este grupo. Borra la fila propia con `reemplaza_a`
+ * (sus bloques propios caen por cascade); la heredada del PROGRAMA —que estaba suprimida
+ * solo mientras existía la copia— reaparece con la versión ACTUAL. Idempotente (si ya está
+ * heredada, no hace nada); guard autoría; NUNCA borra una lección heredada.
+ * `leccionId` acepta la copia (reemplaza_a not null) o la heredada (resuelve su copia).
+ */
+export async function volverAHeredarLeccion(
+  grupoId: string,
+  leccionId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const r = await comoStaff(userId, async (sql) => {
+    const copia = (
+      await sql<{ id: string }[]>`
+        select id from lxp.lecciones
+        where grupo_id = ${grupoId} and reemplaza_a is not null
+          and (id = ${leccionId} or reemplaza_a = ${leccionId})
+        limit 1`
+    )[0];
+    if (!copia) return { ok: true as const }; // ya heredada → idempotente
+    // Candado doble: solo borra una fila PROPIA del grupo que ES una copia (reemplaza_a not null).
+    await sql`
+      delete from lxp.lecciones
+      where id = ${copia.id} and grupo_id = ${grupoId} and reemplaza_a is not null`;
+    return { ok: true as const };
+  });
+  refrescarGrupo(grupoId);
+  return r;
 }
 
 /**

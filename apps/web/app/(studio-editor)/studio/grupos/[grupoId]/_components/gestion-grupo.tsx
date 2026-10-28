@@ -70,6 +70,7 @@ import {
   eliminarLeccionGrupo,
   independizarLeccionGrupo,
   cargarEditorLeccionGrupo,
+  volverAHeredarLeccion,
 } from '@/lib/studio/acciones';
 import { EditorDeLeccion } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/editores-leccion';
 import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
@@ -212,6 +213,18 @@ export function GestionGrupo({
     setEditorInline(null);
     router.refresh();
   };
+  // Volver a heredar (Paso 3): descarta la copia → reaparece la heredada del programa (versión actual).
+  const volverAHeredar = (leccionId: string) =>
+    iniciarContenido(async () => {
+      setEditorError(null);
+      const r = await volverAHeredarLeccion(grupo.id, leccionId);
+      if (!r.ok) {
+        setEditorError(r.error);
+        return;
+      }
+      setEditorInline((e) => (e && e.leccionId === leccionId ? null : e));
+      router.refresh();
+    });
   // `correr` del editor inline: ejecuta la action y refresca el indicador del temario.
   const correrEditor = (accion: () => Promise<void>) =>
     iniciarContenido(async () => {
@@ -599,6 +612,7 @@ export function GestionGrupo({
                 onEliminarLeccionPropia={eliminarLeccionPropia}
                 onEditarLeccionPropia={editarLeccionPropia}
                 onEditarInline={abrirEditorInline}
+                onVolverAHeredar={volverAHeredar}
                 editorInline={editorInline}
                 onCerrarEditor={cerrarEditorInline}
                 correrEditor={correrEditor}
@@ -1231,6 +1245,7 @@ function ModuloNodo({
   onEliminarLeccionPropia,
   onEditarLeccionPropia,
   onEditarInline,
+  onVolverAHeredar,
   editorInline,
   onCerrarEditor,
   correrEditor,
@@ -1245,6 +1260,7 @@ function ModuloNodo({
   onEliminarLeccionPropia: (leccionId: string) => void;
   onEditarLeccionPropia: (leccionId: string) => void;
   onEditarInline: (leccion: NodoLeccionGrupo) => void;
+  onVolverAHeredar: (leccionId: string) => void;
   editorInline: { leccionId: string; data: LeccionGrupoEditor } | null;
   onCerrarEditor: () => void;
   correrEditor: (accion: () => Promise<void>) => void;
@@ -1320,6 +1336,7 @@ function ModuloNodo({
               onEliminarPropia={() => onEliminarLeccionPropia(l.id)}
               onEditarPropia={() => onEditarLeccionPropia(l.id)}
               onEditarInline={() => onEditarInline(l)}
+              onVolverAHeredar={() => onVolverAHeredar(l.id)}
               editorAbierto={editorInline?.leccionId === l.id}
               editorData={editorInline?.leccionId === l.id ? editorInline.data : null}
               onCerrarEditor={onCerrarEditor}
@@ -1350,6 +1367,7 @@ function LeccionNodo({
   onEliminarPropia,
   onEditarPropia,
   onEditarInline,
+  onVolverAHeredar,
   editorAbierto,
   editorData,
   onCerrarEditor,
@@ -1362,6 +1380,7 @@ function LeccionNodo({
   onEliminarPropia: () => void;
   onEditarPropia: () => void;
   onEditarInline: () => void;
+  onVolverAHeredar: () => void;
   editorAbierto: boolean;
   editorData: LeccionGrupoEditor | null;
   onCerrarEditor: () => void;
@@ -1369,6 +1388,8 @@ function LeccionNodo({
 }) {
   const resaltar = leccion.personalizado || leccion.esPropio;
   const esConfig = TIPOS_CONFIG.has(leccion.tipo);
+  // Confirmación inline para "volver a heredar" (descarta la copia → acción destructiva).
+  const [confirmarHeredar, setConfirmarHeredar] = useState(false);
   const btnEditar =
     'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[11.5px] font-bold transition-colors disabled:opacity-60';
   const btnBorde =
@@ -1384,11 +1405,20 @@ function LeccionNodo({
           {indice + 1}. {leccion.titulo}
         </span>
 
-        {/* Sello */}
+        {/* Sello. Editada = copy-on-write (Paso 2); en ÁMBAR si quedó DESFASADA del programa (Paso 3). */}
         {leccion.editada ? (
-          <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
-            <Pencil aria-hidden className="h-3 w-3" strokeWidth={2} /> Editada para este grupo
-          </span>
+          leccion.desfasada ? (
+            <span
+              title="El programa cambió de versión desde que editaste esto."
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-800"
+            >
+              <Info aria-hidden className="h-3 w-3" strokeWidth={2.2} /> Editada · desfasada
+            </span>
+          ) : (
+            <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
+              <Pencil aria-hidden className="h-3 w-3" strokeWidth={2} /> Editada para este grupo
+            </span>
+          )
         ) : leccion.esPropio ? (
           <span className="inline-flex h-6 shrink-0 items-center rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
             Propio
@@ -1420,16 +1450,52 @@ function LeccionNodo({
               <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} />
               {editorAbierto ? 'Editando…' : 'Editar'}
             </button>
-            {leccion.esPropio && !leccion.editada && (
-              <button
-                type="button"
-                onClick={onEliminarPropia}
-                disabled={ocupado}
-                aria-label="Eliminar lección del grupo"
-                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
-              >
-                <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
-              </button>
+            {leccion.editada ? (
+              // Volver a heredar (Paso 3): descarta la copia → reaparece la heredada actual.
+              confirmarHeredar ? (
+                <span className="inline-flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmarHeredar(false);
+                      onVolverAHeredar();
+                    }}
+                    disabled={ocupado}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 text-[11.5px] font-bold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60 ${focusRing}`}
+                  >
+                    <RefreshCw aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} /> Descartar y heredar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarHeredar(false)}
+                    className={`h-8 shrink-0 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-accent ${focusRing}`}
+                  >
+                    No
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmarHeredar(true)}
+                  disabled={ocupado}
+                  title="Descartar la copia del grupo y volver a heredar del programa (versión actual)."
+                  className={`${btnBorde} ${focusRing}`}
+                >
+                  <RefreshCw aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} /> Volver a heredar
+                </button>
+              )
+            ) : (
+              leccion.esPropio && (
+                <button
+                  type="button"
+                  onClick={onEliminarPropia}
+                  disabled={ocupado}
+                  aria-label="Eliminar lección del grupo"
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+                >
+                  <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                </button>
+              )
             )}
           </>
         ) : leccion.esPropio ? (
@@ -1459,6 +1525,18 @@ function LeccionNodo({
           </button>
         )}
       </div>
+
+      {/* Aviso de DESFASE (Paso 3): la copia se congeló sobre una versión anterior del programa. */}
+      {leccion.editada && leccion.desfasada && (
+        <div className="mx-3 mb-2 flex items-start gap-2 rounded-[9px] border border-amber-200 bg-amber-50 px-3 py-2">
+          <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" strokeWidth={2} />
+          <p className="text-[11.5px] leading-relaxed text-amber-800">
+            El programa avanzó de versión desde que editaste esta lección para el grupo. Tu copia no
+            recibe esas correcciones. Revísala, o usa <span className="font-bold">Volver a heredar</span>{' '}
+            para descartarla y adoptar la versión actual.
+          </p>
+        </div>
+      )}
 
       {/* Editor INLINE sobre la copia propia (copy-on-write · Paso 2). */}
       {editorAbierto && editorData && (

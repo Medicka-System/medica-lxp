@@ -427,6 +427,8 @@ export type NodoLeccionGrupo = {
   esPropio: boolean;
   /** Reemplazo copy-on-write de una lección heredada (Paso 2): sello "Editada para este grupo". */
   editada: boolean;
+  /** La copia (editada) quedó atrás de la versión actual del programa (Paso 3 · desfase). */
+  desfasada: boolean;
 };
 export type NodoModuloGrupo = {
   id: string;
@@ -585,9 +587,11 @@ export async function getGrupoDetalle(
           despues_de: string | null;
           tipo: string;
           reemplaza_a: string | null;
+          independizada_sobre_version: number | null;
         }[]
       >`
-        select id, modulo_id, nombre, orden, despues_de, tipo::text as tipo, reemplaza_a
+        select id, modulo_id, nombre, orden, despues_de, tipo::text as tipo,
+               reemplaza_a, independizada_sobre_version
         from lxp.lecciones where grupo_id = ${grupoId} order by orden, created_at`,
     ]);
 
@@ -621,6 +625,7 @@ export async function getGrupoDetalle(
       esPropio: boolean;
       tipo: string;
       editada: boolean;
+      desfasada: boolean;
     };
     // Copy-on-write (Paso 2): una heredada con reemplazo propio en este grupo se SUPRIME
     // (su copia propia la sustituye en su posición). `reemplazadas` = ids heredados cubiertos.
@@ -631,11 +636,15 @@ export async function getGrupoDetalle(
     for (const l of lecciones) {
       if (reemplazadas.has(l.id)) continue; // suprimida: la ve como su copia editada del grupo
       const arr = heredadasPorMod.get(l.modulo_id) ?? [];
-      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: null, esPropio: false, tipo: l.tipo, editada: false });
+      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: null, esPropio: false, tipo: l.tipo, editada: false, desfasada: false });
       heredadasPorMod.set(l.modulo_id, arr);
     }
     const propiasPorMod = new Map<string, LecDesc[]>();
     for (const l of propioLecs) {
+      const editada = l.reemplaza_a !== null;
+      // Desfase (Paso 3): la copia se congeló sobre una versión anterior a la actual del programa.
+      const desfasada =
+        editada && l.independizada_sobre_version !== null && l.independizada_sobre_version < g.programa_version;
       const arr = propiasPorMod.get(l.modulo_id) ?? [];
       arr.push({
         id: l.id,
@@ -644,7 +653,8 @@ export async function getGrupoDetalle(
         despuesDe: l.despues_de,
         esPropio: true,
         tipo: l.tipo,
-        editada: l.reemplaza_a !== null,
+        editada,
+        desfasada,
       });
       propiasPorMod.set(l.modulo_id, arr);
     }
@@ -656,6 +666,7 @@ export async function getGrupoDetalle(
         personalizado: l.esPropio ? false : personalizados.has(l.id),
         esPropio: l.esPropio,
         editada: l.editada,
+        desfasada: l.desfasada,
       }));
 
     // Módulos del temario = heredados + propios, fusionados por posición.
