@@ -335,6 +335,33 @@ describe('resolverHerencia · contenido propio del grupo (merge)', () => {
     expect(l1?.bloques?.find((b) => b.id === 'gb1')?.origen).toBe('propio');
   });
 
+  it('bloque propio con reemplaza_a SUPRIME al heredado en su lugar (copy-on-write · Paso 4)', () => {
+    const base = plantilla();
+    base.modulos[0]!.lecciones[0]!.bloques = [
+      { id: 'b1', orden: 1, tipo_bloque: 'texto', config: { html: '<p>programa</p>' } },
+      { id: 'b2', orden: 2, tipo_bloque: 'imagen', config: {} },
+    ];
+    const v = resolverHerencia(base, [], {
+      bloques: [
+        {
+          id: 'gb1',
+          leccion_id: 'l1',
+          despues_de: null, // b1 era el primero → la copia va al inicio (su lugar)
+          orden: 1,
+          tipo_bloque: 'texto',
+          config: { html: '<p>grupo</p>' },
+          reemplaza_a: 'b1',
+        },
+      ],
+    });
+    const l1 = v.modulos[0]?.lecciones.find((l) => l.id === 'l1');
+    // b1 (heredado) SUPRIMIDO; gb1 (copia) en su posición; b2 sigue heredando.
+    expect(l1?.bloques?.map((b) => b.id)).toEqual(['gb1', 'b2']);
+    expect(l1?.bloques?.find((b) => b.id === 'b1')).toBeUndefined();
+    expect(l1?.bloques?.find((b) => b.id === 'gb1')?.origen).toBe('propio');
+    expect(l1?.bloques?.find((b) => b.id === 'b2')?.origen).toBe('heredado');
+  });
+
   it('despues_de a un ancla INEXISTENTE (borrada) cae al inicio del ámbito', () => {
     const v = resolverHerencia(plantilla(), [], {
       modulos: [

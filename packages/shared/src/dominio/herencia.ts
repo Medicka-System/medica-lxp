@@ -127,6 +127,12 @@ export interface BloquePropio extends BloqueTpl {
   leccion_id: string;
   /** Va DESPUÉS de este bloque hermano (id). NULL = al inicio de la lección. */
   despues_de: string | null;
+  /**
+   * Copy-on-write por bloque (Paso 4): reemplaza a este bloque HEREDADO en el grupo —
+   * lo SUPRIME en su posición y se muestra en su lugar. NULL = bloque propio ADITIVO
+   * (se inserta sin suprimir nada, como hasta ahora).
+   */
+  reemplaza_a?: string | null;
 }
 /** El contenido propio de UN grupo, por nivel de adjunción. */
 export interface ContenidoPropioGrupo {
@@ -373,12 +379,20 @@ export function resolverHerencia(
   }
 
   // Bloques de una lección: heredados (con origen) + propios fusionados por posición.
+  // Copy-on-write por bloque (Paso 4): un propio con `reemplaza_a` SUPRIME al heredado en su
+  // lugar; el resto de la lección sigue heredando. Un propio SIN `reemplaza_a` se inserta
+  // aditivo (como hasta ahora). La plantilla NUNCA se muta.
   const resolverBloques = (l: Pick<LeccionTpl, 'id' | 'bloques'>, origen: Origen): BloqueResuelto[] => {
+    const propiosRaw = bloquesPorLeccion.get(l.id) ?? [];
+    const reemplazados = new Set(
+      propiosRaw.filter((b) => b.reemplaza_a).map((b) => b.reemplaza_a as string),
+    );
     const base: Posicionable<BloqueResuelto>[] = (l.bloques ?? [])
+      .filter((b) => !reemplazados.has(b.id))
       .slice()
       .sort(porOrden)
       .map((b) => ({ id: b.id, orden: b.orden, despues_de: null, nodo: { ...b, origen } }));
-    const propios: Posicionable<BloqueResuelto>[] = (bloquesPorLeccion.get(l.id) ?? []).map((b) => ({
+    const propios: Posicionable<BloqueResuelto>[] = propiosRaw.map((b) => ({
       id: b.id,
       orden: b.orden,
       despues_de: b.despues_de,

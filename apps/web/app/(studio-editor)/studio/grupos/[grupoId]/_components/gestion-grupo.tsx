@@ -77,6 +77,7 @@ import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import { fechaCortaDia } from '@/lib/format';
 import { aplicarOverride, revertirOverride, type EntidadOverrideUI } from '@/lib/studio/herencia-acciones';
 import { ReemplazarRecurso } from './reemplazar-recurso';
+import { BloquesLeccionGrupoPanel } from './bloques-leccion-grupo';
 
 /** Tipos de lección cuyo contenido vive en `lecciones.config` → se editan INLINE (Paso 2). */
 const TIPOS_CONFIG = new Set<TipoLeccion>(['video', 'h5p', 'xapi', 'autoevaluacion', 'tarea', 'foro']);
@@ -231,6 +232,10 @@ export function GestionGrupo({
       await accion();
       router.refresh();
     });
+  // Vista por-BLOQUE de una lección de TEORÍA (Paso 4): leccionId abierto, o null.
+  const [bloquesLeccion, setBloquesLeccion] = useState<string | null>(null);
+  const alternarBloques = (leccionId: string) =>
+    setBloquesLeccion((cur) => (cur === leccionId ? null : leccionId));
 
   function resincronizar(r: AvisoResyncUI) {
     const clave = `${r.entidad}:${r.entidadId}`;
@@ -616,6 +621,9 @@ export function GestionGrupo({
                 editorInline={editorInline}
                 onCerrarEditor={cerrarEditorInline}
                 correrEditor={correrEditor}
+                grupoId={grupo.id}
+                bloquesLeccionAbierta={bloquesLeccion}
+                onToggleBloques={alternarBloques}
               />
             ))}
           </ul>
@@ -1249,6 +1257,9 @@ function ModuloNodo({
   editorInline,
   onCerrarEditor,
   correrEditor,
+  grupoId,
+  bloquesLeccionAbierta,
+  onToggleBloques,
 }: {
   modulo: NodoModuloGrupo;
   abierto: boolean;
@@ -1264,6 +1275,9 @@ function ModuloNodo({
   editorInline: { leccionId: string; data: LeccionGrupoEditor } | null;
   onCerrarEditor: () => void;
   correrEditor: (accion: () => Promise<void>) => void;
+  grupoId: string;
+  bloquesLeccionAbierta: string | null;
+  onToggleBloques: (leccionId: string) => void;
 }) {
   const resaltar = modulo.personalizado || modulo.esPropio;
   return (
@@ -1341,6 +1355,9 @@ function ModuloNodo({
               editorData={editorInline?.leccionId === l.id ? editorInline.data : null}
               onCerrarEditor={onCerrarEditor}
               correrEditor={correrEditor}
+              grupoId={grupoId}
+              bloquesAbierto={bloquesLeccionAbierta === l.id}
+              onToggleBloques={() => onToggleBloques(l.id)}
             />
           ))}
           <li className="px-1 pt-1.5">
@@ -1372,6 +1389,9 @@ function LeccionNodo({
   editorData,
   onCerrarEditor,
   correrEditor,
+  grupoId,
+  bloquesAbierto,
+  onToggleBloques,
 }: {
   leccion: NodoLeccionGrupo;
   indice: number;
@@ -1385,6 +1405,9 @@ function LeccionNodo({
   editorData: LeccionGrupoEditor | null;
   onCerrarEditor: () => void;
   correrEditor: (accion: () => Promise<void>) => void;
+  grupoId: string;
+  bloquesAbierto: boolean;
+  onToggleBloques: () => void;
 }) {
   const resaltar = leccion.personalizado || leccion.esPropio;
   const esConfig = TIPOS_CONFIG.has(leccion.tipo);
@@ -1514,17 +1537,43 @@ function LeccionNodo({
             </button>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={onPersonalizar}
-            className={`h-8 shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold transition-colors hover:bg-accent ${focusRing} ${
-              leccion.personalizado ? 'text-[color:var(--info-foreground)]' : 'text-secondary'
-            }`}
-          >
-            {leccion.personalizado ? 'Editar cambio' : 'Personalizar'}
-          </button>
+          // Teoría HEREDADA: personalizar (título/ocultar) + editar POR BLOQUE (Paso 4).
+          <>
+            <button
+              type="button"
+              onClick={onPersonalizar}
+              className={`h-8 shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold transition-colors hover:bg-accent ${focusRing} ${
+                leccion.personalizado ? 'text-[color:var(--info-foreground)]' : 'text-secondary'
+              }`}
+            >
+              {leccion.personalizado ? 'Editar cambio' : 'Personalizar'}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleBloques}
+              aria-expanded={bloquesAbierto}
+              className={`${btnEditar} ${focusRing} ${
+                bloquesAbierto
+                  ? 'bg-[color:var(--info)] text-white'
+                  : 'bg-primary text-[color:var(--sidebar)] hover:bg-secondary hover:text-white'
+              }`}
+            >
+              <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} />
+              {bloquesAbierto ? 'Cerrar bloques' : 'Editar'}
+            </button>
+          </>
         )}
       </div>
+
+      {/* Vista por-BLOQUE de la lección de teoría (copy-on-write por bloque · Paso 4). */}
+      {bloquesAbierto && (
+        <BloquesLeccionGrupoPanel
+          grupoId={grupoId}
+          leccionId={leccion.id}
+          titulo={leccion.titulo}
+          onCerrar={onToggleBloques}
+        />
+      )}
 
       {/* Aviso de DESFASE (Paso 3): la copia se congeló sobre una versión anterior del programa. */}
       {leccion.editada && leccion.desfasada && (

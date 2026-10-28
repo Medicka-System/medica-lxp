@@ -818,6 +818,93 @@ export async function getLeccionGrupoEditor(
   });
 }
 
+// ── Bloques de una lección de teoría EN EL GRUPO (copy-on-write por bloque · Paso 4) ──
+/** Un bloque de teoría tal como lo ve el grupo: heredado, propio NUEVO o propio que EDITA uno heredado. */
+export type BloqueGrupoItem = {
+  id: string;
+  tipoBloque: string;
+  config: Record<string, unknown>;
+  /** Fila propia del grupo (editable/borrable aquí). */
+  esPropio: boolean;
+  /** Reemplaza a un bloque heredado (copy-on-write) → sello "Editado para este grupo". */
+  editada: boolean;
+};
+export type BloquesLeccionGrupo = {
+  leccionId: string;
+  programaId: string;
+  titulo: string;
+  bloques: BloqueGrupoItem[];
+};
+
+/**
+ * Lista de bloques de una lección de TEORÍA en el contexto del grupo: heredados (grupo_id NULL)
+ * + propios del grupo, fusionados por posición, suprimiendo el heredado donde una copia lo
+ * reemplaza (Paso 4). Marca `editada` el propio que reemplaza a un heredado. null si no es teoría.
+ */
+export async function getBloquesLeccionGrupo(
+  userId: string,
+  grupoId: string,
+  leccionId: string,
+): Promise<BloquesLeccionGrupo | null> {
+  return comoStaff(userId, async (sql) => {
+    const l = (
+      await sql<{ programa_id: string; nombre: string; tipo: string }[]>`
+        select m.programa_id, l.nombre, l.tipo::text as tipo
+        from lxp.lecciones l join lxp.modulos m on m.id = l.modulo_id
+        where l.id = ${leccionId} limit 1`
+    )[0];
+    if (!l || l.tipo !== 'teoria') return null;
+
+    const filas = await sql<
+      {
+        id: string;
+        tipo_bloque: string;
+        config: Record<string, unknown> | null;
+        grupo_id: string | null;
+        orden: number;
+        despues_de: string | null;
+        reemplaza_a: string | null;
+      }[]
+    >`
+      select id, tipo_bloque, config, grupo_id, orden, despues_de, reemplaza_a
+      from lxp.bloques
+      where leccion_id = ${leccionId} and (grupo_id is null or grupo_id = ${grupoId})
+      order by orden, created_at`;
+
+    const reemplazados = new Set(
+      filas.filter((f) => f.grupo_id !== null && f.reemplaza_a).map((f) => f.reemplaza_a as string),
+    );
+    type D = {
+      id: string;
+      orden: number;
+      despuesDe: string | null;
+      tipoBloque: string;
+      config: Record<string, unknown>;
+      esPropio: boolean;
+      editada: boolean;
+    };
+    const base: D[] = filas
+      .filter((f) => f.grupo_id === null && !reemplazados.has(f.id))
+      .map((f) => ({ id: f.id, orden: f.orden, despuesDe: null, tipoBloque: f.tipo_bloque, config: f.config ?? {}, esPropio: false, editada: false }));
+    const propios: D[] = filas
+      .filter((f) => f.grupo_id !== null)
+      .map((f) => ({ id: f.id, orden: f.orden, despuesDe: f.despues_de, tipoBloque: f.tipo_bloque, config: f.config ?? {}, esPropio: true, editada: f.reemplaza_a !== null }));
+
+    return {
+      leccionId,
+      programaId: l.programa_id,
+      titulo: l.nombre,
+      bloques: fusionarPos(base, propios).map((b) => ({
+        id: b.id,
+        tipoBloque: b.tipoBloque,
+        config: b.config,
+        esPropio: b.esPropio,
+        editada: b.editada,
+      })),
+    };
+  });
+}
+
 // ── Roster + avance de un grupo (§5B) ──────────────────────────────────────────
 // El roster viene de CORA vía el puente SECDEF `cora_alumnos_de_grupo` (§10, gated a
 // staff); el avance se calcula del progreso real del alumno (reproduccion_progreso,

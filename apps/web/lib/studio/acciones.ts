@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAutoria, requireCurador } from '@/lib/studio/session';
 import { afirmarFilas, comoStaff } from '@/lib/db.server';
-import type { TipoHerramienta, LeccionGrupoEditor } from '@/lib/studio/datos';
-import { getLeccionGrupoEditor } from '@/lib/studio/datos';
+import type { TipoHerramienta, LeccionGrupoEditor, BloquesLeccionGrupo } from '@/lib/studio/datos';
+import { getLeccionGrupoEditor, getBloquesLeccionGrupo } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
@@ -742,6 +742,96 @@ export async function volverAHeredarLeccion(
   });
   refrescarGrupo(grupoId);
   return r;
+}
+
+// ── Copy-on-write POR BLOQUE (teoría · Paso 4) ────────────────────────────────────
+/**
+ * Independiza UN bloque de teoría heredado para este grupo: copia la fila a una propia
+ * (grupo_id + reemplaza_a) bajo la MISMA lección (leccion_id intacto → progreso intacto).
+ * Solo ESE bloque se vuelve propio; el resto de la lección sigue heredando. Idempotente;
+ * guard autoría; el heredado del PROGRAMA nunca se toca. Devuelve la id del bloque propio.
+ */
+export async function independizarBloqueGrupo(
+  grupoId: string,
+  bloqueId: string,
+): Promise<{ ok: true; bloqueId: string } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const r = await comoStaff(userId, async (sql) => {
+    const b = (
+      await sql<
+        { grupo_id: string | null; leccion_id: string; tipo_bloque: string; config: Record<string, unknown> | null; orden: number }[]
+      >`
+        select grupo_id, leccion_id, tipo_bloque, config, orden
+        from lxp.bloques where id = ${bloqueId} limit 1`
+    )[0];
+    if (!b) return { ok: false as const, error: 'El bloque no existe.' };
+    if (b.grupo_id === grupoId) return { ok: true as const, bloqueId }; // ya propio → directo
+    if (b.grupo_id !== null) return { ok: false as const, error: 'El bloque pertenece a otro grupo.' };
+
+    const ya = (
+      await sql<{ id: string }[]>`
+        select id from lxp.bloques where grupo_id = ${grupoId} and reemplaza_a = ${bloqueId} limit 1`
+    )[0];
+    if (ya) return { ok: true as const, bloqueId: ya.id }; // idempotente
+
+    // Posición: la copia va DESPUÉS del bloque heredado que precede al objetivo en la lección.
+    const prev = (
+      await sql<{ id: string }[]>`
+        select id from lxp.bloques
+        where leccion_id = ${b.leccion_id} and grupo_id is null and orden < ${b.orden}
+        order by orden desc, created_at desc limit 1`
+    )[0];
+
+    const nueva = (
+      await sql<{ id: string }[]>`
+        insert into lxp.bloques (leccion_id, grupo_id, tipo_bloque, config, orden, despues_de, reemplaza_a)
+        values (
+          ${b.leccion_id}, ${grupoId}, ${b.tipo_bloque},
+          ${sql.json((b.config ?? {}) as Parameters<typeof sql.json>[0])},
+          ${b.orden}, ${prev?.id ?? null}, ${bloqueId}
+        ) returning id`
+    )[0]!;
+    return { ok: true as const, bloqueId: nueva.id };
+  });
+  refrescarGrupo(grupoId);
+  return r;
+}
+
+/**
+ * Volver a heredar UN bloque (Paso 4): borra la COPIA propia (reemplaza_a not null) → reaparece
+ * el bloque heredado del programa en su lugar. Idempotente; guard autoría; candado doble →
+ * NUNCA borra un bloque heredado. Acepta la id de la copia o la del heredado (resuelve la copia).
+ */
+export async function volverAHeredarBloque(
+  grupoId: string,
+  bloqueId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const r = await comoStaff(userId, async (sql) => {
+    const copia = (
+      await sql<{ id: string }[]>`
+        select id from lxp.bloques
+        where grupo_id = ${grupoId} and reemplaza_a is not null
+          and (id = ${bloqueId} or reemplaza_a = ${bloqueId})
+        limit 1`
+    )[0];
+    if (!copia) return { ok: true as const };
+    await sql`
+      delete from lxp.bloques
+      where id = ${copia.id} and grupo_id = ${grupoId} and reemplaza_a is not null`;
+    return { ok: true as const };
+  });
+  refrescarGrupo(grupoId);
+  return r;
+}
+
+/** Carga los bloques de una lección de teoría EN EL GRUPO para la vista por-bloque (Paso 4). */
+export async function cargarBloquesLeccionGrupo(
+  grupoId: string,
+  leccionId: string,
+): Promise<BloquesLeccionGrupo | null> {
+  const { userId } = await requireAutoria();
+  return getBloquesLeccionGrupo(userId, grupoId, leccionId);
 }
 
 /**

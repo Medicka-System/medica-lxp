@@ -365,9 +365,10 @@ export async function getLeccion(
           grupo_id: string | null;
           orden: number;
           despues_de: string | null;
+          reemplaza_a: string | null;
         }[]
       >`
-        select id, tipo_bloque, config, grupo_id, orden, despues_de
+        select id, tipo_bloque, config, grupo_id, orden, despues_de, reemplaza_a
         from lxp.bloques
         where leccion_id = ${leccionId}
           and (grupo_id is null or grupo_id = ${resuelto?.grupoId ?? null})
@@ -379,7 +380,12 @@ export async function getLeccion(
         tipoBloque: f.tipo_bloque,
         config: f.config,
       });
-      const base = filas.filter((f) => f.grupo_id === null).map(aFila);
+      // Copy-on-write por bloque (Paso 4): un propio con `reemplaza_a` SUPRIME al heredado y lo
+      // sustituye en su posición; el resto de la lección sigue heredando. El leccion_id no cambia.
+      const reemplazados = new Set(
+        filas.filter((f) => f.grupo_id !== null && f.reemplaza_a).map((f) => f.reemplaza_a as string),
+      );
+      const base = filas.filter((f) => f.grupo_id === null && !reemplazados.has(f.id)).map(aFila);
       const propios = filas.filter((f) => f.grupo_id !== null).map(aFila);
       bloquesTeoria = fusionarPosBloques(base, propios).flatMap((f) => {
         const tb = comoTipoBloqueTeoria(f.tipoBloque);
