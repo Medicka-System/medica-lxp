@@ -13,12 +13,13 @@
  * vive en su detalle; aquí se crea (modal 2 pasos) y se borra (solo nativos · §10).
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Calendar,
   Check,
   ChevronLeft,
+  ChevronRight,
   ImageIcon,
   Link2,
   Loader2,
@@ -75,6 +76,22 @@ function SelloHerencia({ overrides }: { overrides: number }) {
   );
 }
 
+/** Filas por página de la lista (paginación CLIENTE · ver nota en el pie). */
+const POR_PAGINA = 24;
+
+/** Números de página a mostrar, con elipsis cuando son muchas (1 … 4 5 6 … 12). */
+function numerosPagina(actual: number, total: number): (number | '…')[] {
+  const out: (number | '…')[] = [];
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || (i >= actual - 1 && i <= actual + 1)) {
+      out.push(i);
+    } else if (out[out.length - 1] !== '…') {
+      out.push('…');
+    }
+  }
+  return out;
+}
+
 /* ───────────────────────────── Pantalla ───────────────────────────── */
 
 export function GruposTabla({
@@ -127,6 +144,19 @@ export function GruposTabla({
       ),
     [grupos, estado, programa, busca],
   );
+
+  // Paginación (cliente): se recalcula sobre el resultado FILTRADO; al cambiar
+  // búsqueda/filtros se vuelve a la página 1.
+  const [pagina, setPagina] = useState(1);
+  useEffect(() => setPagina(1), [busca, programa, estado]);
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const paginados = useMemo(
+    () => visibles.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA),
+    [visibles, paginaActual],
+  );
+  const desde = visibles.length === 0 ? 0 : (paginaActual - 1) * POR_PAGINA + 1;
+  const hasta = Math.min(paginaActual * POR_PAGINA, visibles.length);
 
   return (
     <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-5 px-8 pb-10 pt-7">
@@ -233,7 +263,7 @@ export function GruposTabla({
             </tr>
           </thead>
           <tbody>
-            {visibles.map((g) => (
+            {paginados.map((g) => (
               <tr
                 key={g.id}
                 onClick={() => router.push(`/studio/grupos/${g.id}`)}
@@ -347,6 +377,58 @@ export function GruposTabla({
                 ? 'Los grupos de CORA aparecen aquí automáticamente; crea uno con “Nuevo grupo”.'
                 : 'Quita los filtros o cambia la búsqueda.'}
             </p>
+          </div>
+        )}
+
+        {/* Paginación numerada — convive con búsqueda/filtros (recalcula sobre lo filtrado) */}
+        {visibles.length > 0 && totalPaginas > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+            <span className={`text-[12px] ${softText}`}>
+              <span className={mono}>{desde}</span>–<span className={mono}>{hasta}</span> de{' '}
+              <span className={mono}>{visibles.length}</span> grupos
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={paginaActual === 1}
+                aria-label="Página anterior"
+                className={`grid h-8 w-8 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+              >
+                <ChevronLeft aria-hidden className="h-4 w-4" strokeWidth={2} />
+              </button>
+              {numerosPagina(paginaActual, totalPaginas).map((n, i) =>
+                n === '…' ? (
+                  <span key={`e${i}`} className="px-1.5 text-[12.5px] text-muted-foreground">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setPagina(n)}
+                    aria-label={`Página ${n}`}
+                    aria-current={n === paginaActual ? 'page' : undefined}
+                    className={`inline-flex h-8 min-w-8 items-center justify-center rounded-[9px] px-2 text-[12.5px] font-semibold transition-colors ${focusRing} ${
+                      n === paginaActual
+                        ? 'bg-sidebar text-sidebar-foreground'
+                        : 'border border-border bg-card text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ),
+              )}
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={paginaActual === totalPaginas}
+                aria-label="Página siguiente"
+                className={`grid h-8 w-8 place-items-center rounded-[9px] border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+              >
+                <ChevronRight aria-hidden className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
           </div>
         )}
       </section>
