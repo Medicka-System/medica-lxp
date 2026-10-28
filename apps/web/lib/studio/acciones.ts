@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAutoria, requireCurador } from '@/lib/studio/session';
 import { afirmarFilas, comoStaff } from '@/lib/db.server';
-import type { TipoHerramienta } from '@/lib/studio/datos';
+import type { TipoHerramienta, LeccionGrupoEditor } from '@/lib/studio/datos';
+import { getLeccionGrupoEditor } from '@/lib/studio/datos';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
@@ -616,6 +617,96 @@ export async function eliminarLeccionGrupo(grupoId: string, leccionId: string): 
     );
   });
   refrescarGrupo(grupoId);
+}
+
+/**
+ * Copy-on-write por LECCIÓN (Paso 2): independiza una lección HEREDADA para este grupo.
+ * Copia la fila `lxp.lecciones` (+ su `config` completo; si es teoría, también sus bloques)
+ * a una fila PROPIA (grupo_id = grupoId) que REEMPLAZA a la heredada (`reemplaza_a`) y toma
+ * su POSICIÓN (`despues_de` = la lección que la precede en el módulo). La heredada del
+ * PROGRAMA nunca se toca; los consumidores la suprimen en este grupo por el vínculo.
+ * Idempotente: si ya es propia, o ya tiene reemplazo en este grupo, devuelve esa id sin
+ * re-copiar. Guard: solo autoría. Devuelve la id de la lección PROPIA sobre la que se edita.
+ */
+export async function independizarLeccionGrupo(
+  grupoId: string,
+  leccionId: string,
+): Promise<{ ok: true; leccionId: string } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const r = await comoStaff(userId, async (sql) => {
+    const obj = (
+      await sql<
+        {
+          grupo_id: string | null;
+          modulo_id: string;
+          nombre: string;
+          descripcion: string | null;
+          tipo: string;
+          config: Record<string, unknown> | null;
+          orden: number;
+          horas: number;
+        }[]
+      >`
+        select grupo_id, modulo_id, nombre, descripcion, tipo::text as tipo, config, orden, horas::float8 as horas
+        from lxp.lecciones where id = ${leccionId} limit 1`
+    )[0];
+    if (!obj) return { ok: false as const, error: 'La lección no existe.' };
+    // Ya es propia de ESTE grupo → se edita directo, sin copiar.
+    if (obj.grupo_id === grupoId) return { ok: true as const, leccionId };
+    // Propia de OTRO grupo → no se toca (candado).
+    if (obj.grupo_id !== null) return { ok: false as const, error: 'La lección pertenece a otro grupo.' };
+
+    // Idempotente: ¿ya existe el reemplazo propio de esta heredada en este grupo?
+    const yaHecha = (
+      await sql<{ id: string }[]>`
+        select id from lxp.lecciones where grupo_id = ${grupoId} and reemplaza_a = ${leccionId} limit 1`
+    )[0];
+    if (yaHecha) return { ok: true as const, leccionId: yaHecha.id };
+
+    // Posición: la copia va DESPUÉS de la heredada que precede a la objetivo en su módulo
+    // (null = al inicio) → ocupa el lugar de la heredada una vez suprimida.
+    const prev = (
+      await sql<{ id: string }[]>`
+        select id from lxp.lecciones
+        where modulo_id = ${obj.modulo_id} and grupo_id is null and orden < ${obj.orden}
+        order by orden desc, created_at desc limit 1`
+    )[0];
+
+    const nueva = (
+      await sql<{ id: string }[]>`
+        insert into lxp.lecciones
+          (modulo_id, grupo_id, nombre, descripcion, tipo, config, orden, horas, despues_de, reemplaza_a)
+        values (
+          ${obj.modulo_id}, ${grupoId}, ${obj.nombre}, ${obj.descripcion},
+          ${obj.tipo}::lxp.leccion_tipo,
+          ${sql.json((obj.config ?? {}) as Parameters<typeof sql.json>[0])},
+          ${obj.orden}, ${obj.horas}, ${prev?.id ?? null}, ${leccionId}
+        ) returning id`
+    )[0]!;
+
+    // Teoría: whole-lesson (Paso 2) → copia sus bloques heredados a la lección propia.
+    // (La granularidad por-bloque es el Paso 4; aquí el bloque se copia completo.)
+    if (obj.tipo === 'teoria') {
+      await sql`
+        insert into lxp.bloques (leccion_id, grupo_id, tipo_bloque, config, orden)
+        select ${nueva.id}, ${grupoId}, b.tipo_bloque, b.config, b.orden
+        from lxp.bloques b
+        where b.leccion_id = ${leccionId} and b.grupo_id is null
+        order by b.orden, b.created_at`;
+    }
+    return { ok: true as const, leccionId: nueva.id };
+  });
+  refrescarGrupo(grupoId);
+  return r;
+}
+
+/** Carga los datos del editor de una lección PROPIA del grupo para montarlo inline (Paso 2). */
+export async function cargarEditorLeccionGrupo(
+  grupoId: string,
+  leccionId: string,
+): Promise<LeccionGrupoEditor | null> {
+  const { userId } = await requireAutoria();
+  return getLeccionGrupoEditor(userId, grupoId, leccionId);
 }
 
 /**

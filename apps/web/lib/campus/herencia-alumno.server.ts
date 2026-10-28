@@ -226,6 +226,17 @@ async function cargarCalendario(sql: Sql, grupoId: string): Promise<Map<string, 
   return new Map(filas.map((f) => [f.modulo_id, f.fecha_apertura]));
 }
 
+/**
+ * Ids de lecciones HEREDADAS que una copia PROPIA del grupo reemplaza (copy-on-write · Paso 2).
+ * El alumno de este grupo ve la copia en su lugar: la heredada se SUPRIME de los visibles.
+ */
+async function cargarReemplazadas(sql: Sql, grupoId: string): Promise<Set<string>> {
+  const filas = await sql<{ reemplaza_a: string }[]>`
+    select reemplaza_a from lxp.lecciones
+    where grupo_id = ${grupoId} and reemplaza_a is not null`;
+  return new Set(filas.map((f) => f.reemplaza_a));
+}
+
 /** Día UTC (yyyymmdd) para comparar `date` sin desfase por hora/zona (igual que fechaCortaDia). */
 function diaUTC(d: Date): number {
   return d.getUTCFullYear() * 10000 + d.getUTCMonth() * 100 + d.getUTCDate();
@@ -280,6 +291,8 @@ export async function resolverCursoAlumno(
   // Contenido propio del grupo (Opción 1A): se FUSIONA en el árbol heredado (motor · Etapa 2).
   // El alumno lo ve mezclado y transparente; cuenta en el avance como una lección/contenido más.
   const propias = grupo ? await cargarPropias(sql, grupo.id) : {};
+  // Copy-on-write (Paso 2): heredadas que una copia propia del grupo reemplaza → se suprimen.
+  const reemplazadas = grupo ? await cargarReemplazadas(sql, grupo.id) : new Set<string>();
   const vista = resolverHerencia(plantilla, overrides, propias);
 
   // Reemplazo de fuente (Paso 4b): se arma de los overrides YA cargados (sin query extra).
@@ -309,6 +322,7 @@ export async function resolverCursoAlumno(
     if (bloqueado) modulosBloqueados.add(m.id);
     for (const l of m.lecciones) {
       if (l.herencia.oculto) continue;
+      if (reemplazadas.has(l.id)) continue; // heredada sustituida por su copia editada del grupo
       leccionesVisibles.add(l.id);
       if (bloqueado) leccionesBloqueadas.add(l.id);
       for (const c of l.contenidos) {

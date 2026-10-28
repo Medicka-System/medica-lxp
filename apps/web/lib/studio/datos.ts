@@ -420,9 +420,13 @@ export async function getDocentes(userId: string): Promise<{ userId: string; nom
 export type NodoLeccionGrupo = {
   id: string;
   titulo: string;
+  /** Tipo de la lección (decide el editor; config-types se editan inline · Paso 2). */
+  tipo: TipoLeccion;
   personalizado: boolean;
   /** PROPIO del grupo (grupo_id · Opción 1A): editable/borrable, no heredado del programa. */
   esPropio: boolean;
+  /** Reemplazo copy-on-write de una lección heredada (Paso 2): sello "Editada para este grupo". */
+  editada: boolean;
 };
 export type NodoModuloGrupo = {
   id: string;
@@ -561,8 +565,8 @@ export async function getGrupoDetalle(
       from lxp.modulos where programa_id = ${g.programa_id} and grupo_id is null order by orden, created_at`;
     const moduloIds = modulos.map((m) => m.id);
     const lecciones = moduloIds.length
-      ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number }[]>`
-          select id, modulo_id, nombre, orden from lxp.lecciones
+      ? await sql<{ id: string; modulo_id: string; nombre: string; orden: number; tipo: string }[]>`
+          select id, modulo_id, nombre, orden, tipo::text as tipo from lxp.lecciones
           where modulo_id in ${sql(moduloIds)} and grupo_id is null order by orden, created_at`
       : [];
 
@@ -572,8 +576,18 @@ export async function getGrupoDetalle(
       sql<{ id: string; nombre: string; orden: number; horas: number; despues_de: string | null }[]>`
         select id, nombre, orden, horas::float8 as horas, despues_de
         from lxp.modulos where grupo_id = ${grupoId} order by orden, created_at`,
-      sql<{ id: string; modulo_id: string; nombre: string; orden: number; despues_de: string | null }[]>`
-        select id, modulo_id, nombre, orden, despues_de
+      sql<
+        {
+          id: string;
+          modulo_id: string;
+          nombre: string;
+          orden: number;
+          despues_de: string | null;
+          tipo: string;
+          reemplaza_a: string | null;
+        }[]
+      >`
+        select id, modulo_id, nombre, orden, despues_de, tipo::text as tipo, reemplaza_a
         from lxp.lecciones where grupo_id = ${grupoId} order by orden, created_at`,
     ]);
 
@@ -599,25 +613,49 @@ export async function getGrupoDetalle(
 
     // Lecciones por módulo = heredadas (grupo_id NULL) + propias de este grupo, FUSIONADAS
     // por posición y marcadas `esPropio`. Una propia no es "personalización" (no override).
-    type LecDesc = { id: string; nombre: string; orden: number; despuesDe: string | null; esPropio: boolean };
+    type LecDesc = {
+      id: string;
+      nombre: string;
+      orden: number;
+      despuesDe: string | null;
+      esPropio: boolean;
+      tipo: string;
+      editada: boolean;
+    };
+    // Copy-on-write (Paso 2): una heredada con reemplazo propio en este grupo se SUPRIME
+    // (su copia propia la sustituye en su posición). `reemplazadas` = ids heredados cubiertos.
+    const reemplazadas = new Set(
+      propioLecs.filter((l) => l.reemplaza_a).map((l) => l.reemplaza_a as string),
+    );
     const heredadasPorMod = new Map<string, LecDesc[]>();
     for (const l of lecciones) {
+      if (reemplazadas.has(l.id)) continue; // suprimida: la ve como su copia editada del grupo
       const arr = heredadasPorMod.get(l.modulo_id) ?? [];
-      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: null, esPropio: false });
+      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: null, esPropio: false, tipo: l.tipo, editada: false });
       heredadasPorMod.set(l.modulo_id, arr);
     }
     const propiasPorMod = new Map<string, LecDesc[]>();
     for (const l of propioLecs) {
       const arr = propiasPorMod.get(l.modulo_id) ?? [];
-      arr.push({ id: l.id, nombre: l.nombre, orden: l.orden, despuesDe: l.despues_de, esPropio: true });
+      arr.push({
+        id: l.id,
+        nombre: l.nombre,
+        orden: l.orden,
+        despuesDe: l.despues_de,
+        esPropio: true,
+        tipo: l.tipo,
+        editada: l.reemplaza_a !== null,
+      });
       propiasPorMod.set(l.modulo_id, arr);
     }
     const leccionesDeModulo = (moduloId: string): NodoLeccionGrupo[] =>
       fusionarPos(heredadasPorMod.get(moduloId) ?? [], propiasPorMod.get(moduloId) ?? []).map((l) => ({
         id: l.id,
         titulo: l.nombre,
+        tipo: comoTipoLeccion(l.tipo),
         personalizado: l.esPropio ? false : personalizados.has(l.id),
         esPropio: l.esPropio,
+        editada: l.editada,
       }));
 
     // Módulos del temario = heredados + propios, fusionados por posición.
@@ -694,7 +732,7 @@ export async function getGrupoDetalle(
       totales: {
         modulos: mergedMods.length,
         horas: Math.round(mergedMods.reduce((s, m) => s + m.horas, 0)),
-        lecciones: lecciones.length + propioLecs.length,
+        lecciones: lecciones.length - reemplazadas.size + propioLecs.length,
       },
       temario: mergedMods.map((m, i) => ({
         id: m.id,
@@ -809,7 +847,10 @@ export async function getGrupoAlumnos(
           from lxp.lecciones l
           join lxp.modulos m on m.id = l.modulo_id
           where m.programa_id = ${g.programa_id}
-            and (l.grupo_id is null or l.grupo_id = ${grupoId})`
+            and (l.grupo_id is null or l.grupo_id = ${grupoId})
+            and not (l.grupo_id is null and l.id in (
+              select reemplaza_a from lxp.lecciones
+              where grupo_id = ${grupoId} and reemplaza_a is not null))`
       )[0]?.n ?? 0;
 
     // Lecciones completadas por alumno (staff lee todo · reproduccion_progreso_select).
@@ -821,6 +862,9 @@ export async function getGrupoAlumnos(
       join lxp.modulos m on m.id = l.modulo_id
       where m.programa_id = ${g.programa_id}
         and (l.grupo_id is null or l.grupo_id = ${grupoId})
+        and not (l.grupo_id is null and l.id in (
+          select reemplaza_a from lxp.lecciones
+          where grupo_id = ${grupoId} and reemplaza_a is not null))
         and rp.completado
         and rp.alumno_id in ${sql(ids)}
       group by rp.alumno_id`;

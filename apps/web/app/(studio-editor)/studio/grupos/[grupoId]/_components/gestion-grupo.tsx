@@ -53,6 +53,7 @@ import type {
   AvisoResyncUI,
   EstadoGrupo,
   GrupoDetalle,
+  LeccionGrupoEditor,
   NodoLeccionGrupo,
   NodoModuloGrupo,
 } from '@/lib/studio/datos';
@@ -67,11 +68,17 @@ import {
   crearLeccionGrupo,
   eliminarModuloGrupo,
   eliminarLeccionGrupo,
+  independizarLeccionGrupo,
+  cargarEditorLeccionGrupo,
 } from '@/lib/studio/acciones';
+import { EditorDeLeccion } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/editores-leccion';
 import { firmarSubidaImagenContenido } from '@/lib/studio/media-acciones';
 import { fechaCortaDia } from '@/lib/format';
 import { aplicarOverride, revertirOverride, type EntidadOverrideUI } from '@/lib/studio/herencia-acciones';
 import { ReemplazarRecurso } from './reemplazar-recurso';
+
+/** Tipos de lección cuyo contenido vive en `lecciones.config` → se editan INLINE (Paso 2). */
+const TIPOS_CONFIG = new Set<TipoLeccion>(['video', 'h5p', 'xapi', 'autoevaluacion', 'tarea', 'foro']);
 
 const ESTADO: Record<EstadoGrupo, { texto: string; clase: string }> = {
   curso: { texto: 'En curso', clase: 'bg-accent text-accent-foreground' },
@@ -171,9 +178,46 @@ export function GestionGrupo({
       await eliminarLeccionGrupo(grupo.id, leccionId);
       router.refresh();
     });
-  // Autorar el contenido de una lección PROPIA → course builder completo (ruta de grupo · 4C).
+  // Autorar el contenido de una lección PROPIA de TEORÍA → course builder completo (ruta · 4C).
   const editarLeccionPropia = (leccionId: string) =>
     router.push(`/studio/grupos/${grupo.id}/leccion/${leccionId}`);
+
+  // ── Editor INLINE para los tipos de config (Paso 2 · copy-on-write) ──
+  // Al editar una lección de config HEREDADA: se independiza (copia a fila propia) y se monta
+  // EditorDeLeccion sobre la copia; si ya es propia, se monta directo. Guardar persiste con las
+  // actions existentes (se llavean por leccionId → escriben la copia del grupo).
+  const [editorInline, setEditorInline] = useState<{ leccionId: string; data: LeccionGrupoEditor } | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const abrirEditorInline = (leccion: NodoLeccionGrupo) =>
+    iniciarContenido(async () => {
+      setEditorError(null);
+      let destino = leccion.id;
+      if (!leccion.esPropio) {
+        const r = await independizarLeccionGrupo(grupo.id, leccion.id);
+        if (!r.ok) {
+          setEditorError(r.error);
+          return;
+        }
+        destino = r.leccionId;
+      }
+      const data = await cargarEditorLeccionGrupo(grupo.id, destino);
+      if (!data) {
+        setEditorError('No se pudo abrir el editor de esta lección.');
+        return;
+      }
+      setEditorInline({ leccionId: destino, data });
+      router.refresh();
+    });
+  const cerrarEditorInline = () => {
+    setEditorInline(null);
+    router.refresh();
+  };
+  // `correr` del editor inline: ejecuta la action y refresca el indicador del temario.
+  const correrEditor = (accion: () => Promise<void>) =>
+    iniciarContenido(async () => {
+      await accion();
+      router.refresh();
+    });
 
   function resincronizar(r: AvisoResyncUI) {
     const clave = `${r.entidad}:${r.entidadId}`;
@@ -529,6 +573,15 @@ export function GestionGrupo({
           {/* Los conflictos de re-sincronización viven ahora en el panel lateral "Historial"
               (botón en la franja de contexto). El centro queda solo con el temario. */}
 
+          {editorError && (
+            <div
+              role="alert"
+              className="mt-4 rounded-[10px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-2.5 text-[12.5px] font-medium text-[color:var(--destructive-foreground)]"
+            >
+              {editorError}
+            </div>
+          )}
+
           {/* temario */}
           <ul className="mt-4 flex flex-col gap-2.5">
             {grupo.temario.map((m) => (
@@ -545,6 +598,10 @@ export function GestionGrupo({
                 onEliminarPropio={() => eliminarModuloPropio(m.id)}
                 onEliminarLeccionPropia={eliminarLeccionPropia}
                 onEditarLeccionPropia={editarLeccionPropia}
+                onEditarInline={abrirEditorInline}
+                editorInline={editorInline}
+                onCerrarEditor={cerrarEditorInline}
+                correrEditor={correrEditor}
               />
             ))}
           </ul>
@@ -1173,6 +1230,10 @@ function ModuloNodo({
   onEliminarPropio,
   onEliminarLeccionPropia,
   onEditarLeccionPropia,
+  onEditarInline,
+  editorInline,
+  onCerrarEditor,
+  correrEditor,
 }: {
   modulo: NodoModuloGrupo;
   abierto: boolean;
@@ -1183,6 +1244,10 @@ function ModuloNodo({
   onEliminarPropio: () => void;
   onEliminarLeccionPropia: (leccionId: string) => void;
   onEditarLeccionPropia: (leccionId: string) => void;
+  onEditarInline: (leccion: NodoLeccionGrupo) => void;
+  editorInline: { leccionId: string; data: LeccionGrupoEditor } | null;
+  onCerrarEditor: () => void;
+  correrEditor: (accion: () => Promise<void>) => void;
 }) {
   const resaltar = modulo.personalizado || modulo.esPropio;
   return (
@@ -1254,6 +1319,11 @@ function ModuloNodo({
               onPersonalizar={() => onPersonalizar({ entidad: 'leccion', entidadId: l.id, titulo: l.titulo, personalizado: l.personalizado })}
               onEliminarPropia={() => onEliminarLeccionPropia(l.id)}
               onEditarPropia={() => onEditarLeccionPropia(l.id)}
+              onEditarInline={() => onEditarInline(l)}
+              editorAbierto={editorInline?.leccionId === l.id}
+              editorData={editorInline?.leccionId === l.id ? editorInline.data : null}
+              onCerrarEditor={onCerrarEditor}
+              correrEditor={correrEditor}
             />
           ))}
           <li className="px-1 pt-1.5">
@@ -1279,6 +1349,11 @@ function LeccionNodo({
   onPersonalizar,
   onEliminarPropia,
   onEditarPropia,
+  onEditarInline,
+  editorAbierto,
+  editorData,
+  onCerrarEditor,
+  correrEditor,
 }: {
   leccion: NodoLeccionGrupo;
   indice: number;
@@ -1286,42 +1361,93 @@ function LeccionNodo({
   onPersonalizar: () => void;
   onEliminarPropia: () => void;
   onEditarPropia: () => void;
+  onEditarInline: () => void;
+  editorAbierto: boolean;
+  editorData: LeccionGrupoEditor | null;
+  onCerrarEditor: () => void;
+  correrEditor: (accion: () => Promise<void>) => void;
 }) {
   const resaltar = leccion.personalizado || leccion.esPropio;
+  const esConfig = TIPOS_CONFIG.has(leccion.tipo);
+  const btnEditar =
+    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[11.5px] font-bold transition-colors disabled:opacity-60';
+  const btnBorde =
+    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-secondary transition-colors hover:bg-accent';
   return (
     <li
-      className={`flex items-center gap-2.5 rounded-[9px] px-3 py-2.5 ${
+      className={`rounded-[9px] ${
         resaltar ? 'bg-[color:var(--info-surface)] shadow-[inset_3px_0_0_var(--info)]' : 'hover:bg-muted'
       }`}
     >
-      <span className={`min-w-0 flex-1 text-[13px] leading-relaxed ${resaltar ? 'font-semibold' : ''}`}>
-        {indice + 1}. {leccion.titulo}
-      </span>
-      {leccion.esPropio ? (
-        <>
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <span className={`min-w-0 flex-1 text-[13px] leading-relaxed ${resaltar ? 'font-semibold' : ''}`}>
+          {indice + 1}. {leccion.titulo}
+        </span>
+
+        {/* Sello */}
+        {leccion.editada ? (
+          <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
+            <Pencil aria-hidden className="h-3 w-3" strokeWidth={2} /> Editada para este grupo
+          </span>
+        ) : leccion.esPropio ? (
           <span className="inline-flex h-6 shrink-0 items-center rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
             Propio
           </span>
-          <button
-            type="button"
-            onClick={onEditarPropia}
-            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-secondary transition-colors hover:bg-accent ${focusRing}`}
-          >
-            <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} /> Editar contenido
-          </button>
-          <button
-            type="button"
-            onClick={onEliminarPropia}
-            disabled={ocupado}
-            aria-label="Eliminar lección del grupo"
-            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
-          >
-            <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
-          </button>
-        </>
-      ) : (
-        <>
+        ) : (
           <Sello personalizado={leccion.personalizado} />
+        )}
+
+        {/* Acciones. Config (video/h5p/xapi/autoeval/tarea/foro) → editor INLINE (Paso 2);
+            teoría conserva la ruta de autoría (su edición por-bloque es el Paso 4). */}
+        {esConfig ? (
+          <>
+            {!leccion.esPropio && (
+              <button type="button" onClick={onPersonalizar} className={`${btnBorde} ${focusRing}`}>
+                Personalizar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onEditarInline}
+              disabled={ocupado}
+              aria-expanded={editorAbierto}
+              className={`${btnEditar} ${focusRing} ${
+                editorAbierto
+                  ? 'bg-[color:var(--info)] text-white'
+                  : 'bg-primary text-[color:var(--sidebar)] hover:bg-secondary hover:text-white'
+              }`}
+            >
+              <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} />
+              {editorAbierto ? 'Editando…' : 'Editar'}
+            </button>
+            {leccion.esPropio && !leccion.editada && (
+              <button
+                type="button"
+                onClick={onEliminarPropia}
+                disabled={ocupado}
+                aria-label="Eliminar lección del grupo"
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+              >
+                <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+              </button>
+            )}
+          </>
+        ) : leccion.esPropio ? (
+          <>
+            <button type="button" onClick={onEditarPropia} className={`${btnBorde} ${focusRing}`}>
+              <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} /> Editar contenido
+            </button>
+            <button
+              type="button"
+              onClick={onEliminarPropia}
+              disabled={ocupado}
+              aria-label="Eliminar lección del grupo"
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+            >
+              <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+            </button>
+          </>
+        ) : (
           <button
             type="button"
             onClick={onPersonalizar}
@@ -1331,7 +1457,36 @@ function LeccionNodo({
           >
             {leccion.personalizado ? 'Editar cambio' : 'Personalizar'}
           </button>
-        </>
+        )}
+      </div>
+
+      {/* Editor INLINE sobre la copia propia (copy-on-write · Paso 2). */}
+      {editorAbierto && editorData && (
+        <div className="border-t border-border px-3 pb-3.5 pt-2.5">
+          <div className="mb-2.5 flex items-center justify-between gap-3">
+            <span className={`${kicker} text-secondary`}>
+              Editando solo para este grupo · el programa y otros grupos no se tocan
+            </span>
+            <button
+              type="button"
+              onClick={onCerrarEditor}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-accent ${focusRing}`}
+            >
+              <X aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} /> Cerrar
+            </button>
+          </div>
+          <div className="rounded-[11px] border border-border bg-card p-4">
+            <EditorDeLeccion
+              programaId={editorData.programaId}
+              leccionId={editorData.leccionId}
+              tipo={editorData.tipo}
+              titulo={editorData.titulo}
+              config={editorData.config}
+              bloques={editorData.bloques}
+              correr={correrEditor}
+            />
+          </div>
+        </div>
       )}
     </li>
   );
