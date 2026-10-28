@@ -122,6 +122,41 @@ export function autoevalDeConfig(
 }
 
 /**
+ * Fusiona bloques PROPIOS del grupo en la base HEREDADA (ya ordenada), por posición: cada
+ * propio va DESPUÉS de su ancla (`despuesDe`, id de la base); ancla NULL/inexistente → al
+ * inicio; entre propios con la misma ancla, por `orden`. Espeja `fusionarPosicion` del motor
+ * (@campus/shared) — misma copia local que el temario del Studio (datos.ts) para no exportar
+ * una interna del motor. No muta la base.
+ */
+function fusionarPosBloques<T extends { id: string; orden: number; despuesDe: string | null }>(
+  base: T[],
+  propios: T[],
+): T[] {
+  if (propios.length === 0) return base;
+  const idsBase = new Set(base.map((b) => b.id));
+  const cmp = (a: T, b: T): number => a.orden - b.orden || a.id.localeCompare(b.id);
+  const alInicio: T[] = [];
+  const porAncla = new Map<string, T[]>();
+  for (const p of propios) {
+    if (p.despuesDe === null || !idsBase.has(p.despuesDe)) alInicio.push(p);
+    else {
+      const arr = porAncla.get(p.despuesDe) ?? [];
+      arr.push(p);
+      porAncla.set(p.despuesDe, arr);
+    }
+  }
+  alInicio.sort(cmp);
+  for (const arr of porAncla.values()) arr.sort(cmp);
+  const out: T[] = [...alInicio];
+  for (const b of base) {
+    out.push(b);
+    const despues = porAncla.get(b.id);
+    if (despues) out.push(...despues);
+  }
+  return out;
+}
+
+/**
  * Lectura de una lección (contenido + navegación). Corre con RLS vía `comoAlumno`:
  * lee lxp.contenidos/lecciones/modulos/programas (read = true) y solo el progreso
  * propio (reproduccion_progreso). Sin lógica de dominio (§2). Ver leccion-contrato
@@ -314,17 +349,40 @@ export async function getLeccion(
 
     // Teoría (modelo NUEVO · mig 0023): sus bloques ordenables viven en `lxp.bloques`
     // (NO en `lxp.contenidos`). El lector los renderiza con BloqueTeoriaLector.
+    //
+    // Copy-on-write por grupo (Paso 1): además de los bloques HEREDADOS (grupo_id NULL) se
+    // bajan los PROPIOS del grupo del alumno (grupo_id = su grupo) y se FUSIONAN por posición
+    // (`despues_de`), igual que el temario. La RLS `bloques_grupo_aislado` (etapa 1) ya impide
+    // ver lo propio de OTRO grupo; el filtro explícito lo vuelve determinista y permite separar
+    // heredado/propio para el merge. El bloque propio es fila real → su progreso ancla directo.
     let bloquesTeoria: BloqueTeoriaVista[] = [];
     if (tipo === 'teoria') {
       const filas = await sql<
-        { id: string; tipo_bloque: string; config: Record<string, unknown> | null }[]
+        {
+          id: string;
+          tipo_bloque: string;
+          config: Record<string, unknown> | null;
+          grupo_id: string | null;
+          orden: number;
+          despues_de: string | null;
+        }[]
       >`
-        select id, tipo_bloque, config
+        select id, tipo_bloque, config, grupo_id, orden, despues_de
         from lxp.bloques
         where leccion_id = ${leccionId}
+          and (grupo_id is null or grupo_id = ${resuelto?.grupoId ?? null})
         order by orden, created_at`;
-      bloquesTeoria = filas.flatMap((f) => {
-        const tb = comoTipoBloqueTeoria(f.tipo_bloque);
+      const aFila = (f: (typeof filas)[number]) => ({
+        id: f.id,
+        orden: f.orden,
+        despuesDe: f.despues_de,
+        tipoBloque: f.tipo_bloque,
+        config: f.config,
+      });
+      const base = filas.filter((f) => f.grupo_id === null).map(aFila);
+      const propios = filas.filter((f) => f.grupo_id !== null).map(aFila);
+      bloquesTeoria = fusionarPosBloques(base, propios).flatMap((f) => {
+        const tb = comoTipoBloqueTeoria(f.tipoBloque);
         if (!tb) return [];
         // Reemplazo de FUENTE por grupo (Paso 4b): si este bloque fue overrideado por el
         // grupo (entidad 'bloque'), se overlaya la fuente resuelta sobre su config. Sin
