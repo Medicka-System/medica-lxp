@@ -13,12 +13,33 @@
  */
 
 import { useEffect, useState, useTransition } from 'react';
-import { Layers, Loader2, Pencil, RefreshCw, X } from 'lucide-react';
+import {
+  Code,
+  FileText,
+  Image as ImageIcon,
+  Images,
+  Layers,
+  Link as LinkIcon,
+  Loader2,
+  Package,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ScanLine,
+  SlidersHorizontal,
+  Trash2,
+  Type,
+  Video,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { kicker, softText, focusRing } from '@/lib/studio/estilos';
 import {
   cargarBloquesLeccionGrupo,
   independizarBloqueGrupo,
   volverAHeredarBloque,
+  agregarBloqueGrupo,
+  eliminarBloqueGrupo,
   actualizarBloqueTeoria,
 } from '@/lib/studio/acciones';
 import type { BloquesLeccionGrupo } from '@/lib/studio/datos';
@@ -26,7 +47,27 @@ import { EditorBloque } from '@/app/(studio-editor)/studio/programas/[programaId
 import {
   comoTipoBloqueTeoria,
   INFO_BLOQUE_TEORIA,
+  TIPOS_BLOQUE_TEORIA,
+  type TipoBloqueTeoria,
 } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
+
+/** Nombre de ícono (registro de tipos) → componente Lucide (igual que el editor de teoría). */
+const ICONOS: Record<string, LucideIcon> = {
+  Type,
+  Image: ImageIcon,
+  Images,
+  Video,
+  Code,
+  Link: LinkIcon,
+  FileText,
+  ScanLine,
+  SlidersHorizontal,
+  Package,
+};
+function iconoDeBloque(tipoBloque: string): LucideIcon {
+  const tb = comoTipoBloqueTeoria(tipoBloque);
+  return (tb && ICONOS[INFO_BLOQUE_TEORIA[tb].icono]) || Type;
+}
 
 /** Etiqueta legible de un bloque (rótulo del tipo + breve resumen del texto si es teoría). */
 function resumenBloque(tipoBloque: string, config: Record<string, unknown>): string {
@@ -108,6 +149,32 @@ export function BloquesLeccionGrupoPanel({
     });
   }
 
+  // "+Agregar" (Paso 5): bloque NUEVO propio del grupo (aditivo, sin reemplaza_a). Funciona
+  // también sobre una lección HEREDADA — la acción fija grupo_id explícito.
+  const [agregando, setAgregando] = useState(false);
+  function agregar(tipo: TipoBloqueTeoria) {
+    setAgregando(false);
+    setError(null);
+    start(async () => {
+      const r = await agregarBloqueGrupo(grupoId, leccionId, tipo);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      await recargar();
+      setEditando(r.bloqueId);
+    });
+  }
+  function eliminar(b: BloqueItem) {
+    setError(null);
+    setConfirmar(null);
+    start(async () => {
+      await eliminarBloqueGrupo(grupoId, b.id);
+      if (editando === b.id) setEditando(null);
+      await recargar();
+    });
+  }
+
   return (
     <div className="border-t border-border px-3 pb-3.5 pt-2.5">
       <div className="mb-2.5 flex items-center justify-between gap-3">
@@ -144,17 +211,27 @@ export function BloquesLeccionGrupoPanel({
           {data.bloques.map((b) => {
             const tb = comoTipoBloqueTeoria(b.tipoBloque);
             const abierto = editando === b.id;
+            const Icono = iconoDeBloque(b.tipoBloque);
+            // 3 estados: heredado · editado (reemplaza a uno heredado) · agregado (propio nuevo).
+            const agregado = b.esPropio && !b.editada;
             return (
               <li key={b.id} className="rounded-[11px] border border-border bg-card">
                 <div className="flex items-center gap-2.5 px-3 py-2.5">
+                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-accent text-accent-foreground">
+                    <Icono className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                  </span>
                   <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed">
                     {resumenBloque(b.tipoBloque, b.config)}
                   </span>
-                  {b.editada && (
+                  {b.editada ? (
                     <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
                       <Pencil aria-hidden className="h-3 w-3" strokeWidth={2} /> Editado para este grupo
                     </span>
-                  )}
+                  ) : agregado ? (
+                    <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[11px] font-bold text-[color:var(--info-foreground)]">
+                      <Plus aria-hidden className="h-3 w-3" strokeWidth={2.4} /> Agregado por el grupo
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => editarBloque(b)}
@@ -169,16 +246,26 @@ export function BloquesLeccionGrupoPanel({
                     <Pencil aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} />
                     {abierto ? 'Editando…' : 'Editar'}
                   </button>
-                  {b.editada &&
+                  {/* editado → "Volver a heredar" (borra la copia); agregado → "Eliminar" (borra el
+                      bloque propio). Ambos piden confirmación inline. Heredado puro: sin acción extra. */}
+                  {(b.editada || agregado) &&
                     (confirmar === b.id ? (
                       <span className="inline-flex shrink-0 items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => volver(b)}
+                          onClick={() => (b.editada ? volver(b) : eliminar(b))}
                           disabled={pendiente}
                           className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 text-[11.5px] font-bold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60 ${focusRing}`}
                         >
-                          <RefreshCw aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} /> Descartar
+                          {b.editada ? (
+                            <>
+                              <RefreshCw aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} /> Descartar
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 aria-hidden className="h-[13px] w-[13px]" strokeWidth={2} /> Eliminar
+                            </>
+                          )}
                         </button>
                         <button
                           type="button"
@@ -188,7 +275,7 @@ export function BloquesLeccionGrupoPanel({
                           No
                         </button>
                       </span>
-                    ) : (
+                    ) : b.editada ? (
                       <button
                         type="button"
                         onClick={() => setConfirmar(b.id)}
@@ -197,6 +284,16 @@ export function BloquesLeccionGrupoPanel({
                         className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[11.5px] font-semibold text-secondary transition-colors hover:bg-accent disabled:opacity-60 ${focusRing}`}
                       >
                         <RefreshCw aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.9} /> Volver a heredar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmar(b.id)}
+                        disabled={pendiente}
+                        aria-label="Eliminar bloque del grupo"
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60 ${focusRing}`}
+                      >
+                        <Trash2 aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
                       </button>
                     ))}
                 </div>
@@ -217,6 +314,58 @@ export function BloquesLeccionGrupoPanel({
             );
           })}
         </ul>
+      )}
+
+      {/* +Agregar: bloque NUEVO propio del grupo (aditivo), también sobre una lección HEREDADA. */}
+      {!cargando && (
+        <div className="relative mt-2.5">
+          <button
+            type="button"
+            onClick={() => setAgregando((v) => !v)}
+            disabled={pendiente}
+            aria-expanded={agregando}
+            aria-haspopup="menu"
+            className={`inline-flex h-9 items-center gap-2 rounded-[10px] border border-dashed border-[color:var(--track)] bg-card px-4 text-[12.5px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent disabled:opacity-60 ${focusRing}`}
+          >
+            <Plus aria-hidden className="h-4 w-4" strokeWidth={2.2} /> Agregar bloque del grupo
+          </button>
+          {agregando && (
+            <>
+              <button
+                type="button"
+                aria-label="Cerrar menú"
+                onClick={() => setAgregando(false)}
+                className="fixed inset-0 z-20 cursor-default"
+              />
+              <div
+                role="menu"
+                className="absolute left-0 top-full z-30 mt-1.5 w-[min(420px,86vw)] overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-2xl"
+              >
+                <p className={`${kicker} px-1.5 pb-1.5 pt-1 text-muted-foreground`}>Elige un tipo de bloque</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {TIPOS_BLOQUE_TEORIA.map((t) => {
+                    const info = INFO_BLOQUE_TEORIA[t];
+                    const IconoT = ICONOS[info.icono] ?? Type;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => agregar(t)}
+                        className={`flex items-center gap-2 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
+                      >
+                        <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-accent text-accent-foreground">
+                          <IconoT className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                        </span>
+                        <span className="text-[12.5px] font-bold">{info.rotulo}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

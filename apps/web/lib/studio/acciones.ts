@@ -6,6 +6,10 @@ import { requireAutoria, requireCurador } from '@/lib/studio/session';
 import { afirmarFilas, comoStaff } from '@/lib/db.server';
 import type { TipoHerramienta, LeccionGrupoEditor, BloquesLeccionGrupo } from '@/lib/studio/datos';
 import { getLeccionGrupoEditor, getBloquesLeccionGrupo } from '@/lib/studio/datos';
+import {
+  configInicial as configInicialBloque,
+  comoTipoBloqueTeoria,
+} from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
 import type { DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type TipoLeccion } from '@/lib/studio/leccion-tipos';
 import { comoConfigForo, type ConfigForo } from '@/lib/studio/foro-config';
@@ -866,6 +870,64 @@ export async function cargarBloquesLeccionGrupo(
 ): Promise<BloquesLeccionGrupo | null> {
   const { userId } = await requireAutoria();
   return getBloquesLeccionGrupo(userId, grupoId, leccionId);
+}
+
+/**
+ * Agrega un bloque NUEVO propio del grupo a una lección (heredada o propia) — motor ADITIVO
+ * (reemplaza_a NULL · Paso 5). Fija `grupo_id = grupoId` EXPLÍCITO (no lo deriva de la lección,
+ * que en una heredada daría NULL = escribir al programa). Se ancla al final (`despues_de` = el
+ * último bloque heredado) → aparece tras el contenido heredado, en su posición. Guard autoría.
+ */
+export async function agregarBloqueGrupo(
+  grupoId: string,
+  leccionId: string,
+  tipoBloque: string,
+): Promise<{ ok: true; bloqueId: string } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+  const tb = tipoBloque.trim();
+  if (!tb) return { ok: false, error: 'Tipo de bloque inválido.' };
+  const configInicial = comoTipoBloqueTeoria(tb) ? configInicialBloque(comoTipoBloqueTeoria(tb)!) : {};
+  const r = await comoStaff(userId, async (sql) => {
+    const lec = (await sql<{ id: string }[]>`select id from lxp.lecciones where id = ${leccionId} limit 1`)[0];
+    if (!lec) return { ok: false as const, error: 'La lección no existe.' };
+    // Ancla: último bloque HEREDADO de la lección (null si no hay) → el nuevo va tras lo heredado.
+    const prev = (
+      await sql<{ id: string }[]>`
+        select id from lxp.bloques where leccion_id = ${leccionId} and grupo_id is null
+        order by orden desc, created_at desc limit 1`
+    )[0];
+    const orden = Number(
+      (
+        await sql<{ n: number }[]>`
+          select coalesce(max(orden) + 1, 0)::int as n from lxp.bloques
+          where leccion_id = ${leccionId} and (grupo_id is null or grupo_id = ${grupoId})`
+      )[0]?.n ?? 0,
+    );
+    const nueva = (
+      await sql<{ id: string }[]>`
+        insert into lxp.bloques (leccion_id, grupo_id, tipo_bloque, config, orden, despues_de)
+        values (
+          ${leccionId}, ${grupoId}, ${tb},
+          ${sql.json(configInicial as Parameters<typeof sql.json>[0])},
+          ${orden}, ${prev?.id ?? null}
+        ) returning id`
+    )[0]!;
+    return { ok: true as const, bloqueId: nueva.id };
+  });
+  refrescarGrupo(grupoId);
+  return r;
+}
+
+/** Elimina un bloque PROPIO del grupo (solo aditivo · reemplaza_a NULL). Nunca borra heredado
+ *  ni un reemplazo (esos usan "volver a heredar"). Guard autoría + candado grupo_id. */
+export async function eliminarBloqueGrupo(grupoId: string, bloqueId: string): Promise<void> {
+  const { userId } = await requireAutoria();
+  await comoStaff(userId, async (sql) => {
+    await sql`
+      delete from lxp.bloques
+      where id = ${bloqueId} and grupo_id = ${grupoId} and reemplaza_a is null`;
+  });
+  refrescarGrupo(grupoId);
 }
 
 /**
