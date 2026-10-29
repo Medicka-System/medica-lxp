@@ -11,7 +11,7 @@
  * la vista degrada con un aviso y "Subir recurso" explica el pendiente.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Boxes,
@@ -20,11 +20,13 @@ import {
   Info,
   Layers,
   Link2,
+  Loader2,
   MoreHorizontal,
   Play,
   Presentation,
   SlidersHorizontal,
   Tag,
+  Trash2,
   TriangleAlert,
   Upload,
   X,
@@ -32,6 +34,7 @@ import {
 import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
 import { ES_DOCUMENTO, type FamiliaFiltro, type Recurso, type TipoRecurso } from '@/lib/studio/contenido-contrato';
+import { eliminarRecurso } from '@/lib/studio/contenido-acciones';
 
 const TIPO: Record<
   TipoRecurso,
@@ -104,6 +107,9 @@ export function ContenidoBiblioteca({
   const [tipo, setTipo] = useState<FamiliaFiltro>('todos');
   const [tags, setTags] = useState<string[]>([]);
   const [subir, setSubir] = useState(false);
+  // Menú de tarjeta (tres puntos) + modal de borrado. Todo el contenido es del LXP → borrable.
+  const [menu, setMenu] = useState<string | null>(null);
+  const [borrar, setBorrar] = useState<Recurso | null>(null);
 
   const etiquetas = useMemo(
     () => [...new Set(recursos.flatMap((r) => r.etiquetas))].sort(),
@@ -308,13 +314,45 @@ export function ContenidoBiblioteca({
                             </span>
                           )
                         )}
-                        <button
-                          type="button"
-                          aria-label={`Más acciones de ${r.nombre}`}
-                          className={`ml-auto grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
-                        >
-                          <MoreHorizontal aria-hidden className="h-4 w-4" strokeWidth={2} />
-                        </button>
+                        <div className="relative ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => setMenu(menu === r.id ? null : r.id)}
+                            aria-haspopup="menu"
+                            aria-expanded={menu === r.id}
+                            aria-label={`Más acciones de ${r.nombre}`}
+                            disabled={r.procesando}
+                            className={`grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40 ${focusRing}`}
+                          >
+                            <MoreHorizontal aria-hidden className="h-4 w-4" strokeWidth={2} />
+                          </button>
+                          {menu === r.id && (
+                            <>
+                              <button
+                                type="button"
+                                aria-label="Cerrar menú"
+                                onClick={() => setMenu(null)}
+                                className="fixed inset-0 z-20 cursor-default"
+                              />
+                              <div
+                                role="menu"
+                                className="absolute right-0 top-full z-30 mt-1.5 w-[180px] overflow-hidden rounded-[11px] border border-border bg-card py-1 shadow-2xl"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMenu(null);
+                                    setBorrar(r);
+                                  }}
+                                  className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] font-semibold text-destructive transition-colors hover:bg-[color:var(--destructive-surface)] ${focusRing}`}
+                                >
+                                  <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} /> Borrar
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <p className="mt-2.5 text-[13.5px] font-bold leading-relaxed" style={{ textWrap: 'pretty' }}>
                         {r.nombre}
@@ -355,6 +393,143 @@ export function ContenidoBiblioteca({
           }}
         />
       )}
+
+      {borrar && (
+        <ModalBorrarRecurso
+          recurso={borrar}
+          onCerrar={() => setBorrar(null)}
+          onBorrado={() => {
+            setBorrar(null);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Modal: borrar recurso de contenido ───────────────────────── */
+
+function ModalBorrarRecurso({
+  recurso,
+  onCerrar,
+  onBorrado,
+}: {
+  recurso: Recurso;
+  onCerrar: () => void;
+  onBorrado: () => void;
+}) {
+  // 'confirmar' = borrado normal; 'enuso' = el recurso está en N lecciones → pedir forzar.
+  const [paso, setPaso] = useState<'confirmar' | 'enuso'>('confirmar');
+  const [usos, setUsos] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [pendiente, iniciar] = useTransition();
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
+  function borrar(forzar: boolean) {
+    setError(null);
+    iniciar(async () => {
+      const r = await eliminarRecurso(recurso.id, forzar ? { forzar: true } : undefined);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      if (!r.datos.eliminado) {
+        // En uso → segundo paso (forzar). El bloque queda autocontenido (guarda su ref/src).
+        setUsos(r.datos.usos);
+        setPaso('enuso');
+        return;
+      }
+      onBorrado();
+    });
+  }
+
+  const enUso = paso === 'enuso';
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Borrar recurso"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="w-full max-w-[460px] overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 px-6 pb-4 pt-6">
+          <span
+            aria-hidden
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-[11px] ${
+              enUso
+                ? 'bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]'
+                : 'bg-[color:var(--destructive-surface)] text-destructive'
+            }`}
+          >
+            {enUso ? <TriangleAlert className="h-5 w-5" strokeWidth={1.9} /> : <Trash2 className="h-5 w-5" strokeWidth={1.9} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} ${enUso ? 'text-[color:var(--warning-foreground)]' : 'text-destructive'}`}>
+              {enUso ? 'Recurso en uso' : 'Borrar recurso'}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-extrabold leading-snug tracking-[-0.015em]" style={{ textWrap: 'pretty' }}>
+              {enUso ? `En uso por ${usos} lección${usos === 1 ? '' : 'es'}` : `¿Borrar «${recurso.nombre}»?`}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            disabled={pendiente}
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted disabled:opacity-40 ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <p className={`px-6 text-[13px] leading-relaxed ${softText}`}>
+          {enUso ? (
+            <>
+              Las lecciones que lo usan ya guardaron su propia referencia al archivo, así que{' '}
+              <span className="font-bold text-foreground">seguirán funcionando</span>. ¿Quitar el recurso
+              de la biblioteca de todas formas?
+            </>
+          ) : (
+            <>
+              Se quita «{recurso.nombre}» de la biblioteca de contenido. Esta acción no se puede deshacer.
+            </>
+          )}
+        </p>
+
+        {error && (
+          <div className="mx-6 mt-4 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-3">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-destructive" strokeWidth={2} />
+            <p className="text-[12.5px] font-medium leading-relaxed text-[color:var(--destructive-foreground)]">{error}</p>
+          </div>
+        )}
+
+        <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
+          <button
+            type="button"
+            onClick={onCerrar}
+            disabled={pendiente}
+            className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => borrar(enUso)}
+            disabled={pendiente}
+            className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-destructive px-5 text-[13.5px] font-bold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+          >
+            {pendiente ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Trash2 aria-hidden className="h-4 w-4" strokeWidth={2} />}
+            {enUso ? 'Borrar de todas formas' : 'Borrar recurso'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

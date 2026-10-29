@@ -356,6 +356,40 @@ export async function borrarGrupo(grupoId: string): Promise<{ ok: boolean; error
   return resultado;
 }
 
+/**
+ * Borra un programa NATIVO del LXP + su contenido (módulos/lecciones/bloques y versiones caen
+ * por cascade · FK). Candados: solo autoría; RECHAZA los reflejados de CORA (cora_programa_id
+ * not null → CORA es el dueño); y BLOQUEA si tiene grupos que derivan (grupos.programa_id es
+ * RESTRICT → nunca deja grupos huérfanos; aquí se avisa con un mensaje claro en vez del error FK).
+ */
+export async function borrarPrograma(programaId: string): Promise<{ ok: boolean; error?: string }> {
+  const { userId } = await requireAutoria();
+  const resultado = await comoStaff(userId, async (sql) => {
+    const p = (
+      await sql<{ cora_programa_id: string | null }[]>`
+        select cora_programa_id from lxp.programas where id = ${programaId} limit 1`
+    )[0];
+    if (!p) return { ok: false as const, error: 'El programa ya no existe.' };
+    if (p.cora_programa_id) {
+      return { ok: false as const, error: 'Este programa viene de CORA; no se puede borrar desde el LXP.' };
+    }
+    const grupos = Number(
+      (await sql<{ n: number }[]>`select count(*)::int as n from lxp.grupos where programa_id = ${programaId}`)[0]?.n ?? 0,
+    );
+    if (grupos > 0) {
+      return {
+        ok: false as const,
+        error: `Este programa tiene ${grupos} grupo${grupos === 1 ? '' : 's'} que deriva${grupos === 1 ? '' : 'n'} de él. Mueve o borra esos grupos antes de borrar el programa.`,
+      };
+    }
+    // Nativo y sin grupos → borra; módulos/lecciones/bloques y versiones caen por cascade.
+    afirmarFilas(await sql`delete from lxp.programas where id = ${programaId}`, 'borrar programa');
+    return { ok: true as const };
+  });
+  if (resultado.ok) refrescar();
+  return resultado;
+}
+
 // ── Calendario de liberación (fecha de apertura por módulo×grupo · mig 0087) ───────
 /**
  * Fija/edita la fecha de APERTURA de un módulo para un grupo (liberación · §6). Upsert

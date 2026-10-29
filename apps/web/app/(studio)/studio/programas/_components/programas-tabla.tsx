@@ -10,13 +10,13 @@
  * "Nuevo programa" crea un programa NATIVO del LXP.
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { GraduationCap, Hammer, Pencil, Plus, Search } from 'lucide-react';
-import { mono, softText, focusRing } from '@/lib/studio/estilos';
+import { GraduationCap, Hammer, Loader2, MoreVertical, Pencil, Plus, Search, Trash2, TriangleAlert, X } from 'lucide-react';
+import { mono, kicker, softText, focusRing } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
 import type { EstadoContenido, OrigenPrograma, ProgramaListaItem } from '@/lib/studio/datos';
-import { abrirProgramaCora, crearPrograma } from '@/lib/studio/acciones';
+import { abrirProgramaCora, borrarPrograma, crearPrograma } from '@/lib/studio/acciones';
 
 const ESTADO: Record<EstadoContenido, { texto: string; clase: string }> = {
   publicado: { texto: 'Publicado', clase: 'bg-accent text-accent-foreground' },
@@ -46,6 +46,9 @@ export function ProgramasTabla({ programas }: { programas: ProgramaListaItem[] }
   const [origen, setOrigen] = useState<'todos' | OrigenPrograma>('todos');
   const [creando, iniciarCreacion] = useTransition();
   const [abriendo, iniciarApertura] = useTransition();
+  // Menú de fila (tres puntos) + modal de borrado. Solo programas NATIVOS son borrables.
+  const [menu, setMenu] = useState<string | null>(null);
+  const [borrar, setBorrar] = useState<ProgramaListaItem | null>(null);
 
   const conteos = useMemo(
     () => ({
@@ -201,28 +204,73 @@ export function ProgramasTabla({ programas }: { programas: ProgramaListaItem[] }
                   {p.actualizado ? haceCuanto(p.actualizado) : '—'}
                 </td>
                 <td className="px-3 py-3.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => abrir(p)}
-                    disabled={abriendo}
-                    className={`inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[9px] px-3 text-[12.5px] font-bold transition-colors disabled:opacity-60 ${
-                      p.lxpProgramaId
-                        ? `border border-border bg-card ${softText} hover:bg-muted`
-                        : 'bg-primary text-[color:var(--sidebar)] hover:bg-secondary hover:text-white'
-                    } ${focusRing}`}
-                  >
-                    {p.lxpProgramaId ? (
-                      <>
-                        <Pencil aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
-                        {p.origen === 'cora' ? 'Abrir contenido' : 'Editar'}
-                      </>
-                    ) : (
-                      <>
-                        <Hammer aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
-                        {abriendo ? 'Abriendo…' : 'Construir contenido'}
-                      </>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => abrir(p)}
+                      disabled={abriendo}
+                      className={`inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[9px] px-3 text-[12.5px] font-bold transition-colors disabled:opacity-60 ${
+                        p.lxpProgramaId
+                          ? `border border-border bg-card ${softText} hover:bg-muted`
+                          : 'bg-primary text-[color:var(--sidebar)] hover:bg-secondary hover:text-white'
+                      } ${focusRing}`}
+                    >
+                      {p.lxpProgramaId ? (
+                        <>
+                          <Pencil aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                          {p.origen === 'cora' ? 'Abrir contenido' : 'Editar'}
+                        </>
+                      ) : (
+                        <>
+                          <Hammer aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+                          {abriendo ? 'Abriendo…' : 'Construir contenido'}
+                        </>
+                      )}
+                    </button>
+
+                    {/* Tres puntos: SOLO programas NATIVOS del LXP son borrables (los reflejados
+                        de CORA son de CORA — sin opción, igual que el patrón de borrar grupo). */}
+                    {p.origen === 'lxp' && p.lxpProgramaId && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setMenu(menu === p.clave ? null : p.clave)}
+                          aria-haspopup="menu"
+                          aria-expanded={menu === p.clave}
+                          aria-label={`Más acciones de ${p.nombre}`}
+                          className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
+                        >
+                          <MoreVertical aria-hidden className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                        {menu === p.clave && (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Cerrar menú"
+                              onClick={() => setMenu(null)}
+                              className="fixed inset-0 z-20 cursor-default"
+                            />
+                            <div
+                              role="menu"
+                              className="absolute right-0 top-full z-30 mt-1.5 w-[180px] overflow-hidden rounded-[11px] border border-border bg-card py-1 shadow-2xl"
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setMenu(null);
+                                  setBorrar(p);
+                                }}
+                                className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] font-semibold text-destructive transition-colors hover:bg-[color:var(--destructive-surface)] ${focusRing}`}
+                              >
+                                <Trash2 aria-hidden className="h-4 w-4" strokeWidth={1.75} /> Borrar
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -242,6 +290,117 @@ export function ProgramasTabla({ programas }: { programas: ProgramaListaItem[] }
           </div>
         )}
       </section>
+
+      {borrar && (
+        <ModalBorrarPrograma
+          programa={borrar}
+          onCerrar={() => setBorrar(null)}
+          onBorrado={() => {
+            setBorrar(null);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Modal: borrar programa nativo ───────────────────────── */
+
+function ModalBorrarPrograma({
+  programa,
+  onCerrar,
+  onBorrado,
+}: {
+  programa: ProgramaListaItem;
+  onCerrar: () => void;
+  onBorrado: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [pendiente, iniciar] = useTransition();
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+
+  function confirmar() {
+    if (!programa.lxpProgramaId) return;
+    setError(null);
+    iniciar(async () => {
+      const r = await borrarPrograma(programa.lxpProgramaId!);
+      if (!r.ok) {
+        setError(r.error ?? 'No se pudo borrar el programa.');
+        return;
+      }
+      onBorrado();
+    });
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Borrar programa"
+      className="fixed inset-0 z-50 grid place-items-center p-9"
+      style={{ background: 'rgba(15,45,82,.52)' }}
+    >
+      <div className="w-full max-w-[460px] overflow-hidden rounded-2xl bg-card shadow-2xl">
+        <div className="flex items-start gap-3 px-6 pb-4 pt-6">
+          <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-[color:var(--destructive-surface)] text-destructive">
+            <Trash2 className="h-5 w-5" strokeWidth={1.9} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className={`${kicker} text-destructive`}>Borrar programa</p>
+            <h2 className="mt-1.5 text-[18px] font-extrabold leading-snug tracking-[-0.015em]">
+              ¿Borrar «{programa.nombre}»?
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            disabled={pendiente}
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground hover:bg-muted disabled:opacity-40 ${focusRing}`}
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        <p className={`px-6 text-[13px] leading-relaxed ${softText}`}>
+          Se borra el programa y <span className="font-bold text-foreground">todo su contenido</span>{' '}
+          (módulos, lecciones y bloques). Esta acción no se puede deshacer. Si el programa tiene grupos
+          que derivan, se bloqueará el borrado.
+        </p>
+
+        {error && (
+          <div className="mx-6 mt-4 flex items-start gap-2.5 rounded-[11px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3.5 py-3">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-destructive" strokeWidth={2} />
+            <p className="text-[12.5px] font-medium leading-relaxed text-[color:var(--destructive-foreground)]">{error}</p>
+          </div>
+        )}
+
+        <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border bg-muted px-6 py-4">
+          <button
+            type="button"
+            onClick={onCerrar}
+            disabled={pendiente}
+            className={`h-11 rounded-[10px] border border-border bg-card px-4 text-[13.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 ${focusRing}`}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={confirmar}
+            disabled={pendiente}
+            className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-destructive px-5 text-[13.5px] font-bold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+          >
+            {pendiente ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Trash2 aria-hidden className="h-4 w-4" strokeWidth={2} />}
+            Borrar programa
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
