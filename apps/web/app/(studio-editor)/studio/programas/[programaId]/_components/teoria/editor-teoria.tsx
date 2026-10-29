@@ -33,7 +33,6 @@ import {
   Trash2,
   Type,
   Video,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -63,14 +62,13 @@ import {
 } from '@/lib/studio/acciones';
 import {
   INFO_BLOQUE_TEORIA,
-  TIPOS_BLOQUE_TEORIA,
   comoTipoBloqueTeoria,
   configInicial,
-  type FamiliaBloque,
   type TipoBloqueTeoria,
 } from './tipos-bloque';
 import { EditorBloque } from './editores-bloque';
 import { SelectorRecurso, type InsercionBloque } from './selector-recurso';
+import { SelectorTipoBloque } from './selector-tipo-bloque';
 
 /** Resuelve el nombre de ícono del registro (string) al componente Lucide. */
 const ICONOS: Record<string, LucideIcon> = {
@@ -85,13 +83,6 @@ const ICONOS: Record<string, LucideIcon> = {
   SlidersHorizontal,
   Package,
 };
-
-const FAMILIAS: { familia: FamiliaBloque; rotulo: string }[] = [
-  { familia: 'contenido', rotulo: 'Contenido' },
-  { familia: 'multimedia', rotulo: 'Multimedia' },
-  { familia: 'interactivo', rotulo: 'Interactivo' },
-  { familia: 'clinico', rotulo: 'Clínico' },
-];
 
 /* ─────────────────────────────── Editor de teoría ─────────────────────────────── */
 
@@ -205,19 +196,16 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
           STICKY al pie del lienzo: con muchos bloques el botón "Agregar bloque"
           SIEMPRE queda a la vista y alcanzable (patrón Gutenberg/Notion). */}
       <div className="sticky bottom-0 z-10 -mb-6 mt-1 flex flex-wrap items-center gap-2.5 border-t border-border bg-background/95 py-3 backdrop-blur-sm">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuAbierto((v) => !v)}
-            aria-expanded={menuAbierto}
-            className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
-          >
-            <Plus aria-hidden className="h-4 w-4" strokeWidth={2.4} />
-            Agregar bloque
-          </button>
-
-          {menuAbierto && <MenuTipos onCerrar={() => setMenuAbierto(false)} onElegir={agregar} />}
-        </div>
+        <button
+          type="button"
+          onClick={() => setMenuAbierto(true)}
+          aria-haspopup="dialog"
+          aria-expanded={menuAbierto}
+          className={`inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+        >
+          <Plus aria-hidden className="h-4 w-4" strokeWidth={2.4} />
+          Agregar bloque
+        </button>
 
         <button
           type="button"
@@ -232,76 +220,12 @@ export function EditorTeoria({ programaId, leccionId, bloques, correr }: EditorL
       {selectorAbierto && (
         <SelectorRecurso onCerrar={() => setSelectorAbierto(false)} onInsertar={insertarRecurso} />
       )}
+
+      {/* Selector de tipo de bloque: MODAL centrado (escapa del overflow del lienzo). */}
+      {menuAbierto && (
+        <SelectorTipoBloque onElegir={agregar} onCerrar={() => setMenuAbierto(false)} />
+      )}
     </div>
-  );
-}
-
-/* ─────────────────────────── Menú "Agregar bloque" ─────────────────────────── */
-
-function MenuTipos({
-  onCerrar,
-  onElegir,
-}: {
-  onCerrar: () => void;
-  onElegir: (tipo: TipoBloqueTeoria) => void;
-}) {
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
-    document.addEventListener('keydown', esc);
-    return () => document.removeEventListener('keydown', esc);
-  }, [onCerrar]);
-
-  return (
-    <>
-      {/* velo para cerrar al hacer clic fuera */}
-      <button type="button" aria-label="Cerrar menú" onClick={onCerrar} className="fixed inset-0 z-10 cursor-default" />
-      <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(520px,86vw)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <p className={`${kicker} text-secondary`}>Elige un tipo de bloque</p>
-          <button
-            type="button"
-            onClick={onCerrar}
-            aria-label="Cerrar"
-            className={`ml-auto grid h-7 w-7 place-items-center rounded-[8px] text-muted-foreground hover:bg-muted ${focusRing}`}
-          >
-            <X className="h-4 w-4" strokeWidth={1.75} />
-          </button>
-        </div>
-        <div className="max-h-[60vh] overflow-y-auto p-3">
-          {FAMILIAS.map(({ familia, rotulo }) => {
-            const tipos = TIPOS_BLOQUE_TEORIA.filter((t) => INFO_BLOQUE_TEORIA[t].familia === familia);
-            if (tipos.length === 0) return null;
-            return (
-              <div key={familia} className="mb-2 last:mb-0">
-                <p className={`${kicker} px-1 pb-1.5 text-muted-foreground`}>{rotulo}</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {tipos.map((t) => {
-                    const info = INFO_BLOQUE_TEORIA[t];
-                    const Icono = ICONOS[info.icono] ?? Type;
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => onElegir(t)}
-                        className={`flex items-start gap-2.5 rounded-[11px] border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
-                      >
-                        <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-accent text-accent-foreground">
-                          <Icono className="h-[17px] w-[17px]" strokeWidth={1.75} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-[13px] font-bold leading-snug">{info.rotulo}</span>
-                          <span className={`mt-0.5 block text-[11px] leading-relaxed ${softText}`}>{info.descripcion}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </>
   );
 }
 

@@ -44,10 +44,10 @@ import {
 } from '@/lib/studio/acciones';
 import type { BloquesLeccionGrupo } from '@/lib/studio/datos';
 import { EditorBloque } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/editores-bloque';
+import { SelectorTipoBloque } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/selector-tipo-bloque';
 import {
   comoTipoBloqueTeoria,
   INFO_BLOQUE_TEORIA,
-  TIPOS_BLOQUE_TEORIA,
   type TipoBloqueTeoria,
 } from '@/app/(studio-editor)/studio/programas/[programaId]/_components/teoria/tipos-bloque';
 
@@ -316,57 +316,22 @@ export function BloquesLeccionGrupoPanel({
         </ul>
       )}
 
-      {/* +Agregar: bloque NUEVO propio del grupo (aditivo), también sobre una lección HEREDADA. */}
+      {/* +Agregar: bloque NUEVO propio del grupo (aditivo), también sobre una lección HEREDADA.
+          Abre el MISMO selector modal que el builder de Programas (sin cortarse). */}
       {!cargando && (
-        <div className="relative mt-2.5">
-          <button
-            type="button"
-            onClick={() => setAgregando((v) => !v)}
-            disabled={pendiente}
-            aria-expanded={agregando}
-            aria-haspopup="menu"
-            className={`inline-flex h-9 items-center gap-2 rounded-[10px] border border-dashed border-[color:var(--track)] bg-card px-4 text-[12.5px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent disabled:opacity-60 ${focusRing}`}
-          >
-            <Plus aria-hidden className="h-4 w-4" strokeWidth={2.2} /> Agregar bloque del grupo
-          </button>
-          {agregando && (
-            <>
-              <button
-                type="button"
-                aria-label="Cerrar menú"
-                onClick={() => setAgregando(false)}
-                className="fixed inset-0 z-20 cursor-default"
-              />
-              <div
-                role="menu"
-                className="absolute left-0 top-full z-30 mt-1.5 w-[min(420px,86vw)] overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-2xl"
-              >
-                <p className={`${kicker} px-1.5 pb-1.5 pt-1 text-muted-foreground`}>Elige un tipo de bloque</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {TIPOS_BLOQUE_TEORIA.map((t) => {
-                    const info = INFO_BLOQUE_TEORIA[t];
-                    const IconoT = ICONOS[info.icono] ?? Type;
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => agregar(t)}
-                        className={`flex items-center gap-2 rounded-[10px] border border-border bg-card px-2.5 py-2 text-left transition-colors hover:border-primary hover:bg-accent ${focusRing}`}
-                      >
-                        <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-accent text-accent-foreground">
-                          <IconoT className="h-[15px] w-[15px]" strokeWidth={1.75} />
-                        </span>
-                        <span className="text-[12.5px] font-bold">{info.rotulo}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => setAgregando(true)}
+          disabled={pendiente}
+          aria-haspopup="dialog"
+          aria-expanded={agregando}
+          className={`mt-2.5 inline-flex h-9 items-center gap-2 rounded-[10px] border border-dashed border-[color:var(--track)] bg-card px-4 text-[12.5px] font-semibold text-secondary transition-colors hover:border-primary hover:bg-accent disabled:opacity-60 ${focusRing}`}
+        >
+          <Plus aria-hidden className="h-4 w-4" strokeWidth={2.2} /> Agregar bloque del grupo
+        </button>
       )}
+
+      {agregando && <SelectorTipoBloque onElegir={agregar} onCerrar={() => setAgregando(false)} />}
     </div>
   );
 }
