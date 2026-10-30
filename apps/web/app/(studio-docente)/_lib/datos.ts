@@ -1322,11 +1322,8 @@ async function construirEcoConsulta(
     }));
   }
 
-  // Borrador: la ÚNICA parte que requiere LLM → PENDIENTE de endpoint (§7A). No se
-  // inventa una respuesta clínica; se muestra un marcador honesto que el docente edita.
-  const borrador = disponible
-    ? 'Eco redactará aquí un borrador cuando apps/api exponga su endpoint conversacional (§7A). Por ahora, responda con su criterio clínico — Eco ya le dejó el resumen, el patrón y el material para apoyarse.'
-    : null;
+  // El borrador REDACTADO por Eco ya NO vive aquí (era un marcador canned): lo produce el
+  // endpoint real `POST /ai/consulta/:id/borrador` bajo demanda (§7A) y vive en el cliente.
 
   return {
     disponible,
@@ -1334,7 +1331,6 @@ async function construirEcoConsulta(
     metaHilo,
     patron,
     recursos,
-    borrador,
     cita,
     ajustes: ['Hazla más breve', 'Explícalo con un ejemplo', '¿Qué le contesté antes?'],
   };

@@ -11,6 +11,7 @@ import { TtsService } from '../tts/tts.service';
 import { EmbeddingsService } from './embeddings/embeddings.service';
 import { EcoConfigService } from './config/eco-config.service';
 import { ProveedorFactory } from './proveedores/proveedor.factory';
+import { EcoTelemetriaService } from './costo/eco-telemetria.service';
 import { EvaluacionPipeline } from './pipeline/evaluacion.pipeline';
 import { guardarPropuesta } from './pipeline/propuestas.repositorio';
 import { recopilarCasos, recopilarEntregas } from './tools/recopilar.tool';
@@ -48,6 +49,7 @@ export class AiService implements OnModuleInit {
     private readonly tts: TtsService,
     private readonly config: EcoConfigService,
     private readonly proveedores: ProveedorFactory,
+    private readonly telemetria: EcoTelemetriaService,
   ) {}
 
   /**
@@ -206,6 +208,79 @@ export class AiService implements OnModuleInit {
         'El proveedor no devolvió reactivos utilizables (¿MOCK?). Cablea un modelo real (§3).';
     }
     this.logger.log(`Eco propuso ${reactivos.length} reactivo(s) para "${p.tema}".`);
+    return salida;
+  }
+
+  /**
+   * REDACTA un BORRADOR de respuesta del docente a una consulta 1:1 del alumno (§7A).
+   * Reusa la infra de Eco (config + proveedor model-agnóstico) en modo ONE-SHOT, igual que
+   * `proponerExamen` — NO el chat (que es read-only "informas, no accionas"). El framing es
+   * de REDACCIÓN explícita. Lee el hilo real (`consulta_mensajes`) con `this.db.sql`
+   * (service_role · no RLS; op de dominio, consistente con el resto de /ai).
+   *
+   * Es una SUGERENCIA: la UI la vuelca en un composer editable; el docente revisa, edita y
+   * ENVÍA (nunca auto-envío · human-in-loop). Registra consumo en `eco_uso` (como el chat).
+   */
+  async redactarBorradorConsulta(
+    consultaId: string,
+  ): Promise<{ borrador: string; modelo: string; aviso?: string }> {
+    const sql = this.db.sql;
+    const [consulta] = await sql<{ id_alumno: string; asunto: string }[]>`
+      select id_alumno, asunto from lxp.consultas where id = ${consultaId} limit 1`;
+    if (!consulta) {
+      return { borrador: '', modelo: 'n/a', aviso: 'La consulta no existe o no es visible.' };
+    }
+    const mensajes = await sql<{ autor_id: string; cuerpo: string }[]>`
+      select autor_id, cuerpo from lxp.consulta_mensajes
+      where consulta_id = ${consultaId} order by created_at asc`;
+    if (mensajes.length === 0) {
+      return { borrador: '', modelo: 'n/a', aviso: 'La consulta aún no tiene mensajes que responder.' };
+    }
+
+    // Hilo etiquetado por autor (alumno vs docente/staff), lo más reciente al final.
+    const hilo = mensajes
+      .map((m) => `${m.autor_id === consulta.id_alumno ? 'Alumno' : 'Docente'}: ${m.cuerpo}`)
+      .join('\n');
+
+    const cfg = await this.config.activa();
+    // Prosa → modelo de chat si la config lo define; si no, el de juicio (§7A).
+    const refModelo = cfg.modelos.chat ?? cfg.modelos.juicio;
+    const proveedor = this.proveedores.obtener(refModelo.proveedor);
+
+    const resp = await proveedor.generar({
+      system:
+        'Eres Eco, asistente del docente en un campus de ultrasonido diagnóstico y POCUS. Tu ' +
+        'tarea AHORA es REDACTAR un BORRADOR de respuesta que el DOCENTE enviará al alumno en ' +
+        'esta consulta 1:1. Escribe en primera persona como el docente, en español, tono cálido ' +
+        'pero clínico y claro. Responde directamente la duda con base en el hilo; si falta ' +
+        'información para responder bien, pídela en el borrador. NO inventes datos clínicos ni ' +
+        'cifras. Es un BORRADOR: el docente lo revisa, edita y envía — no lo cierres como ' +
+        'definitivo ni afirmes que ya se envió. Devuelve SOLO el texto de la respuesta, sin ' +
+        'encabezados, firmas ni comillas.',
+      prompt: `Asunto: ${consulta.asunto}\n\nHilo de la consulta:\n${hilo}\n\nRedacta el borrador de la respuesta del docente.`,
+      modelo: refModelo.modelo,
+      temperatura: cfg.temperatura,
+      maxTokens: cfg.maxTokens,
+    });
+
+    // Telemetría de costo (§7A · reusa lxp.eco_uso), como el chat.
+    await this.telemetria.registrar({
+      modelo: resp.modelo,
+      paso: 'borrador_consulta',
+      objetoTipo: 'consulta',
+      objetoId: consultaId,
+      tokens: resp.tokens,
+    });
+
+    const borrador = resp.texto.trim();
+    const salida: { borrador: string; modelo: string; aviso?: string } = {
+      borrador,
+      modelo: resp.modelo,
+    };
+    if (resp.proveedor === 'mock') {
+      salida.aviso = 'Eco corre en MOCK: el borrador no es real. Configura ECO_PROVIDER + key (§3).';
+    }
+    this.logger.log(`Eco redactó borrador para consulta ${consultaId} (${resp.modelo}).`);
     return salida;
   }
 

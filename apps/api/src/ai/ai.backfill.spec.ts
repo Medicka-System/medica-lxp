@@ -27,6 +27,7 @@ describe('AiService.backfillIndexacion (GAP-B)', () => {
       {} as never, // tts
       {} as never, // config
       {} as never, // proveedores
+      {} as never, // telemetria
     );
     return { ai, encolar };
   }

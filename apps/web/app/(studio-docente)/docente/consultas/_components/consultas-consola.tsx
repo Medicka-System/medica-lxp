@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCanalRealtime } from '@/lib/realtime/use-canal';
 import { cambiarEstadoConsulta, iniciarConsultaDocente, responderConsulta } from '../../../_lib/acciones';
+import { pedirBorradorConsulta } from '../../../_lib/eco.server';
 import type { ConsultaDetalleDoc, ConsultasDocenteData, RecursoEnlazable } from '../../../_lib/contrato';
 import { NuevaConversacion, type GrupoContacto } from '@/app/(campus)/consultas/_components/NuevaConversacion';
 import type { Contacto } from '@/app/(campus)/consultas/_components/tipos';
@@ -47,6 +48,8 @@ export function ConsultasConsola({
   const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null);
   const [ecoAbierto, setEcoAbierto] = useState(true);
   const [verBorrador, setVerBorrador] = useState(false);
+  const [borradorEco, setBorradorEco] = useState<string | null>(null);
+  const [generandoBorrador, setGenerandoBorrador] = useState(false);
   const [respuesta, setRespuesta] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -64,10 +67,39 @@ export function ConsultasConsola({
   // Al cambiar de hilo (nav), limpia el borrador de Eco y el composer.
   useEffect(() => {
     setVerBorrador(false);
+    setBorradorEco(null);
     setRespuesta('');
     setError(null);
     setAviso(null);
   }, [activaId]);
+
+  /**
+   * Eco REDACTA el borrador de respuesta a esta consulta (§7A · `POST /ai/consulta/:id/borrador`).
+   * Lee el hilo real y devuelve texto redactado; cae en la card editable. SUGERENCIA: el
+   * docente lo revisa/edita/envía — nunca auto-envío.
+   */
+  function pedirBorrador() {
+    if (!activa || generandoBorrador) return;
+    if (borradorEco) {
+      setVerBorrador(true); // ya generado: solo mostrarlo de nuevo
+      return;
+    }
+    const consultaId = activa.id;
+    setError(null);
+    setAviso(null);
+    setGenerandoBorrador(true);
+    startTransition(async () => {
+      const r = await pedirBorradorConsulta(consultaId);
+      setGenerandoBorrador(false);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      setBorradorEco(r.borrador ?? '');
+      setVerBorrador(true);
+      if (r.aviso) setAviso(r.aviso);
+    });
+  }
 
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -162,12 +194,14 @@ export function ConsultasConsola({
         setRespuesta={setRespuesta}
         verBorrador={verBorrador}
         setVerBorrador={setVerBorrador}
+        borradorEco={borradorEco}
+        generandoBorrador={generandoBorrador}
         enviando={enviando}
         error={error}
         aviso={aviso}
         onResponder={responder}
         onEnlazar={() => activa && activa.eco.recursos[0] && enlazar(activa.eco.recursos[0])}
-        onPedirBorrador={() => setVerBorrador(true)}
+        onPedirBorrador={pedirBorrador}
         onToggleEstado={toggleEstado}
       />
       <PanelEcoConsultas

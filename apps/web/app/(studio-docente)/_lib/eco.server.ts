@@ -151,6 +151,31 @@ export async function descartarPropuestaEco(input: {
 }
 
 /**
+ * Eco REDACTA un BORRADOR de respuesta a una consulta del alumno (§7A). Dispara el dominio
+ * (`POST /ai/consulta/:id/borrador`): lee el hilo y devuelve el texto. Es SUGERENCIA — la UI
+ * lo vuelca en el composer editable; el docente revisa, edita y ENVÍA (nunca auto-envío).
+ */
+export async function pedirBorradorConsulta(
+  consultaId: string,
+): Promise<ResultadoAccion & { borrador?: string; aviso?: string }> {
+  await requireDocente();
+  if (!consultaId) return { ok: false, error: 'Falta la consulta.' };
+  try {
+    const res = await fetch(`${apiBase()}/ai/consulta/${consultaId}/borrador`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { ok: false, error: `Eco no pudo redactar el borrador (HTTP ${res.status}).` };
+    const r = (await res.json()) as { borrador: string; modelo: string; aviso?: string };
+    if (!r.borrador) return { ok: false, error: r.aviso ?? 'Eco no devolvió un borrador.' };
+    return { ok: true, borrador: r.borrador, aviso: r.aviso };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar a Eco (apps/api). ¿Está levantada la API?' };
+  }
+}
+
+/**
  * CONFIRMAR EN LOTE las propuestas de ENTREGA de alta confianza (§7A). Acción EXPLÍCITA
  * del docente (human-in-loop) sobre las que Eco clasificó `listo` (confianza ≥ umbral de
  * `eco_config`); NUNCA automático. Cada `confirmar` asienta la nota de Eco (ya 0-10 ·

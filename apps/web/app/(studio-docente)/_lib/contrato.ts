@@ -435,8 +435,6 @@ export type SugerenciaEcoConsulta = {
   metaHilo: string;
   patron: { cuantos: number; inis: string[]; texto: string } | null;
   recursos: RecursoEnlazable[];
-  /** Borrador redactado por Eco — PENDIENTE de endpoint (§7A). `null` mientras no exista. */
-  borrador: string | null;
   cita: string | null;
   ajustes: string[];
 };

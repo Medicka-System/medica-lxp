@@ -3,9 +3,10 @@
 /**
  * Columna 2 · la conversación: cabecera con el contexto de la contraparte (alumno:
  * grupo · módulo · horas; staff: área) + tiempo de espera + cerrar/reabrir; el hilo con
- * separadores de día y adjuntos; el bloque de Eco DENTRO del hilo (placeholder · §7A) y
- * el campo de respuesta que declara «responde como Dr. …». El alumno recibe el mensaje
- * del docente, nunca de Eco (§7A). SIN realtime: el hilo se recarga por navegación.
+ * separadores de día y adjuntos; el bloque de Eco DENTRO del hilo (borrador REDACTADO por
+ * Eco vía `POST /ai/consulta/:id/borrador`, que el docente edita y envía) y el campo de
+ * respuesta que declara «responde como Dr. …». El alumno recibe el mensaje del docente,
+ * nunca de Eco (§7A). SIN realtime: el hilo se recarga por navegación.
  */
 
 import { useEffect, useRef } from 'react';
@@ -37,6 +38,10 @@ export type HiloConsultaProps = {
   setRespuesta: (v: string) => void;
   verBorrador: boolean;
   setVerBorrador: (v: boolean) => void;
+  /** Borrador REDACTADO por Eco (`POST /ai/consulta/:id/borrador`); vive en el cliente, `null` hasta pedirlo. */
+  borradorEco: string | null;
+  /** Eco está redactando el borrador ahora mismo. */
+  generandoBorrador: boolean;
   enviando: boolean;
   error: string | null;
   aviso: string | null;
@@ -58,6 +63,8 @@ export function HiloConsulta({
   setRespuesta,
   verBorrador,
   setVerBorrador,
+  borradorEco,
+  generandoBorrador,
   enviando,
   error,
   aviso,
@@ -216,21 +223,21 @@ export function HiloConsulta({
           );
         })}
 
-        {/* Eco DENTRO del hilo (placeholder · §7A): contexto listo, la redacción por LLM
-            espera el endpoint conversacional. No se fabrica una respuesta clínica. */}
-        {sinResponder && activa.eco.borrador && !verBorrador && (
+        {/* Eco DENTRO del hilo (§7A · POST /ai/consulta/:id/borrador): Eco REDACTA un borrador
+            de respuesta leyendo el hilo real; el docente lo edita y envía. No se envía solo. */}
+        {sinResponder && borradorEco && !verBorrador && (
           <button
             type="button"
-            onClick={onPedirBorrador}
+            onClick={() => setVerBorrador(true)}
             className={`flex shrink-0 items-center gap-2.5 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 py-3 text-left transition-colors hover:bg-card ${focusRing}`}
           >
             <EcoMark size={28} />
             <span className="min-w-0 flex-1">
               <span className="block text-[12.5px] font-bold text-[color:var(--info-foreground)]">
-                Eco preparó el contexto de esta duda
+                Eco redactó un borrador de esta duda
               </span>
               <span className="mt-0.5 block text-[11.5px] text-[color:var(--info-foreground)]">
-                {activa.eco.cita ? `${activa.eco.cita} · ` : ''}usted redacta y decide
+                {activa.eco.cita ? `${activa.eco.cita} · ` : ''}usted lo edita y decide
               </span>
             </span>
             <span className="inline-flex h-[34px] shrink-0 items-center whitespace-nowrap rounded-[9px] bg-[color:var(--info-foreground)] px-3 text-[12px] font-bold text-white">
@@ -239,17 +246,17 @@ export function HiloConsulta({
           </button>
         )}
 
-        {sinResponder && activa.eco.borrador && verBorrador && (
+        {sinResponder && borradorEco && verBorrador && (
           <div className="shrink-0 overflow-hidden rounded-[14px] border border-[color:var(--info-border)] bg-card">
             <div className="flex items-center gap-2.5 bg-[color:var(--info-surface)] px-3.5 py-3">
               <EcoMark size={28} />
               <p className="min-w-0 flex-1 text-[12.5px] font-bold text-[color:var(--info-foreground)]">Eco · borrador</p>
               <span className="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-card px-[7px] text-[9.5px] font-bold text-[color:var(--info-foreground)]">
-                Pendiente de endpoint · §7A
+                Eco propone · usted decide
               </span>
             </div>
             <div className="p-3.5">
-              <p className={`text-[13px] leading-[1.7] ${softText}`}>{activa.eco.borrador}</p>
+              <p className={`whitespace-pre-wrap text-[13px] leading-[1.7] ${softText}`}>{borradorEco}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-border pt-3">
                 {activa.eco.cita && (
                   <span className={`${mono} inline-flex items-center gap-1.5 text-[11px] text-muted-foreground`}>
@@ -261,13 +268,14 @@ export function HiloConsulta({
                   <button
                     type="button"
                     onClick={() => {
-                      setRespuesta(respuesta ? `${respuesta}\n` : '');
+                      // Vuelca el borrador en el composer para EDITARLO (human-in-loop: luego envía).
+                      setRespuesta(respuesta.trim() ? `${respuesta.trimEnd()}\n${borradorEco}` : borradorEco);
                       setVerBorrador(false);
                     }}
                     className={`inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
                   >
                     <Pencil aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    Redactar mi respuesta
+                    Editar y responder
                   </button>
                   <button
                     type="button"
@@ -334,11 +342,11 @@ export function HiloConsulta({
             <button
               type="button"
               onClick={onPedirBorrador}
-              disabled={cerrada || !activa.eco.disponible}
+              disabled={cerrada || generandoBorrador}
               className={`inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2.5 text-[12px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-card disabled:opacity-40 ${focusRing}`}
             >
               <EcoMark size={18} />
-              Pedirle a Eco un borrador
+              {generandoBorrador ? 'Eco está redactando…' : 'Pedirle a Eco un borrador'}
             </button>
             <span className="ml-auto flex items-center gap-2.5">
               <span className={`${mono} hidden text-[11px] text-muted-foreground sm:inline`}>

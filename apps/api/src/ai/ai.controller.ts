@@ -187,6 +187,20 @@ export class AiController {
   }
 
   /**
+   * Eco REDACTA un borrador de respuesta a una consulta 1:1 del alumno (§7A). Lee el
+   * hilo (`consulta_mensajes`) y devuelve el texto; el docente lo edita y envía — nunca
+   * auto-envío. One-shot (no el chat read-only). Consume tokens (registra en eco_uso).
+   */
+  @Post('consulta/:id/borrador')
+  @HttpCode(200)
+  redactarBorradorConsulta(
+    @Param('id') consultaId: string,
+  ): Promise<{ borrador: string; modelo: string; aviso?: string }> {
+    if (!consultaId) throw new BadRequestException('consultaId es requerido');
+    return this.ai.redactarBorradorConsulta(consultaId);
+  }
+
+  /**
    * Eco PROPONE un examen de autoevaluación (course builder · §7A). Devuelve
    * reactivos borrador; el diseñador los revisa e importa — nada se asienta aquí.
    */
