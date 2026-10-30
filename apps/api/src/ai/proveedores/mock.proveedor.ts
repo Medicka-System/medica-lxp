@@ -30,7 +30,7 @@ export class MockProvider implements LLMProvider {
     const contenido = (solicitud.prefijoCacheable ?? '') + solicitud.prompt;
     // Señal determinista a partir del contenido (sin azar, para tests estables).
     const semilla = huella(contenido);
-    const nota = 60 + (semilla % 41); // 60..100
+    const nota = Math.round((6 + (semilla % 41) / 10) * 10) / 10; // 6.0..10.0 (escala 0-10 · §13)
     // Respuestas muy cortas → menor confianza (simula "requiere criterio").
     const largoRespuesta = (contenido.match(/Respuesta del alumno/i) ? 1 : 0)
       + Math.min(contenido.length, 4000);
@@ -47,9 +47,9 @@ export class MockProvider implements LLMProvider {
         'principales; revisa la técnica de adquisición y la impresión diagnóstica.',
       criterios: [
         { criterio: 'Identificación de hallazgos', puntaje: nota, comentario: 'Mock.' },
-        { criterio: 'Impresión diagnóstica', puntaje: Math.max(0, nota - 10), comentario: 'Mock.' },
+        { criterio: 'Impresión diagnóstica', puntaje: Math.max(0, Math.round((nota - 1) * 10) / 10), comentario: 'Mock.' },
       ],
-      omisiones: nota < 75 ? ['Revisar ventana acústica', 'Documentar mediciones'] : [],
+      omisiones: nota < 7.5 ? ['Revisar ventana acústica', 'Documentar mediciones'] : [],
     };
 
     return Promise.resolve({

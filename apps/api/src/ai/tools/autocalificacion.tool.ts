@@ -7,7 +7,7 @@
 import type { ClaveObjetiva, ItemEvaluable } from '../pipeline/tipos';
 
 export interface ResultadoAutoCalificacion {
-  nota: number; // 0..100
+  nota: number; // 0..10 (escala nativa del sistema de entregas · §13)
   aciertos: number;
   total: number;
   /** Detalle por pregunta para el feedback/traza. */
@@ -43,7 +43,8 @@ export function autoCalificar(
   }));
   const aciertos = porPregunta.filter((p) => p.correcta).length;
   const total = preguntas.length;
-  const nota = total === 0 ? 0 : Math.round((aciertos / total) * 100);
+  // Nota en escala 0..10 (nativa · §13), con 1 decimal (p. ej. 3/4 → 7.5).
+  const nota = total === 0 ? 0 : Math.round((aciertos / total) * 10 * 10) / 10;
   return { nota, aciertos, total, porPregunta };
 }
 

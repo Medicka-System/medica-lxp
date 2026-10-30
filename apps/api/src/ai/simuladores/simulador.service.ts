@@ -167,7 +167,7 @@ export class SimuladorService {
     feedback: SimuladorFeedback,
   ): Promise<void> {
     const scaled =
-      feedback.puntaje === null ? undefined : Math.max(0, Math.min(1, feedback.puntaje / 100));
+      feedback.puntaje === null ? undefined : Math.max(0, Math.min(1, feedback.puntaje / 10));
     const result =
       scaled === undefined
         ? { completion: true, response: `simulador:${feedback.tipo}` }

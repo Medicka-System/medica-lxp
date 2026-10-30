@@ -7,9 +7,9 @@
 import type { PropuestaEco } from '../pipeline/tipos';
 import type { CasoVerdad, SimuladorFeedback, TipoSimulador, FeedbackItem } from './simulador.tipos';
 
-/** Corte para clasificar un criterio como acierto (≥) o precisión-por-mejorar (<). */
-const UMBRAL_ACIERTO = 70;
-const UMBRAL_PRECISION = 40;
+/** Corte para clasificar un criterio como acierto (≥) o precisión-por-mejorar (<). Escala 0-10 (§13). */
+const UMBRAL_ACIERTO = 7;
+const UMBRAL_PRECISION = 4;
 
 export function mapearFeedback(
   propuesta: PropuestaEco,
@@ -66,9 +66,9 @@ export function mapearFeedback(
 /** Titular formativo (mentor, no examen) según el puntaje. */
 export function titularDe(puntaje: number | null): string {
   if (puntaje === null) return 'Eco no pudo cerrar la evaluación; revísalo con tu docente.';
-  if (puntaje >= 85) return 'Lectura sólida: cubriste lo esencial del caso.';
-  if (puntaje >= 70) return 'Buena lectura, con algunos detalles por cerrar.';
-  if (puntaje >= 50) return 'Vas encaminado; revisa lo que el tutor señaló.';
+  if (puntaje >= 8.5) return 'Lectura sólida: cubriste lo esencial del caso.';
+  if (puntaje >= 7) return 'Buena lectura, con algunos detalles por cerrar.';
+  if (puntaje >= 5) return 'Vas encaminado; revisa lo que el tutor señaló.';
   return 'Conviene repasar este caso con calma.';
 }
 

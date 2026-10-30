@@ -106,5 +106,5 @@ export const RUBRICA_REPORTE: CriterioRubrica[] = [
   { criterio: 'Impresión diagnóstica', descripcion: 'Cierra la conducta', peso: 15 },
 ];
 
-/** Umbral (0..100) sobre el que la práctica se considera "aprobada" para xAPI. */
-export const UMBRAL_APROBACION_SIMULADOR = 60;
+/** Umbral (0..10) sobre el que la práctica se considera "aprobada" para xAPI. */
+export const UMBRAL_APROBACION_SIMULADOR = 6;

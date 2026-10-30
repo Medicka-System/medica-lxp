@@ -31,7 +31,7 @@ const propEntrega = {
   objeto_tipo: 'entrega' as const,
   objeto_id: 'e1',
   id_alumno: 'a1',
-  nota_sugerida: 80,
+  nota_sugerida: 8,
   feedback_borrador: 'Borrador de Eco.',
   estado: 'propuesta',
   detalle: {},
@@ -51,32 +51,32 @@ describe('CorreccionesService (Eco propone, el humano decide · §7A)', () => {
 
     expect(asentar).toHaveBeenCalledWith(expect.anything(), {
       entregaId: 'e1',
-      nota: 80,
+      nota: 8,
       feedback: 'Borrador de Eco.',
     });
     // El loop de mejora se registra SIEMPRE (aceptar tal cual también es señal).
     expect(registrar).toHaveBeenCalledTimes(1);
     expect(res.hubocorreccion).toBe(false);
-    expect(res.notaAsentada).toBe(80);
+    expect(res.notaAsentada).toBe(8);
     expect(marcar).toHaveBeenCalledWith(expect.anything(), 'p1', 'confirmada');
   });
 
   it('confirmar CON cambios: asienta la nota del docente y marca corrección', async () => {
     cargar.mockResolvedValue(propEntrega);
-    const res = await crear().confirmar('p1', 'doc-1', { nota: 95, feedback: 'Mejor así.' });
+    const res = await crear().confirmar('p1', 'doc-1', { nota: 9.5, feedback: 'Mejor así.' });
 
     expect(asentar).toHaveBeenCalledWith(expect.anything(), {
       entregaId: 'e1',
-      nota: 95,
+      nota: 9.5,
       feedback: 'Mejor así.',
     });
     expect(res.hubocorreccion).toBe(true);
-    // La corrección captura sugerencia (80) vs lo dejado (95).
+    // La corrección captura sugerencia (8) vs lo dejado (9.5).
     expect(registrar).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        sugerenciaEco: expect.objectContaining({ nota: 80 }),
-        correccion: expect.objectContaining({ nota: 95 }),
+        sugerenciaEco: expect.objectContaining({ nota: 8 }),
+        correccion: expect.objectContaining({ nota: 9.5 }),
       }),
     );
   });

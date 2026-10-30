@@ -24,7 +24,7 @@ function propuesta(over: Partial<PropuestaEco> = {}): PropuestaEco {
   return {
     objetoTipo: 'caso',
     objetoId: CASO.id,
-    notaSugerida: 82,
+    notaSugerida: 8.2,
     feedbackBorrador: 'Buena lectura; te faltó graduar el hallazgo.',
     confianza: 0.9,
     clasificacion: 'listo',
@@ -35,9 +35,9 @@ function propuesta(over: Partial<PropuestaEco> = {}): PropuestaEco {
       autoCalificado: false,
       normalizadoConHaiku: false,
       criterios: [
-        { criterio: 'Identificación de hallazgos', puntaje: 90, comentario: 'Vio el líquido.' },
-        { criterio: 'Impresión diagnóstica', puntaje: 55, comentario: 'Parcial.' },
-        { criterio: 'Técnica y precisión', puntaje: 20, comentario: 'Sin medir.' },
+        { criterio: 'Identificación de hallazgos', puntaje: 9, comentario: 'Vio el líquido.' },
+        { criterio: 'Impresión diagnóstica', puntaje: 5.5, comentario: 'Parcial.' },
+        { criterio: 'Técnica y precisión', puntaje: 2, comentario: 'Sin medir.' },
       ],
       omisiones: ['No graduó el hallazgo'],
     },
@@ -51,7 +51,7 @@ describe('mapearFeedback (§7A · simuladores)', () => {
     const f = mapearFeedback(propuesta(), CASO, 'interpretacion');
     expect(f.aciertos.map((a) => a.titulo)).toEqual(['Identificación de hallazgos']);
     expect(f.precisiones.map((p) => p.titulo)).toEqual(['Impresión diagnóstica']);
-    // Omisiones: la reportada por Eco + el criterio flojo (< 40).
+    // Omisiones: la reportada por Eco + el criterio flojo (< 4).
     expect(f.omisiones.map((o) => o.titulo)).toEqual(
       expect.arrayContaining(['No graduó el hallazgo', 'Técnica y precisión']),
     );
@@ -80,10 +80,10 @@ describe('mapearFeedback (§7A · simuladores)', () => {
   });
 
   it('titularDe escala con el puntaje', () => {
-    expect(titularDe(90)).toMatch(/sólida/i);
-    expect(titularDe(75)).toMatch(/buena/i);
-    expect(titularDe(55)).toMatch(/encaminado/i);
-    expect(titularDe(30)).toMatch(/repasar/i);
+    expect(titularDe(9)).toMatch(/sólida/i);
+    expect(titularDe(7.5)).toMatch(/buena/i);
+    expect(titularDe(5.5)).toMatch(/encaminado/i);
+    expect(titularDe(3)).toMatch(/repasar/i);
     expect(titularDe(null)).toMatch(/docente/i);
   });
 

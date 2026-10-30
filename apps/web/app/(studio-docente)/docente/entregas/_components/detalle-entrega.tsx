@@ -7,9 +7,9 @@
  * `calificarEntrega` (0–10, RLS). Eco propone; el docente decide — nada se asienta sin
  * él (§7A).
  *
- * ESCALA (§13): el pipeline de Eco califica en 0–100 y la consola trabaja en 0–10. La
- * nota sugerida de Eco se CONVIERTE a /10 SOLO PARA MOSTRAR (÷10, 1 decimal); NO se
- * asienta automático. El docente teclea su propia nota 0–10 abajo (human-in-loop).
+ * ESCALA (§13): Eco califica en 0–10 NATIVO, igual que la consola — no hay conversión.
+ * La nota sugerida se muestra tal cual; NO se asienta automático. El docente teclea su
+ * propia nota 0–10 abajo (human-in-loop).
  */
 
 import { useState, useTransition } from 'react';
@@ -280,8 +280,8 @@ function TarjetaEcoReal({ eco }: { eco: PropuestaEcoResumen | null }) {
     );
   }
 
-  // Nota 0–100 del pipeline → /10 SOLO para mostrar (la consola es 0–10). No se asienta.
-  const notaDiez = eco.notaSugerida == null ? null : Math.round((eco.notaSugerida / 10) * 10) / 10;
+  // Eco ya califica en 0–10 nativo (§13): se muestra tal cual, sin conversión. No se asienta.
+  const notaDiez = eco.notaSugerida;
 
   return (
     <section className="rounded-xl border border-[color:var(--info-border)] bg-card p-5 shadow-rest">

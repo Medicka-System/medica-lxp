@@ -44,14 +44,14 @@ export interface ClaveObjetiva {
 
 /** Salida esperada del LLM de juicio (Sonnet). Validada con zod al parsear. */
 export const juicioSchema = z.object({
-  nota_sugerida: z.number().min(0).max(100),
+  nota_sugerida: z.number().min(0).max(10),
   confianza: z.number().min(0).max(1),
   feedback_borrador: z.string(),
   criterios: z
     .array(
       z.object({
         criterio: z.string(),
-        puntaje: z.number(),
+        puntaje: z.number().min(0).max(10),
         comentario: z.string().optional(),
       }),
     )

@@ -20,16 +20,16 @@ describe('autocalificación objetiva (tools primero · §7A)', () => {
     expect(esAutoCalificable({ ...base, respuesta: {} })).toBe(false);
   });
 
-  it('califica 100 cuando todo coincide', () => {
+  it('califica 10 cuando todo coincide', () => {
     const r = autoCalificar(base.respuesta, base.claveObjetiva!);
-    expect(r.nota).toBe(100);
+    expect(r.nota).toBe(10);
     expect(r.aciertos).toBe(2);
     expect(r.total).toBe(2);
   });
 
   it('califica proporcional a los aciertos', () => {
     const r = autoCalificar({ respuestas: { q1: 'a', q2: 'x' } }, base.claveObjetiva!);
-    expect(r.nota).toBe(50);
+    expect(r.nota).toBe(5);
     expect(r.aciertos).toBe(1);
   });
 
@@ -38,13 +38,13 @@ describe('autocalificación objetiva (tools primero · §7A)', () => {
       { respuestas: { q1: ['b', 'a'] } },
       { correctas: { q1: ['a', 'b'] } },
     );
-    expect(r.nota).toBe(100);
+    expect(r.nota).toBe(10);
   });
 
   it('respuesta faltante cuenta como incorrecta', () => {
     const r = autoCalificar({ respuestas: { q1: 'a' } }, base.claveObjetiva!);
     expect(r.aciertos).toBe(1);
     expect(r.total).toBe(2);
-    expect(r.nota).toBe(50);
+    expect(r.nota).toBe(5);
   });
 });

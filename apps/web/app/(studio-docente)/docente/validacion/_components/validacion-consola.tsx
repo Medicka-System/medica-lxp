@@ -1275,7 +1275,7 @@ function DetalleCaso({
               {eco && (
                 <span className={`ml-auto ${mono} text-[11.5px] text-muted-foreground`}>
                   confianza {Math.round(eco.confianza * 100)}%
-                  {eco.notaSugerida != null ? ` · nota ${Math.round(eco.notaSugerida)}/100` : ''}
+                  {eco.notaSugerida != null ? ` · nota ${eco.notaSugerida.toFixed(1)}/10` : ''}
                 </span>
               )}
             </div>
@@ -1294,9 +1294,9 @@ function DetalleCaso({
                     </span>
                     <span className="shrink-0 text-right">
                       <span className={`${mono} block text-[26px] font-extrabold leading-none`}>
-                        {Math.round(eco.notaSugerida)}
+                        {eco.notaSugerida.toFixed(1)}
                       </span>
-                      <span className={`${mono} mt-1 block text-[10.5px] text-muted-foreground`}>sobre 100</span>
+                      <span className={`${mono} mt-1 block text-[10.5px] text-muted-foreground`}>sobre 10</span>
                     </span>
                   </div>
                 )}

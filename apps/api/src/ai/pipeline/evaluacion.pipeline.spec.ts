@@ -66,14 +66,14 @@ function crear(provider: LLMProvider): {
 }
 
 const juicioListo = JSON.stringify({
-  nota_sugerida: 88,
+  nota_sugerida: 8.8,
   confianza: 0.92,
   feedback_borrador: 'Bien.',
   criterios: [],
   omisiones: [],
 });
 const juicioDudoso = JSON.stringify({
-  nota_sugerida: 60,
+  nota_sugerida: 6,
   confianza: 0.4,
   feedback_borrador: 'Dudoso.',
 });
@@ -97,7 +97,7 @@ describe('EvaluacionPipeline (tools-first · §7A)', () => {
     expect(p.detalle.autoCalificado).toBe(true);
     expect(p.confianza).toBe(1);
     expect(p.clasificacion).toBe('listo');
-    expect(p.notaSugerida).toBe(100);
+    expect(p.notaSugerida).toBe(10);
   });
 
   it('TEXTO LIBRE: corre Haiku (normaliza) y luego Sonnet (juzga)', async () => {
@@ -180,10 +180,10 @@ describe('helpers puros del pipeline', () => {
   });
 
   it('parsearJuicio tolera ```json fences y valida la forma', () => {
-    const ok = parsearJuicio('```json\n{"nota_sugerida":80,"confianza":0.9,"feedback_borrador":"ok"}\n```');
-    expect(ok?.nota_sugerida).toBe(80);
+    const ok = parsearJuicio('```json\n{"nota_sugerida":8,"confianza":0.9,"feedback_borrador":"ok"}\n```');
+    expect(ok?.nota_sugerida).toBe(8);
     expect(parsearJuicio('sin json')).toBeNull();
-    // Fuera de rango → rechazado por zod.
-    expect(parsearJuicio('{"nota_sugerida":80,"confianza":9,"feedback_borrador":"x"}')).toBeNull();
+    // Fuera de rango → rechazado por zod (confianza 9 > 1).
+    expect(parsearJuicio('{"nota_sugerida":8,"confianza":9,"feedback_borrador":"x"}')).toBeNull();
   });
 });

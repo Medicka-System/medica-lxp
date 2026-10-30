@@ -18,11 +18,10 @@ import type { ResultadoAccion } from './acciones';
  *                                          registra la corrección docente→Eco.
  *   • POST /ai/propuestas/:id/descartar  → cierra la propuesta sin asentar nada.
  *
- * NOTA de contrato (documentada, §13): el `api` califica en escala 0–100 y la consola
- * de entregas trabaja en 0–10. Por eso el ASIENTO de una entrada de entrega se hace en
- * el web (`calificarEntrega`, 0–10, `eco_sugerida=true`) y NO se enruta por
- * `confirmar` (evita doble escritura y el choque de escalas). Para CASOS no hay nota:
- * `confirmar` solo cierra la propuesta y captura la corrección — ahí sí lo usamos.
+ * ESCALA (§13): Eco califica en 0–10 NATIVO (mig 0095), igual que la consola — ya NO
+ * hay choque de escalas. El asiento de una entrega puede ir por `calificarEntrega`
+ * (web, 0–10) o por `confirmar` (que asienta la nota 0–10 de la propuesta). Para CASOS
+ * no hay nota numérica: `confirmar` solo cierra la propuesta y captura la corrección.
  *
  * NO existe (aún) endpoint conversacional / de redacción libre en `apps/api` (solo el
  * pipeline de evaluación en lote + confirmar/descartar/indexar/config). El "borrador de
