@@ -2,19 +2,23 @@
 
 /**
  * Detalle de una TAREA abierta (§5B) — fiel al mock. Muestra la respuesta del alumno y
- * la RÚBRICA del diseñador (reales), el pre-análisis de Eco (PLACEHOLDER) y la
- * calificación del docente, que se ASIENTA con `calificarEntrega` (0–10, RLS). Eco
- * propone; el docente decide — nada se asienta sin él (§7A).
+ * la RÚBRICA del diseñador (reales), el PRE-ANÁLISIS REAL de Eco (leído de
+ * `lxp.eco_propuestas`) y la calificación del docente, que se ASIENTA con
+ * `calificarEntrega` (0–10, RLS). Eco propone; el docente decide — nada se asienta sin
+ * él (§7A).
+ *
+ * ESCALA (§13): el pipeline de Eco califica en 0–100 y la consola trabaja en 0–10. La
+ * nota sugerida de Eco se CONVIERTE a /10 SOLO PARA MOSTRAR (÷10, 1 decimal); NO se
+ * asienta automático. El docente teclea su propia nota 0–10 abajo (human-in-loop).
  */
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Clock, Minus, Plus, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, Check, Clock, Minus, Plus, Sparkles, TriangleAlert } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import { Avatar } from '@/components/avatar';
-import type { ActividadRef, EntregaVista } from '../../../_lib/contrato';
+import type { ActividadRef, EntregaVista, PropuestaEcoResumen } from '../../../_lib/contrato';
 import { calificarEntrega } from '../../../_lib/acciones';
-import { TarjetaPreAnalisisEco, preAnalisisEjemplo } from './eco-placeholder';
 
 export function DetalleEntrega({
   entrega,
@@ -34,7 +38,6 @@ export function DetalleEntrega({
   onCalificada: (id: string, nota: number) => void;
 }) {
   const router = useRouter();
-  const pre = preAnalisisEjemplo(entrega.rubrica);
   const [nota, setNota] = useState<number>(entrega.nota ?? 0);
   const [feedback, setFeedback] = useState('');
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -155,8 +158,8 @@ export function DetalleEntrega({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-3.5">
-          {/* pre-análisis de Eco (PLACEHOLDER) */}
-          <TarjetaPreAnalisisEco pre={pre} />
+          {/* pre-análisis REAL de Eco (lxp.eco_propuestas) — display, no asienta */}
+          <TarjetaEcoReal eco={entrega.eco} />
 
           {/* la nota la pone el docente (real) */}
           <section className={`${card} p-5`}>
@@ -237,5 +240,118 @@ export function DetalleEntrega({
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * Tarjeta del PRE-ANÁLISIS REAL de Eco (§7A), leído de `lxp.eco_propuestas` vía
+ * `EntregaVista.eco`. DISPLAY puro: muestra la nota sugerida (convertida 0–100 → /10
+ * solo para verse en la escala de la consola), el feedback borrador, los criterios y las
+ * omisiones. NO asienta nada — el docente teclea su nota abajo (human-in-loop · §7A).
+ */
+function TarjetaEcoReal({ eco }: { eco: PropuestaEcoResumen | null }) {
+  const encabezado = (
+    <div className="flex flex-wrap items-center gap-2.5">
+      <span
+        aria-hidden
+        className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]"
+      >
+        <Sparkles className="h-4 w-4" strokeWidth={1.75} />
+      </span>
+      <p className={`${kicker} text-[color:var(--info-foreground)]`}>Pre-análisis de Eco</p>
+      {eco && (
+        <span className="ml-auto inline-flex h-[20px] items-center rounded-full border border-[color:var(--info-border)] bg-card px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
+          {eco.clasificacion === 'listo' ? 'Alta confianza' : 'Requiere su criterio'}
+          {` · ${Math.round(eco.confianza * 100)}%`}
+        </span>
+      )}
+    </div>
+  );
+
+  if (!eco) {
+    return (
+      <section className="rounded-xl border border-[color:var(--info-border)] bg-card p-5 shadow-rest">
+        {encabezado}
+        <p className={`mt-3.5 text-[12.5px] leading-relaxed ${softText}`}>
+          Eco aún no ha pre-analizado esta entrega. Cuando corra el análisis del grupo, aquí verá su
+          nota y comentario sugeridos contra la rúbrica. Usted siempre pone la nota.
+        </p>
+      </section>
+    );
+  }
+
+  // Nota 0–100 del pipeline → /10 SOLO para mostrar (la consola es 0–10). No se asienta.
+  const notaDiez = eco.notaSugerida == null ? null : Math.round((eco.notaSugerida / 10) * 10) / 10;
+
+  return (
+    <section className="rounded-xl border border-[color:var(--info-border)] bg-card p-5 shadow-rest">
+      {encabezado}
+
+      <div className="mt-3.5 flex items-end gap-3">
+        <span className={`${mono} text-[40px] font-extrabold leading-none tracking-[-0.03em]`}>
+          {notaDiez == null ? '—' : notaDiez.toFixed(1)}
+        </span>
+        <span className="pb-1">
+          <span className="block text-[11.5px] font-bold text-[color:var(--info-foreground)]">
+            nota sugerida · sobre 10
+          </span>
+          <span className={`${mono} mt-0.5 block text-[10.5px] text-muted-foreground`}>
+            Eco propone; usted decide
+          </span>
+        </span>
+      </div>
+
+      {eco.feedbackBorrador && (
+        <>
+          <p className="mt-4 text-[11px] font-bold">Comentario sugerido</p>
+          <div className="mt-2 rounded-[10px] border border-border bg-muted p-3">
+            <p className={`whitespace-pre-wrap text-[12.5px] leading-relaxed ${softText}`}>
+              {eco.feedbackBorrador}
+            </p>
+          </div>
+        </>
+      )}
+
+      {eco.criterios.length > 0 && (
+        <>
+          <p className="mt-4 text-[11px] font-bold">Por criterio</p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {eco.criterios.map((c, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <Check aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary" strokeWidth={2.4} />
+                <span className={`min-w-0 flex-1 text-[12px] leading-relaxed ${softText}`}>
+                  <span className="font-semibold">{c.criterio}</span>
+                  {c.comentario ? ` — ${c.comentario}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {eco.omisiones.length > 0 && (
+        <>
+          <p className="mt-4 text-[11px] font-bold">Posibles omisiones</p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {eco.omisiones.map((o, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <TriangleAlert
+                  aria-hidden
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--warning-foreground)]"
+                  strokeWidth={2}
+                />
+                <span className="min-w-0 flex-1 text-[12px] leading-relaxed text-[color:var(--warning-foreground)]">
+                  {o}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <p className="mt-3.5 text-[11px] leading-snug text-muted-foreground">
+        Sugerencia de Eco contra la rúbrica. La nota real la pone usted abajo; nada se asienta solo (§7A).
+      </p>
+    </section>
   );
 }

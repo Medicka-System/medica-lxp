@@ -317,19 +317,6 @@ export type CriterioRubricaVista = {
   descripcion: string | null;
 };
 
-/**
- * Pre-análisis de Eco — PLACEHOLDER. La estructura y el espacio están listos; los
- * datos son de EJEMPLO y no provienen de ningún pipeline. Se enchufa al final (§7A).
- */
-export type PreAnalisisEcoPlaceholder = {
-  notaSugerida: number;
-  confianza: 'alta' | 'media' | 'baja';
-  sustento: { clase: 'ok' | 'falta'; texto: string }[];
-  comentario: string;
-  /** Marca explícita: estos datos NO son reales. */
-  esPlaceholder: true;
-};
-
 /** Una entrega en la bandeja de la vista (datos reales de `lxp.entregas`). */
 export type EntregaVista = {
   id: string;
@@ -342,8 +329,10 @@ export type EntregaVista = {
   respuesta: string[] | null;
   /** Rúbrica del diseñador (catálogo) contra la que se juzga; null si la actividad no tiene. */
   rubrica: CriterioRubricaVista[] | null;
-  /** Nota informada por una sugerencia de Eco (hoy siempre placeholder). */
+  /** Nota informada por una sugerencia de Eco (traza del asiento). */
   ecoSugerida: boolean;
+  /** Propuesta REAL de Eco (`lxp.eco_propuestas`) para esta entrega; `null` si no hay. */
+  eco: PropuestaEcoResumen | null;
 };
 
 /** Acierto del grupo en una pregunta objetiva de la autoevaluación. */

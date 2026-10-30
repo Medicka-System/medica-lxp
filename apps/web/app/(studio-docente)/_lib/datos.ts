@@ -824,7 +824,7 @@ export async function getEntregasVista(
       ? sql`(e.leccion_id = ${actividad.id} or e.actividad_id = ${actividadRespaldo})`
       : sql`e.leccion_id = ${actividad.id}`;
     const entRows = await sql<
-      {
+      ({
         id: string;
         id_alumno: string;
         estado: EstadoEntrega;
@@ -834,12 +834,18 @@ export async function getEntregasVista(
         created_at: Date;
         alumno: string;
         avatar_url: string | null;
-      }[]
+      } & FilaEco)[]
     >`
       select e.id, e.id_alumno, e.estado, e.nota::float8 as nota, e.eco_sugerida, e.contenido, e.created_at,
-             al.nombre as alumno, al.avatar_url
+             al.nombre as alumno, al.avatar_url,
+             -- Bandeja de Eco (§7A): propuesta VIGENTE para esta entrega (RLS es_docente_o_mas).
+             ep.id as eco_id, ep.nota_sugerida::float8 as eco_nota, ep.feedback_borrador as eco_feedback,
+             ep.confianza_score::float8 as eco_confianza, ep.clasificacion::text as eco_clasificacion,
+             ep.detalle as eco_detalle
       from lxp.entregas e
       join lxp.perfiles al on al.user_id = e.id_alumno
+      left join lxp.eco_propuestas ep
+        on ep.objeto_tipo = 'entrega' and ep.objeto_id = e.id and ep.estado = 'propuesta'
       where ${filtro}
       order by
         case e.estado when 'enviada' then 0 when 'pendiente' then 1 else 2 end,
@@ -856,6 +862,7 @@ export async function getEntregasVista(
       respuesta: esAuto ? null : partirParrafos(notaAlumnoDe(r.contenido)),
       rubrica: esAuto ? null : rubrica,
       ecoSugerida: r.eco_sugerida,
+      eco: mapearEco(r),
     }));
 
     // 5 · Sin entregar = roster − quienes ya entregaron.
