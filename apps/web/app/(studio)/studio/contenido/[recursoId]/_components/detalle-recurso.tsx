@@ -10,11 +10,12 @@
  * con purga del paquete en object storage. Ver lib/studio/contenido-acciones.ts.
  */
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Boxes,
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -23,7 +24,9 @@ import {
   Layers,
   Link2,
   Loader2,
+  Pencil,
   Play,
+  Plus,
   Presentation,
   Repeat2,
   SlidersHorizontal,
@@ -33,9 +36,10 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { fechaCorta } from '@/lib/format';
 import { mono, kicker, softText, card, focusRing } from '@/lib/studio/estilos';
 import type { PreviewRecurso, RecursoDetalle, TipoRecurso } from '@/lib/studio/contenido-contrato';
-import { eliminarRecurso } from '@/lib/studio/contenido-acciones';
+import { eliminarRecurso, renombrarRecurso, actualizarEtiquetasRecurso } from '@/lib/studio/contenido-acciones';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
@@ -82,6 +86,52 @@ export function DetalleRecurso({
   const [dialogo, setDialogo] = useState<null | 'reemplazar' | 'eliminar'>(null);
   const Icono = ICONO[tipo];
   const programas = [...new Set(usos.map((u) => u.programa))];
+
+  // ── Renombrar (inline) ──
+  const [editandoNombre, setEditandoNombre] = useState(false);
+  const [nombreBorrador, setNombreBorrador] = useState(nombre);
+  const [guardando, startGuardar] = useTransition();
+
+  function guardarNombre() {
+    const limpio = nombreBorrador.trim();
+    if (!limpio || limpio === nombre) {
+      setEditandoNombre(false);
+      setNombreBorrador(nombre);
+      return;
+    }
+    startGuardar(async () => {
+      const r = await renombrarRecurso(id, limpio);
+      setEditandoNombre(false);
+      if (r.ok) router.refresh();
+      else setNombreBorrador(nombre);
+    });
+  }
+
+  // ── Reetiquetar (chips de texto libre) ──
+  const [tags, setTags] = useState<string[]>(etiquetas);
+  const [nuevoTag, setNuevoTag] = useState('');
+
+  function persistirTags(next: string[]) {
+    setTags(next);
+    startGuardar(async () => {
+      const r = await actualizarEtiquetasRecurso(id, next);
+      if (r.ok) {
+        setTags(r.datos.etiquetas); // normalizado por el server
+        router.refresh();
+      } else {
+        setTags(etiquetas); // revierte al valor de props
+      }
+    });
+  }
+  function agregarTag() {
+    const t = nuevoTag.trim().toLowerCase().replace(/^#+/, '').trim();
+    setNuevoTag('');
+    if (!t || tags.includes(t)) return;
+    persistirTags([...tags, t]);
+  }
+  function quitarTag(t: string) {
+    persistirTags(tags.filter((x) => x !== t));
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1240px] px-8 pb-10 pt-7">
@@ -140,9 +190,56 @@ export function DetalleRecurso({
                 <span className={mono}>{usos.length}</span> lecciones · {programas.length} programas
               </span>
             </div>
-            <h1 className="mt-3 text-[22px] font-extrabold leading-tight tracking-[-0.02em]" style={{ textWrap: 'pretty' }}>
-              {nombre}
-            </h1>
+            {editandoNombre && !soloLectura ? (
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={nombreBorrador}
+                  disabled={guardando}
+                  onChange={(e) => setNombreBorrador(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') guardarNombre();
+                    if (e.key === 'Escape') { setEditandoNombre(false); setNombreBorrador(nombre); }
+                  }}
+                  className={`h-11 min-w-0 flex-1 rounded-[10px] border border-primary bg-card px-3 text-[20px] font-extrabold tracking-[-0.02em] outline-none ${focusRing}`}
+                  aria-label="Nombre del recurso"
+                />
+                <button
+                  type="button"
+                  onClick={guardarNombre}
+                  disabled={guardando}
+                  aria-label="Guardar nombre"
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-primary text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-50 ${focusRing}`}
+                >
+                  {guardando ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Check className="h-5 w-5" strokeWidth={2.2} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditandoNombre(false); setNombreBorrador(nombre); }}
+                  disabled={guardando}
+                  aria-label="Cancelar"
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-[10px] border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 ${focusRing}`}
+                >
+                  <X className="h-5 w-5" strokeWidth={1.75} />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 flex items-start gap-2">
+                <h1 className="min-w-0 flex-1 text-[22px] font-extrabold leading-tight tracking-[-0.02em]" style={{ textWrap: 'pretty' }}>
+                  {nombre}
+                </h1>
+                {!soloLectura && (
+                  <button
+                    type="button"
+                    onClick={() => { setNombreBorrador(nombre); setEditandoNombre(true); }}
+                    aria-label="Renombrar recurso"
+                    className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${focusRing}`}
+                  >
+                    <Pencil className="h-[17px] w-[17px]" strokeWidth={1.75} />
+                  </button>
+                )}
+              </div>
+            )}
 
             <dl className="mt-5 grid gap-3.5 sm:grid-cols-2">
               {metadatos.map((m) => (
@@ -157,13 +254,48 @@ export function DetalleRecurso({
 
             <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border pt-4">
               <span className={`${kicker} text-muted-foreground`}>Etiquetas</span>
-              {etiquetas.length === 0 && <span className="text-[12px] text-muted-foreground">sin etiquetas</span>}
-              {etiquetas.map((t) => (
+              {tags.length === 0 && soloLectura && <span className="text-[12px] text-muted-foreground">sin etiquetas</span>}
+              {tags.map((t) => (
                 <span key={t} className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 text-[12px] font-semibold ${softText}`}>
                   <Tag aria-hidden className="h-[13px] w-[13px]" strokeWidth={1.75} />
                   {t}
+                  {!soloLectura && (
+                    <button
+                      type="button"
+                      onClick={() => quitarTag(t)}
+                      disabled={guardando}
+                      aria-label={`Quitar etiqueta ${t}`}
+                      className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                    >
+                      <X className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                  )}
                 </span>
               ))}
+              {!soloLectura && (
+                <span className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-border bg-card pl-2.5 pr-1">
+                  <input
+                    value={nuevoTag}
+                    disabled={guardando}
+                    onChange={(e) => setNuevoTag(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); agregarTag(); }
+                    }}
+                    placeholder="añadir etiqueta…"
+                    aria-label="Añadir etiqueta"
+                    className="w-[120px] min-w-0 bg-transparent text-[12px] font-semibold outline-none placeholder:text-muted-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={agregarTag}
+                    disabled={guardando || !nuevoTag.trim()}
+                    aria-label="Agregar etiqueta"
+                    className={`grid h-5 w-5 place-items-center rounded-full bg-accent text-accent-foreground transition-colors hover:bg-primary hover:text-[color:var(--sidebar)] disabled:opacity-40 ${focusRing}`}
+                  >
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  </button>
+                </span>
+              )}
             </div>
           </div>
           </section>
@@ -186,7 +318,17 @@ export function DetalleRecurso({
             <ul className="max-h-[360px] overflow-y-auto">
               {usos.map((u, i) => (
                 <li key={u.id} className={i ? 'border-t border-border' : ''}>
-                  <div className="flex items-start gap-2.5 px-4 py-3">
+                  {/* Navega al course builder del programa donde vive la lección (§5C). El
+                      docente (soloLectura) no edita programas → fila no navegable. */}
+                  <Link
+                    href={`/studio/programas/${u.programaId}`}
+                    aria-disabled={soloLectura}
+                    tabIndex={soloLectura ? -1 : undefined}
+                    onClick={(e) => soloLectura && e.preventDefault()}
+                    className={`flex items-start gap-2.5 px-4 py-3 transition-colors ${
+                      soloLectura ? 'cursor-default' : `hover:bg-muted ${focusRing}`
+                    }`}
+                  >
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
                         <span className="text-[12px] font-bold text-secondary">{u.programa}</span>
@@ -199,8 +341,10 @@ export function DetalleRecurso({
                       </span>
                       <span className="mt-1 block text-[12.5px] font-medium leading-snug">{u.ruta}</span>
                     </span>
-                    <ChevronRight aria-hidden className="mt-0.5 h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
-                  </div>
+                    {!soloLectura && (
+                      <ChevronRight aria-hidden className="mt-0.5 h-[15px] w-[15px] shrink-0 text-muted-foreground" strokeWidth={2} />
+                    )}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -221,13 +365,26 @@ export function DetalleRecurso({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12.5px] font-semibold leading-snug">{v.nota}</span>
+                    <span className={`${mono} mt-0.5 block text-[11px] text-muted-foreground`}>{fechaCorta(v.fecha)}</span>
                   </span>
+                  {v.url && (
+                    <a
+                      href={v.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Ver/descargar ${v.etiqueta}`}
+                      className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${focusRing}`}
+                    >
+                      <Download aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      {v.actual ? 'Ver' : 'Ver versión'}
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>
             <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
               Al reemplazar el archivo, todas las lecciones que lo referencian sirven el nuevo (no se
-              copia). El historial detallado de versiones llegará con el versionado del programa.
+              copia). Cada versión anterior queda aquí para consultarla o descargarla.
             </p>
           </section>
         </aside>

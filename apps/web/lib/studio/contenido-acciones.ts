@@ -184,9 +184,68 @@ export async function crearRecurso(input: NuevoRecurso): Promise<ResultadoAccion
 }
 
 /**
+ * Renombra un recurso de la biblioteca. CRUD simple bajo RLS (`recursos_write` =
+ * `es_autoria`), mismo patrón que `renombrarPrograma`.
+ */
+export async function renombrarRecurso(id: string, nombre: string): Promise<ResultadoAccion<null>> {
+  const { userId } = await requireAutoria();
+  const limpio = nombre.trim();
+  if (!limpio) return { ok: false, error: 'El recurso necesita un nombre.' };
+  try {
+    const filas = await comoStaff(userId, async (sql) => {
+      const rows = await sql`
+        update lxp.recursos set nombre = ${limpio}, updated_at = now() where id = ${id}`;
+      return rows.count;
+    });
+    if (filas === 0) return { ok: false, error: 'Recurso inexistente o sin permiso.' };
+    revalidatePath('/studio/contenido');
+    revalidatePath(`/studio/contenido/${id}`);
+    return { ok: true, datos: null };
+  } catch (e) {
+    console.error('[renombrarRecurso] fallo:', e);
+    return { ok: false, error: 'No se pudo renombrar el recurso.' };
+  }
+}
+
+/**
+ * Actualiza las ETIQUETAS (texto libre · no catálogo) de un recurso. Normaliza:
+ * trim + minúsculas + sin `#` + sin vacíos + sin duplicados, tope de 12. RLS `es_autoria`.
+ */
+export async function actualizarEtiquetasRecurso(
+  id: string,
+  etiquetas: string[],
+): Promise<ResultadoAccion<{ etiquetas: string[] }>> {
+  const { userId } = await requireAutoria();
+  const limpias = [
+    ...new Set(
+      (etiquetas ?? [])
+        .map((t) => t.trim().toLowerCase().replace(/^#+/, '').trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 12);
+  try {
+    const filas = await comoStaff(userId, async (sql) => {
+      const rows = await sql`
+        update lxp.recursos set etiquetas = ${sql.array(limpias)}, updated_at = now() where id = ${id}`;
+      return rows.count;
+    });
+    if (filas === 0) return { ok: false, error: 'Recurso inexistente o sin permiso.' };
+    revalidatePath('/studio/contenido');
+    revalidatePath(`/studio/contenido/${id}`);
+    return { ok: true, datos: { etiquetas: limpias } };
+  } catch (e) {
+    console.error('[actualizarEtiquetasRecurso] fallo:', e);
+    return { ok: false, error: 'No se pudieron guardar las etiquetas.' };
+  }
+}
+
+/**
  * Reemplaza el ARCHIVO de un recurso: apunta al nuevo binario/artefacto y sube la
  * versión. Como el recurso vive una sola vez, TODAS las lecciones que lo referencian
  * sirven el nuevo (no se copian). El artefacto ya se firmó/ingirió en el api.
+ *
+ * Antes de sobrescribir, ARCHIVA la versión que sale en `lxp.recursos_versiones` (mig 0096)
+ * para que el detalle muestre el historial real y pueda verse/descargarse.
  */
 export async function reemplazarArchivoRecurso(
   id: string,
@@ -195,11 +254,15 @@ export async function reemplazarArchivoRecurso(
   const { userId } = await requireAutoria();
   try {
     const { version, paqueteViejo } = await comoStaff(userId, async (sql) => {
-      // Clave del paquete ANTERIOR (si lo era): al reemplazar queda huérfano en storage.
-      const viejo = contenidoIdDePaquete(
-        (await sql<{ storage_key: string | null }[]>`
-          select storage_key from lxp.recursos where id = ${id}`)[0]?.storage_key ?? null,
-      );
+      // Fila ACTUAL (la que va a ser superada): se archiva en el historial antes de pisarla.
+      const actual = (await sql<{ storage_key: string | null; version: number; meta: unknown }[]>`
+        select storage_key, version, meta from lxp.recursos where id = ${id}`)[0];
+      if (!actual) throw new Error('recurso inexistente o sin permiso');
+      const viejo = contenidoIdDePaquete(actual.storage_key);
+      // Historial: snapshot de la versión que sale (append-only · mig 0096).
+      await sql`
+        insert into lxp.recursos_versiones (recurso_id, version, storage_key, meta, created_by)
+        values (${id}, ${actual.version}, ${actual.storage_key}, ${sql.json((actual.meta ?? {}) as never)}, ${userId})`;
       const rows = await sql<{ version: number }[]>`
         update lxp.recursos
         set storage_key = ${nuevo.storageKey},

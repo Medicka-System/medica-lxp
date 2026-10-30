@@ -10,6 +10,7 @@ import type {
   RecursoDetalle,
   TipoRecurso,
   UsoRecurso,
+  VersionArchivo,
 } from '@/lib/studio/contenido-contrato';
 import type { CasoEditor, CasoResumen, DominioIaim } from '@/lib/studio/casos-contrato';
 import { comoTipoLeccion, type BloqueTeoria, type TipoLeccion } from '@/lib/studio/leccion-tipos';
@@ -1306,6 +1307,30 @@ async function construirPreview(
   }
 }
 
+/**
+ * Firma la URL de lectura/descarga de UNA versión del archivo según el tipo (historial ·
+ * mig 0096). Reusa los mismos readers que `construirPreview`. Los tipos sin binario
+ * descargable directo (h5p/scorm/xapi) no devuelven URL (el historial solo rotula).
+ */
+async function firmarLecturaVersion(
+  tipo: TipoRecurso,
+  storageKey: string | null,
+): Promise<string | undefined> {
+  if (!storageKey) return undefined;
+  switch (tipo) {
+    case 'imagen':
+      return (await firmarLecturaImagen(storageKey)) ?? undefined;
+    case 'pdf':
+    case 'word':
+    case 'ppt':
+      return (await firmarLecturaArchivo(storageKey)) ?? undefined;
+    case 'video':
+      return (await firmarReproduccionVideo(storageKey)) ?? undefined;
+    default:
+      return undefined;
+  }
+}
+
 export async function getRecursoDetalle(userId: string, recursoId: string): Promise<DetalleContenido> {
   try {
     const recurso = await comoStaff(userId, async (sql) => {
@@ -1335,6 +1360,7 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
       const usos = await sql<
         {
           id: string;
+          programa_id: string;
           programa: string;
           version: number;
           publicado: boolean;
@@ -1343,7 +1369,7 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
         }[]
       >`
         select distinct on (l.id)
-               l.id, p.nombre as programa, p.version, p.publicado,
+               l.id, p.id as programa_id, p.nombre as programa, p.version, p.publicado,
                m.nombre as modulo, l.nombre as leccion
         from lxp.bloques b
         join lxp.lecciones l on l.id = b.leccion_id
@@ -1363,6 +1389,44 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
 
       const preview = await construirPreview(r.tipo, r.storage_key);
 
+      // Historial real de versiones (mig 0096): las SUPERADAS viven en recursos_versiones;
+      // la vigente es la de `recursos`. Se firma la URL de lectura por tipo (descargable).
+      // try/catch local: si la tabla aún no existe, cae a solo la versión actual (no tumba
+      // el detalle entero como haría el esTablaInexistente de afuera).
+      let previas: { version: number; storage_key: string | null; created_at: Date }[] = [];
+      try {
+        previas = await sql<{ version: number; storage_key: string | null; created_at: Date }[]>`
+          select version, storage_key, created_at
+          from lxp.recursos_versiones
+          where recurso_id = ${recursoId}
+          order by version desc`;
+      } catch {
+        previas = [];
+      }
+      const urlActual = await firmarLecturaVersion(r.tipo, r.storage_key);
+      const versiones: VersionArchivo[] = [
+        {
+          id: `v${r.version}`,
+          etiqueta: `v${r.version}`,
+          nota: 'Versión actual',
+          fecha: r.updated_at,
+          actual: true,
+          ...(urlActual ? { url: urlActual } : {}),
+        },
+        ...(await Promise.all(
+          previas.map(async (v): Promise<VersionArchivo> => {
+            const url = await firmarLecturaVersion(r.tipo, v.storage_key);
+            return {
+              id: `v${v.version}-${v.created_at.getTime()}`,
+              etiqueta: `v${v.version}`,
+              nota: 'Versión anterior',
+              fecha: v.created_at,
+              ...(url ? { url } : {}),
+            };
+          }),
+        )),
+      ];
+
       return {
         id: r.id,
         tipo: r.tipo,
@@ -1375,17 +1439,15 @@ export async function getRecursoDetalle(userId: string, recursoId: string): Prom
         usos: usos.map(
           (u): UsoRecurso => ({
             id: u.id,
+            leccionId: u.id,
+            programaId: u.programa_id,
             programa: u.programa,
             version: u.version,
             ruta: `${u.modulo} · ${u.leccion}`,
             estadoLeccion: u.publicado ? 'publicada' : 'borrador',
           }),
         ),
-        // Historial de versiones del archivo = PENDIENTE (no hay tabla de versiones);
-        // se muestra solo la versión actual derivada de recursos.version.
-        versiones: [
-          { id: `v${r.version}`, etiqueta: `v${r.version}`, nota: 'Versión actual', fecha: r.updated_at, actual: true },
-        ],
+        versiones,
       };
     });
     return { pendienteDb: false, recurso };

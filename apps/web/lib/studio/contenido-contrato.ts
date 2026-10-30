@@ -55,13 +55,25 @@ export type Recurso = {
 
 export type UsoRecurso = {
   id: string;
+  /** Id de la LECCIÓN que referencia el recurso (para navegar al course builder). */
+  leccionId: string;
+  /** Id del PROGRAMA al que pertenece (destino del enlace: /studio/programas/:id). */
+  programaId: string;
   programa: string;
   version: number;
   ruta: string;
   estadoLeccion: 'publicada' | 'borrador';
 };
 
-export type VersionArchivo = { id: string; etiqueta: string; nota: string; fecha: Date; actual?: boolean };
+export type VersionArchivo = {
+  id: string;
+  etiqueta: string;
+  nota: string;
+  fecha: Date;
+  actual?: boolean;
+  /** URL firmada de lectura/descarga de esa versión (cuando el tipo es descargable). */
+  url?: string;
+};
 
 /**
  * PREVIEW reproducible del recurso en el detalle (§5B). El reader firma la URL/servidor del
