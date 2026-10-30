@@ -31,11 +31,15 @@ RUN pnpm --filter @campus/shared build
 RUN pnpm --filter @campus/db build
 COPY apps/api/ ./apps/api/
 RUN pnpm --filter @campus/api build
+# `pnpm deploy` arma un bundle AUTOCONTENIDO (§3): dist + node_modules de PRODUCCIÓN con
+# los workspaces (@campus/shared, @campus/db) resueltos como copias reales (no symlinks al
+# monorepo). Así el runtime NO necesita /repo entero.
+RUN pnpm --filter @campus/api --prod deploy /out
 
-# ── Runtime ──
+# ── Runtime (SLIM · solo el bundle deployado) ──
 FROM base AS runtime
 ENV NODE_ENV=production
-COPY --from=build /repo /repo
-WORKDIR /repo/apps/api
+WORKDIR /app
+COPY --from=build /out ./
 EXPOSE 8000
 CMD ["node", "dist/main.js"]

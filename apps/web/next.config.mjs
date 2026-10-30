@@ -92,6 +92,14 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@campus/shared'],
+  // Empaquetado Docker (igual que el CRM): genera `.next/standalone` con server.js
+  // autocontenido + node_modules PODADOS (file-tracing), en vez de arrastrar el monorepo
+  // entero al runtime. `outputFileTracingRoot` fija la raíz del MONOREPO para que el trace
+  // resuelva bien los workspaces pnpm (si no, Next infiere mal la raíz y poda de más).
+  // `@campus/shared` se bundlea vía transpilePackages; cornerstone es client-only (va a
+  // `.next/static`); `postgres` queda external y el trace lo copia a standalone.
+  output: 'standalone',
+  outputFileTracingRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../'),
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

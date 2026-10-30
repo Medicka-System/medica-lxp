@@ -31,10 +31,14 @@ RUN pnpm --filter @campus/shared build
 RUN pnpm --filter @campus/db build
 COPY apps/worker/ ./apps/worker/
 RUN pnpm --filter @campus/worker build
+# Bundle AUTOCONTENIDO (§3): dist + node_modules de PRODUCCIÓN con los workspaces
+# resueltos como copias reales + el BINARIO NATIVO de sharp (linux-x64, lo necesita el
+# job generar-derivados-imagen). El runtime NO necesita /repo entero.
+RUN pnpm --filter @campus/worker --prod deploy /out
 
-# ── Runtime ──
+# ── Runtime (SLIM · solo el bundle deployado) ──
 FROM base AS runtime
 ENV NODE_ENV=production
-COPY --from=build /repo /repo
-WORKDIR /repo/apps/worker
+WORKDIR /app
+COPY --from=build /out ./
 CMD ["node", "dist/main.js"]

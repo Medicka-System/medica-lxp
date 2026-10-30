@@ -53,11 +53,21 @@ COPY apps/web/ ./apps/web/
 RUN --mount=type=cache,id=next-cache-web,target=/repo/apps/web/.next/cache \
     pnpm --filter @campus/web build
 
-# ── Runtime ──
+# ── Runtime (SLIM · Next standalone, como el CRM) ──
+# En vez de `COPY /repo /repo` (monorepo + node_modules enteros → imagen de ~2GB), se
+# copia SOLO la salida standalone de Next: server.js autocontenido + node_modules podados
+# por file-tracing (`output: 'standalone'`, §3). `outputFileTracingRoot` = raíz del
+# monorepo, así que standalone MIRRORea /repo: server.js queda en `apps/web/server.js`.
+# `.next/static` y `public` NO van en standalone → se copian aparte (incl. el `sw.js` de
+# serwist). Resultado: imagen de cientos de MB en vez de 2GB.
 FROM base AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=build /repo /repo
-WORKDIR /repo/apps/web
+WORKDIR /app
+COPY --from=build /repo/apps/web/.next/standalone ./
+COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/public ./apps/web/public
 EXPOSE 3000
-CMD ["pnpm", "start", "-p", "3000"]
+# El server.js de standalone lee PORT del entorno (compose fija 3000).
+ENV PORT=3000
+CMD ["node", "apps/web/server.js"]
