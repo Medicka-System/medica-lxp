@@ -15,7 +15,6 @@ import { Check, ChevronRight, Sparkles, TriangleAlert } from 'lucide-react';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
 import { fechaCorta } from '@/lib/format';
 import type { EstadoGrupo, GrupoSeguimientoCard } from '../_lib/contrato';
-import { PanelEco } from './panel-eco';
 
 type FiltroGrupos = 'todos' | 'riesgo' | 'al-dia';
 
@@ -226,8 +225,6 @@ export function ListaGrupos({
           </ul>
         )}
       </div>
-
-      <PanelEco resumen={resumenEco} />
     </div>
   );
 }

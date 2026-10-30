@@ -3,9 +3,9 @@
 /**
  * Columna 3 · Eco (§7A). TOOLS-FIRST: «Qué está preguntando» (resumen del hilo), el
  * PATRÓN («otros N del mismo módulo esperan») y el MATERIAL para enlazar se DERIVAN de
- * datos reales (SQL). La redacción por LLM y el chat conversacional son PLACEHOLDER
- * hasta el endpoint de `apps/api` (§7A/§13). Colapsable a un riel de 56px. Eco asiste;
- * el docente decide (§7A) — nunca envía por su cuenta.
+ * datos reales (SQL). El CHAT conversacional es REAL: `preguntarAEco` → `POST /ai/eco`
+ * (surface `alumno`, el alumno de la consulta) — mismo cliente y surface que <ChatEco>.
+ * Colapsable a un riel de 56px. Eco asiste; el docente decide (§7A) — nunca envía por su cuenta.
  *
  * Movimiento (§5A · Ola motion): la transición cinta↔panel ya NO es un swap instantáneo.
  * MISMA técnica que EcoRailValidacion (la superficie de Eco equivalente: su padre da
@@ -18,12 +18,17 @@
  * (--ease-entrada al abrir, --ease-salida al cerrar); reduced-motion lo deja instantáneo.
  */
 
+import { useRef, useState } from 'react';
 import { BookCopy, MessageCircle, Send, Users, X } from 'lucide-react';
 import { mono, softText, focusRing, EcoMark } from './ui';
+import { preguntarAEco } from '@/lib/eco/chat.server';
+import type { FuenteEco, TurnoEco } from '@/lib/eco/tipos';
 import type { RecursoEnlazable, SugerenciaEcoConsulta } from '../../../_lib/contrato';
 
 export type PanelEcoConsultasProps = {
   eco: SugerenciaEcoConsulta | null;
+  /** Alumno de la consulta (surface `alumno` del chat); `null` si la contraparte es staff. */
+  alumnoId: string | null;
   ecoAbierto: boolean;
   setEcoAbierto: (v: boolean) => void;
   onEnlazar: (r: RecursoEnlazable) => void;
@@ -31,14 +36,49 @@ export type PanelEcoConsultasProps = {
   onLlevarAlForo: () => void;
 };
 
+type BurbujaEco = { id: number; de: 'docente' | 'eco'; texto: string; fuentes?: FuenteEco[] };
+
 export function PanelEcoConsultas({
   eco,
+  alumnoId,
   ecoAbierto,
   setEcoAbierto,
   onEnlazar,
   onResponderATodos,
   onLlevarAlForo,
 }: PanelEcoConsultasProps) {
+  const [burbujas, setBurbujas] = useState<BurbujaEco[]>([]);
+  const [texto, setTexto] = useState('');
+  const [pensando, setPensando] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const contador = useRef(0);
+
+  async function enviarAEco(pregunta: string) {
+    const t = pregunta.trim();
+    if (!t || pensando || !alumnoId) return;
+    setChatError(null);
+    setTexto('');
+
+    const idU = ++contador.current;
+    const nuevas: BurbujaEco[] = [...burbujas, { id: idU, de: 'docente', texto: t }];
+    setBurbujas(nuevas);
+    setPensando(true);
+
+    const historial: TurnoEco[] = nuevas.map((b) => ({
+      rol: b.de === 'docente' ? 'usuario' : 'eco',
+      texto: b.texto,
+    }));
+    const r = await preguntarAEco({ surface: 'alumno', entidadId: alumnoId, mensajes: historial });
+    setPensando(false);
+    if (!r.ok) {
+      setChatError(r.error);
+      return;
+    }
+    setBurbujas((prev) => [
+      ...prev,
+      { id: ++contador.current, de: 'eco', texto: r.texto, fuentes: r.fuentes },
+    ]);
+  }
   // Transición compartida: duración base + curva DIRECCIONAL (entra al abrir, sale al
   // cerrar) + corte por reduced-motion. La usan el ancho del aside y la opacidad de las
   // dos capas. Mismo patrón que EcoRailValidacion.
@@ -189,42 +229,100 @@ export function PanelEcoConsultas({
                   </ul>
                 </section>
               )}
+
+              {/* chat conversacional REAL (§7A · POST /ai/eco, surface `alumno`) */}
+              {burbujas.length > 0 && (
+                <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3.5">
+                  {burbujas.map((b) =>
+                    b.de === 'docente' ? (
+                      <div key={b.id} className="flex justify-end">
+                        <p className="max-w-[84%] rounded-[14px] rounded-br-[4px] bg-sidebar px-3 py-2 text-[12.5px] font-medium leading-relaxed text-sidebar-foreground">
+                          {b.texto}
+                        </p>
+                      </div>
+                    ) : (
+                      <div key={b.id} className="flex gap-2">
+                        <EcoMark size={24} />
+                        <div className="min-w-0 flex-1">
+                          <p className={`whitespace-pre-wrap text-[12.5px] leading-relaxed ${softText}`}>{b.texto}</p>
+                          {b.fuentes && b.fuentes.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {b.fuentes.map((f, i) => (
+                                <span
+                                  key={`${f.tipo}-${f.id ?? i}`}
+                                  className="inline-flex h-[20px] items-center rounded-full border border-border bg-muted px-2 text-[10px] font-semibold text-muted-foreground"
+                                >
+                                  {f.titulo ?? f.tipo}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                  {pensando && (
+                    <p className="text-[11.5px] italic text-muted-foreground">Eco está consultando los datos…</p>
+                  )}
+                </section>
+              )}
+
+              {chatError && (
+                <p className="rounded-[9px] border border-[color:var(--destructive-border)] bg-[color:var(--destructive-surface)] px-3 py-2 text-[11px] text-[color:var(--destructive-foreground)]">
+                  {chatError}
+                </p>
+              )}
             </div>
 
             <div className="shrink-0 border-t border-border px-3.5 pb-3.5 pt-3">
-              <div className="flex gap-1.5 overflow-x-auto">
-                {eco.ajustes.map((a) => (
-                  <button
-                    key={a}
-                    type="button"
-                    disabled
-                    title="Eco conversacional: pendiente de endpoint (§7A)"
-                    className={`h-[30px] shrink-0 cursor-not-allowed whitespace-nowrap rounded-full border border-border bg-card px-2.5 text-[11px] font-semibold opacity-60 ${softText}`}
+              {alumnoId ? (
+                <>
+                  {burbujas.length === 0 && (
+                    <div className="flex gap-1.5 overflow-x-auto">
+                      {eco.ajustes.map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          disabled={pensando}
+                          onClick={() => enviarAEco(a)}
+                          className={`h-[30px] shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-[color:var(--info-border)] hover:bg-[color:var(--info-surface)] hover:text-[color:var(--info-foreground)] disabled:opacity-60 ${softText} ${focusRing}`}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <form
+                    className="mt-2.5 flex h-[42px] items-center gap-2.5 rounded-full border border-border bg-muted px-3.5"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      enviarAEco(texto);
+                    }}
                   >
-                    {a}
-                  </button>
-                ))}
-              </div>
-              <form
-                className="mt-2.5 flex h-[42px] items-center gap-2.5 rounded-full border border-border bg-muted px-3.5 opacity-60"
-                onSubmit={(e) => e.preventDefault()}
-              >
-                <span className="sr-only">Pedirle algo a Eco (próximamente)</span>
-                <input
-                  type="text"
-                  disabled
-                  placeholder="Pídale algo a Eco… (próximamente)"
-                  className="w-full min-w-0 cursor-not-allowed bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
-                />
-                <button
-                  type="submit"
-                  disabled
-                  aria-label="Enviar"
-                  className={`grid h-7 w-7 shrink-0 cursor-not-allowed place-items-center rounded-full bg-[color:var(--info-foreground)] text-white opacity-70 ${focusRing}`}
-                >
-                  <Send aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
-              </form>
+                    <span className="sr-only">Pedirle algo a Eco</span>
+                    <input
+                      type="text"
+                      value={texto}
+                      disabled={pensando}
+                      onChange={(e) => setTexto(e.target.value)}
+                      placeholder="Pídale algo a Eco sobre este alumno…"
+                      className="w-full min-w-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+                    />
+                    <button
+                      type="submit"
+                      disabled={pensando || !texto.trim()}
+                      aria-label="Enviar"
+                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[color:var(--info-foreground)] text-white disabled:opacity-50 ${focusRing}`}
+                    >
+                      <Send aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <p className={`text-[11.5px] leading-snug ${softText}`}>
+                  El chat de Eco está disponible en consultas con alumnos (consulta su expediente bajo RLS).
+                </p>
+              )}
             </div>
           </>
         )}

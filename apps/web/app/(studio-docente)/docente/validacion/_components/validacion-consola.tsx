@@ -850,8 +850,13 @@ export function ValidacionConsola({ casos }: { casos: CasoValidacion[] }) {
         />
       )}
 
-      {/* ════════ 3 · ECO (colapsable · PLACEHOLDER conversacional) ════════ */}
-      <EcoRailValidacion abierta={ecoAbierta} onAbrir={() => setEcoAbierta(true)} onCerrar={() => setEcoAbierta(false)} />
+      {/* ════════ 3 · ECO (colapsable · chat conversacional REAL · POST /ai/eco) ════════ */}
+      <EcoRailValidacion
+        abierta={ecoAbierta}
+        onAbrir={() => setEcoAbierta(true)}
+        onCerrar={() => setEcoAbierta(false)}
+        grupoId={casoActivo?.grupoId ?? null}
+      />
 
       {/* Confirmación del lote: el resumen antes de firmar (Eco propone, el docente firma). */}
       {loteModal && (

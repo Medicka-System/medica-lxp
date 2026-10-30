@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCanalRealtime } from '@/lib/realtime/use-canal';
+import { preguntarAEco } from '@/lib/eco/chat.server';
 import { cambiarEstadoConsulta, iniciarConsultaDocente, responderConsulta } from '../../../_lib/acciones';
 import type { ConsultaDetalleDoc, ConsultasDocenteData, RecursoEnlazable } from '../../../_lib/contrato';
 import { NuevaConversacion, type GrupoContacto } from '@/app/(campus)/consultas/_components/NuevaConversacion';
@@ -47,12 +48,17 @@ export function ConsultasConsola({
   const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null);
   const [ecoAbierto, setEcoAbierto] = useState(true);
   const [verBorrador, setVerBorrador] = useState(false);
+  const [borradorEco, setBorradorEco] = useState<string | null>(null);
+  const [generandoBorrador, setGenerandoBorrador] = useState(false);
   const [respuesta, setRespuesta] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, startTransition] = useTransition();
 
   const activaId = activa?.id ?? null;
+  // Surface `alumno` (§7A): el borrador/chat de Eco va sobre el alumno de la consulta.
+  // `null` si la contraparte es staff (no hay expediente de alumno que consultar).
+  const alumnoId = activa?.contraparte.tipo === 'alumno' ? activa.contraparte.id : null;
 
   // Realtime (§7): el alumno (u otra parte) escribe en el hilo ABIERTO → refresca el
   // server component (re-consulta bajo RLS `es_docente_o_mas`). No-op sin Supabase.
@@ -61,10 +67,54 @@ export function ConsultasConsola({
   // Al cambiar de hilo (nav), limpia el borrador de Eco y el composer.
   useEffect(() => {
     setVerBorrador(false);
+    setBorradorEco(null);
     setRespuesta('');
     setError(null);
     setAviso(null);
   }, [activaId]);
+
+  /**
+   * Eco redacta un BORRADOR de respuesta (§7A · `POST /ai/eco`, surface `alumno`). Eco
+   * trae el contexto real del alumno con tools bajo RLS; el docente revisa, edita y
+   * decide — nada se asienta solo. El borrador vive en el cliente (no se persiste).
+   */
+  function pedirBorrador() {
+    if (!activa || generandoBorrador) return;
+    if (!alumnoId) {
+      setAviso('El borrador de Eco es para consultas de alumnos (necesita su expediente).');
+      return;
+    }
+    if (borradorEco) {
+      // Ya hay borrador: solo mostrarlo de nuevo, sin regenerar.
+      setVerBorrador(true);
+      return;
+    }
+    setError(null);
+    setAviso(null);
+    setGenerandoBorrador(true);
+    startTransition(async () => {
+      const r = await preguntarAEco({
+        surface: 'alumno',
+        entidadId: alumnoId,
+        mensajes: [
+          {
+            rol: 'usuario',
+            texto:
+              'Redacta un BORRADOR de respuesta profesional a la última duda de este alumno en nuestra consulta. ' +
+              `Fírmalo como ${data.docente.nombre}. Básate en su contexto real (bajo RLS); no inventes datos ` +
+              'clínicos: si falta información, indícalo. Devuelve solo el texto de la respuesta.',
+          },
+        ],
+      });
+      setGenerandoBorrador(false);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      setBorradorEco(r.texto);
+      setVerBorrador(true);
+    });
+  }
 
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -159,16 +209,19 @@ export function ConsultasConsola({
         setRespuesta={setRespuesta}
         verBorrador={verBorrador}
         setVerBorrador={setVerBorrador}
+        borradorEco={borradorEco}
+        generandoBorrador={generandoBorrador}
         enviando={enviando}
         error={error}
         aviso={aviso}
         onResponder={responder}
         onEnlazar={() => activa && activa.eco.recursos[0] && enlazar(activa.eco.recursos[0])}
-        onPedirBorrador={() => setVerBorrador(true)}
+        onPedirBorrador={pedirBorrador}
         onToggleEstado={toggleEstado}
       />
       <PanelEcoConsultas
         eco={activa?.eco ?? null}
+        alumnoId={alumnoId}
         ecoAbierto={ecoAbierto}
         setEcoAbierto={setEcoAbierto}
         onEnlazar={enlazar}
