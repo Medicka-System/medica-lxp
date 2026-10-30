@@ -68,6 +68,10 @@ COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /repo/apps/web/public ./apps/web/public
 EXPOSE 3000
-# El server.js de standalone lee PORT del entorno (compose fija 3000).
+# El server.js de standalone lee PORT y HOSTNAME del entorno. Docker fija HOSTNAME al
+# id del contenedor → sin esto, Next bindea a esa interfaz y NO a 0.0.0.0, así que
+# `localhost:3000` (el healthcheck de compose) y traefik por localhost fallan aunque
+# sirva en su IP. Forzar 0.0.0.0 es el patrón estándar de Next standalone en Docker.
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 CMD ["node", "apps/web/server.js"]
