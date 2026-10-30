@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSesionStaff, etiquetaRol } from '@/lib/studio/session';
 import { iniciales } from '@/components/avatar';
+import { getNotificacionesStaff } from '@/lib/campus/notificaciones-datos';
 import { AdminShell } from './_components/admin-shell';
 
 /** Datos por usuario (RLS + rol) → render dinámico, no estático. */
@@ -29,6 +30,9 @@ export default async function StudioAdminLayout({
   }
   const esSuper = staff.rol === 'super_admin';
 
+  // Campana del header: notificaciones PROPIAS del staff (§8 job #12), bajo RLS.
+  const { noLeidas, recientes } = await getNotificacionesStaff(staff.userId);
+
   return (
     <AdminShell
       usuario={{
@@ -37,8 +41,9 @@ export default async function StudioAdminLayout({
         rol: etiquetaRol(staff.rol),
         esSuper,
       }}
-      notificaciones={0}
+      notificaciones={noLeidas}
       hayAlertaCritica={false}
+      notificacionesRecientes={recientes}
     >
       {children}
     </AdminShell>

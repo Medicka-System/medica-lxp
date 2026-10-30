@@ -88,6 +88,41 @@ export async function crearAnuncio(_prev: EstadoForm, formData: FormData): Promi
 }
 
 /**
+ * Eco REDACTA el cuerpo del anuncio (§7A · human-in-loop). Llama al dominio
+ * (`POST /ai/anuncio/borrador`), que one-shot devuelve el texto; el admin lo edita y
+ * publica — nada se asienta aquí. No es CRUD → va al `api` (Regla de Oro §2).
+ */
+export async function redactarBorradorAnuncio(datos: {
+  tema: string;
+  alcance?: string;
+}): Promise<{ borrador: string; aviso?: string; error?: string }> {
+  const staff = await getSesionStaff();
+  if (staff.rol !== 'admin' && staff.rol !== 'super_admin') {
+    return { borrador: '', error: 'No tiene permiso para redactar anuncios.' };
+  }
+  const tema = datos.tema?.trim();
+  if (!tema) return { borrador: '', error: 'Escribe primero el título (tema del anuncio).' };
+
+  const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+  try {
+    const res = await fetch(`${base}/ai/anuncio/borrador`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tema, alcance: datos.alcance }),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`anuncio/borrador HTTP ${res.status}`);
+    const r = (await res.json()) as { borrador?: string; aviso?: string };
+    const salida: { borrador: string; aviso?: string } = { borrador: (r.borrador ?? '').trim() };
+    if (r.aviso) salida.aviso = r.aviso;
+    return salida;
+  } catch (e) {
+    console.error('[redactarBorradorAnuncio] fallo al contactar el dominio:', e);
+    return { borrador: '', error: 'No se pudo contactar a Eco (apps/api). ¿Está levantada la API?' };
+  }
+}
+
+/**
  * Encola el fan-out del anuncio al motor de notificaciones (`POST /notificaciones/anuncio`,
  * §8 job #12). BEST-EFFORT: nunca lanza — la publicación no depende de que el api esté arriba.
  */

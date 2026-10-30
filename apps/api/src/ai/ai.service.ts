@@ -284,6 +284,62 @@ export class AiService implements OnModuleInit {
     return salida;
   }
 
+  /**
+   * Eco REDACTA el borrador del CUERPO de un anuncio oficial (admin · §6/§7A) a
+   * partir de un tema y el alcance elegido. One-shot (no el chat read-only). El
+   * admin lo revisa, edita y publica — nada se asienta aquí (human-in-loop · §7A).
+   * Consume tokens (registra en `lxp.eco_uso`).
+   */
+  async redactarBorradorAnuncio(datos: {
+    tema: string;
+    alcance?: string;
+  }): Promise<{ borrador: string; modelo: string; aviso?: string }> {
+    const tema = datos.tema?.trim();
+    if (!tema) {
+      return { borrador: '', modelo: 'n/a', aviso: 'Escribe primero el tema del anuncio.' };
+    }
+
+    const cfg = await this.config.activa();
+    // Prosa → modelo de chat si la config lo define; si no, el de juicio (§7A).
+    const refModelo = cfg.modelos.chat ?? cfg.modelos.juicio;
+    const proveedor = this.proveedores.obtener(refModelo.proveedor);
+    const aQuien = datos.alcance?.trim() ? ` La audiencia es: ${datos.alcance.trim()}.` : '';
+
+    const resp = await proveedor.generar({
+      system:
+        'Eres Eco, asistente del administrador de un campus de ultrasonido diagnóstico y POCUS. ' +
+        'Tu tarea AHORA es REDACTAR el CUERPO de un ANUNCIO oficial de la escuela que el ADMIN ' +
+        'publicará. Escríbelo en español, tono institucional, cálido y claro, dirigido a médicos ' +
+        'en formación. Ve al punto: qué pasa, a quién afecta y qué debe hacer. NO inventes fechas, ' +
+        'cifras ni datos que no estén en el tema. Es un BORRADOR: el admin lo revisa, edita y ' +
+        'publica — no afirmes que ya se publicó ni lo cierres como definitivo. Devuelve SOLO el ' +
+        'texto del cuerpo, sin título, encabezados, firmas ni comillas.',
+      prompt: `Tema del anuncio: ${tema}.${aQuien}\n\nRedacta el cuerpo del anuncio.`,
+      modelo: refModelo.modelo,
+      temperatura: cfg.temperatura,
+      maxTokens: cfg.maxTokens,
+    });
+
+    await this.telemetria.registrar({
+      modelo: resp.modelo,
+      paso: 'borrador_anuncio',
+      objetoTipo: 'anuncio',
+      objetoId: 'nuevo',
+      tokens: resp.tokens,
+    });
+
+    const borrador = resp.texto.trim();
+    const salida: { borrador: string; modelo: string; aviso?: string } = {
+      borrador,
+      modelo: resp.modelo,
+    };
+    if (resp.proveedor === 'mock') {
+      salida.aviso = 'Eco corre en MOCK: el borrador no es real. Configura ECO_PROVIDER + key (§3).';
+    }
+    this.logger.log(`Eco redactó borrador de anuncio (${resp.modelo}).`);
+    return salida;
+  }
+
   // ── Pipeline en lote (lo dispara el worker `eco-evaluacion`) ───────────────
 
   /**

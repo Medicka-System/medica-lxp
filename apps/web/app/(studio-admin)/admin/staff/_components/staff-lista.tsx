@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Lock, Plus, Search, Sparkles } from 'lucide-react';
+import { ExternalLink, Lock, Plus, Search } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
 import { ChipRol } from './rol-chip';
@@ -63,15 +63,8 @@ export function StaffLista({ data }: { data: StaffData }) {
           </p>
         </div>
         <div className="ml-auto flex gap-2.5">
-          <button
-            type="button"
-            disabled
-            title="Eco analista — próximamente (por API)"
-            className={`inline-flex h-10 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 text-[12.5px] font-bold text-[color:var(--info-foreground)] opacity-70 ${focusRing}`}
-          >
-            <Sparkles aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            Preguntar a Eco
-          </button>
+          {/* Eco analista: vive en el header del Studio (chat de escuela) y en el
+              detalle del miembro; no un botón mock por lista (§7A). */}
           <button
             type="button"
             disabled

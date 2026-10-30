@@ -201,6 +201,20 @@ export class AiController {
   }
 
   /**
+   * Eco REDACTA el borrador del cuerpo de un anuncio oficial (admin · §6/§7A) a
+   * partir de un tema y el alcance. One-shot; el admin lo edita y publica — nunca
+   * auto-publica. Consume tokens (registra en eco_uso).
+   */
+  @Post('anuncio/borrador')
+  @HttpCode(200)
+  redactarBorradorAnuncio(
+    @Body() body: { tema?: string; alcance?: string },
+  ): Promise<{ borrador: string; modelo: string; aviso?: string }> {
+    if (!body?.tema?.trim()) throw new BadRequestException('tema es requerido');
+    return this.ai.redactarBorradorAnuncio({ tema: body.tema, alcance: body.alcance });
+  }
+
+  /**
    * Eco PROPONE un examen de autoevaluación (course builder · §7A). Devuelve
    * reactivos borrador; el diseñador los revisa e importa — nada se asienta aquí.
    */

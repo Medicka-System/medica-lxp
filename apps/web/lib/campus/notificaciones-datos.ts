@@ -3,7 +3,7 @@ import type {
   PreferenciasNotificacion,
   TipoNotificacion,
 } from '@campus/shared';
-import { comoAlumno } from '@/lib/db.server';
+import { comoAlumno, comoStaff } from '@/lib/db.server';
 
 /**
  * Datos del CENTRO DE NOTIFICACIONES del alumno (§8 job #12 · Sprint 8.5). Lectura
@@ -67,6 +67,56 @@ export async function contarNoLeidas(userId: string): Promise<number> {
       from lxp.notificaciones
       where leida = false`;
     return rows[0]?.n ?? 0;
+  });
+}
+
+/**
+ * Panel de notificaciones del STAFF (campana del header del Studio · §5B). A diferencia
+ * de `contarNoLeidas`, filtra EXPLÍCITAMENTE por `id_usuario`: bajo `comoStaff` la policy
+ * `notificaciones_select` abre todas las filas (`es_staff()`), así que el filtro propio
+ * es lo que mantiene la campana PERSONAL. Devuelve el conteo sin leer + las recientes.
+ */
+export async function getNotificacionesStaff(
+  userId: string,
+  limite = 8,
+): Promise<{ noLeidas: number; recientes: NotificacionItem[] }> {
+  return comoStaff(userId, async (sql) => {
+    const [conteo, filas] = await Promise.all([
+      sql<{ n: number }[]>`
+        select count(*)::int as n from lxp.notificaciones
+        where id_usuario = ${userId} and leida = false`,
+      sql<
+        {
+          id: string;
+          tipo: TipoNotificacion;
+          titulo: string;
+          cuerpo: string;
+          entidad_tipo: string | null;
+          entidad_id: string | null;
+          leida: boolean;
+          created_at: Date;
+        }[]
+      >`
+        select id, tipo::text as tipo, titulo, cuerpo,
+               entidad_tipo, entidad_id, leida, created_at
+        from lxp.notificaciones
+        where id_usuario = ${userId}
+        order by created_at desc
+        limit ${limite}`,
+    ]);
+    return {
+      noLeidas: conteo[0]?.n ?? 0,
+      recientes: filas.map((r) => ({
+        id: r.id,
+        tipo: r.tipo,
+        titulo: r.titulo,
+        cuerpo: r.cuerpo,
+        entidadTipo: r.entidad_tipo,
+        entidadId: r.entidad_id,
+        leida: r.leida,
+        creadaEn: r.created_at.toISOString(),
+      })),
+    };
   });
 }
 

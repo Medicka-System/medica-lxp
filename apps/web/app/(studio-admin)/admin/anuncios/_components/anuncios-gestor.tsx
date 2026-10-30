@@ -4,9 +4,11 @@
  * Studio · Anuncios — gestor de comunicación oficial (§6). Lista real de
  * `lxp.anuncios` + composer que ESCRIBE de verdad (server action bajo RLS). El rol
  * acota el alcance (§5B). In-app siempre va; correo/WhatsApp los elige quien publica;
- * la caducidad es obligatoria. Vistas y "Redactar con Eco" = placeholder (§7A/§11).
+ * la caducidad es obligatoria. "Redactar con Eco" es real (one-shot al dominio §7A,
+ * human-in-loop). Las "vistas" siguen siendo placeholder: no hay registro de lectura
+ * de anuncios en `lxp.*` todavía (tipo "c" · por construir).
  */
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useState, useTransition } from 'react';
 import {
   AlertTriangle,
   Calendar,
@@ -23,7 +25,7 @@ import {
 } from 'lucide-react';
 import { mono, kicker, softText, focusRing } from '@/components/tokens';
 import { Select } from '@/components/ui/select';
-import { crearAnuncio, type EstadoForm } from './_actions';
+import { crearAnuncio, redactarBorradorAnuncio, type EstadoForm } from './_actions';
 import {
   ALCANCE_POR_ROL,
   ETIQUETA_ALCANCE,
@@ -277,7 +279,29 @@ function Composer({
   const [correo, setCorreo] = useState(true);
   const [whatsapp, setWhatsapp] = useState(false);
 
+  // Título y cuerpo controlados para que Eco pueda rellenar el borrador (§7A).
+  const [titulo, setTitulo] = useState('');
+  const [cuerpo, setCuerpo] = useState('');
+  const [ecoPending, iniciarEco] = useTransition();
+  const [ecoAviso, setEcoAviso] = useState<string | null>(null);
+
   const canales = ['in_app', ...(correo ? ['correo'] : []), ...(whatsapp ? ['whatsapp'] : [])].join(',');
+
+  function redactarConEco() {
+    setEcoAviso(null);
+    iniciarEco(async () => {
+      const r = await redactarBorradorAnuncio({
+        tema: titulo,
+        alcance: ETIQUETA_ALCANCE[alcance],
+      });
+      if (r.error) {
+        setEcoAviso(r.error);
+        return;
+      }
+      if (r.borrador) setCuerpo(r.borrador);
+      if (r.aviso) setEcoAviso(r.aviso);
+    });
+  }
 
   return (
     <form key={formKey} action={accion} className="mt-4 rounded-xl border border-border bg-card p-5 shadow-rest">
@@ -287,14 +311,27 @@ function Composer({
 
       <div className="flex items-center gap-2.5">
         <p className={`${kicker} min-w-0 flex-1 text-muted-foreground`}>Nuevo anuncio</p>
-        <span
-          title="Redactar con Eco — próximamente (por API)"
-          className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12px] font-bold text-[color:var(--info-foreground)] opacity-70"
+        <button
+          type="button"
+          onClick={redactarConEco}
+          disabled={ecoPending || titulo.trim().length < 3}
+          title={
+            titulo.trim().length < 3
+              ? 'Escribe primero el título (tema del anuncio)'
+              : 'Eco redacta el cuerpo a partir del título; usted lo edita antes de publicar'
+          }
+          className={`inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
         >
-          <Sparkles aria-hidden className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Redactar con Eco
-        </span>
+          <Sparkles aria-hidden className={`h-3.5 w-3.5 ${ecoPending ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+          {ecoPending ? 'Redactando…' : 'Redactar con Eco'}
+        </button>
       </div>
+
+      {ecoAviso && (
+        <p className="mt-2.5 rounded-[9px] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-3 py-2 text-[11.5px] font-semibold text-[color:var(--warning-foreground)]">
+          {ecoAviso}
+        </p>
+      )}
 
       <label className="mt-4 block">
         <span className="block text-[11.5px] font-semibold">Título</span>
@@ -303,6 +340,8 @@ function Composer({
           type="text"
           required
           maxLength={90}
+          value={titulo}
+          onChange={(e) => setTitulo(e.target.value)}
           placeholder="Ya está abierto el módulo de Doppler renal"
           className={`mt-1.5 h-[46px] w-full rounded-[10px] border border-border bg-card px-3.5 text-[15px] font-bold text-foreground outline-none transition-colors focus:border-secondary ${focusRing}`}
         />
@@ -314,6 +353,8 @@ function Composer({
           name="cuerpo"
           required
           rows={4}
+          value={cuerpo}
+          onChange={(e) => setCuerpo(e.target.value)}
           placeholder="Doctoras y doctores: desde hoy pueden entrar al módulo…"
           className={`mt-1.5 w-full rounded-[10px] border border-border bg-card px-3.5 py-3 text-[13.5px] leading-relaxed text-foreground outline-none transition-colors focus:border-secondary ${focusRing}`}
         />

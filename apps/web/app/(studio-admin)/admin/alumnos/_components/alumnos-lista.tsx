@@ -10,7 +10,7 @@
  */
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ChevronDown, Download, Lock, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Download, Lock, Search } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
 import { Select } from '@/components/ui/select';
@@ -119,15 +119,8 @@ export function AlumnosLista({ data }: { data: AlumnosData }) {
           </p>
         </div>
         <div className="ml-auto flex gap-2.5">
-          <button
-            type="button"
-            disabled
-            title="Eco analista — próximamente (por API)"
-            className={`inline-flex h-10 cursor-not-allowed items-center gap-2 whitespace-nowrap rounded-[10px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 text-[12.5px] font-bold text-[color:var(--info-foreground)] opacity-70 ${focusRing}`}
-          >
-            <Sparkles aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            Preguntar a Eco
-          </button>
+          {/* Eco analista: vive en el header del Studio (chat de escuela) y en el
+              expediente del alumno; no un botón mock por lista (§7A). */}
           <button
             type="button"
             onClick={exportarCSV}
