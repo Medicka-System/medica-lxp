@@ -275,6 +275,25 @@ export async function publicarCaso(casoId: string, publicado: boolean): Promise<
   await comoStaff(userId, async (sql) => {
     await sql`update lxp.casos_biblioteca set publicado = ${publicado} where id = ${casoId}`;
   });
+  // Al publicar, (re)indexa la verdad del caso para el RAG de Eco (§7A). Mismo
+  // mecanismo que `rubricas`: encola a la cola `indexar-rag` con el payload
+  // `{fuenteTipo:'caso_biblioteca', fuenteId: casoId}` — aquí vía el endpoint de
+  // dominio `POST /ai/indexar` (el web no tiene Redis; el `api` es el productor).
+  // El worker es idempotente (borra-y-reinserta por fuente), así que republicar
+  // no duplica. BEST-EFFORT (igual que la derivación de portadas): si el `api` no
+  // responde, se loguea y la publicación NO se cae — la indexación queda pendiente.
+  if (publicado) {
+    const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    try {
+      await fetch(`${base}/ai/indexar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fuenteTipo: 'caso_biblioteca', fuenteId: casoId }),
+      });
+    } catch (e) {
+      console.error('[publicarCaso] encolar indexación RAG (no fatal):', e);
+    }
+  }
   refrescarCaso(casoId);
 }
 

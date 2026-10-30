@@ -1,9 +1,12 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { QUEUE_INDEXAR_RAG, type IndexarRagJob } from '@campus/shared';
 import { DbService } from '../db/db.service';
+import { ColasProducer } from '../colas/colas-producer';
 import {
   accionesPosibles,
   esVisibleParaAlumno,
@@ -18,6 +21,7 @@ import {
   cambiarEstadoSimple,
   cargarEstado,
   cargarHistorial,
+  cargarLeccionIdsDePrograma,
   cargarSnapshot,
   construirSnapshot,
   publicarConSnapshot,
@@ -43,7 +47,12 @@ export interface ResultadoTransicion {
  */
 @Injectable()
 export class PublicacionService {
-  constructor(private readonly db: DbService) {}
+  private readonly logger = new Logger(PublicacionService.name);
+
+  constructor(
+    private readonly db: DbService,
+    private readonly colas: ColasProducer,
+  ) {}
 
   /** Estado actual + acciones que el Studio puede ofrecer. */
   async estado(programaId: string): Promise<{
@@ -100,6 +109,13 @@ export class PublicacionService {
         notas: opts.notas ?? null,
         actorId: opts.actorId ?? null,
       });
+      // Al publicar, (re)indexa el CONTENIDO de cada lección para el RAG de Eco
+      // (§7A · mismo mecanismo que `rubricas`: cola `indexar-rag`, payload
+      // `{fuenteTipo:'contenido', fuenteId: leccionId}`). El worker es idempotente
+      // (borra-y-reinserta por fuente), así que republicar no duplica. BEST-EFFORT:
+      // si Redis no responde, se loguea y la publicación NO se cae (el índice se
+      // pone al día en la próxima publicación).
+      await this.indexarContenido(programaId);
     } else if (requiereNuevaVersion(accion)) {
       versionFinal = prog.version + 1;
       await cambiarEstadoSimple(this.db.sql, programaId, destino, versionFinal);
@@ -122,6 +138,30 @@ export class PublicacionService {
     const prog = await cargarEstado(this.db.sql, programaId);
     if (!prog) throw new NotFoundException(`Programa ${programaId} no existe.`);
     return cargarHistorial(this.db.sql, programaId);
+  }
+
+  /**
+   * Encola la (re)indexación RAG del contenido de teoría de cada lección del
+   * programa (un job `indexar-rag` por lección, fuenteTipo `contenido`). Se llama
+   * al publicar. BEST-EFFORT: envuelve el encolado para que un fallo de Redis no
+   * tumbe la publicación — el contenido ya quedó publicado; la indexación es
+   * asíncrona (§8) y se recupera en la próxima publicación.
+   */
+  private async indexarContenido(programaId: string): Promise<void> {
+    try {
+      const leccionIds = await cargarLeccionIdsDePrograma(this.db.sql, programaId);
+      for (const leccionId of leccionIds) {
+        const job: IndexarRagJob = { fuenteTipo: 'contenido', fuenteId: leccionId };
+        await this.colas.encolar(QUEUE_INDEXAR_RAG, job);
+      }
+      this.logger.log(
+        `Publicación ${programaId}: ${leccionIds.length} lección(es) encoladas a indexar-rag.`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `Publicación ${programaId}: no se pudo encolar la indexación RAG (no fatal): ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Snapshot congelado de una versión concreta (para vista previa/auditoría). */

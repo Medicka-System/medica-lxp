@@ -57,6 +57,23 @@ export async function cargarSnapshot(
 }
 
 /**
+ * IDs de las lecciones del programa (todas sus plantillas, vía módulos). Lo usa la
+ * publicación para encolar la (re)indexación RAG del CONTENIDO al publicar: el índice
+ * `contenido` se ancla por `leccion_id` (§7A · `indexar-rag.repositorio`).
+ */
+export async function cargarLeccionIdsDePrograma(
+  sql: Sql,
+  programaId: string,
+): Promise<string[]> {
+  const rows = await sql<{ id: string }[]>`
+    select l.id
+    from lxp.lecciones l
+    join lxp.modulos m on m.id = l.modulo_id
+    where m.programa_id = ${programaId}`;
+  return rows.map((r) => r.id);
+}
+
+/**
  * Construye el snapshot inmutable del árbol del programa (programa→módulos→
  * lecciones→contenidos/actividades/rúbricas). Consultas planas por nivel
  * ensambladas en memoria (evita N+1). Es lo que se congela al publicar.
