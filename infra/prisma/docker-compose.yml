@@ -138,6 +138,10 @@ services:
       # Concurrencia de redacción de series (p-limit casero del worker). Coincide con
       # REDACTOR_WORKERS para saturar el redactor sin desbordarlo.
       REDACCION_CONCURRENCIA: ${REDACCION_CONCURRENCIA:-3}
+      # Eco (§7A): MISMAS vars que el `api` → el pipeline en lote (cola eco-evaluacion,
+      # corre en el worker) usa el proveedor real. Sin key → MOCK (no tumba el arranque).
+      ECO_PROVIDER: ${ECO_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     networks:
       - prisma_web       # egress (Supabase cloud) para jobs que escriben competencia
       - prisma_internal  # redis/minio
