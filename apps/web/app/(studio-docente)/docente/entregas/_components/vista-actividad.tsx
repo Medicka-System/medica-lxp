@@ -7,54 +7,51 @@
  * violeta, nunca alerta (§5A/§7A).
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { BellRing, Check, ChevronRight, Search, Sparkles, TriangleAlert } from 'lucide-react';
 import { mono, kicker, card, focusRing } from '@/lib/studio/estilos';
 import { Avatar } from '@/components/avatar';
 import { haceCuanto } from '@/lib/format';
 import type { EntregaVista, EstadoVistaEntrega, ActividadRef, EntregasVista } from '../../../_lib/contrato';
 import { ChipEstado, Selector } from './ui';
-import { ECO_LOTE_EJEMPLO } from './eco-placeholder';
+import { confirmarEntregasLoteEco } from '../../../_lib/eco.server';
 import { ChatEco } from '@/app/(studio-admin)/_components/chat-eco';
 
 /**
- * Confianza de la nota sugerida por Eco — PLACEHOLDER determinista por id (Eco NO conectado
- * · §7A). Solo aplica a filas `sugerida`; los datos reales llegarán de `lxp.eco_propuestas`.
+ * ¿La entrega tiene una propuesta de Eco de ALTA confianza lista para confirmar en lote?
+ * `clasificacion === 'listo'` = confianza ≥ umbral de `eco_config` (ya aplicado por el
+ * pipeline · §7A). Solo cuenta si aún no está calificada.
  */
-function confianzaEco(id: string): 'alta' | 'media' {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h % 3 === 0 ? 'media' : 'alta';
+function altaConfianzaEco(e: EntregaVista): boolean {
+  return e.estado !== 'calificada' && e.eco?.clasificacion === 'listo';
 }
 
-/** Rango de orden: primero lo que requiere la LECTURA del docente (spec · §4). */
+/** Rango de orden: primero lo que el docente puede confirmar/leer ya (spec · §4). */
 function rangoEntrega(e: EntregaVista): number {
-  if (e.estado === 'sugerida') return confianzaEco(e.id) === 'alta' ? 0 : 1;
-  if (e.estado === 'requiere-lectura') return 2;
+  if (e.estado === 'calificada') return 4;
   if (e.estado === 'auto') return 3;
-  return 4; // calificada
+  if (e.eco?.clasificacion === 'listo') return 0; // alta confianza → listo para confirmar
+  if (e.eco?.clasificacion === 'requiere_criterio') return 1; // requiere su criterio
+  return 2; // sin propuesta → pendiente de lectura
 }
 
-/** Texto de la columna "detalle" de una fila (Eco = PLACEHOLDER donde aplique). */
+/** Texto de la columna "detalle" — confianza REAL de `lxp.eco_propuestas` (§7A). */
 function detalleFila(e: EntregaVista): { texto: string; alerta: boolean } {
-  switch (e.estado) {
-    case 'sugerida':
-      return confianzaEco(e.id) === 'alta'
-        ? { texto: 'confianza alta', alerta: false }
-        : { texto: 'confianza media · revísela', alerta: false };
-    case 'requiere-lectura':
-      return { texto: 'Pendiente de su lectura', alerta: true };
-    case 'auto':
-      return { texto: 'autocalificada por el sistema', alerta: false };
-    case 'calificada':
-      return { texto: 'Ya calificada', alerta: false };
-    default:
-      return { texto: '', alerta: false };
+  if (e.estado === 'calificada') {
+    return { texto: e.ecoSugerida ? 'Calificada · sugerida por Eco' : 'Ya calificada', alerta: false };
   }
+  if (e.estado === 'auto') return { texto: 'autocalificada por el sistema', alerta: false };
+  if (e.eco) {
+    return e.eco.clasificacion === 'listo'
+      ? { texto: `Eco sugiere ${e.eco.notaSugerida?.toFixed(1) ?? '—'} · confianza alta`, alerta: false }
+      : { texto: 'Eco: requiere su criterio', alerta: false };
+  }
+  return { texto: 'Pendiente de su lectura', alerta: true };
 }
 
 /** Estados que cuentan como "tarea abierta pendiente" para el filtro "Solo abiertas". */
-const PENDIENTE_ABIERTA: EstadoVistaEntrega[] = ['sugerida', 'requiere-lectura'];
+const PENDIENTE_ABIERTA: EstadoVistaEntrega[] = ['requiere-lectura'];
 
 export function VistaActividad({
   data,
@@ -70,10 +67,30 @@ export function VistaActividad({
   onAbrir: (id: string) => void;
 }) {
   const { grupo, grupos, actividades, resumen, entregas, sinEntregar } = data;
+  const router = useRouter();
   const [busca, setBusca] = useState('');
   const [soloAbiertas, setSoloAbiertas] = useState(false);
-  const [avisoEco, setAvisoEco] = useState(false);
+  const [avisoEco, setAvisoEco] = useState<string | null>(null);
+  const [confirmando, startConfirmar] = useTransition();
   const [avisoRecordar, setAvisoRecordar] = useState(false);
+
+  // Propuestas de Eco de ALTA confianza, listas para confirmar en lote (§7A).
+  const altaConfianza = useMemo(() => entregas.filter(altaConfianzaEco), [entregas]);
+
+  function confirmarLote() {
+    const ids = altaConfianza.map((e) => e.eco!.propuestaId);
+    if (!ids.length || confirmando) return;
+    setAvisoEco(null);
+    startConfirmar(async () => {
+      const r = await confirmarEntregasLoteEco(ids);
+      if (r.ok) {
+        setAvisoEco(`${r.confirmadas} entrega(s) confirmadas con la nota de Eco.`);
+        router.refresh();
+      } else {
+        setAvisoEco(r.error);
+      }
+    });
+  }
 
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -116,16 +133,18 @@ export function VistaActividad({
               className="w-full min-w-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          {/* Confirmar en lote (teal · spec): solo las notas que Eco sugirió con confianza ALTA.
-              PLACEHOLDER: abre un aviso; el resumen/asiento del lote llega con Eco (§7A). */}
+          {/* Confirmar en lote (teal · §7A): acción EXPLÍCITA del docente sobre las propuestas
+              de ALTA confianza (Eco las clasificó `listo`). Cada confirmar asienta la nota de
+              Eco (0-10) y registra la corrección. Human-in-loop: nunca automático. */}
           <button
             type="button"
-            onClick={() => setAvisoEco(true)}
-            title="Eco aún no está conectado"
-            className={`ml-auto inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white ${focusRing}`}
+            onClick={confirmarLote}
+            disabled={confirmando || altaConfianza.length === 0}
+            title={altaConfianza.length === 0 ? 'No hay propuestas de alta confianza' : 'Confirma en bloque lo que Eco pre-calificó con alta confianza'}
+            className={`ml-auto inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:opacity-50 ${focusRing}`}
           >
             <Check aria-hidden className="h-4 w-4" strokeWidth={2.4} />
-            Confirmar {ECO_LOTE_EJEMPLO} de alta confianza
+            {confirmando ? 'Confirmando…' : `Confirmar ${altaConfianza.length} de alta confianza`}
           </button>
         </div>
 
@@ -133,8 +152,7 @@ export function VistaActividad({
           <div className="mt-3 flex items-center gap-2.5 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3.5 py-2.5">
             <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-[color:var(--info-foreground)]" strokeWidth={1.75} />
             <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
-              El lote de Eco aún no está conectado. Cuando lo esté, aquí confirmará en bloque solo lo que Eco
-              pre-calificó con alta confianza; el resto lo revisa usted una a una.
+              {avisoEco}
             </p>
           </div>
         )}

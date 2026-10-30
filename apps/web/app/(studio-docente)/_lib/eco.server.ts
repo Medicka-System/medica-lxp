@@ -149,3 +149,38 @@ export async function descartarPropuestaEco(input: {
     return { ok: false, error: 'No se pudo descartar la propuesta de Eco.' };
   }
 }
+
+/**
+ * CONFIRMAR EN LOTE las propuestas de ENTREGA de alta confianza (§7A). Acción EXPLÍCITA
+ * del docente (human-in-loop) sobre las que Eco clasificó `listo` (confianza ≥ umbral de
+ * `eco_config`); NUNCA automático. Cada `confirmar` asienta la nota de Eco (ya 0-10 ·
+ * mig 0095) en `lxp.entregas` y registra la corrección docente→Eco. Replica el lote de
+ * validación (`aprobarCasosLote`): recorre los ids llamando al endpoint que ya funciona.
+ */
+export async function confirmarEntregasLoteEco(
+  propuestaIds: string[],
+): Promise<ResultadoAccion & { confirmadas?: number }> {
+  const { userId } = await requireDocente();
+  const ids = [...new Set(propuestaIds)].filter(Boolean);
+  if (!ids.length) return { ok: false, error: 'No hay propuestas de alta confianza que confirmar.' };
+  let confirmadas = 0;
+  for (const id of ids) {
+    try {
+      const res = await fetch(`${apiBase()}/ai/propuestas/${id}/confirmar`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ docenteId: userId }),
+        cache: 'no-store',
+      });
+      if (res.ok) confirmadas++;
+    } catch {
+      // Un fallo puntual no aborta el lote; se cuenta lo que sí entró.
+    }
+  }
+  if (confirmadas === 0) {
+    return { ok: false, error: 'No se pudo confirmar el lote (¿está levantada la API?).' };
+  }
+  revalidatePath('/docente/entregas');
+  revalidatePath('/docente');
+  return { ok: true, confirmadas };
+}

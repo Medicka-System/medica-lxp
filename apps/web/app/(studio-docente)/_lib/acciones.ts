@@ -246,18 +246,49 @@ export async function calificarEntrega(input: {
   if (Number.isNaN(input.nota) || input.nota < 0 || input.nota > 10) {
     return { ok: false, error: 'La nota debe ir de 0 a 10.' };
   }
+  const feedbackFinal = input.feedback.trim() || null;
   try {
     await comoStaff(userId, async (sql) => {
+      // ¿Había una propuesta VIGENTE de Eco para esta entrega? (loop de mejora · §7A)
+      const [prop] = await sql<
+        { id: string; nota: number | null; feedback_borrador: string | null; detalle: unknown }[]
+      >`
+        select id, nota_sugerida::float8 as nota, feedback_borrador, detalle
+        from lxp.eco_propuestas
+        where objeto_tipo = 'entrega' and objeto_id = ${input.entregaId} and estado = 'propuesta'
+        limit 1`;
+
+      // Traza `eco_sugerida`: fue informada por Eco si existía propuesta y el docente dejó
+      // su nota tal cual (no la cambió); si no, es nota propia.
+      const hubocorreccion = prop
+        ? input.nota !== prop.nota || feedbackFinal !== prop.feedback_borrador
+        : false;
+      const ecoSugerida = input.ecoSugerida || (!!prop && !hubocorreccion);
+
       await sql`
         update lxp.entregas
-        set nota = ${input.nota}, feedback = ${input.feedback.trim() || null},
-            estado = 'calificada'::lxp.entrega_estado, eco_sugerida = ${input.ecoSugerida}
+        set nota = ${input.nota}, feedback = ${feedbackFinal},
+            estado = 'calificada'::lxp.entrega_estado, eco_sugerida = ${ecoSugerida}
         where id = ${input.entregaId}`;
+
+      // Loop de mejora (§7A): registra qué propuso Eco vs qué dejó el docente y CIERRA la
+      // propuesta (sale de la bandeja). RLS: `comoStaff` impersona al docente → la policy
+      // `eco_correcciones_insert` (id_docente = auth.uid()) permite insertar su corrección.
+      if (prop) {
+        await sql`
+          insert into lxp.eco_correcciones (id_docente, objeto_tipo, objeto_id, sugerencia_eco, correccion)
+          values (
+            ${userId}, 'entrega', ${input.entregaId},
+            ${sql.json({ nota: prop.nota, feedback: prop.feedback_borrador, detalle: prop.detalle } as never)},
+            ${sql.json({ nota: input.nota, feedback: feedbackFinal, hubocorreccion } as never)}
+          )`;
+        await sql`update lxp.eco_propuestas set estado = 'confirmada', updated_at = now() where id = ${prop.id}`;
+      }
     });
   } catch {
     return { ok: false, error: 'No se pudo calificar la entrega. Inténtalo de nuevo.' };
   }
-  // PENDIENTE DE API: eco_correcciones (si corrigió a Eco) + xAPI (§7A/§7).
+  // PENDIENTE (aparte): xAPI del asiento (§7A/§7).
   revalidatePath('/docente/entregas');
   revalidatePath('/docente');
   return { ok: true };
