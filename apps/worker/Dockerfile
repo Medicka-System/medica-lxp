@@ -23,9 +23,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 FROM deps AS build
 ARG NODE_OPTIONS=--max-old-space-size=4096
 ENV NODE_OPTIONS=$NODE_OPTIONS
-COPY . .
+# COPY por CAPAS (no monolítico): lo COMPARTIDO primero (turbo.json + packages/*), luego
+# SOLO apps/worker. Un cambio en apps/web|api NO invalida esta imagen.
+COPY turbo.json ./
+COPY packages/ ./packages/
 RUN pnpm --filter @campus/shared build
 RUN pnpm --filter @campus/db build
+COPY apps/worker/ ./apps/worker/
 RUN pnpm --filter @campus/worker build
 
 # ── Runtime ──

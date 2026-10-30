@@ -40,12 +40,16 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # hosts con RAM acotada / build con --memory. Cabe en un contenedor de 6 GB.
 ARG NODE_OPTIONS=--max-old-space-size=4096
 ENV NODE_OPTIONS=$NODE_OPTIONS
-COPY . .
+# COPY por CAPAS para aislar la caché (no un `COPY . .` monolítico): primero lo COMPARTIDO
+# (turbo.json + packages/*), luego SOLO esta app. Así un cambio en apps/web NO invalida las
+# imágenes de api/worker, y un cambio en apps/api|worker NO invalida la de web (cada
+# Dockerfile copia únicamente SU app). `.dockerignore` deja fuera node_modules/.next/dist.
+COPY turbo.json ./
+COPY packages/ ./packages/
 RUN pnpm --filter @campus/shared build
+COPY apps/web/ ./apps/web/
 # Cache de compilación de Next (webpack) ENTRE builds: BuildKit persiste `.next/cache`
-# fuera de la imagen → `next build` recompila INCREMENTAL (un cambio de código ya no
-# rehace el grafo webpack entero; antes se recompilaba al 100% cada build). No afecta el
-# runtime: el mount no queda en la imagen y Next recrea `.next/cache` si lo necesita.
+# fuera de la imagen → `next build` recompila INCREMENTAL. No afecta el runtime.
 RUN --mount=type=cache,id=next-cache-web,target=/repo/apps/web/.next/cache \
     pnpm --filter @campus/web build
 

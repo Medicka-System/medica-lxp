@@ -10,13 +10,23 @@
 #   ssh LXP-Medica 'bash /var/www/prisma/deploy.sh full'     # explícito = las 3
 #   BRANCH=otra ssh … 'bash /var/www/prisma/deploy.sh web'   # otra rama (ahora por ENV, no posicional)
 #
+# CUÁNDO USAR CADA MODO (regla de dedo — no reconstruir de más):
+#   · Cambió SOLO apps/web      → ./deploy.sh web      (api/worker NO se reconstruyen)
+#   · Cambió SOLO apps/api      → ./deploy.sh api
+#   · Cambió SOLO apps/worker   → ./deploy.sh worker
+#   · Cambiaron varios          → combínalos:  ./deploy.sh web api
+#   · Cambió packages/shared (o packages/db, packages/config, o el lockfile) → afecta a los
+#     3 servicios → ./deploy.sh full   (o sin argumentos)
+#   `full` es el ÚNICO modo que rehace las 3 imágenes; úsalo solo cuando cambió lo COMPARTIDO.
+#
 # Qué hace:
 #   1) Trae el código a /var/www/prisma/repo con git (fetch + reset --hard a
 #      origin/$BRANCH). Determinista al HEAD; NO sube node_modules (git no los trackea).
 #      El VPS ya tiene llave SSH con acceso de lectura al repo (sin secreto nuevo).
 #   2) Construye SOLO el/los servicio(s) del MODO con BuildKit + caché de capas (manifiestos
-#      primero → pnpm install cacheado + cache mount de .next/cache), --memory=6g/--memory-swap=10g,
-#      NODE_OPTIONS y --platform linux/amd64. Build-args de Supabase tomados de /var/www/prisma/.env.
+#      primero → pnpm install cacheado + cache mount de .next/cache), --memory=7g/--memory-swap=7g
+#      (RAM real, SIN desbordar a swap), NODE_OPTIONS y --platform linux/amd64. Build-args de
+#      Supabase tomados de /var/www/prisma/.env.
 #   3) `docker compose up -d <svc…>` → recrea SOLO el/los servicio(s) del modo (como el CRM);
 #      en `full`, `up -d` sin nombres ensura TODOS los prisma-* (proyecto "prisma").
 #
@@ -124,7 +134,9 @@ set -a; . "$ENV_FILE"; set +a
 : "${NEXT_PUBLIC_SUPABASE_URL:?falta NEXT_PUBLIC_SUPABASE_URL en .env}"
 : "${NEXT_PUBLIC_SUPABASE_ANON_KEY:?falta NEXT_PUBLIC_SUPABASE_ANON_KEY en .env}"
 
-BUILD_COMMON=(--platform linux/amd64 --memory=6g --memory-swap=10g
+# --memory-swap = --memory ⇒ el build NO puede desbordar a swap (usa RAM real y punto).
+# 7g en un host de 15g deja margen con el baseline (~3.6g) + el CRM para UN build secuencial.
+BUILD_COMMON=(--platform linux/amd64 --memory=7g --memory-swap=7g
               --build-arg NODE_OPTIONS=--max-old-space-size=4096)
 
 # Muestrea `free -h` cada 15s mientras dura un build (para "vigilar la RAM").
