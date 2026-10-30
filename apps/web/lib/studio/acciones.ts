@@ -605,34 +605,6 @@ export async function crearLeccionGrupo(
   refrescarGrupo(grupoId);
 }
 
-/** Renombra un módulo PROPIO del grupo (solo filas con grupo_id = este grupo). */
-export async function renombrarModuloGrupo(grupoId: string, moduloId: string, nombre: string): Promise<void> {
-  const { userId } = await requireAutoria();
-  const limpio = nombre.trim();
-  if (!limpio) return;
-  await comoStaff(userId, async (sql) => {
-    afirmarFilas(
-      await sql`update lxp.modulos set nombre = ${limpio} where id = ${moduloId} and grupo_id = ${grupoId}`,
-      'renombrar módulo propio',
-    );
-  });
-  refrescarGrupo(grupoId);
-}
-
-/** Renombra una lección PROPIA del grupo. */
-export async function renombrarLeccionGrupo(grupoId: string, leccionId: string, nombre: string): Promise<void> {
-  const { userId } = await requireAutoria();
-  const limpio = nombre.trim();
-  if (!limpio) return;
-  await comoStaff(userId, async (sql) => {
-    afirmarFilas(
-      await sql`update lxp.lecciones set nombre = ${limpio} where id = ${leccionId} and grupo_id = ${grupoId}`,
-      'renombrar lección propia',
-    );
-  });
-  refrescarGrupo(grupoId);
-}
-
 /** Elimina un módulo PROPIO (cascade: sus lecciones/contenido propio). Nunca heredado. */
 export async function eliminarModuloGrupo(grupoId: string, moduloId: string): Promise<void> {
   const { userId } = await requireAutoria();

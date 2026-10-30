@@ -1629,8 +1629,6 @@ type OpcionOverride = {
   icono: typeof Link2;
   t: string;
   d: string;
-  /** Aún no soportado por el dominio (no se puede guardar todavía). */
-  pendiente?: boolean;
 };
 
 const OPCIONES: OpcionOverride[] = [
@@ -1752,24 +1750,21 @@ function HojaPersonalizar({
           </p>
 
           <div className="mt-4 flex flex-col gap-2">
-            {opciones.map(({ k, icono: Icono, t, d, pendiente }) => {
+            {opciones.map(({ k, icono: Icono, t, d }) => {
               const on = k === seleccion;
               return (
                 <label
                   key={k}
                   className={`flex items-start gap-3 rounded-[11px] border p-3.5 transition-colors ${
-                    pendiente
-                      ? 'cursor-not-allowed border-border opacity-55'
-                      : on
-                        ? 'cursor-pointer border-[color:var(--info)] bg-[color:var(--info-surface)]'
-                        : 'cursor-pointer border-border hover:bg-muted'
+                    on
+                      ? 'cursor-pointer border-[color:var(--info)] bg-[color:var(--info-surface)]'
+                      : 'cursor-pointer border-border hover:bg-muted'
                   }`}
                 >
                   <input
                     type="radio"
                     name="override"
                     checked={on}
-                    disabled={pendiente}
                     onChange={() => setSeleccion(k)}
                     className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[color:var(--info)]"
                   />
@@ -1779,11 +1774,6 @@ function HojaPersonalizar({
                   <span className="min-w-0 flex-1">
                     <span className={`flex items-center gap-1.5 text-[13.5px] font-bold leading-snug ${on ? 'text-[color:var(--info-foreground)]' : ''}`}>
                       {t}
-                      {pendiente && (
-                        <span className="inline-flex h-[18px] items-center rounded-full bg-muted px-1.5 text-[9.5px] font-bold uppercase tracking-wide text-muted-foreground">
-                          Próximamente
-                        </span>
-                      )}
                     </span>
                     <span className={`mt-1 block text-[12.5px] leading-relaxed ${on ? 'text-[color:var(--info-foreground)]' : 'text-muted-foreground'}`}>{d}</span>
                     {on && k === 'reemplaza' && (

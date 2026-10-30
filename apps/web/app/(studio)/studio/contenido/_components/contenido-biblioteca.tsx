@@ -6,9 +6,8 @@
  * el dato protagonista es "en cuántas lecciones vive". DICOM y casos clínicos NO van
  * aquí (viven en Casos).
  *
- * Lecturas reales por RLS contra lxp.recursos; mientras esa tabla y el pipeline de
- * ingesta no existan (PENDIENTE DE DB/API — ver lib/studio/contenido-contrato.ts),
- * la vista degrada con un aviso y "Subir recurso" explica el pendiente.
+ * Lecturas reales por RLS contra lxp.recursos; subir/reemplazar/eliminar son CRUD real
+ * + ingesta en apps/api. Si la BD no responde, la vista degrada con un aviso (defensivo).
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react';

@@ -5,10 +5,9 @@
  * Izquierda: preview + metadatos + etiquetas. Derecha: "dónde se usa" (lecciones que
  * lo referencian, reales por RLS) + versiones del archivo.
  *
- * Reemplazar/eliminar declaran el alcance antes de ejecutar, pero son PIPELINE de
- * dominio (nueva versión servida en todas las lecciones / borrado con object storage)
- * → PENDIENTE DE API (contrato en lib/studio/contenido-contrato.ts). Aquí los diálogos
- * muestran el alcance real y quedan cableados a stubs.
+ * Reemplazar/eliminar declaran el alcance antes de ejecutar y son CRUD real sobre
+ * `lxp.recursos` (reemplazarArchivoRecurso: version+1; eliminarRecurso: bloquea si usos>0),
+ * con purga del paquete en object storage. Ver lib/studio/contenido-acciones.ts.
  */
 
 import { useState } from 'react';

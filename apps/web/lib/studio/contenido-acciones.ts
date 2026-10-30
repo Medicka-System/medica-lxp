@@ -183,31 +183,6 @@ export async function crearRecurso(input: NuevoRecurso): Promise<ResultadoAccion
   }
 }
 
-/** Renombra y/o reetiqueta un recurso (edición simple). */
-export async function actualizarRecurso(
-  id: string,
-  cambios: { nombre?: string; etiquetas?: string[] },
-): Promise<ResultadoAccion<null>> {
-  const { userId } = await requireAutoria();
-  const nombre = cambios.nombre?.trim();
-  try {
-    await comoStaff(userId, async (sql) => {
-      if (typeof nombre === 'string' && nombre) {
-        await sql`update lxp.recursos set nombre = ${nombre} where id = ${id}`;
-      }
-      if (cambios.etiquetas) {
-        await sql`update lxp.recursos set etiquetas = ${sql.array(cambios.etiquetas)} where id = ${id}`;
-      }
-    });
-    revalidatePath('/studio/contenido');
-    revalidatePath(`/studio/contenido/${id}`);
-    return { ok: true, datos: null };
-  } catch (e) {
-    console.error('[actualizarRecurso] fallo:', e);
-    return { ok: false, error: 'No se pudo actualizar el recurso.' };
-  }
-}
-
 /**
  * Reemplaza el ARCHIVO de un recurso: apunta al nuevo binario/artefacto y sube la
  * versión. Como el recurso vive una sola vez, TODAS las lecciones que lo referencian

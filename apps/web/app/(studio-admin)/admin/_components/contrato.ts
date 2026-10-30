@@ -92,14 +92,6 @@ export type CorteCartera = {
   tono: 'ok' | 'porVencer' | 'vencido';
 };
 
-export type EcoResumen = {
-  pregunta: string;
-  intro: string;
-  puntos: { titulo: string; detalle: string; tono: 'critica' | 'media' | 'info' }[];
-  cierre: string;
-  sugerencias: string[];
-};
-
 export type CentroControlData = {
   /** Súper admin ve la capa de salud del sistema y los accesos de gobierno; admin no. */
   esSuper: boolean;
@@ -127,5 +119,4 @@ export type CentroControlData = {
   decisiones: Decision[];
   actividad: ActividadStaff[];
   ateneo: { casos: number; comentarios: number; sinResponder: number };
-  eco: EcoResumen;
 };

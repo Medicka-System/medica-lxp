@@ -14,12 +14,12 @@
  */
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, Lock, Search, ShieldCheck } from 'lucide-react';
+import { Bell, Search, ShieldCheck } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
 import { MenuCuentaStaff } from '@/components/studio/menu-cuenta-staff';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
 import { EcoMark } from './eco-mark';
-import { SECCIONES, SECCIONES_FUTURAS } from './nav-config';
+import { SECCIONES } from './nav-config';
 
 export type AdminShellUsuario = {
   nombre: string;
@@ -45,7 +45,6 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const futuras = SECCIONES_FUTURAS.filter((s) => usuario.esSuper || !s.soloSuper);
 
   return (
     <div className="flex min-h-dvh flex-col bg-background font-sans text-foreground antialiased">
@@ -95,23 +94,6 @@ export function AdminShell({
               </Link>
             );
           })}
-
-          {/* Secciones aún sin ruta: deshabilitadas (mapa + RBAC, sin 404). */}
-          {futuras.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              disabled
-              aria-disabled
-              title="Disponible próximamente"
-              className="inline-flex h-[var(--studio-header)] cursor-not-allowed items-center gap-1.5 whitespace-nowrap px-3 text-[13.5px] font-medium text-white/35"
-            >
-              {s.etiqueta}
-              {s.soloSuper && (
-                <Lock aria-hidden className="h-3 w-3 text-white/30" strokeWidth={2} />
-              )}
-            </button>
-          ))}
         </nav>
 
         {/* utilidades */}

@@ -5,8 +5,8 @@
  * de dos fuentes: la Biblioteca de Contenido (video/H5P/PDF/docs/xAPI) y el Banco de
  * Casos (casos DICOM curados). Busca en ambas y devuelve el sub-tipo de bloque + su
  * config prellenada (referenciando el recurso/caso); el editor crea la fila en
- * `lxp.bloques`. La URL firmada del media y el estudio DICOM se resuelven después
- * (PENDIENTE DE API) — aquí solo se referencia el recurso.
+ * `lxp.bloques` y la fuente del recurso se resuelve al guardar el bloque
+ * (`resolverFuenteDeRecurso`, acciones.ts).
  */
 
 import { useEffect, useMemo, useState } from 'react';

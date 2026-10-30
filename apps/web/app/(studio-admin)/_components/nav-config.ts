@@ -29,8 +29,3 @@ export const SECCIONES: SeccionAdmin[] = [
   // builder (cb-config): hub + editor de eco_config + UI de TTS.
   { id: 'configuracion', etiqueta: 'Configuración', href: '/configuracion', soloSuper: true },
 ];
-
-/** Secciones aún sin ruta (se muestran deshabilitadas para señalar el mapa y el RBAC). */
-export type SeccionFutura = { id: string; etiqueta: string; soloSuper?: boolean };
-
-export const SECCIONES_FUTURAS: SeccionFutura[] = [];

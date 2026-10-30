@@ -1,20 +1,12 @@
 'use client';
 
 /**
- * Registro de EDITORES POR TIPO de lección (§5C · mig 0023) + placeholders.
+ * Registro de EDITORES POR TIPO de lección (§5C · mig 0023).
  *
- * El builder detecta `leccion.tipo` y renderiza aquí el editor de ese tipo. Hoy
- * TODOS apuntan al placeholder ("Editor de … — próximamente"): esta rama construye
- * SOLO el modelo + el enrutamiento por tipo, no los editores.
- *
- * CÓMO ENCHUFA UN AGENTE SU EDITOR (sin tocar el modelo):
- *   1. Crea el componente del editor; su firma es `EditorLeccionProps` (contrato en
- *      `@/lib/studio/leccion-tipos`).
- *   2. Reemplaza la entrada de su tipo en `EDITORES_LECCION` por ese componente.
- *   3. Persiste con server actions (CRUD directo web→Supabase bajo RLS · §2):
- *      · tipos `config`  → escriben `lecciones.config`;
- *      · tipo  `teoria`  → escribe `lxp.bloques` (ordenable).
- * No hace falta cambiar el builder ni el esquema.
+ * El builder detecta `leccion.tipo` y renderiza aquí el editor de ese tipo. Los 7 tipos
+ * tienen editor real; persisten con server actions (CRUD directo web→Supabase bajo RLS · §2):
+ *   · tipos `config`  → escriben `lecciones.config`;
+ *   · tipo  `teoria`  → escribe `lxp.bloques` (ordenable).
  */
 
 import type { ComponentType } from 'react';
@@ -29,11 +21,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
-  INFO_TIPO_LECCION,
   type EditorLeccionProps,
   type TipoLeccion,
 } from '@/lib/studio/leccion-tipos';
-import { kicker, softText } from '@/lib/studio/estilos';
 import { EditorTeoria } from './teoria/editor-teoria';
 import { EditorVideo } from './_editores/editor-video';
 import { EditorH5P } from './_editores/editor-h5p';
@@ -60,53 +50,8 @@ export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string
 };
 
 /**
- * Placeholder del editor de un tipo: punto de entrada claro mientras el agente
- * correspondiente construye el editor real. Muestra el tipo, su descripción y —para
- * orientar al siguiente agente— DÓNDE persiste su contenido.
- */
-function PlaceholderEditor({ tipo, config, bloques }: EditorLeccionProps) {
-  const info = INFO_TIPO_LECCION[tipo];
-  const { icono: Icono, clase } = VISUAL_TIPO[tipo];
-  const almacen =
-    info.almacen === 'bloques'
-      ? `Su contenido vivirá en bloques ordenables (lxp.bloques) · ${bloques.length} bloque(s) hoy.`
-      : `Su contenido vivirá en la config de la lección (lecciones.config) · ${
-          Object.keys(config).length ? 'con datos.' : 'vacía por ahora.'
-        }`;
-
-  return (
-    <div className="rounded-xl border-[1.5px] border-dashed border-[color:var(--track)] bg-card p-6">
-      <div className="flex items-start gap-3.5">
-        <span aria-hidden className={`grid h-11 w-11 shrink-0 place-items-center rounded-[12px] ${clase}`}>
-          <Icono className="h-[21px] w-[21px]" strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0">
-          <p className={`${kicker} text-muted-foreground`}>Lección tipo {info.rotulo}</p>
-          <h2 className="mt-1 text-[17px] font-extrabold tracking-[-0.01em]">
-            Editor de {info.rotulo} — próximamente
-          </h2>
-          <p className={`mt-1.5 max-w-[52ch] text-[13px] leading-relaxed ${softText}`}>
-            {info.descripcion}
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 rounded-[11px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] p-3.5">
-        <p className="text-[11.5px] font-bold text-[color:var(--info-foreground)]">
-          Pendiente de editor
-        </p>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[color:var(--info-foreground)]">
-          {almacen} El editor se enchufa en <span className="font-semibold">EDITORES_LECCION</span>{' '}
-          (contrato <span className="font-semibold">EditorLeccionProps</span>) sin tocar el modelo.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
  * tipo → componente de editor. Los 7 tipos ya tienen editor real (§5C):
  * teoria (bloques), video/h5p/xapi (config), autoevaluacion/tarea (config), foro.
- * `PlaceholderEditor` queda solo como fallback de `EditorDeLeccion`.
  */
 export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionProps>> = {
   teoria: EditorTeoria,
@@ -118,9 +63,9 @@ export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionPr
   xapi: EditorXapi,
 };
 
-/** Renderiza el editor registrado para el tipo de la lección (placeholder por defecto). */
+/** Renderiza el editor registrado para el tipo de la lección. */
 export function EditorDeLeccion(props: EditorLeccionProps) {
-  const Editor = EDITORES_LECCION[props.tipo] ?? PlaceholderEditor;
+  const Editor = EDITORES_LECCION[props.tipo];
   // Encuadre COMÚN a los 7 tipos (§5A · máx 1240px centrado): el dispatcher cap+centra
   // una sola vez, así video/h5p/xapi/autoeval/tarea/foro igualan a teoría (que ya no lo
   // hace por su cuenta). Punto único: homologa el ancho sin tocar cada editor.

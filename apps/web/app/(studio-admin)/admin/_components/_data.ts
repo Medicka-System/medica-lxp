@@ -348,21 +348,6 @@ export async function getCentroControl(
       comentarios: totales.ateneo_comentarios,
       sinResponder: totales.ateneo_sin_responder,
     },
-    // ── PLACEHOLDER · Eco analista (respuesta mock; dominio por API · §7A) ───────
-    eco: {
-      pregunta: 'Resúmeme la semana',
-      intro: 'Eco (analista) es un placeholder en esta etapa. Cuando su API esté cableada, aquí responderá con lenguaje natural sobre la operación. Por ahora, un vistazo a lo real:',
-      puntos: [
-        totales.casos_pendientes > 0
-          ? { titulo: `${totales.casos_pendientes} casos por validar`, detalle: 'la bandeja del docente los espera', tono: 'media' as const }
-          : { titulo: 'Bandeja de validación al día', detalle: 'no hay casos pendientes', tono: 'info' as const },
-        totales.en_riesgo > 0
-          ? { titulo: `${totales.en_riesgo} alumnos en riesgo`, detalle: 'sin actividad en 14 días', tono: 'media' as const }
-          : { titulo: 'Sin alumnos en riesgo', detalle: 'todos con actividad reciente', tono: 'info' as const },
-      ],
-      cierre: `Se han acreditado ${miles(totales.horas_aprobadas)} h en total y hay ${miles(totales.casos_aprobados)} casos aprobados.`,
-      sugerencias: ['¿Qué grupos van en riesgo?', '¿Cómo va la validación?', '¿Qué staff está más cargado?'],
-    },
   };
 }
 

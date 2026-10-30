@@ -22,8 +22,8 @@
  *   h5p     → /h5p/paquete (uploadPackage + saveOrUpdateContent)
  *
  * ── Fila lxp.recursos (CRUD directo web→Supabase bajo RLS · §2) ──
- *   contenido-acciones.ts: crearRecurso / actualizarRecurso /
- *   reemplazarArchivoRecurso (version+1) / eliminarRecurso (bloquea si usos>0).
+ *   contenido-acciones.ts: crearRecurso / reemplazarArchivoRecurso (version+1) /
+ *   eliminarRecurso (bloquea si usos>0).
  *
  * `getRecursos`/`getRecursoDetalle` degradan con `pendienteDb: true` solo si la BD no
  * responde (defensivo); en operación normal la tabla existe y se poblan con datos reales.
