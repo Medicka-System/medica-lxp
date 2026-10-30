@@ -170,6 +170,23 @@ export class AiController {
   }
 
   /**
+   * BACKFILL (§7A · GAP-B): encola `indexar-rag` para TODO el corpus ya publicado
+   * (casos de biblioteca, rúbricas, lecciones de programas publicados). Para el día que
+   * se enchufe embeddings — deja la cola lista. Idempotente (el worker borra-reinserta por
+   * fuente) y no requiere embeddings vivo para encolar. Correr: `curl -XPOST .../ai/indexar/backfill`.
+   */
+  @Post('indexar/backfill')
+  @HttpCode(202)
+  backfillIndexar(): Promise<{
+    caso_biblioteca: number;
+    rubrica: number;
+    contenido: number;
+    total: number;
+  }> {
+    return this.ai.backfillIndexacion();
+  }
+
+  /**
    * Eco PROPONE un examen de autoevaluación (course builder · §7A). Devuelve
    * reactivos borrador; el diseñador los revisa e importa — nada se asienta aquí.
    */

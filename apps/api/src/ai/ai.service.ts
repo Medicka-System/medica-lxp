@@ -88,6 +88,58 @@ export class AiService implements OnModuleInit {
   }
 
   /**
+   * BACKFILL de indexación RAG (§7A · GAP-B de la tubería). Los productores solo encolan
+   * al PUBLICAR algo nuevo; esto recorre el corpus YA publicado e indexable y encola un job
+   * `indexar-rag` por cada fuente, REUSANDO el mismo `encolarIndexacion` (no una vía nueva).
+   * Es para el día que se enchufe el servicio de embeddings: deja toda la cola lista.
+   *
+   * - Encola SIN embeddings vivo: `encolar` solo escribe en Redis (no llama al servicio) —
+   *   los jobs esperan en la cola y los procesa el worker cuando embeddings levante.
+   * - IDEMPOTENTE: el worker hace borra-y-reinserta por (fuente_tipo, fuente_id) al indexar,
+   *   así que re-correr el backfill NO duplica chunks en `documentos_rag`.
+   *
+   * Cómo correrlo (día de enchufar, desde el VPS o cualquier red interna del `api`):
+   *   curl -XPOST http://api:8000/ai/indexar/backfill
+   * Devuelve el conteo de jobs encolados por tipo.
+   */
+  async backfillIndexacion(): Promise<{
+    caso_biblioteca: number;
+    rubrica: number;
+    contenido: number;
+    total: number;
+  }> {
+    const sql = this.db.sql;
+    // Corpus publicado e indexable (mismos tipos que soporta el worker · leerTextoFuente):
+    const [casos, rubricas, lecciones] = await Promise.all([
+      sql<{ id: string }[]>`select id from lxp.casos_biblioteca where publicado`,
+      sql<{ id: string }[]>`select id from lxp.rubricas where publicado`,
+      // Contenido = lecciones de programas PUBLICADOS (igual que el productor por-lección).
+      sql<{ id: string }[]>`
+        select l.id
+        from lxp.lecciones l
+        join lxp.modulos m on m.id = l.modulo_id
+        join lxp.programas p on p.id = m.programa_id
+        where p.estado = 'publicado'`,
+    ]);
+
+    for (const c of casos) await this.encolarIndexacion({ fuenteTipo: 'caso_biblioteca', fuenteId: c.id });
+    for (const r of rubricas) await this.encolarIndexacion({ fuenteTipo: 'rubrica', fuenteId: r.id });
+    for (const l of lecciones) await this.encolarIndexacion({ fuenteTipo: 'contenido', fuenteId: l.id });
+
+    const resumen = {
+      caso_biblioteca: casos.length,
+      rubrica: rubricas.length,
+      contenido: lecciones.length,
+      total: casos.length + rubricas.length + lecciones.length,
+    };
+    this.logger.log(
+      `Backfill RAG: encolados ${resumen.total} jobs ` +
+        `(caso_biblioteca=${resumen.caso_biblioteca}, rubrica=${resumen.rubrica}, contenido=${resumen.contenido}).`,
+    );
+    return resumen;
+  }
+
+  /**
    * Orquesta la narración TTS de un contenido de lección (course builder): Eco LEE
    * el texto del contenido y lo MANDA a renderizar con el adaptador de voz (§3). El
    * render corre asíncrono (cola `render-tts`); aquí solo se dispara. Devuelve el id
