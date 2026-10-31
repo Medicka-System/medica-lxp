@@ -48,8 +48,12 @@ export const TIPOS_BLOQUE_TEORIA: readonly TipoBloqueTeoria[] = [
 
 /* ─────────────────────────── Forma del `config` por tipo ─────────────────────────── */
 
-/** Bloque de texto/teoría: HTML del editor rico (TipTap · KaTeX · tablas · Word). */
-export type ConfigTexto = { html: string };
+/**
+ * Bloque de texto/teoría: HTML del editor rico (TipTap · KaTeX · tablas · Word).
+ * `narracion` (opcional): narración TTS generada por el worker a partir del texto —
+ * guarda el `audioId` de `lxp.tts_audios`; el alumno lo reproduce firmando `GET /tts/:id`.
+ */
+export type ConfigTexto = { html: string; narracion?: { audioId: string } };
 
 /**
  * Imagen única de CONTENIDO educativo (diagrama/esquema/ilustración, sin PII): por ENLACE

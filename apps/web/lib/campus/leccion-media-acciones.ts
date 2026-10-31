@@ -18,6 +18,36 @@ function apiBase(): string {
 
 export type ResultadoUrlImagen = { ok: true; url: string } | { ok: false; error: string };
 
+/**
+ * Firma la REPRODUCCIÓN de la narración TTS de un bloque de texto (§3/§5C). El bloque
+ * guarda el `audioId` de `lxp.tts_audios`; aquí se pide al `api` (`GET /tts/:id`) el estado
+ * + la URL firmada de vida corta (el `api` lee con service_role, así que no depende de la
+ * RLS de `tts_audios`). Si aún no está `listo` (render en curso) o falló, devuelve error —
+ * el reproductor cae a su estado "pendiente". Gateado por sesión del alumno + acceso_activo.
+ */
+export async function firmarNarracionAlumno(audioId: string): Promise<ResultadoUrlImagen> {
+  const alumno = await getSesionAlumno();
+  if (!alumno.accesoActivo) {
+    return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
+  }
+  if (typeof audioId !== 'string' || !audioId.trim()) {
+    return { ok: false, error: 'Referencia de narración inválida.' };
+  }
+  try {
+    const res = await fetch(`${apiBase()}/tts/${encodeURIComponent(audioId)}`, { cache: 'no-store' });
+    if (!res.ok) return { ok: false, error: `No se pudo obtener la narración (HTTP ${res.status}).` };
+    const datos = (await res.json()) as { estado?: string; urlReproduccion?: string };
+    if (datos.urlReproduccion) return { ok: true, url: datos.urlReproduccion };
+    return {
+      ok: false,
+      error: datos.estado === 'procesando' ? 'La narración se está generando.' : 'La narración no está disponible.',
+    };
+  } catch (e) {
+    console.error('[firmarNarracionAlumno] fallo:', e);
+    return { ok: false, error: 'No se pudo obtener la narración (servicio de TTS).' };
+  }
+}
+
 /** Firma la lectura de UNA imagen de contenido (por su ref de storage). */
 export async function firmarLecturaImagenAlumno(ref: string): Promise<ResultadoUrlImagen> {
   const alumno = await getSesionAlumno();

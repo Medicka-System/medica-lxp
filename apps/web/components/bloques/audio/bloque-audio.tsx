@@ -5,9 +5,10 @@
  * audio subido o el TTS generado por Eco/worker. Sirve en la lección (narración) y en
  * herramientas del Studio.
  *
- * Regla de Oro (§2): pieza client; la fuente (`src`) llega por URL firmada del servicio
- * de media (contrato en ../contratos.ts) y el TTS lo sintetiza el worker (POST /media/tts,
- * PENDIENTE DE API). La onda se pinta en canvas, que no entiende `var(--token)`: por eso
+ * Regla de Oro (§2): pieza client; la fuente (`src`) llega por URL firmada del dominio —
+ * para la narración, el worker `render-tts` sintetiza y sube el audio, y el alumno firma
+ * su lectura con `GET /tts/:id` (ver `firmarNarracionAlumno`). La onda se pinta en canvas,
+ * que no entiende `var(--token)`: por eso
  * los colores del sistema (§5A) se resuelven a hex en tiempo real y respetan el tema activo
  * (claro/sepia/oscuro del modo lectura).
  */
@@ -223,8 +224,8 @@ function PendienteAudio({
         <p className="text-[12px] leading-relaxed text-[color:var(--info-foreground)]">
           {esTts ? (
             <>
-              Narración por síntesis de voz —{' '}
-              <span className="font-bold">pendiente de API</span> (POST /media/tts → URL firmada del audio).
+              La narración se está generando —{' '}
+              <span className="font-bold">aún no está lista</span> (el worker la sintetiza y sube; se sirve por <code>GET /tts/:id</code>).
             </>
           ) : (
             <>

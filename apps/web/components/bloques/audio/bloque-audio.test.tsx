@@ -6,10 +6,10 @@ import { BloqueAudio } from './bloque-audio';
 // resuelve y que el aviso de contrato (TTS vs media) se muestra sin montar el canvas
 // de la onda en jsdom.
 describe('BloqueAudio', () => {
-  it('avisa que el TTS está pendiente cuando no hay fuente y el origen es tts', () => {
+  it('avisa que la narración se está generando cuando no hay fuente y el origen es tts', () => {
     render(<BloqueAudio src={null} origen="tts" titulo="Narración lección 1" textoTts="El higado se explora…" />);
     expect(screen.getByText('Narración lección 1')).toBeInTheDocument();
-    expect(screen.getByText(/POST \/media\/tts/i)).toBeInTheDocument();
+    expect(screen.getByText(/GET \/tts\/:id/i)).toBeInTheDocument();
   });
 
   it('avisa que el media está pendiente para audio subido sin fuente', () => {

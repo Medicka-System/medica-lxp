@@ -7,17 +7,19 @@
  * intercambiable que los modelos de Eco: el proveedor de voz es una pieza reemplazable
  * por config, no cableada (OpenAI → ElevenLabs por upgrade).
  *
- * ⚠️ PENDIENTE DE API: el backend del TTS lo construye cb-api; la tabla y la server
- * action de persistencia aún no existen. Los controles funcionan en local (demuestran
- * el flujo), pero GUARDAR queda deshabilitado hasta que aterrice el backend. La forma
- * exacta que espera esta UI vive en `../_contrato.ts`.
+ * Lee la fila activa de `lxp.tts_config` (mig 0018) y la persiste bajo RLS de súper
+ * admin (`guardarTtsConfig` · `../_acciones.ts`). El motor de síntesis (apps/api) ya
+ * consume esta config. El proveedor real NO se enciende aquí: es un enchufe de env
+ * (TTS_PROVIDER=openai + OPENAI_API_KEY · §3); mientras tanto el motor usa el mock
+ * (audio silencioso) y TODO el flujo funciona end-to-end igual.
  */
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { AudioLines, ChevronLeft, Clock, Save } from 'lucide-react';
+import { AudioLines, ChevronLeft, Plug, Save } from 'lucide-react';
 import { mono, softText, focusRing } from '@/components/tokens';
 import { Select } from '@/components/ui/select';
+import { guardarTtsConfig } from '../_acciones';
 import {
   TTS_DEFECTO,
   VOCES_POR_PROVEEDOR,
@@ -43,14 +45,36 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
   const [modelo, setModelo] = useState(config.modelo ?? '');
   const [formato, setFormato] = useState<TtsFormato>(config.formato);
   const [velocidad, setVelocidad] = useState(config.velocidad);
+  const [guardando, iniciarGuardado] = useTransition();
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
 
   const voces = VOCES_POR_PROVEEDOR[proveedor];
 
   function cambiarProveedor(p: TtsProveedor) {
     setProveedor(p);
+    setAviso(null);
     // Al cambiar de proveedor, la voz vigente puede no existir → cae a la primera.
     const disponibles = VOCES_POR_PROVEEDOR[p];
     if (!disponibles.some((v) => v.id === voz)) setVoz(disponibles[0]?.id ?? '');
+  }
+
+  function guardar() {
+    setAviso(null);
+    iniciarGuardado(async () => {
+      const r = await guardarTtsConfig({
+        id: config.id,
+        proveedor,
+        voz,
+        modelo: modelo.trim() || null,
+        formato,
+        velocidad,
+      });
+      setAviso(
+        r.ok
+          ? { tipo: 'ok', texto: 'Configuración guardada. El motor usará esta voz en la próxima síntesis.' }
+          : { tipo: 'error', texto: r.error },
+      );
+    });
   }
 
   return (
@@ -80,18 +104,19 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
         </div>
       </div>
 
-      {/* Banner honesto: backend por cablear */}
-      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-[18px] py-3.5">
+      {/* El "enchufe" del proveedor real: un flag de entorno, no código (§3). */}
+      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-[18px] py-3.5">
         <span
           aria-hidden
-          className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-card text-[color:var(--warning-foreground)]"
+          className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-card text-[color:var(--info-foreground)]"
         >
-          <Clock className="h-[17px] w-[17px]" strokeWidth={2} />
+          <Plug className="h-[17px] w-[17px]" strokeWidth={2} />
         </span>
-        <p className="min-w-[280px] flex-1 text-[12.5px] leading-relaxed text-[color:var(--warning-foreground)]">
-          <span className="font-bold">Pendiente de API.</span> El backend del TTS lo construye cb-api.
-          Puedes explorar la configuración aquí; <span className="font-semibold">Guardar</span> se activa
-          cuando aterrice la tabla y su server action (forma exacta en <code>_contrato.ts</code>).
+        <p className="min-w-[280px] flex-1 text-[12.5px] leading-relaxed text-[color:var(--info-foreground)]">
+          <span className="font-bold">La tubería está lista.</span> Esta config se guarda y el motor la
+          usa; hoy sintetiza con el <span className="font-semibold">mock</span> (audio silencioso). Para la
+          voz real, el enchufe es solo de entorno: <code>TTS_PROVIDER=openai</code> + <code>OPENAI_API_KEY</code> en
+          el <code>api</code>/<code>worker</code> (§3) — sin tocar código.
         </p>
       </div>
 
@@ -180,17 +205,25 @@ export function ConfigTts({ config = TTS_DEFECTO }: { config?: TtsConfig }) {
       </section>
 
       <div className="mt-5 flex items-center gap-3">
-        <p className={`text-[11.5px] ${softText}`}>
-          Los cambios no se persisten todavía (backend por cablear).
-        </p>
+        {aviso ? (
+          <p
+            className={`text-[11.5px] font-semibold ${
+              aviso.tipo === 'ok' ? 'text-secondary' : 'text-destructive'
+            }`}
+          >
+            {aviso.texto}
+          </p>
+        ) : (
+          <p className={`text-[11.5px] ${softText}`}>Solo el súper admin puede guardar esta configuración.</p>
+        )}
         <button
           type="button"
-          disabled
-          title="Se activa cuando cb-api exponga el backend del TTS"
-          className="ml-auto inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-[10px] bg-muted px-4 text-[13px] font-bold text-muted-foreground"
+          onClick={guardar}
+          disabled={guardando}
+          className={`ml-auto inline-flex h-10 items-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
         >
           <Save aria-hidden className="h-4 w-4" strokeWidth={2} />
-          Guardar (pendiente de API)
+          {guardando ? 'Guardando…' : 'Guardar'}
         </button>
       </div>
     </div>

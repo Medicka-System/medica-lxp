@@ -18,10 +18,15 @@ import { ContenidoRico } from '@/components/editor-rico';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
+import { BloqueAudio } from '@/components/bloques/audio/bloque-audio';
 import type { CueTranscripcion, HitoVideo, PaqueteContenido } from '@/components/bloques/contratos';
 import type { BloqueTeoriaVista } from '@/lib/campus/leccion-contrato';
 import { firmarReproduccionAlumno } from '@/lib/campus/leccion-video-acciones';
-import { firmarLecturaImagenAlumno, firmarLecturaArchivoAlumno } from '@/lib/campus/leccion-media-acciones';
+import {
+  firmarLecturaImagenAlumno,
+  firmarLecturaArchivoAlumno,
+  firmarNarracionAlumno,
+} from '@/lib/campus/leccion-media-acciones';
 
 /** Lectura defensiva de un string del config crudo. */
 function str(v: unknown): string {
@@ -37,12 +42,17 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
   const c = bloque.config;
 
   switch (bloque.tipoBloque) {
-    case 'texto':
+    case 'texto': {
+      // Narración TTS opcional (§5C): el bloque guarda el audioId; se firma y reproduce.
+      const narracion = c.narracion as { audioId?: unknown } | undefined;
+      const audioId = str(narracion?.audioId);
       return (
         <div className="cuerpo-lectura">
           <ContenidoRico html={str(c.html)} />
+          {audioId && <NarracionLector audioId={audioId} />}
         </div>
       );
+    }
 
     case 'html':
       return (
@@ -162,6 +172,32 @@ export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
     default:
       return null;
   }
+}
+
+/**
+ * Narración TTS del bloque de texto — firma la reproducción del audio generado (§3/§5C)
+ * con `firmarNarracionAlumno(audioId)` → URL firmada de `GET /tts/:id`, y la monta en el
+ * reproductor de onda (`BloqueAudio`, origen `tts`). Si el render aún no terminó o falló,
+ * el reproductor queda en su estado "pendiente" (no inventa audio).
+ */
+function NarracionLector({ audioId }: { audioId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    firmarNarracionAlumno(audioId).then((r) => {
+      if (vivo) setUrl(r.ok ? r.url : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [audioId]);
+
+  return (
+    <div className="mt-3">
+      <BloqueAudio src={url} origen="tts" titulo="Escuchar la narración" />
+    </div>
+  );
 }
 
 /**

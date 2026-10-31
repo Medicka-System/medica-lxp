@@ -12,6 +12,7 @@ import {
   type EstadoAudioResultado,
   type SolicitudRenderResultado,
 } from './tts.service';
+import { TtsConfigService } from './config/tts-config.service';
 import { solicitarTtsSchema } from './dto';
 
 /**
@@ -21,7 +22,22 @@ import { solicitarTtsSchema } from './dto';
  */
 @Controller('tts')
 export class TtsController {
-  constructor(private readonly tts: TtsService) {}
+  constructor(
+    private readonly tts: TtsService,
+    private readonly config: TtsConfigService,
+  ) {}
+
+  /**
+   * Invalida la cache de la config activa de TTS (la escribe el súper admin por CRUD
+   * web→Supabase; esto refresca el `TtsConfigService` para la próxima síntesis).
+   * Espejo de `POST /ai/config/invalidar` de Eco.
+   */
+  @Post('config/invalidar')
+  @HttpCode(200)
+  invalidarConfig(): { ok: true } {
+    this.config.invalidar();
+    return { ok: true };
+  }
 
   /** Solicita la síntesis de un texto → encola el render y devuelve el id del audio. */
   @Post()

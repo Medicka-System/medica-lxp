@@ -1317,6 +1317,52 @@ export async function actualizarBloqueTeoria(
   refrescar(programaId);
 }
 
+/**
+ * Genera la NARRACIÓN TTS de un bloque de texto (§3/§5C · course builder). NO es CRUD:
+ * la síntesis es dominio (adaptador intercambiable + object storage · §2), así que llama
+ * al `api` (`POST /tts`) que encola el render (worker `render-tts`) y devuelve el `audioId`
+ * (estado `procesando`). El editor guarda ese `audioId` en el `config` del bloque
+ * (`actualizarBloqueTeoria`); el alumno lo reproduce firmando `GET /tts/:id`.
+ *
+ * Hoy el motor sintetiza con el MOCK (audio silencioso) salvo que se enchufe el proveedor
+ * real por env (TTS_PROVIDER=openai + OPENAI_API_KEY · §3) — el flujo funciona igual.
+ */
+export async function generarNarracionBloque(
+  html: string,
+): Promise<{ ok: true; audioId: string } | { ok: false; error: string }> {
+  const { userId } = await requireAutoria();
+
+  // El TTS lee TEXTO plano: quita etiquetas y normaliza entidades/espacios del HTML rico.
+  const texto = (html ?? '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (texto.length < 2) return { ok: false, error: 'El bloque no tiene texto que narrar.' };
+
+  const base = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+  try {
+    const res = await fetch(`${base}/tts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texto, creadoPor: userId }),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`/tts HTTP ${res.status}`);
+    const r = (await res.json()) as { audioId?: string };
+    if (!r.audioId) return { ok: false, error: 'El servicio de TTS no devolvió un audio.' };
+    return { ok: true, audioId: r.audioId };
+  } catch (e) {
+    console.error('[generarNarracionBloque] fallo al contactar el dominio:', e);
+    return { ok: false, error: 'No se pudo contactar al TTS (apps/api). ¿Está levantada la API?' };
+  }
+}
+
 export async function eliminarBloqueTeoria(programaId: string, bloqueId: string): Promise<void> {
   const { userId } = await requireAutoria();
   await comoStaff(userId, async (sql) => {

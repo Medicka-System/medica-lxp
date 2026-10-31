@@ -16,8 +16,10 @@
  * `components/bloques/contratos.ts`): aquí el diseñador puede pegar una URL directa.
  */
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import {
+  AudioLines,
+  Check,
   Link as LinkIcon,
   Link2,
   Loader2,
@@ -36,6 +38,7 @@ import { VisorEstudio } from '@/components/casos/visor-estudio';
 import type { FuenteVideoConfig, PaqueteContenido } from '@/components/bloques/contratos';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
 import { ingestarPaquete } from '@/lib/studio/media-acciones';
+import { generarNarracionBloque } from '@/lib/studio/acciones';
 
 /**
  * Prefijo del H5P server (§7 · api). El editor/player de H5P corren en el navegador y
@@ -166,14 +169,64 @@ export function EditorBloque({ tipo, config, onCambio, leccionId }: EditorBloque
   }
 }
 
-/* ── Texto (EditorRico) ── */
+/* ── Texto (EditorRico + narración TTS) ── */
 function EditorTexto({ config, onCambio }: { config: ConfigTexto; onCambio: (c: Record<string, unknown>) => void }) {
+  const [generando, iniciarGeneracion] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const tieneNarracion = Boolean(config.narracion?.audioId);
+
+  function generar() {
+    setError(null);
+    iniciarGeneracion(async () => {
+      const r = await generarNarracionBloque(config.html ?? '');
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      // Preserva el html; agrega/actualiza la referencia de narración (audioId).
+      onCambio({ ...config, narracion: { audioId: r.audioId } });
+    });
+  }
+
   return (
-    <EditorRico
-      contenidoInicial={config.html ?? ''}
-      onChange={(html) => onCambio({ html })}
-      ariaLabel="Contenido del bloque de texto"
-    />
+    <div className="grid gap-3">
+      <EditorRico
+        contenidoInicial={config.html ?? ''}
+        // Preserva `narracion` al editar el texto (onCambio reemplaza todo el config).
+        onChange={(html) => onCambio({ ...config, html })}
+        ariaLabel="Contenido del bloque de texto"
+      />
+
+      {/* Narración TTS: Eco/worker sintetizan el texto; el alumno la escucha en la lección. */}
+      <div className="flex flex-wrap items-center gap-2.5 rounded-[10px] border border-border bg-muted/40 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={generar}
+          disabled={generando}
+          className={`inline-flex h-9 items-center gap-2 rounded-[9px] border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-3 text-[12.5px] font-bold text-[color:var(--info-foreground)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+        >
+          {generando ? (
+            <Loader2 aria-hidden className="h-4 w-4 animate-spin" strokeWidth={2} />
+          ) : (
+            <AudioLines aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+          )}
+          {generando ? 'Generando…' : tieneNarracion ? 'Regenerar narración' : 'Generar narración'}
+        </button>
+
+        {tieneNarracion && !generando && (
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-secondary">
+            <Check aria-hidden className="h-4 w-4" strokeWidth={2.2} />
+            Narración generada — guarda el bloque para publicarla.
+          </span>
+        )}
+        {!tieneNarracion && !generando && !error && (
+          <span className={`text-[11.5px] ${softText}`}>
+            Eco lee el texto y genera el audio (hoy mock silencioso; voz real por env · §3).
+          </span>
+        )}
+        {error && <span className="text-[12px] font-semibold text-destructive">{error}</span>}
+      </div>
+    </div>
   );
 }
 
