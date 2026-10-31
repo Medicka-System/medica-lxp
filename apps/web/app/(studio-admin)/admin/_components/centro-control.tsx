@@ -410,15 +410,17 @@ export function CentroControl({ data }: { data: CentroControlData }) {
               </ul>
             </section>
 
-            {/* Eco: servicio con presupuesto (placeholder) */}
+            {/* Eco: consumo REAL del periodo (telemetría lxp.eco_uso · §7A · mig 0097) */}
             <section className={`${card} border-[color:var(--info-border)] p-[18px]`}>
               <div className="flex items-center gap-2.5">
                 <EcoMark size={30} />
                 <p className={`${kicker} min-w-0 flex-1 text-[color:var(--info-foreground)]`}>Eco · consumo del periodo</p>
-                <ChipPlaceholder>Sin telemetría</ChipPlaceholder>
+                <span className="inline-flex h-[21px] shrink-0 items-center whitespace-nowrap rounded-full border border-[color:var(--info-border)] bg-[color:var(--info-surface)] px-2 text-[10px] font-bold text-[color:var(--info-foreground)]">
+                  este mes
+                </span>
               </div>
               <div className="mt-3.5 flex items-baseline gap-2.5">
-                <span className={`${mono} text-[30px] font-extrabold leading-none tracking-[-0.03em] text-muted-foreground`}>
+                <span className={`${mono} text-[30px] font-extrabold leading-none tracking-[-0.03em] text-foreground`}>
                   {gastoIA.monto}
                 </span>
                 <span className="text-[12px] font-semibold text-muted-foreground">{gastoIA.moneda} en {gastoIA.periodo}</span>
@@ -439,10 +441,10 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                 <span className={`${mono} shrink-0 text-[11.5px] font-bold text-muted-foreground`}>{gastoIA.pctTope}% del tope</span>
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Tope: {gastoIA.tope}. El tope y el costo por tarea se configuran en el hub (IA/Eco); la medición del gasto se cablea con la orquestación de Eco (§7A).
+                Tope: {gastoIA.tope}. Observabilidad del costo real de Eco (tokens × precio por modelo); el desglose completo vive en Analítica (§7A).
               </p>
 
-              {/* Desglose por tarea (mismo layout del mock; se puebla con la telemetría real). */}
+              {/* Desglose por paso del pipeline (REAL · se puebla solo cuando hay uso). */}
               <ul className="mt-3.5 flex flex-col gap-2 border-t border-border pt-3.5">
                 {gastoIA.desglose.length > 0 ? (
                   gastoIA.desglose.map((d) => (
@@ -453,7 +455,7 @@ export function CentroControl({ data }: { data: CentroControlData }) {
                     </li>
                   ))
                 ) : (
-                  <li className="text-[11px] text-muted-foreground">Desglose por tarea disponible al cablear la telemetría de Eco.</li>
+                  <li className="text-[11px] text-muted-foreground">Sin uso de Eco este periodo.</li>
                 )}
               </ul>
 

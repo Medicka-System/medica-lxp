@@ -2,6 +2,7 @@ import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
 import { haceCuanto } from '@/lib/format';
+import { getGastoEco } from '@/lib/studio/gasto-eco';
 import type {
   CentroControlData,
   ActividadStaff,
@@ -64,6 +65,9 @@ export async function getCentroControl(
   esSuper: boolean,
 ): Promise<CentroControlData> {
   const hoy = new Date();
+
+  // Gasto de Eco (REAL · telemetría lxp.eco_uso bajo RLS · mig 0097). 0 real si no hay uso.
+  const gasto = await getGastoEco(userId);
 
   const { totales, tendenciaRows, actividadRows, avanceRows } = await comoStaff(userId, async (sql) => {
     // ── Totales del dominio (un solo viaje) ──────────────────────────────────
@@ -327,13 +331,15 @@ export async function getCentroControl(
       { id: 'i-zoom', nombre: 'Zoom', estado: 'ok', detalle: 'Pendiente de cablear (§6)', meta: '—', icono: 'zoom' },
       { id: 'i-lrs', nombre: 'LRS · xAPI', estado: 'ok', detalle: 'Store de eventos local', meta: '—', icono: 'correo' },
     ],
+    // Gasto de Eco REAL (§7A · lxp.eco_uso · mig 0097). Sin tope configurado todavía →
+    // pctTope 0; el desglose por paso se puebla solo cuando hay uso (0 real si vacío).
     gastoIA: {
-      monto: '—',
-      moneda: 'MXN',
-      periodo: fechaLargaMes(hoy),
+      monto: gasto.totalFmt,
+      moneda: gasto.moneda,
+      periodo: gasto.periodo,
       pctTope: 0,
-      tope: 'sin configurar',
-      desglose: [],
+      tope: 'sin tope configurado',
+      desglose: gasto.porPaso.map((p) => ({ tarea: p.etiqueta, monto: p.fmt, pct: `${p.pct}%` })),
     },
     sistema: [
       { titulo: 'Almacenamiento DICOM y video', valor: '—', detalle: 'métrica de infra pendiente (§11)', icono: 'almacenamiento' },
@@ -349,12 +355,4 @@ export async function getCentroControl(
       sinResponder: totales.ateneo_sin_responder,
     },
   };
-}
-
-function fechaLargaMes(hoy: Date): string {
-  const meses = [
-    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-  ];
-  return meses[hoy.getMonth()]!;
 }

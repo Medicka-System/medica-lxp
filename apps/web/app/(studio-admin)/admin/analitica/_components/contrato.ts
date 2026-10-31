@@ -8,6 +8,8 @@
  * accionable. Aquí las señales se derivan del dato real donde se puede.
  */
 
+import type { GastoEco } from '@/lib/studio/gasto-eco-contrato';
+
 export type BarraSimple = { etiqueta: string; valor: string; pct: number; alerta?: boolean };
 
 /** Punto de serie temporal para las gráficas reales (Recharts vía wrapper). */
@@ -40,4 +42,6 @@ export type AnaliticaData = {
   diseno: { total: number; barras: BarraSimple[] };
   ateneo: { casosSemana: number; casosTotal: number; comentarios: number; autores: number; sinResponder: number };
   ecoCorrecciones: number;
+  /** Gasto REAL de Eco del periodo (telemetría lxp.eco_uso · §7A · mig 0097). */
+  gastoEco: GastoEco;
 };

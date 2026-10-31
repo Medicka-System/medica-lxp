@@ -89,7 +89,7 @@ function Tarjeta({
 }
 
 export function Analitica({ data }: { data: AnaliticaData }) {
-  const { alumnos, crecimiento, casos, casosMesSerie, iaim, casosPorDominio, repaso, docentes, diseno, ateneo, ecoCorrecciones } = data;
+  const { alumnos, crecimiento, casos, casosMesSerie, iaim, casosPorDominio, repaso, docentes, diseno, ateneo, ecoCorrecciones, gastoEco } = data;
 
   const flojo = iaim.find((d) => d.flojo);
   const participacion = alumnos.activos > 0 ? Math.round((ateneo.autores / alumnos.activos) * 100) : 0;
@@ -384,12 +384,50 @@ export function Analitica({ data }: { data: AnaliticaData }) {
           <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
             Cada corrección del docente sobre una sugerencia de Eco se registra para afinar el modelo (§7A).
           </p>
-          {/* gasto/costo por caso: telemetría de la orquestación de Eco (aún no cableada) */}
-          <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-[11px] border border-dashed border-border bg-muted/40 px-3.5 py-2.5">
-            <span className="min-w-0 flex-1 text-[11.5px] font-semibold leading-snug text-muted-foreground">
-              Gasto y costo por caso de Eco
-            </span>
-            <span className={`${mono} shrink-0 text-[12px] font-bold text-muted-foreground`}>— placeholder</span>
+          {/* Gasto REAL de Eco (telemetría lxp.eco_uso · §7A · mig 0097). 0 real si no hay uso. */}
+          <div className="mt-4 border-t border-border pt-3.5">
+            <div className="flex items-baseline gap-2.5">
+              <span className={`${mono} text-[22px] font-extrabold leading-none tracking-[-0.02em]`}>{gastoEco.totalFmt}</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">{gastoEco.moneda} en {gastoEco.periodo}</span>
+            </div>
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+              {gastoEco.llamadas > 0
+                ? `${gastoEco.llamadas} llamadas al modelo · ${gastoEco.tokens.toLocaleString('es-MX')} tokens (tokens × precio por modelo · §7A).`
+                : 'Sin uso de Eco este periodo — el costo se registra por llamada cuando la orquestación consume tokens (§7A).'}
+            </p>
+
+            {gastoEco.totalUsd > 0 && (
+              <>
+                {/* serie diaria del costo (Recharts vía wrapper §5A) */}
+                <div className="mt-3">
+                  <Chart height={64}>
+                    <AreaChart data={gastoEco.serie} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                      <XAxis dataKey="x" hide />
+                      <YAxis hide domain={[0, 'dataMax']} />
+                      <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border)' }} />
+                      <Area
+                        type="monotone"
+                        dataKey="v"
+                        name="USD"
+                        stroke="var(--secondary)"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        fill="var(--secondary)"
+                        fillOpacity={0.1}
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </Chart>
+                </div>
+
+                {/* desglose por modelo */}
+                <p className={`${kicker} mt-3.5 text-muted-foreground`}>Por modelo</p>
+                <Barras
+                  filas={gastoEco.porModelo.map((m) => ({ etiqueta: m.etiqueta, valor: m.fmt, pct: m.pct }))}
+                  color="sidebar"
+                />
+              </>
+            )}
           </div>
         </Tarjeta>
       </div>

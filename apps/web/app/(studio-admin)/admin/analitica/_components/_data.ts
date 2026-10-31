@@ -1,6 +1,7 @@
 import 'server-only';
 import { comoStaff } from '@/lib/db.server';
 import { iniciales } from '@/components/avatar';
+import { getGastoEco } from '@/lib/studio/gasto-eco';
 import type { AnaliticaData, IaimEscuela, BarraSimple, DocenteDesempeno, PuntoSerie } from './contrato';
 
 /**
@@ -21,6 +22,9 @@ const DOMINIOS: Record<string, string> = {
 
 export async function getAnalitica(userId: string): Promise<AnaliticaData> {
   const hoy = new Date();
+
+  // Gasto de Eco REAL (§7A · lxp.eco_uso bajo RLS · mig 0097). 0 real si no hay uso.
+  const gastoEco = await getGastoEco(userId);
 
   const raw = await comoStaff(userId, async (sql) => {
     const [alumnos, crecimiento, casos, casosMes, iaimRows, casosDom, repaso, valDoc, colaDoc, ateneo, ecoCorr, diseno] =
@@ -201,5 +205,6 @@ export async function getAnalitica(userId: string): Promise<AnaliticaData> {
       sinResponder: raw.ateneo.sin_responder,
     },
     ecoCorrecciones: raw.ecoCorr,
+    gastoEco,
   };
 }
