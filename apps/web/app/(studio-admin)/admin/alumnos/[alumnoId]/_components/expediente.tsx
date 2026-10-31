@@ -7,9 +7,11 @@
  * local, solo lectura en producción (§10/§11). Eco (sobre el alumno) = placeholder.
  */
 import Link from 'next/link';
+import { useState, useTransition } from 'react';
 import {
   AlertTriangle,
   Award,
+  BadgeCheck,
   ChevronLeft,
   Clock,
   ExternalLink,
@@ -17,11 +19,15 @@ import {
   Lock,
   MessageCircle,
   NotebookText,
+  Plus,
   ScanLine,
+  X,
 } from 'lucide-react';
 import { mono, kicker, softText, card, focusRing } from '@/components/tokens';
 import { Avatar } from '@/components/avatar';
+import { Select } from '@/components/ui/select';
 import { ChatEco } from '../../../../_components/chat-eco';
+import { otorgarBadgeManual, revocarBadgeManual } from './_acciones';
 import type { Expediente, EstadoAlumno } from '../../_components/contrato';
 
 const ESTADO: Record<EstadoAlumno, string> = {
@@ -228,6 +234,9 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
               </p>
             )}
           </section>
+
+          {/* insignias: otorgadas (auto/manual) + otorgamiento manual del docente */}
+          <PanelInsignias e={e} />
         </div>
 
         {/* rail: CORA (placeholder) + Eco (placeholder) */}
@@ -273,5 +282,97 @@ export function ExpedienteAlumno({ e }: { e: Expediente }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ─────────────────────────── Insignias (otorgamiento manual) ─────────────────────────── */
+function PanelInsignias({ e }: { e: Expediente }) {
+  const { otorgadas, catalogo } = e.reconocimiento;
+  const yaTiene = new Set(otorgadas.map((o) => o.badgeId));
+  const disponibles = catalogo.filter((c) => !yaTiene.has(c.id));
+  const [sel, setSel] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, iniciar] = useTransition();
+
+  function otorgar() {
+    if (!sel) return;
+    setError(null);
+    iniciar(async () => {
+      const r = await otorgarBadgeManual(e.id, sel);
+      if (!r.ok) setError(r.error);
+      else setSel('');
+    });
+  }
+  function revocar(badgeId: string) {
+    setError(null);
+    iniciar(async () => {
+      const r = await revocarBadgeManual(e.id, badgeId);
+      if (!r.ok) setError(r.error);
+    });
+  }
+
+  return (
+    <section className={`${card} p-[18px]`}>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <p className={`${kicker} text-muted-foreground`}>Insignias</p>
+        <span className={`${mono} ml-auto text-[11px] text-muted-foreground`}>{otorgadas.length} otorgada{otorgadas.length === 1 ? '' : 's'}</span>
+      </div>
+
+      {otorgadas.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {otorgadas.map((o) => (
+            <span
+              key={o.badgeId}
+              className={`inline-flex h-[28px] items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold ${
+                o.manual ? 'border-primary bg-accent text-accent-foreground' : 'border-border bg-muted text-muted-foreground'
+              }`}
+            >
+              <BadgeCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+              {o.nombre}
+              <span className={`${mono} text-[9.5px] uppercase tracking-wide opacity-70`}>{o.manual ? 'manual' : 'auto'}</span>
+              {o.manual && (
+                <button
+                  type="button"
+                  onClick={() => revocar(o.badgeId)}
+                  disabled={pending}
+                  aria-label={`Revocar ${o.nombre}`}
+                  className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-[12px] text-muted-foreground">Aún no tiene insignias.</p>
+      )}
+
+      <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-border pt-3.5">
+        <Select
+          aria-label="Elegir insignia para otorgar"
+          value={sel}
+          onChange={setSel}
+          className={`flex h-10 min-w-[200px] flex-1 items-center gap-2 rounded-[9px] border border-border bg-card px-3 text-[12.5px] outline-none hover:border-secondary ${focusRing}`}
+          options={[
+            { value: '', label: disponibles.length ? 'Otorgar una insignia…' : 'Sin insignias disponibles' },
+            ...disponibles.map((c) => ({ value: c.id, label: c.manual ? `${c.nombre} (manual)` : `${c.nombre} (auto)` })),
+          ]}
+        />
+        <button
+          type="button"
+          onClick={otorgar}
+          disabled={!sel || pending}
+          className={`inline-flex h-10 items-center gap-2 rounded-[10px] bg-primary px-3.5 text-[12.5px] font-bold text-[color:var(--sidebar)] transition-colors hover:bg-secondary hover:text-white disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+        >
+          <Plus aria-hidden className="h-4 w-4" strokeWidth={2.4} />
+          {pending ? 'Otorgando…' : 'Otorgar'}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        Otorgar a mano registra la insignia con tu nombre. Las automáticas las pone el sistema al cumplir su regla; solo las manuales se pueden revocar aquí.
+      </p>
+      {error && <p className="mt-2 text-[11.5px] font-semibold text-destructive">{error}</p>}
+    </section>
   );
 }

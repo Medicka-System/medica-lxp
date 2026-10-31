@@ -135,7 +135,7 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
     )[0];
     if (!perfil) return null;
 
-    const [casos, comp, cert, badges, consultas, recientes] = await Promise.all([
+    const [casos, comp, cert, otorgadas, catalogo, consultas, recientes] = await Promise.all([
       sql<
         { total: number; aprobados: number; pendientes: number; rechazados: number; horas: number; recientes: number }[]
       >`
@@ -151,7 +151,16 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
         select dominio_iaim::text as dominio_iaim, nivel::float8 as nivel, decaimiento::float8 as decaimiento
         from lxp.competencia_dominios where id_alumno = ${alumnoId}`,
       sql<{ n: number }[]>`select count(*)::int as n from lxp.certificados where id_alumno = ${alumnoId}`,
-      sql<{ n: number }[]>`select count(*)::int as n from lxp.badges_otorgados where id_perfil = ${alumnoId}`,
+      // Insignias otorgadas (auto = otorgado_por null; manual = not null).
+      sql<{ badge_id: string; nombre: string; manual: boolean }[]>`
+        select b.id as badge_id, b.nombre, (bo.otorgado_por is not null) as manual
+        from lxp.badges_otorgados bo join lxp.badges b on b.id = bo.badge_id
+        where bo.id_perfil = ${alumnoId}
+        order by bo.otorgado_en desc`,
+      // Catálogo para otorgar a mano (manual primero).
+      sql<{ id: string; nombre: string; manual: boolean }[]>`
+        select id, nombre, (regla is null) as manual from lxp.badges
+        order by (regla is null) desc, nombre asc`,
       sql<{ n: number }[]>`select count(*)::int as n from lxp.consultas where id_alumno = ${alumnoId} and estado = 'abierta'`,
       sql<{ id: string; organo: string | null; estado: string; created_at: Date }[]>`
         select id, organo, estado_validacion::text as estado, created_at
@@ -188,7 +197,7 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
         casosPendientes: c.pendientes,
         casosRechazados: c.rechazados,
         certificados: cert[0]?.n ?? 0,
-        insignias: badges[0]?.n ?? 0,
+        insignias: otorgadas.length,
       },
       iaim: { dominios, general },
       actividad: recientes.map((r) => ({
@@ -198,6 +207,10 @@ export async function getExpediente(userId: string, alumnoId: string): Promise<E
         cuando: haceCuanto(r.created_at, hoy),
       })),
       consultasAbiertas: consultas[0]?.n ?? 0,
+      reconocimiento: {
+        otorgadas: otorgadas.map((o) => ({ badgeId: o.badge_id, nombre: o.nombre, manual: o.manual })),
+        catalogo: catalogo.map((c) => ({ id: c.id, nombre: c.nombre, manual: c.manual })),
+      },
     };
     return { expediente, avatarRef: perfil.avatar_url };
   });

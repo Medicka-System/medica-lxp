@@ -67,4 +67,9 @@ export type Expediente = {
   iaim: { dominios: DominioIaimFila[]; general: number | null };
   actividad: ActividadCaso[];
   consultasAbiertas: number;
+  /** Reconocimiento: insignias otorgadas (auto/manual) + catálogo para otorgar a mano. */
+  reconocimiento: {
+    otorgadas: { badgeId: string; nombre: string; manual: boolean }[];
+    catalogo: { id: string; nombre: string; manual: boolean }[];
+  };
 };

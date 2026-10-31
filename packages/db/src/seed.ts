@@ -1065,11 +1065,32 @@ async function seed(sql: Sql): Promise<void> {
       ${sql.json({ tipo: 'comunidad', prioridad: 'normal' })},
       array['in_app'], now() - interval '30 days', now() - interval '5 days')`;
 
-  // ── Badge de catálogo ──────────────────────────────────────────────────
+  // ── Badges de catálogo (§6/§8) — set inicial editable desde la gestión (lxp.badges).
+  //    Enfoque priorizado: VOLUMEN DE CASOS y HORAS acumuladas (reglas automáticas que
+  //    el worker `otorgar-badges` evalúa), más 2 manuales (regla null) a discreción del
+  //    docente. Claves/umbral orientativos; el admin los ajusta en /configuracion/badges.
   await sql`
     insert into lxp.badges (clave, nombre, descripcion, regla)
-    values ('primer_caso', 'Primer caso', 'Subió su primer caso a la bitácora',
-      ${sql.json({ tipo: 'casos', umbral: 1 })})`;
+    values
+      ('primer_caso', 'Primer caso', 'Subió su primer caso a la bitácora',
+        ${sql.json({ tipo: 'casos', umbral: 1 })}),
+      ('casos_10', '10 casos', 'Diez casos validados en la bitácora',
+        ${sql.json({ tipo: 'casos', umbral: 10 })}),
+      ('casos_50', '50 casos', 'Cincuenta casos validados — práctica sostenida',
+        ${sql.json({ tipo: 'casos', umbral: 50 })}),
+      ('casos_100', '100 casos', 'Cien casos validados — volumen de experto',
+        ${sql.json({ tipo: 'casos', umbral: 100 })}),
+      ('horas_10', '10 horas', 'Diez horas de práctica acreditadas',
+        ${sql.json({ tipo: 'horas', umbral: 10 })}),
+      ('horas_50', '50 horas', 'Cincuenta horas de práctica acreditadas',
+        ${sql.json({ tipo: 'horas', umbral: 50 })}),
+      ('horas_100', '100 horas', 'Cien horas de práctica acreditadas',
+        ${sql.json({ tipo: 'horas', umbral: 100 })}),
+      ('mentor', 'Mentor del Ateneo', 'Reconocimiento del docente por acompañar a sus colegas (manual)',
+        ${null}),
+      ('excelencia_clinica', 'Excelencia clínica', 'Otorgada por el docente ante un caso o desempeño sobresaliente (manual)',
+        ${null})
+    on conflict (clave) do nothing`;
 
   // ── Calculadoras del catálogo (§6) — 2 ejemplos que EJECUTA el motor genérico
   //    (definicion = entradas/fórmula/salida; sin código, sin eval · calculadoras-motor.ts).

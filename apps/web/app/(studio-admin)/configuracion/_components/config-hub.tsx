@@ -167,6 +167,7 @@ const GRUPOS: Grupo[] = [
           'Insignias con reglas automáticas —hitos, casos, competencia— o entregadas a mano, para alumnos y docentes.',
         dentro: ['Insignias', 'Reglas automáticas', 'Alumnos y docentes'],
         icono: 'badges',
+        href: '/configuracion/badges',
       },
       {
         id: 'marca',
