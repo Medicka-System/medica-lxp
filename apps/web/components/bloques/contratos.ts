@@ -122,6 +122,14 @@ export type PaqueteContenido = {
   lanzadorUrl?: string | null;
   /** Mensaje de error de ingesta, si `estado === 'error'`. */
   error?: string;
+  /**
+   * Anclas para el SHELL SCORM mismo-origen (`/scorm/play/:contenidoId`), que habilita el
+   * tracking (window.API / API_1484_11 → POST /scorm/commit). Solo SCORM: xAPI sigue usando
+   * `lanzadorUrl` crudo (pieza 3, aparte). Sin estas anclas, SCORM cae al `lanzadorUrl` crudo.
+   */
+  contenidoId?: string;
+  entryPoint?: string | null;
+  leccionId?: string | null;
 };
 
 /**

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo SCORM 1.2</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; color: #111827; }
+    h1 { font-size: 20px; }
+    button { font: inherit; padding: 10px 16px; margin: 4px 6px 4px 0; border-radius: 10px;
+      border: 1px solid #1a8880; background: #53c3be; color: #053; cursor: pointer; }
+    #log { margin-top: 16px; padding: 12px; background: #f8f9fa; border: 1px solid #e5e7eb;
+      border-radius: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+      white-space: pre-wrap; max-height: 320px; overflow: auto; }
+    .ok { color: #1a8880; } .err { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <h1>Demo SCORM 1.2 — tracking</h1>
+  <p>Este SCO busca <code>window.API</code> (el runtime del shell) y reporta su avance.</p>
+  <div>
+    <button onclick="setStatus('incomplete')">Marcar incomplete</button>
+    <button onclick="setScore()">Puntaje 90</button>
+    <button onclick="setStatus('completed')">Marcar completed</button>
+    <button onclick="commit()">Commit</button>
+    <button onclick="finish()">Finish</button>
+  </div>
+  <div id="log"></div>
+
+  <script>
+    var API = null;
+    function log(msg, cls) {
+      var el = document.getElementById('log');
+      el.innerHTML += '<div class="' + (cls || '') + '">' + msg + '</div>';
+      el.scrollTop = el.scrollHeight;
+    }
+    // Descubrimiento SCORM 1.2 estandar: subir por la cadena de ventanas buscando window.API.
+    function buscarAPI(win) {
+      var intentos = 0;
+      while (win.API == null && win.parent != null && win.parent != win && intentos < 10) {
+        intentos++;
+        win = win.parent;
+      }
+      return win.API;
+    }
+    function obtenerAPI() {
+      if (API) return API;
+      API = buscarAPI(window);
+      if (API == null && window.opener) API = buscarAPI(window.opener);
+      return API;
+    }
+    function init() {
+      var a = obtenerAPI();
+      if (!a) { log('No se encontro window.API — ¿abierto fuera del shell?', 'err'); return; }
+      var r = a.LMSInitialize('');
+      log('LMSInitialize -> ' + r + (r === 'true' ? '' : ' (err ' + a.LMSGetLastError() + ')'),
+          r === 'true' ? 'ok' : 'err');
+      var reanuda = a.LMSGetValue('cmi.core.lesson_status');
+      log('lesson_status previo = "' + reanuda + '"  suspend_data previo = "' +
+          a.LMSGetValue('cmi.suspend_data') + '"');
+    }
+    function setStatus(s) {
+      var a = obtenerAPI(); if (!a) return;
+      a.LMSSetValue('cmi.core.lesson_status', s);
+      a.LMSSetValue('cmi.suspend_data', 'visto=' + s + '@' + new Date().toISOString());
+      log('LMSSetValue lesson_status=' + s, 'ok');
+    }
+    function setScore() {
+      var a = obtenerAPI(); if (!a) return;
+      a.LMSSetValue('cmi.core.score.raw', '90');
+      a.LMSSetValue('cmi.core.score.max', '100');
+      log('LMSSetValue score.raw=90', 'ok');
+    }
+    function commit() {
+      var a = obtenerAPI(); if (!a) return;
+      var r = a.LMSCommit('');
+      log('LMSCommit -> ' + r, r === 'true' ? 'ok' : 'err');
+    }
+    function finish() {
+      var a = obtenerAPI(); if (!a) return;
+      var r = a.LMSFinish('');
+      log('LMSFinish -> ' + r, r === 'true' ? 'ok' : 'err');
+    }
+    init();
+  </script>
+</body>
+</html>

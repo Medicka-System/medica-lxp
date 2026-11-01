@@ -51,6 +51,17 @@ export function BloquePaquete({ modo = 'ver', paquete, titulo, contexto, onSubir
   const estado = paquete?.estado ?? 'sin_subir';
   const tipo = paquete?.tipo;
 
+  // SCORM con tracking: se reproduce a través del SHELL mismo-origen (/scorm/play/:id) que
+  // inyecta window.API/API_1484_11 y persiste el CMI (§7). xAPI (y SCORM sin anclas) usan el
+  // `lanzadorUrl` crudo. `url` es la fuente del iframe cuando el paquete está listo.
+  const esScorm = tipo === 'scorm12' || tipo === 'scorm2004';
+  const urlReproductor =
+    esScorm && paquete?.contenidoId && paquete?.entryPoint
+      ? `/scorm/play/${encodeURIComponent(paquete.contenidoId)}?entry=${encodeURIComponent(paquete.entryPoint)}` +
+        (paquete.leccionId ? `&leccion=${encodeURIComponent(paquete.leccionId)}` : '') +
+        (titulo ?? paquete.titulo ? `&titulo=${encodeURIComponent(titulo ?? paquete.titulo ?? '')}` : '')
+      : (paquete?.lanzadorUrl ?? null);
+
   function elegir(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     setArchivo(f && /\.zip$/i.test(f.name) ? f : null);
@@ -76,8 +87,8 @@ export function BloquePaquete({ modo = 'ver', paquete, titulo, contexto, onSubir
       </div>
 
       {/* Reproducción cuando el paquete está listo */}
-      {estado === 'listo' && paquete?.lanzadorUrl ? (
-        <ReproductorPaquete url={paquete.lanzadorUrl} tipo={tipo} titulo={titulo ?? paquete.titulo} />
+      {estado === 'listo' && urlReproductor ? (
+        <ReproductorPaquete url={urlReproductor} tipo={tipo} titulo={titulo ?? paquete?.titulo} />
       ) : estado === 'procesando' ? (
         <EstadoProcesando />
       ) : estado === 'error' ? (

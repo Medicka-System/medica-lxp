@@ -121,6 +121,10 @@ export function LeccionInteractiva({
           titulo: leccion.config.titulo ?? leccion.nombre,
           estado: estadoPaquete,
           lanzadorUrl: listo ? leccion.config.lanzadorUrl : null,
+          // Anclas para el shell SCORM mismo-origen (tracking · §7). xAPI las ignora.
+          contenidoId: leccion.config.contenidoId,
+          entryPoint: leccion.config.entryPoint,
+          leccionId: leccion.id,
         }}
       />
       {aviso && <MensajeAviso texto={aviso} />}
