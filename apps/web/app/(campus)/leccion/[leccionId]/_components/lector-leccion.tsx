@@ -58,6 +58,8 @@ import {
   type TemaLectura,
 } from '@/components/campus/modo-lectura';
 import { MotorAutoevaluacion } from './motor-autoevaluacion';
+import { EncuestaLector } from './encuesta-lector';
+import { comoEncuestaConfig } from '@/lib/studio/encuesta-contrato';
 import { marcarLeccionCompletada } from '@/lib/campus/leccion-acciones';
 import { reportarProgresoInteractivo } from '@/lib/campus/players-acciones';
 import { LeccionInteractiva } from './leccion-interactiva';
@@ -427,11 +429,27 @@ export function LectorLeccion({
                 <div className="mt-8 space-y-10">
                   {leccion.bloquesTeoria.map((b) => (
                     <section key={b.id} data-bloque-id={b.id}>
-                      <BloqueTeoriaLector bloque={b} />
+                      <BloqueTeoriaLector bloque={b} leccionId={leccion.id} />
                     </section>
                   ))}
                 </div>
               )
+            ) : leccion.tipo === 'encuesta' ? (
+              // Encuesta (§5C · mig 0099): recoge respuestas del alumno, NO califica.
+              // Las preguntas viven en `lecciones.config`; responder completa el paso.
+              <div className="mt-8">
+                {(() => {
+                  const enc = comoEncuestaConfig(leccion.config as Record<string, unknown>);
+                  return (
+                    <EncuestaLector
+                      leccionId={leccion.id}
+                      tituloLeccion={leccion.nombre}
+                      descripcion={enc.descripcion}
+                      preguntas={enc.preguntas}
+                    />
+                  );
+                })()}
+              </div>
             ) : leccion.bloques.length === 0 ? (
               <p className="mt-10 rounded-xl border border-dashed border-border px-5 py-10 text-center text-[14px] text-muted-foreground">
                 Esta lección aún no tiene contenido publicado.

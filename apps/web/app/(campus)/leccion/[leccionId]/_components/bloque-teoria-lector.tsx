@@ -13,12 +13,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Link as LinkIcon, ScanLine } from 'lucide-react';
+import { ClipboardList, Link as LinkIcon, ScanLine } from 'lucide-react';
 import { ContenidoRico } from '@/components/editor-rico';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { BloqueAudio } from '@/components/bloques/audio/bloque-audio';
+import { EncuestaLector } from './encuesta-lector';
+import { comoEncuestaConfig } from '@/lib/studio/encuesta-contrato';
 import type { CueTranscripcion, HitoVideo, PaqueteContenido } from '@/components/bloques/contratos';
 import type { BloqueTeoriaVista } from '@/lib/campus/leccion-contrato';
 import { firmarReproduccionAlumno } from '@/lib/campus/leccion-video-acciones';
@@ -38,10 +40,24 @@ const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
   : null;
 
-export function BloqueTeoriaLector({ bloque }: { bloque: BloqueTeoriaVista }) {
+export function BloqueTeoriaLector({ bloque, leccionId }: { bloque: BloqueTeoriaVista; leccionId: string }) {
   const c = bloque.config;
 
   switch (bloque.tipoBloque) {
+    case 'encuesta': {
+      // Encuesta embebida (§5C): recoge respuestas del alumno, no califica. Ancla la
+      // respuesta al bloque (bloqueId) dentro de la lección de teoría.
+      const enc = comoEncuestaConfig(c);
+      return (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-secondary">
+            <ClipboardList aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+            Encuesta
+          </p>
+          <EncuestaLector leccionId={leccionId} bloqueId={bloque.id} descripcion={enc.descripcion} preguntas={enc.preguntas} />
+        </div>
+      );
+    }
     case 'texto': {
       // Narración TTS opcional (§5C): el bloque guarda el audioId; se firma y reproduce.
       const narracion = c.narracion as { audioId?: unknown } | undefined;

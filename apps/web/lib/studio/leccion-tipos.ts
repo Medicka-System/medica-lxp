@@ -12,11 +12,12 @@
  * `docs/constructor-lecciones-contrato.md`.
  */
 
-/** Los 7 tipos de lección (== enum `lxp.leccion_tipo` · mig 0023). */
+/** Los 8 tipos de lección (== enum `lxp.leccion_tipo` · mig 0023 + 0099 `encuesta`). */
 export type TipoLeccion =
   | 'teoria'
   | 'video'
   | 'autoevaluacion'
+  | 'encuesta'
   | 'tarea'
   | 'foro'
   | 'h5p'
@@ -27,6 +28,7 @@ export const TIPOS_LECCION: readonly TipoLeccion[] = [
   'teoria',
   'video',
   'autoevaluacion',
+  'encuesta',
   'tarea',
   'foro',
   'h5p',
@@ -69,6 +71,12 @@ export const INFO_TIPO_LECCION: Record<TipoLeccion, InfoTipoLeccion> = {
     descripcion: 'Reactivos autocalificables; Eco propone y el alumno recibe retro.',
     almacen: 'config',
   },
+  encuesta: {
+    tipo: 'encuesta',
+    rotulo: 'Encuesta',
+    descripcion: 'Preguntas que recogen la opinión/avance del alumno. No se califica.',
+    almacen: 'config',
+  },
   tarea: {
     tipo: 'tarea',
     rotulo: 'Tarea',
@@ -99,6 +107,9 @@ export const INFO_TIPO_LECCION: Record<TipoLeccion, InfoTipoLeccion> = {
 export function comoTipoLeccion(v: unknown): TipoLeccion {
   return TIPOS_LECCION.includes(v as TipoLeccion) ? (v as TipoLeccion) : 'teoria';
 }
+
+// NOTA: `comoTipoLeccion` acepta 'encuesta' (mig 0099); los consumidores exhaustivos del
+// union (editores-leccion, lector del alumno) deben manejar el tipo o el build lo marca.
 
 /* ─────────────────────────── Contrato del editor ─────────────────────────── */
 

@@ -13,6 +13,7 @@ import type { ComponentType } from 'react';
 import {
   BookOpen,
   CheckCircle2,
+  ClipboardList,
   FileCheck2,
   MessageSquare,
   Package,
@@ -29,6 +30,7 @@ import { EditorVideo } from './_editores/editor-video';
 import { EditorH5P } from './_editores/editor-h5p';
 import { EditorXapi } from './_editores/editor-xapi';
 import { EditorAutoevaluacion } from './editor-autoevaluacion';
+import { EditorEncuesta } from './_editores/editor-encuesta';
 import { EditorTarea } from './editor-tarea';
 import { EditorForo } from './editor-foro';
 
@@ -40,6 +42,7 @@ export const VISUAL_TIPO: Record<TipoLeccion, { icono: LucideIcon; clase: string
     icono: CheckCircle2,
     clase: 'bg-[color:var(--info-surface)] text-[color:var(--info-foreground)]',
   },
+  encuesta: { icono: ClipboardList, clase: 'bg-accent text-accent-foreground' },
   tarea: {
     icono: FileCheck2,
     clase: 'bg-[color:var(--warning-surface)] text-[color:var(--warning-foreground)]',
@@ -57,6 +60,7 @@ export const EDITORES_LECCION: Record<TipoLeccion, ComponentType<EditorLeccionPr
   teoria: EditorTeoria,
   video: EditorVideo,
   autoevaluacion: EditorAutoevaluacion,
+  encuesta: EditorEncuesta,
   tarea: EditorTarea,
   foro: EditorForo,
   h5p: EditorH5P,

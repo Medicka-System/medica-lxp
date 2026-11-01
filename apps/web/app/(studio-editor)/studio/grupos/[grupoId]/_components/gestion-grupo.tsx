@@ -787,6 +787,7 @@ const ETIQUETA_TIPO: Record<TipoLeccion, string> = {
   teoria: 'Teoría',
   video: 'Video',
   autoevaluacion: 'Autoevaluación',
+  encuesta: 'Encuesta',
   tarea: 'Tarea',
   foro: 'Foro',
   h5p: 'Interactivo H5P',

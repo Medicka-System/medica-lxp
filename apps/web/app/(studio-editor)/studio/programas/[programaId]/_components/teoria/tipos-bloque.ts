@@ -18,8 +18,9 @@
  */
 
 import type { FuenteVideoConfig } from '@/components/bloques/contratos';
+import type { EncuestaConfig } from '@/lib/studio/encuesta-contrato';
 
-/** Los 10 sub-tipos de bloque que ofrece el editor de teoría. */
+/** Los 11 sub-tipos de bloque que ofrece el editor de teoría. */
 export type TipoBloqueTeoria =
   | 'texto'
   | 'imagen'
@@ -30,7 +31,8 @@ export type TipoBloqueTeoria =
   | 'pdf'
   | 'caso'
   | 'h5p'
-  | 'xapi';
+  | 'xapi'
+  | 'encuesta';
 
 /** Orden canónico de presentación en el menú "Agregar bloque". */
 export const TIPOS_BLOQUE_TEORIA: readonly TipoBloqueTeoria[] = [
@@ -44,6 +46,7 @@ export const TIPOS_BLOQUE_TEORIA: readonly TipoBloqueTeoria[] = [
   'caso',
   'h5p',
   'xapi',
+  'encuesta',
 ] as const;
 
 /* ─────────────────────────── Forma del `config` por tipo ─────────────────────────── */
@@ -129,6 +132,9 @@ export type ConfigXapi = {
   recursoId?: string;
 };
 
+/** Encuesta embebida como bloque (reusa el contrato de encuesta · recoge, no califica). */
+export type ConfigEncuesta = EncuestaConfig;
+
 /** Mapa tipo → forma de su `config` (contrato interno del editor de teoría). */
 export type ConfigBloque = {
   texto: ConfigTexto;
@@ -141,6 +147,7 @@ export type ConfigBloque = {
   caso: ConfigCaso;
   h5p: ConfigH5p;
   xapi: ConfigXapi;
+  encuesta: ConfigEncuesta;
 };
 
 /* ─────────────────────────── Registro descriptivo ─────────────────────────── */
@@ -240,6 +247,14 @@ export const INFO_BLOQUE_TEORIA: Record<TipoBloqueTeoria, InfoBloqueTeoria> = {
     icono: 'Package',
     desdeRecurso: true,
   },
+  encuesta: {
+    tipo: 'encuesta',
+    rotulo: 'Encuesta',
+    descripcion: 'Preguntas que recogen la opinión/avance del alumno. No se califica.',
+    familia: 'interactivo',
+    icono: 'ClipboardList',
+    desdeRecurso: false,
+  },
 };
 
 /* ─────────────────────────── Cuerpo inicial al crear ─────────────────────────── */
@@ -256,6 +271,7 @@ const INICIALES: { [K in TipoBloqueTeoria]: () => ConfigBloque[K] } = {
   caso: () => ({ casoId: '', titulo: '' }),
   h5p: () => ({ contentId: '', titulo: '' }),
   xapi: () => ({ titulo: '' }),
+  encuesta: () => ({ preguntas: [] }),
 };
 
 /** `config` con el que nace un bloque de cada tipo (cuerpo vacío, listo para editar). */

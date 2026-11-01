@@ -93,6 +93,13 @@ services:
       # Redactor Presidio (§10): el `api` lo llama al procesar imágenes de reporte (tapa la
       # PII quemada). Interno a la red del stack. Sin este servicio → fetch failed → 500.
       REDACTOR_URL: ${REDACTOR_URL:-http://redactor-dicom:8002}
+      # H5P (§5C/§7): el servidor H5P autora en FILESYSTEM. Fijamos la ruta a un MOUNT
+      # persistente para que las librerías + el contenido autorado SOBREVIVAN a los
+      # deploys (sin esto, `deploy.sh` recreaba el contenedor y borraba todo H5P).
+      H5P_DATA_DIR: /app/.h5p-data
+    volumes:
+      # Volumen con nombre (como redis-data/minio-data): datos H5P durables entre deploys.
+      - h5p-data:/app/.h5p-data
     networks:
       - prisma_web       # egress (Supabase cloud / Anthropic / JWKS)
       - prisma_internal  # redis/minio
@@ -261,3 +268,4 @@ networks:
 volumes:
   redis-data:
   minio-data:
+  h5p-data:   # contenido/librerías H5P del `api` (durable entre deploys · §5C)

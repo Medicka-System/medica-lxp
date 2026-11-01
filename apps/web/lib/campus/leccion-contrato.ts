@@ -64,6 +64,7 @@ export type TipoLeccionAlumno =
   | 'teoria'
   | 'video'
   | 'autoevaluacion'
+  | 'encuesta'
   | 'tarea'
   | 'foro'
   | 'h5p'

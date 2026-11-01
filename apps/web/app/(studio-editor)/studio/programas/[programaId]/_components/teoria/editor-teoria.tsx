@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
+  ClipboardList,
   Code,
   FileText,
   Image as ImageIcon,
@@ -82,6 +83,7 @@ const ICONOS: Record<string, LucideIcon> = {
   ScanLine,
   SlidersHorizontal,
   Package,
+  ClipboardList,
 };
 
 /* ─────────────────────────────── Editor de teoría ─────────────────────────────── */

@@ -13,9 +13,9 @@ import {
  * y el selector de recursos dependen de esta forma.
  */
 describe('tipos-bloque · registro del editor de teoría', () => {
-  it('ofrece exactamente los 10 sub-tipos de bloque pedidos', () => {
+  it('ofrece exactamente los 11 sub-tipos de bloque pedidos', () => {
     expect([...TIPOS_BLOQUE_TEORIA].sort()).toEqual(
-      ['caso', 'galeria', 'h5p', 'html', 'imagen', 'link', 'pdf', 'texto', 'video', 'xapi'].sort(),
+      ['caso', 'encuesta', 'galeria', 'h5p', 'html', 'imagen', 'link', 'pdf', 'texto', 'video', 'xapi'].sort(),
     );
   });
 

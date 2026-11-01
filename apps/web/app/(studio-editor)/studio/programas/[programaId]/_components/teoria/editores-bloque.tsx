@@ -50,6 +50,7 @@ const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
   : null;
 import type {
   ConfigCaso,
+  ConfigEncuesta,
   ConfigGaleria,
   ConfigH5p,
   ConfigHtml,
@@ -61,6 +62,8 @@ import type {
   ConfigXapi,
   TipoBloqueTeoria,
 } from './tipos-bloque';
+import { comoEncuestaConfig } from '@/lib/studio/encuesta-contrato';
+import { ConstructorEncuesta } from '../_editores/constructor-encuesta';
 
 /* ─────────────────────────── Campos base (estilo Studio · §5A) ─────────────────────────── */
 
@@ -164,9 +167,28 @@ export function EditorBloque({ tipo, config, onCambio, leccionId }: EditorBloque
       return <EditorH5p config={config as ConfigH5p} onCambio={onCambio} leccionId={leccionId} />;
     case 'xapi':
       return <EditorXapi config={config as ConfigXapi} onCambio={onCambio} leccionId={leccionId} />;
+    case 'encuesta':
+      return <EditorEncuestaBloque config={config as ConfigEncuesta} onCambio={onCambio} />;
     default:
       return null;
   }
+}
+
+/* ── Encuesta (bloque) — mismo constructor que la lección tipo encuesta (no califica) ── */
+function EditorEncuestaBloque({
+  config,
+  onCambio,
+}: {
+  config: ConfigEncuesta;
+  onCambio: (c: Record<string, unknown>) => void;
+}) {
+  const normalizado = comoEncuestaConfig(config as Record<string, unknown>);
+  return (
+    <ConstructorEncuesta
+      config={normalizado}
+      onCambio={(next) => onCambio(next as unknown as Record<string, unknown>)}
+    />
+  );
 }
 
 /* ── Texto (EditorRico + narración TTS) ── */

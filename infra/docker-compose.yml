@@ -145,6 +145,10 @@ services:
       # Giphy (§3): key del proxy de GIFs del Ateneo. Vive SOLO en el `api` (nunca en el
       # cliente). Sin key → /media/gifs responde 503 (picker muestra el estado, no crashea).
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      # H5P (§5C/§7): ruta de datos H5P a un volumen persistente (consistente con prod).
+      H5P_DATA_DIR: /app/.h5p-data
+    volumes:
+      - h5p_data:/app/.h5p-data
     ports:
       - '${API_PORT:-8000}:8000'
     depends_on:
@@ -300,3 +304,4 @@ volumes:
   lrs_db:
   embeddings_models:
   minio_data:
+  h5p_data:   # contenido/librerías H5P del `api` (durable · §5C)
