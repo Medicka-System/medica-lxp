@@ -82,6 +82,24 @@ export const requireCurador = cache(async (): Promise<SesionStaff> => {
   return staff;
 });
 
+/**
+ * ¿El rol puede entrar al Studio de autoría? (= `ROLES_AUTORIA`, lo que exige
+ * `requireAutoria`). Lo usa el shell del admin para pintar el enlace cruzado hacia
+ * el constructor SOLO a quien no caería en un redirect (un docente no lo ve · §5B).
+ */
+export function puedeEntrarStudio(rol: SesionStaff['rol']): boolean {
+  return ROLES_AUTORIA.includes(rol as (typeof ROLES_AUTORIA)[number]);
+}
+
+/**
+ * ¿El rol puede entrar al panel admin? (`admin`/`super_admin` — el mismo guard
+ * de `(studio-admin)/layout`). Lo usa el shell del Studio para pintar el enlace
+ * cruzado hacia el panel solo a quien tiene acceso real.
+ */
+export function puedeEntrarAdmin(rol: SesionStaff['rol']): boolean {
+  return rol === 'admin' || rol === 'super_admin';
+}
+
 /** Etiqueta legible del rol (para el header del Studio). */
 export function etiquetaRol(rol: SesionStaff['rol']): string {
   return {

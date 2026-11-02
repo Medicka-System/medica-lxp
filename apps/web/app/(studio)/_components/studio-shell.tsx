@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, ChevronDown, LayoutTemplate } from 'lucide-react';
+import { Bell, ChevronDown, LayoutTemplate, ShieldCheck } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
 import { MenuCuentaStaff } from '@/components/studio/menu-cuenta-staff';
 import { LogoSimbolo } from '@/components/marca/logo-simbolo';
@@ -29,10 +29,13 @@ function activaEn(pathname: string, href: string): boolean {
 export function StudioShell({
   usuario,
   notificaciones,
+  puedeAdmin,
   children,
 }: {
   usuario: StudioUsuario;
   notificaciones: number;
+  /** ¿Mostrar el enlace cruzado al panel admin? Solo admin/super_admin (§5B). */
+  puedeAdmin: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -157,6 +160,18 @@ export function StudioShell({
               </div>
             )}
           </div>
+
+          {/* enlace cruzado al panel admin (§5B) — solo admin/super_admin; un
+              docente no lo ve (no tiene acceso → evita un redirect mudo). */}
+          {puedeAdmin && (
+            <Link
+              href="/admin/panel"
+              className={`ml-1.5 inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-white/[0.18] bg-white/[0.06] px-3 text-[12.5px] font-semibold text-white/85 transition-colors hover:bg-white/[0.14] hover:text-white ${focusRingDark}`}
+            >
+              <ShieldCheck aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+              Admin
+            </Link>
+          )}
         </nav>
 
         {/* utilidades */}

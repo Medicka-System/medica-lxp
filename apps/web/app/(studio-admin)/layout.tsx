@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getSesionStaff, etiquetaRol } from '@/lib/studio/session';
+import { getSesionStaff, etiquetaRol, puedeEntrarStudio } from '@/lib/studio/session';
 import { iniciales } from '@/components/avatar';
 import { getNotificacionesStaff } from '@/lib/campus/notificaciones-datos';
 import { AdminShell } from './_components/admin-shell';
@@ -44,6 +44,7 @@ export default async function StudioAdminLayout({
       notificaciones={noLeidas}
       hayAlertaCritica={false}
       notificacionesRecientes={recientes}
+      puedeConstructor={puedeEntrarStudio(staff.rol)}
     >
       {children}
     </AdminShell>

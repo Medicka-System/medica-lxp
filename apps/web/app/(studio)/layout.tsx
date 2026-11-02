@@ -1,4 +1,4 @@
-import { requireAutoria, etiquetaRol } from '@/lib/studio/session';
+import { requireAutoria, etiquetaRol, puedeEntrarAdmin } from '@/lib/studio/session';
 import { iniciales } from '@/components/avatar';
 import { StudioShell } from './_components/studio-shell';
 
@@ -22,6 +22,7 @@ export default async function StudioLayout({ children }: { children: React.React
         rol: etiquetaRol(staff.rol),
       }}
       notificaciones={0}
+      puedeAdmin={puedeEntrarAdmin(staff.rol)}
     >
       {children}
     </StudioShell>

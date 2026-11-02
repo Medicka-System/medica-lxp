@@ -16,7 +16,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
-import { Bell, Loader2, Search, ShieldCheck, X } from 'lucide-react';
+import { Bell, Loader2, PencilRuler, Search, ShieldCheck, X } from 'lucide-react';
 import { mono, focusRingDark } from '@/lib/studio/estilos';
 import { haceCuanto } from '@/lib/format';
 import { MenuCuentaStaff } from '@/components/studio/menu-cuenta-staff';
@@ -50,12 +50,15 @@ export function AdminShell({
   notificaciones,
   hayAlertaCritica,
   notificacionesRecientes,
+  puedeConstructor,
   children,
 }: {
   usuario: AdminShellUsuario;
   notificaciones: number;
   hayAlertaCritica: boolean;
   notificacionesRecientes: NotificacionItem[];
+  /** ¿Mostrar el enlace cruzado al Studio (constructor)? Solo admin/super_admin (§5B). */
+  puedeConstructor: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -156,6 +159,18 @@ export function AdminShell({
               </Link>
             );
           })}
+
+          {/* enlace cruzado al Studio / constructor (§5B) — solo admin/super_admin;
+              un docente no lo ve (no tiene acceso → evita un redirect mudo). */}
+          {puedeConstructor && (
+            <Link
+              href="/studio/programas"
+              className={`ml-1.5 inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-white/[0.18] bg-white/[0.06] px-3 text-[12.5px] font-semibold text-white/85 transition-colors hover:bg-white/[0.14] hover:text-white ${focusRingDark}`}
+            >
+              <PencilRuler aria-hidden className="h-[14px] w-[14px]" strokeWidth={1.75} />
+              Constructor
+            </Link>
+          )}
         </nav>
 
         {/* utilidades */}
