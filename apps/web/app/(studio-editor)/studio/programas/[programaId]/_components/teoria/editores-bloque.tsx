@@ -32,7 +32,7 @@ import {
 import { EditorRico } from '@/components/editor-rico/editor-rico';
 import { CapturaRecurso } from './captura-recurso';
 import { EditorVideoAutoria } from '@/components/bloques/video/editor-video-autoria';
-import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { EditorContenidoH5P } from '@/components/bloques/h5p/editor-contenido-h5p';
 import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
@@ -574,7 +574,7 @@ function EnlaceEmbebido({
   );
 }
 
-/* ── H5P (BloqueH5P · autorar en el servidor real, o enlace externo) ── */
+/* ── H5P — MISMO editor de fuente que la lección tipo H5P (EditorContenidoH5P) ── */
 function EditorH5p({
   config,
   onCambio,
@@ -584,36 +584,16 @@ function EditorH5p({
   onCambio: (c: Record<string, unknown>) => void;
   leccionId: string;
 }) {
-  const [modoFuente, setModoFuente] = useState<'subir' | 'enlace'>(config.url ? 'enlace' : 'subir');
-  const [enlace, setEnlace] = useState(config.url ?? '');
-
   return (
     <div className="grid gap-3">
       <Campo etiqueta="Título" valor={config.titulo ?? ''} onCambio={(titulo) => onCambio({ ...config, titulo })} />
-      <SelectorFuenteSubirEnlace modo={modoFuente} onModo={setModoFuente} etiquetaSubir="Autorar / subir H5P" />
-
-      {modoFuente === 'subir' ? (
-        <BloqueH5P
-          modo="editar"
-          contentId={config.contentId || undefined}
-          servidorBase={H5P_BASE}
-          leccionId={leccionId}
-          titulo={config.titulo}
-          contexto="Interactivo H5P · se autora y previsualiza en el Studio (subir .h5p o crear)"
-          onGuardado={(id) => onCambio({ ...config, contentId: id, url: undefined })}
-        />
-      ) : (
-        <EnlaceEmbebido
-          url={enlace}
-          onUrl={setEnlace}
-          onVincular={() => {
-            const u = enlace.trim();
-            if (/^https?:\/\/\S+/i.test(u)) onCambio({ ...config, url: u, contentId: '' });
-          }}
-          titulo={config.titulo}
-          ayuda="Embebe un H5P alojado en otro sitio (H5P.com u otro host) por su URL de incrustación."
-        />
-      )}
+      <EditorContenidoH5P
+        config={{ contentId: config.contentId || undefined, url: config.url }}
+        base={H5P_BASE}
+        leccionId={leccionId}
+        titulo={config.titulo}
+        onCambio={(patch) => onCambio({ ...config, ...patch })}
+      />
     </div>
   );
 }

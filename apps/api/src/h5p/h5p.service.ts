@@ -105,6 +105,15 @@ export class H5pService implements OnModuleInit {
       temporaryStorage,
     );
     const player = new H5PPlayer(libraryStorage, contentStorage, config);
+
+    // CLAVE (§7): devolver el MODELO como OBJETO (no el HTML del renderer por defecto).
+    // El cliente `@lumieducation/h5p-react` (H5PEditorUI/H5PPlayerUI) hace `res.json()`
+    // sobre la respuesta de `editar`/`reproducir`; sin esto recibía el HTML del renderer
+    // por defecto y fallaba con "Unexpected token '<'". Devolvemos el IEditorModel /
+    // IPlayerModel crudo y el controller lo serializa como JSON (patrón REST de @lumi).
+    editor.setRenderer((model) => model);
+    player.setRenderer((model) => model);
+
     const ajax = new H5PAjaxEndpoint(editor);
 
     this.instancias = { editor, player, ajax };

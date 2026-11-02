@@ -68,8 +68,25 @@ export function LeccionInteractiva({
   }
 
   if (leccion.tipo === 'h5p') {
+    const url = typeof leccion.config.url === 'string' ? leccion.config.url : undefined;
     const contentId =
       typeof leccion.config.contentId === 'string' ? leccion.config.contentId : undefined;
+
+    // Enlace externo (host ajeno) — paridad con el bloque de teoría. El H5P embebido reporta
+    // a su host, no al nuestro: el avance se marca con el pie de la lección (como en xapi).
+    if (url) {
+      return (
+        <div className="overflow-hidden rounded-[12px] border border-border bg-[color:var(--sidebar)]">
+          <iframe
+            src={url}
+            title={leccion.nombre}
+            className="aspect-video w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            allow="fullscreen"
+          />
+        </div>
+      );
+    }
 
     if (!contentId) {
       return (

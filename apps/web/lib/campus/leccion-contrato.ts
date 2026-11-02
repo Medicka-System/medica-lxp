@@ -171,6 +171,8 @@ export type LeccionContexto = {
  */
 export type ConfigLeccion = {
   contentId?: string;
+  /** H5P embebido por URL externa (host ajeno), alternativa a `contentId` (§5C · paridad con el bloque). */
+  url?: string;
   contenidoId?: string;
   paqueteRef?: string;
   tipo?: string;
