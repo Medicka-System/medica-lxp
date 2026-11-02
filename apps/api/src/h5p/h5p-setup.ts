@@ -18,11 +18,16 @@ import type { H5PEditor, IUser } from '@lumieducation/h5p-server';
  * versión que declara el server (`h5pVersion` = 1.27.0 en h5p-server 10.x).
  */
 
-/** Versión del core/editor que espera `@lumieducation/h5p-server` 10.x (apiVersion 1.27). */
+// El CORE (h5p-php-library) versiona en la línea semver clásica; `1.27.0` es la que
+// declara `@lumieducation/h5p-server` 10.x (`h5pVersion`). El EDITOR (h5p-editor-php-
+// library) dejó la línea 1.x en `1.25` y pasó al esquema `wp-*` (snapshots del plugin de
+// WordPress); `wp-1.16.0` es el editor que H5P empareja con el core 1.27 (WP plugin 1.16).
+// Por eso son DOS versiones distintas (el tag 1.27.0 NO existe en el repo del editor).
 export const H5P_CORE_VERSION = '1.27.0';
+export const H5P_EDITOR_VERSION = 'wp-1.16.0';
 
 const FUENTE_CORE = `https://github.com/h5p/h5p-php-library/archive/refs/tags/${H5P_CORE_VERSION}.zip`;
-const FUENTE_EDITOR = `https://github.com/h5p/h5p-editor-php-library/archive/refs/tags/${H5P_CORE_VERSION}.zip`;
+const FUENTE_EDITOR = `https://github.com/h5p/h5p-editor-php-library/archive/refs/tags/${H5P_EDITOR_VERSION}.zip`;
 
 /**
  * Set común educativo (§5C) por `machineName` del Hub. `installLibraryFromHub` instala
