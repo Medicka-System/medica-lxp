@@ -33,21 +33,13 @@ import { EditorRico } from '@/components/editor-rico/editor-rico';
 import { CapturaRecurso } from './captura-recurso';
 import { EditorVideoAutoria } from '@/components/bloques/video/editor-video-autoria';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { VisorEstudio } from '@/components/casos/visor-estudio';
 import type { FuenteVideoConfig, PaqueteContenido } from '@/components/bloques/contratos';
 import { mono, softText, focusRing } from '@/lib/studio/estilos';
 import { ingestarPaquete } from '@/lib/studio/media-acciones';
 import { generarNarracionBloque } from '@/lib/studio/acciones';
-
-/**
- * Prefijo del H5P server (§7 · api). El editor/player de H5P corren en el navegador y
- * pegan directo al `api` (CORS habilitado), por eso se usa la URL PÚBLICA. Mismo patrón
- * que la lección tipo H5P (`_editores/editor-h5p.tsx`).
- */
-const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
-  : null;
 import type {
   ConfigCaso,
   ConfigEncuesta,

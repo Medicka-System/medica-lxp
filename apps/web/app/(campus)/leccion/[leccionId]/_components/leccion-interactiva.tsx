@@ -19,19 +19,11 @@
 
 import { useState } from 'react';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import type { TipoPaquete } from '@/components/bloques/contratos';
 import { reportarProgresoInteractivo } from '@/lib/campus/players-acciones';
 import type { LeccionCompleta } from '@/lib/campus/leccion-contrato';
-
-/**
- * Prefijo del H5P server (§7 · api). El player de H5P corre en el navegador y pega
- * directo al `api` (CORS habilitado), por eso usa la URL PÚBLICA. Sin ella, `BloqueH5P`
- * muestra su estado "servidor pendiente" con dignidad.
- */
-const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
-  : null;
 
 /** Verbos xAPI que consideramos "completó la lección" al llegar desde el player H5P. */
 function esCompletion(statement: unknown): boolean {

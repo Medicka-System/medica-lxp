@@ -10,21 +10,14 @@
  * La CONFIG de la lección solo guarda el puntero al contenido:
  *   { contentId }   (== `lecciones.config`, contrato §5C)
  *
- * El servidor H5P se resuelve del `api` público (`NEXT_PUBLIC_API_URL/h5p`); si no está
- * configurado, `BloqueH5P` muestra su estado "servidor pendiente" con dignidad.
+ * El servidor H5P se resuelve mismo-origen (`/h5p`, ver `base.ts` · P1): el rewrite de
+ * Next reenvía al `api` interno.
  */
 
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import type { EditorLeccionProps } from '@/lib/studio/leccion-tipos';
 import { guardarConfigLeccion } from '@/lib/studio/acciones';
-
-/**
- * Prefijo del H5P server (§7 · api). El editor/player de H5P corren en el navegador y
- * pegan directo al `api` (CORS habilitado · main.ts), por eso se usa la URL PÚBLICA.
- */
-const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
-  : null;
 
 export function EditorH5P({ programaId, leccionId, titulo, config, correr }: EditorLeccionProps) {
   const contentId = typeof config.contentId === 'string' ? config.contentId : undefined;

@@ -36,6 +36,7 @@ import { ContenidoRico } from '@/components/editor-rico';
 import { BloqueTeoriaLector } from './bloque-teoria-lector';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { MenuCurso } from './menu-curso';
 import { PanelNotas } from './panel-notas';
@@ -611,7 +612,7 @@ function Bloque({ bloque, contexto }: { bloque: BloqueContenido; contexto: strin
         <BloqueH5P
           modo="ver"
           contentId={bloque.recursoRef ?? undefined}
-          servidorBase={null}
+          servidorBase={H5P_BASE}
           titulo={bloque.titulo}
           contexto={contexto}
         />

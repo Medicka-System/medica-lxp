@@ -42,6 +42,7 @@ import type { PreviewRecurso, RecursoDetalle, TipoRecurso } from '@/lib/studio/c
 import { eliminarRecurso, renombrarRecurso, actualizarEtiquetasRecurso } from '@/lib/studio/contenido-acciones';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import type { TipoPaquete } from '@/components/bloques/contratos';
 
@@ -56,14 +57,6 @@ const ICONO: Record<TipoRecurso, typeof Play> = {
   imagen: ImageIcon,
 };
 
-/**
- * Prefijo del H5P server (§7 · api) para el PLAYER de biblioteca. El player pega directo al
- * `api` desde el navegador (CORS), por eso usa la URL PÚBLICA. Sin ella, `BloqueH5P` muestra
- * su estado "servidor pendiente" con dignidad. Mismo patrón que la lección interactiva.
- */
-const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
-  : null;
 
 /** SCORM/xAPI del banco al union del bloque (solo rotula; el lanzador aún es pendiente de API). */
 function tipoPaquete(tipo: 'scorm' | 'xapi'): TipoPaquete {

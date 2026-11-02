@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type {
   H5PAjaxEndpoint,
   H5PEditor,
@@ -11,6 +11,7 @@ import type {
 } from '@lumieducation/h5p-server';
 import { DbService } from '../db/db.service';
 import { registrarContenidoH5p } from './h5p.repositorio';
+import { asegurarCoreEditor, sembrarContentTypes } from './h5p-setup';
 
 // El runtime de H5P se carga PEREZOSAMENTE (build CJS) dentro de `motor()`. Los tests
 // mockean `motor()`, así jest nunca carga el árbol ESM de H5P (que rompe su transform).
@@ -32,14 +33,34 @@ interface Instancias {
  * tipo `h5p` (dominio, no proxy de CRUD · §2: aquí vive el H5P server, no un SELECT).
  */
 @Injectable()
-export class H5pService {
+export class H5pService implements OnModuleInit {
   private readonly logger = new Logger(H5pService.name);
-  private readonly dataDir = process.env.H5P_DATA_DIR ?? join(process.cwd(), '.h5p-data');
-  private readonly idioma = process.env.H5P_LANG ?? 'es';
+  // `||` (no `??`): un H5P_DATA_DIR/H5P_BASE_URL vacío ('') también cae al default (§P3).
+  private readonly dataDir = process.env.H5P_DATA_DIR || join(process.cwd(), '.h5p-data');
+  private readonly idioma = process.env.H5P_LANG || 'es';
   private instancias?: Instancias;
   private lib?: H5pLib;
 
   constructor(private readonly db: DbService) {}
+
+  /**
+   * Siembra idempotente del volumen al arrancar (§5C/§7 · P2): core + editor cliente y
+   * el set común de content types. Fire-and-forget (NO bloquea el boot ni lo tumba si el
+   * Hub/GitHub están caídos). El volumen persiste → corre una vez y las próximas detecta
+   * que ya están. `H5P_SEED_ON_BOOT=off` lo desactiva (p. ej. para pruebas).
+   */
+  onModuleInit(): void {
+    if (process.env.H5P_SEED_ON_BOOT === 'off') return;
+    void this.sembrar().catch((e) =>
+      this.logger.error(`Siembra H5P falló (no bloquea el arranque): ${(e as Error).message}`),
+    );
+  }
+
+  private async sembrar(): Promise<void> {
+    await asegurarCoreEditor(this.dataDir, this.logger);
+    const { editor } = this.motor();
+    await sembrarContentTypes(editor, H5pService.usuario('studio'), this.logger);
+  }
 
   /** Carga perezosa del runtime H5P (build CJS). Evita cargar H5P en los tests. */
   private cargarLib(): H5pLib {
@@ -66,7 +87,9 @@ export class H5pService {
     const { H5PEditor, H5PPlayer, H5PConfig, H5PAjaxEndpoint, fsImplementations } = this.cargarLib();
 
     const config = new H5PConfig(new fsImplementations.InMemoryStorage(), {
-      baseUrl: process.env.H5P_BASE_URL ?? '/h5p',
+      // `||` (no `??`): un H5P_BASE_URL vacío ('') debe caer a '/h5p' igual que undefined
+      // (§P3). Es el prefijo mismo-origen que el rewrite de Next reenvía al api.
+      baseUrl: process.env.H5P_BASE_URL || '/h5p',
     });
     const libraryStorage = new fsImplementations.FileLibraryStorage(join(this.dataDir, 'libraries'));
     const contentStorage = new fsImplementations.FileContentStorage(join(this.dataDir, 'content'));

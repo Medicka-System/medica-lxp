@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -32,6 +34,15 @@ async function bootstrap(): Promise<void> {
   // El PDF de reportes (§6.5) recibe en el body las imágenes DICOM rasterizadas por el
   // cliente (PNG base64) → sube el límite JSON por encima del default de 100kb de Express.
   app.useBodyParser('json', { limit: '25mb' });
+  // H5P core/editor cliente (§5C/§7 · P2): el editor/player piden sus assets en
+  // `/h5p/core/*` y `/h5p/editor/*`. El H5PAjaxEndpoint NO los sirve (solo ajax/libraries/
+  // contenido), así que los servimos estáticos desde el volumen, donde la siembra
+  // (H5pService.onModuleInit) deja h5p-php-library / h5p-editor-php-library. `mkdir` para
+  // que el static exista aunque la siembra aún no haya corrido (sirve 404 hasta que lleguen).
+  const h5pData = process.env.H5P_DATA_DIR || join(process.cwd(), '.h5p-data');
+  for (const sub of ['core', 'editor']) mkdirSync(join(h5pData, sub), { recursive: true });
+  app.useStaticAssets(join(h5pData, 'core'), { prefix: '/h5p/core' });
+  app.useStaticAssets(join(h5pData, 'editor'), { prefix: '/h5p/editor' });
   const port = Number(process.env.API_PORT ?? 8000);
   await app.listen(port, '0.0.0.0');
   Logger.log(`API de dominio escuchando en http://localhost:${port}`, 'Bootstrap');

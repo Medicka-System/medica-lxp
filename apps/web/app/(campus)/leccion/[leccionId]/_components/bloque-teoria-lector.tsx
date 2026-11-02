@@ -17,6 +17,7 @@ import { ClipboardList, Link as LinkIcon, ScanLine } from 'lucide-react';
 import { ContenidoRico } from '@/components/editor-rico';
 import { BloqueVideo } from '@/components/bloques/video/bloque-video';
 import { BloqueH5P } from '@/components/bloques/h5p/bloque-h5p';
+import { H5P_BASE } from '@/components/bloques/h5p/base';
 import { BloquePaquete } from '@/components/bloques/paquetes/bloque-paquete';
 import { BloqueAudio } from '@/components/bloques/audio/bloque-audio';
 import { EncuestaLector } from './encuesta-lector';
@@ -35,10 +36,6 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** Prefijo del H5P server (§7 · api) para reproducir el interactivo del alumno. */
-const H5P_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/h5p`
-  : null;
 
 export function BloqueTeoriaLector({ bloque, leccionId }: { bloque: BloqueTeoriaVista; leccionId: string }) {
   const c = bloque.config;

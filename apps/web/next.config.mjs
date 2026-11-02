@@ -103,6 +103,19 @@ const nextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
+  // ── H5P: proxy mismo-origen → api (§7 · P1) ─────────────────────────────────
+  // El editor/player de H5P (@lumieducation) corren EN EL NAVEGADOR y pegan a rutas
+  // del MISMO origen `/h5p/*` (editar, contenido, ajax, libraries, core, editor,
+  // contentUserData, finishedData, temp-files…). Este rewrite las reenvía SERVER-SIDE
+  // (desde el contenedor web) al `api` por la red interna Docker (`API_URL`, ya usado
+  // por el resto de la app server-side). Así el navegador nunca pega al api directo
+  // (no hace falta exponerlo por Traefik ni tocar CORS). NEXT_PUBLIC_API_URL apuntaba
+  // al host del web → daba 404; con esto H5P va al api real. El resto de features (que
+  // llaman al api con API_URL server-side) NO cambian.
+  async rewrites() {
+    const apiInterno = (process.env.API_URL || 'http://localhost:8000').replace(/\/$/, '');
+    return [{ source: '/h5p/:path*', destination: `${apiInterno}/h5p/:path*` }];
+  },
   // El generador de PDF manda al server action las imágenes DICOM rasterizadas (PNG) del
   // reporte; con ~18 imágenes el payload supera el límite POR DEFECTO de 1 MB de los Server
   // Actions → "Body exceeded 1 MB limit" y el PDF nunca se pide. Subimos el tope (§6.5).
