@@ -112,8 +112,13 @@ const nextConfig = {
   // (no hace falta exponerlo por Traefik ni tocar CORS). NEXT_PUBLIC_API_URL apuntaba
   // al host del web → daba 404; con esto H5P va al api real. El resto de features (que
   // llaman al api con API_URL server-side) NO cambian.
+  // ⚠️ Next RESUELVE el destino de rewrites en BUILD TIME (queda en routes-manifest.json),
+  // no en runtime. En el build del VPS `API_URL` NO está seteado (es env de runtime del
+  // compose, no build-arg) → por eso el default debe ser el destino de PROD: `api:8000`
+  // (nombre de servicio estable en la red Docker, siempre alcanzable desde el contenedor
+  // web). Para desarrollo local con el api en otro host, exporta `API_URL` antes de buildear.
   async rewrites() {
-    const apiInterno = (process.env.API_URL || 'http://localhost:8000').replace(/\/$/, '');
+    const apiInterno = (process.env.API_URL || 'http://api:8000').replace(/\/$/, '');
     return [{ source: '/h5p/:path*', destination: `${apiInterno}/h5p/:path*` }];
   },
   // El generador de PDF manda al server action las imágenes DICOM rasterizadas (PNG) del
