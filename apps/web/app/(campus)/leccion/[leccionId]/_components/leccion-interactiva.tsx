@@ -33,7 +33,12 @@ function esCompletion(statement: unknown): boolean {
 
 /** Mapea el tipo de la config del paquete al union del bloque (fallback a xapi). */
 function tipoPaquete(config: LeccionCompleta['config']): TipoPaquete {
-  return config.tipo === 'scorm12' || config.tipo === 'scorm2004' ? config.tipo : 'xapi';
+  if (config.tipo === 'scorm12' || config.tipo === 'scorm2004') return config.tipo;
+  // El manifiesto/api guardan SCORM (sin versión) como 'scorm'; normalízalo a 'scorm12' para
+  // que el render lo trate como SCORM y use el shell /scorm/play (igual que bloque-teoria-lector
+  // y editores-bloque, que ya lo normalizan). Sin esto, un SCORM caía a 'xapi' → sin tracking.
+  if (config.tipo === 'scorm') return 'scorm12';
+  return 'xapi';
 }
 
 export function LeccionInteractiva({
@@ -118,7 +123,10 @@ export function LeccionInteractiva({
   // `api` (Pieza 1 · §7). `listo` se deriva de STORAGE (la extracción del worker terminó);
   // paquete ingerido pero aún no listo → "procesando"; sin paquete → "sin_subir".
   const listo = leccion.config.paqueteListo === true && typeof leccion.config.lanzadorUrl === 'string';
-  const estadoPaquete = listo ? 'listo' : leccion.config.paqueteRef ? 'procesando' : 'sin_subir';
+  // Gate por `contenidoId` (no `paqueteRef`): contenidoId + entryPoint son las anclas reales que
+  // consume el shell /scorm/play y SÍ sobreviven el reemplazo total de guardarConfigLeccion;
+  // paqueteRef lo pisa el editor al guardar la config, así que no es señal fiable (§7).
+  const estadoPaquete = listo ? 'listo' : leccion.config.contenidoId ? 'procesando' : 'sin_subir';
   return (
     <div className="space-y-3">
       <BloquePaquete

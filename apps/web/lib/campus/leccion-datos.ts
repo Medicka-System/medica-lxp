@@ -267,8 +267,10 @@ export async function getLeccion(
     // Lanzador del paquete SCORM/xAPI (Pieza 1 · §7): el `api` resuelve la URL PÚBLICA del
     // entryPoint descomprimido + si la extracción del worker ya terminó (`listo` derivado de
     // STORAGE, sin flag en BD). Best-effort: si el api no responde, el lector se degrada a
-    // "procesando" con dignidad (§2). Solo para paquetes (tienen `paqueteRef` + `entryPoint`).
-    if (config.paqueteRef && config.entryPoint) {
+    // "procesando" con dignidad (§2). Solo para paquetes (tienen `entryPoint` + un id de contenido).
+    // Gate por `contenidoId`/compat (no `paqueteRef`): son las anclas que consume el shell y SÍ
+    // sobreviven el reemplazo total de guardarConfigLeccion; `paqueteRef` lo pisa el editor (§7).
+    if (config.entryPoint && (config.contenidoId ?? compat?.id)) {
       const idPaquete = config.contenidoId ?? compat?.id ?? null;
       if (idPaquete) {
         const lanzador = await resolverLanzadorPaquete(idPaquete, config.entryPoint);
