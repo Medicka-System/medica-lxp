@@ -194,13 +194,23 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
   const leccion = modulo?.lecciones.find((l) => l.id === leccionId);
   const publicado = estado === 'publicado';
 
-  // Primera lección del programa (orden módulo → lección) para abrir la vista previa.
+  // Lección a previsualizar: la que el diseñador tiene ABIERTA (la "actividad" que está
+  // editando); si aún no hay ninguna seleccionada, la primera del programa.
   const primeraLeccion = todasLecciones[0];
+  const leccionPreview = leccion?.id ?? primeraLeccion?.id;
 
-  /** Abre la vista previa como alumno del borrador en una pestaña nueva (solo staff). */
+  /**
+   * Abre la vista previa del borrador como alumno (solo staff). Navega DENTRO de la app
+   * (SPA · `router.push`), NO abre una pestaña nueva: la carga EN FRÍO de una pestaña nueva
+   * corre el guard del Studio (`requireAutoria`) antes de que la sesión Supabase esté
+   * resuelta en ese request → `getSesionStaff` rebota a `/admin`, que al ver al staff
+   * autenticado salta a `/admin/panel` en vez de mostrar la lección. El resto del Studio ya
+   * navega así (sesión caliente) y no rebota. La vista previa trae su propio «Salir» que
+   * regresa al builder.
+   */
   function abrirVistaPrevia() {
-    if (!primeraLeccion) return;
-    window.open(`/studio/preview/leccion/${primeraLeccion.id}`, '_blank', 'noopener,noreferrer');
+    if (!leccionPreview) return;
+    router.push(`/studio/preview/leccion/${leccionPreview}`);
   }
 
   return (
@@ -244,10 +254,10 @@ export function Builder({ programa }: { programa: ProgramaBuilder }) {
           <button
             type="button"
             onClick={abrirVistaPrevia}
-            disabled={!primeraLeccion}
+            disabled={!leccionPreview}
             title={
-              primeraLeccion
-                ? 'Ver el curso como lo verá el alumno (borrador · pestaña nueva)'
+              leccionPreview
+                ? 'Ver la lección como la verá el alumno (borrador)'
                 : 'Agrega una lección para previsualizar'
             }
             className={`inline-flex h-[38px] items-center gap-2 whitespace-nowrap rounded-[9px] border border-white/20 px-3.5 text-[12.5px] font-semibold text-sidebar-foreground transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${focusRingDark}`}
