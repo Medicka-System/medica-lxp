@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getSesionAlumno } from '@/lib/session';
+import { getSesionAlumno, getSesionLectorContenido } from '@/lib/session';
 import { comoAlumno } from '@/lib/db.server';
 import { marcarLeccionCompletada } from './leccion-acciones';
 
@@ -58,12 +58,14 @@ export async function getMiRespuestaEncuesta(
   leccionId: string,
   bloqueId?: string | null,
 ): Promise<Record<string, unknown> | null> {
-  const alumno = await getSesionAlumno();
+  // Prellenar es LECTURA: en preview el STAFF no tiene respuestas propias → null limpio, sin
+  // rebotar. El alumno real lee las SUYAS igual que antes (RLS id_alumno = su uid).
+  const lector = await getSesionLectorContenido();
   if (!leccionId) return null;
-  return comoAlumno(alumno.userId, async (sql) => {
+  return comoAlumno(lector.userId, async (sql) => {
     const rows = await sql<{ respuestas: Record<string, unknown> }[]>`
       select respuestas from lxp.encuesta_respuestas
-      where id_alumno = ${alumno.userId} and leccion_id = ${leccionId}
+      where id_alumno = ${lector.userId} and leccion_id = ${leccionId}
         and bloque_id is not distinct from ${bloqueId ?? null}
       limit 1`;
     return rows[0]?.respuestas ?? null;

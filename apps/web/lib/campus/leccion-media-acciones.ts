@@ -1,6 +1,6 @@
 'use server';
 
-import { getSesionAlumno } from '@/lib/session';
+import { getSesionLectorContenido } from '@/lib/session';
 
 /**
  * Server actions de MEDIA de la lección del alumno (§2/§6/§10) — puente al DOMINIO para
@@ -26,8 +26,8 @@ export type ResultadoUrlImagen = { ok: true; url: string } | { ok: false; error:
  * el reproductor cae a su estado "pendiente". Gateado por sesión del alumno + acceso_activo.
  */
 export async function firmarNarracionAlumno(audioId: string): Promise<ResultadoUrlImagen> {
-  const alumno = await getSesionAlumno();
-  if (!alumno.accesoActivo) {
+  const lector = await getSesionLectorContenido();
+  if (!lector.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
   }
   if (typeof audioId !== 'string' || !audioId.trim()) {
@@ -50,8 +50,8 @@ export async function firmarNarracionAlumno(audioId: string): Promise<ResultadoU
 
 /** Firma la lectura de UNA imagen de contenido (por su ref de storage). */
 export async function firmarLecturaImagenAlumno(ref: string): Promise<ResultadoUrlImagen> {
-  const alumno = await getSesionAlumno();
-  if (!alumno.accesoActivo) {
+  const lector = await getSesionLectorContenido();
+  if (!lector.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
   }
   if (typeof ref !== 'string' || !ref.startsWith('media/imagenes/')) {
@@ -81,8 +81,8 @@ export async function firmarLecturaImagenAlumno(ref: string): Promise<ResultadoU
  * El enlace directo (src) no pasa por aquí; esto solo resuelve las subidas (ref).
  */
 export async function firmarLecturaArchivoAlumno(ref: string): Promise<ResultadoUrlImagen> {
-  const alumno = await getSesionAlumno();
-  if (!alumno.accesoActivo) {
+  const lector = await getSesionLectorContenido();
+  if (!lector.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
   }
   if (typeof ref !== 'string' || !ref.startsWith('media/archivos/')) {

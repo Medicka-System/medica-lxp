@@ -1,6 +1,6 @@
 'use server';
 
-import { getSesionAlumno } from '@/lib/session';
+import { getSesionAlumno, getSesionLectorContenido } from '@/lib/session';
 import { marcarLeccionCompletada } from './leccion-acciones';
 import { emitirEventoLeccion } from './xapi-leccion';
 import type { ResultadoAccion } from './resultado';
@@ -33,8 +33,9 @@ export type ResultadoUrl = { ok: true; url: string } | { ok: false; error: strin
 export async function firmarReproduccionAlumno(
   videotecaId: string,
 ): Promise<ResultadoUrl> {
-  const alumno = await getSesionAlumno();
-  if (!alumno.accesoActivo) {
+  // Lectura de CONTENIDO de curso (no privado del alumno) → tolerante a staff en preview.
+  const lector = await getSesionLectorContenido();
+  if (!lector.accesoActivo) {
     return { ok: false, error: 'Tu acceso está en pausa. Regulariza tu pago para continuar.' };
   }
   try {
